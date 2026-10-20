@@ -1,0 +1,11 @@
+[project]
+name = "vibe"
+version = "0.1.0"
+description = "A local TUI coding agent built on a minimal agent harness"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"

@@ -1,0 +1,283 @@
+from __future__ import annotations
+
+import json
+from dataclasses import asdict
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Iterator
+
+from core.models import Message, ToolCall
+from core.state import TaskState
+
+
+def _message_from_dict(d: dict) -> Message:
+    if not isinstance(d, dict) or d.get("role") not in ("system", "user", "assistant", "tool"):
+        raise ValueError("invalid message role")
+    if not isinstance(d.get("content", ""), str):
+        raise ValueError("invalid message content")
+    for field in ("name", "tool_call_id", "finish_reason"):
+        if d.get(field) is not None and not isinstance(d[field], str):
+            raise ValueError(f"invalid message {field}")
+    if d.get("usage") is not None and not isinstance(d["usage"], dict):
+        raise ValueError("invalid message usage")
+    raw_calls = d.get("tool_calls", [])
+    if not isinstance(raw_calls, list):
+        raise ValueError("invalid tool calls")
+    for call in raw_calls:
+        if (
+            not isinstance(call, dict)
+            or not isinstance(call.get("name"), str)
+            or not call["name"]
+            or not isinstance(call.get("args", {}), dict)
+            or (call.get("id") is not None and not isinstance(call["id"], str))
+        ):
+            raise ValueError("invalid tool call")
+    calls = [
+        ToolCall(
+            id=c.get("id"),
+            name=c["name"],
+            args=c.get("args", {}),
+        )
+        for c in raw_calls
+    ]
+    return Message(
+        role=d["role"],
+        content=d.get("content", ""),
+        tool_calls=calls,
+        usage=d.get("usage"),
+        finish_reason=d.get("finish_reason"),
+        name=d.get("name"),
+        tool_call_id=d.get("tool_call_id"),
+    )
+
+
+class SessionStore:
+    """追加式 session 日志：消息、状态、恢复标记。"""
+
+    def __init__(self, root: str | Path):
+        self.root = Path(root)
+        self.events_path = self.root / "events.jsonl"
+        self.state_path = self.root / "state.json"
+        self.meta_path = self.root / "meta.json"
+        self.trace_path = self.root / "trace.jsonl"
+
+    @property
+    def id(self) -> str:
+        return self.root.name
+
+    @property
+    def audit_path(self) -> Path:
+        return self.root / "audit.jsonl"
+
+    @classmethod
+    def new(cls, workspace: str | Path, model: str) -> "SessionStore":
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        root = Path(workspace) / ".vibe" / "sessions" / stamp
+        root.mkdir(parents=True, exist_ok=True)
+        store = cls(root)
+        store.meta_path.write_text(
+            json.dumps(
+                {
+                    "id": stamp,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "workspace": str(Path(workspace).resolve()),
+                    "model": model,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        store.events_path.touch()
+        return store
+
+    @classmethod
+    def latest(cls, workspace: str | Path) -> "SessionStore | None":
+        base = Path(workspace) / ".vibe" / "sessions"
+        if not base.exists():
+            return None
+        dirs = [p for p in base.iterdir() if p.is_dir() and (p / "events.jsonl").exists()]
+        for path in sorted(dirs, key=lambda p: (p.stat().st_mtime, p.name), reverse=True):
+            store = cls(path)
+            if store.load_context():
+                return store
+        return None
+
+    def append_message(self, message: Message) -> None:
+        self._append(
+            {
+                "type": "message",
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "message": asdict(message),
+            }
+        )
+
+    def append_event(self, event_type: str, **data) -> None:
+        self._append(
+            {
+                "type": event_type,
+                "ts": datetime.now(timezone.utc).isoformat(),
+                **data,
+            }
+        )
+
+    def append_trace(self, event: dict) -> None:
+        self.root.mkdir(parents=True, exist_ok=True)
+        with open(self.trace_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(event, ensure_ascii=False) + "\n")
+
+    def cost_summary(self) -> dict:
+        if not self.trace_path.exists():
+            return {"runs": 0, "prompt_tokens": 0, "completion_tokens": 0,
+                    "total_tokens": 0, "cost_usd": 0.0, "tool_calls": 0,
+                    "last_status": None}
+        runs: list[dict] = []
+        for line in self.trace_path.read_text(encoding="utf-8").splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if event.get("type") == "run_end":
+                runs.append(event)
+        return {
+            "runs": len(runs),
+            "prompt_tokens": sum(int(r.get("prompt_tokens", 0)) for r in runs),
+            "completion_tokens": sum(int(r.get("completion_tokens", 0)) for r in runs),
+            "total_tokens": sum(int(r.get("total_tokens", 0)) for r in runs),
+            "cost_usd": sum(float(r.get("cost_usd", 0.0)) for r in runs),
+            "tool_calls": sum(int(r.get("tool_calls", 0)) for r in runs),
+            "last_status": runs[-1].get("status") if runs else None,
+        }
+
+    def latest_run(self) -> dict | None:
+        """最新运行的起止标记；未结束的新运行不会继承旧停止状态。"""
+        if not self.trace_path.exists():
+            return None
+        latest = None
+        for line in self.trace_path.read_text(encoding="utf-8").splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(event, dict) and event.get("type") in {"run_start", "run_end"}:
+                latest = event
+        return latest
+
+    def _append(self, event: dict) -> None:
+        self.root.mkdir(parents=True, exist_ok=True)
+        payload = (json.dumps(event, ensure_ascii=False) + "\n").encode("utf-8")
+        with open(self.events_path, "ab", buffering=0) as stream:
+            if stream.write(payload) != len(payload):
+                raise OSError("incomplete session event write")
+
+    def _events(self) -> Iterator[dict]:
+        if not self.events_path.exists():
+            return
+        for line in self.events_path.read_text(encoding="utf-8").splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(event, dict):
+                yield event
+
+    def load_messages(self) -> list[Message]:
+        messages: list[Message] = []
+        for event in self._events():
+            if event.get("type") != "message":
+                continue
+            try:
+                message = _message_from_dict(event.get("message"))
+            except ValueError:
+                continue
+            messages.append(message)
+        return messages
+
+    def save_context(self, messages: list[Message]) -> None:
+        """追加工作 history 快照；原始消息仍留在日志中。"""
+        snapshot = [asdict(message) for message in messages if message.role != "system"]
+        if not snapshot:
+            return
+        for message in snapshot:
+            _message_from_dict(message)
+        self.append_event(
+            "context_checkpoint", version=1,
+            source_message_count=len(self.load_messages()), messages=snapshot,
+        )
+
+    def load_context(self) -> list[Message]:
+        """复放最近有效快照及之后的消息，兼容没有快照的旧会话。"""
+        messages: list[Message] = []
+        source_count = 0
+        for event in self._events():
+            if event.get("type") == "message":
+                try:
+                    message = _message_from_dict(event.get("message"))
+                except ValueError:
+                    continue
+                source_count += 1
+                messages.append(message)
+                continue
+            if event.get("type") != "context_checkpoint":
+                continue
+            count = event.get("source_message_count")
+            snapshot = event.get("messages")
+            if (
+                type(event.get("version")) is not int or event["version"] != 1
+                or type(count) is not int or count != source_count
+                or not isinstance(snapshot, list) or not snapshot
+            ):
+                continue
+            try:
+                restored = [_message_from_dict(message) for message in snapshot]
+            except ValueError:
+                continue
+            if any(message.role == "system" for message in restored):
+                continue
+            messages = restored
+        return messages
+
+    def save_state(self, state: TaskState) -> None:
+        self.root.mkdir(parents=True, exist_ok=True)
+        self.state_path.write_text(
+            json.dumps(asdict(state), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    def load_state(self) -> TaskState | None:
+        if not self.state_path.exists():
+            return None
+        try:
+            return TaskState(**json.loads(self.state_path.read_text(encoding="utf-8")))
+        except (json.JSONDecodeError, TypeError):
+            return None
+
+    def repair_incomplete_tool_calls(self) -> int:
+        """崩溃后 assistant(tool_calls) 可能没有对应 tool 结果；补一条 interrupted。"""
+        messages = self.load_messages()
+        repaired = 0
+        i = 0
+        while i < len(messages):
+            message = messages[i]
+            if message.role != "assistant" or not message.tool_calls:
+                i += 1
+                continue
+            j = i + 1
+            present: set[str | None] = set()
+            while j < len(messages) and messages[j].role == "tool":
+                present.add(messages[j].tool_call_id)
+                j += 1
+            for call in message.tool_calls:
+                if call.id in present:
+                    continue
+                synthetic = Message(
+                    "tool",
+                    "ERROR interrupted: tool result unknown after crash",
+                    name=call.name,
+                    tool_call_id=call.id,
+                )
+                self.append_message(synthetic)
+                self.append_event("recovered_tool", tool=call.name, tool_call_id=call.id)
+                repaired += 1
+            i = j
+        return repaired

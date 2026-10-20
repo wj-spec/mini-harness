@@ -1,0 +1,71 @@
+[
+  {
+    "id": "create_file",
+    "prompt": "Create a file named hello.txt containing exactly: hello world",
+    "files": {},
+    "checks": [{"type": "file_equals", "path": "hello.txt", "text": "hello world"}]
+  },
+  {
+    "id": "edit_file",
+    "prompt": "In greeting.txt, replace the word hello with hi. Keep the rest unchanged.",
+    "files": {"greeting.txt": "hello\n"},
+    "checks": [{"type": "file_equals", "path": "greeting.txt", "text": "hi"}]
+  },
+  {
+    "id": "read_copy",
+    "prompt": "Read secret.txt and write its exact content to answer.txt.",
+    "files": {"secret.txt": "42\n"},
+    "checks": [{"type": "file_equals", "path": "answer.txt", "text": "42"}]
+  },
+  {
+    "id": "grep_todo",
+    "prompt": "Find the line containing TODO in notes.txt and write that line to todo.txt.",
+    "files": {"notes.txt": "alpha\nTODO: fix parser\nomega\n"},
+    "checks": [{"type": "file_contains", "path": "todo.txt", "text": "TODO: fix parser"}]
+  },
+  {
+    "id": "list_files",
+    "prompt": "Create listing.txt containing the names of all .txt files in the workspace, one per line.",
+    "files": {"a.txt": "a", "b.txt": "b", "c.md": "c"},
+    "checks": [
+      {"type": "file_contains", "path": "listing.txt", "text": "a.txt"},
+      {"type": "file_contains", "path": "listing.txt", "text": "b.txt"}
+    ]
+  },
+  {
+    "id": "bash_write",
+    "prompt": "Use the bash tool to create out.txt with the content: from bash",
+    "files": {},
+    "checks": [{"type": "file_equals", "path": "out.txt", "text": "from bash"}]
+  },
+  {
+    "id": "fix_code",
+    "prompt": "Fix calc.py so that running `python3 test_calc.py` exits 0. Do not edit test_calc.py.",
+    "files": {
+      "calc.py": "def add(a, b):\n    return a - b\n",
+      "test_calc.py": "from calc import add\nassert add(2, 3) == 5\nprint('ok')\n"
+    },
+    "checks": [{"type": "command", "command": "python3 test_calc.py", "exit": 0, "contains": "ok"}]
+  },
+  {
+    "id": "multi_file",
+    "prompt": "Create pkg/__init__.py (empty) and pkg/mod.py containing VALUE = 7.",
+    "files": {},
+    "checks": [
+      {"type": "file_exists", "path": "pkg/__init__.py"},
+      {"type": "file_contains", "path": "pkg/mod.py", "text": "VALUE = 7"}
+    ]
+  },
+  {
+    "id": "count_lines",
+    "prompt": "Write the number of lines in data.txt to count.txt (just the number).",
+    "files": {"data.txt": "one\ntwo\nthree\nfour\nfive\n"},
+    "checks": [{"type": "file_equals", "path": "count.txt", "text": "5"}]
+  },
+  {
+    "id": "summarize",
+    "prompt": "Read README.md and write a one-sentence summary containing the word demo to summary.txt.",
+    "files": {"README.md": "This project is a demo of a local coding agent.\n"},
+    "checks": [{"type": "file_contains", "path": "summary.txt", "text": "demo"}]
+  }
+]

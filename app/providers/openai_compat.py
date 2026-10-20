@@ -1,0 +1,165 @@
+from __future__ import annotations
+
+import json
+from collections.abc import AsyncIterator
+from pathlib import Path
+
+import httpx
+
+from core.models import Message, ToolCall
+
+from app.events import StreamDone, StreamError, TextDelta, ToolCallsReady
+
+
+def _to_openai(message: Message) -> dict:
+    data: dict = {"role": message.role, "content": message.content or ""}
+    if message.tool_calls:
+        data["tool_calls"] = [
+            {
+                "id": call.id or f"call_{i}",
+                "type": "function",
+                "function": {
+                    "name": call.name,
+                    "arguments": json.dumps(call.args, ensure_ascii=False),
+                },
+            }
+            for i, call in enumerate(message.tool_calls)
+        ]
+    if message.role == "tool":
+        data["tool_call_id"] = message.tool_call_id or ""
+        if message.name:
+            data["name"] = message.name
+    return data
+
+
+class OpenAICompatProvider:
+    """OpenAI-compatible /chat/completions，流式。
+
+    只做一个 provider；DeepSeek、OpenRouter、Ollama 的 /v1 都走这里。
+    """
+
+    def __init__(
+        self,
+        model: str,
+        api_key: str,
+        base_url: str = "https://api.deepseek.com/v1",
+        timeout: float = 120.0,
+        transport: httpx.AsyncBaseTransport | None = None,
+        trust_env: bool = False,
+        debug_path: str | Path | None = None,
+        stream_usage: bool = True,
+    ):
+        self.model = model
+        self.api_key = api_key
+        self.base_url = base_url.rstrip("/")
+        self.timeout = timeout
+        self.transport = transport
+        self.trust_env = trust_env
+        self.debug_path = Path(debug_path) if debug_path else None
+        self.stream_usage = stream_usage
+        self._call_seq = 0
+
+    def _url(self) -> str:
+        if self.base_url.endswith("/chat/completions"):
+            return self.base_url
+        return self.base_url + "/chat/completions"
+
+    def _debug(self, event: dict) -> None:
+        if self.debug_path is None:
+            return
+        self.debug_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.debug_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(event, ensure_ascii=False) + "\n")
+
+    async def stream(self, messages: list[Message], tools: list[dict]) -> AsyncIterator[object]:
+        payload: dict = {
+            "model": self.model,
+            "messages": [_to_openai(m) for m in messages],
+            "stream": True,
+        }
+        if self.stream_usage:
+            payload["stream_options"] = {"include_usage": True}
+        if tools:
+            payload["tools"] = tools
+
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+
+        self._debug({"type": "request", "model": self.model, "tools": len(tools), "messages": len(messages)})
+        calls: dict[int, dict] = {}
+        finish_reason: str | None = None
+        usage: dict | None = None
+        try:
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(self.timeout, connect=10.0),
+                transport=self.transport,
+                trust_env=self.trust_env,
+            ) as client:
+                async with client.stream("POST", self._url(), headers=headers, json=payload) as response:
+                    if response.status_code >= 400:
+                        body = (await response.aread()).decode("utf-8", "replace")
+                        retryable = response.status_code in {408, 409, 429, 500, 502, 503, 504}
+                        yield StreamError(
+                            f"HTTP {response.status_code}: {body[:500]}",
+                            retryable=retryable,
+                        )
+                        return
+
+                    async for line in response.aiter_lines():
+                        if not line or not line.startswith("data:"):
+                            continue
+                        data = line[5:].strip()
+                        if data == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(data)
+                        except json.JSONDecodeError:
+                            continue
+
+                        if chunk.get("usage"):
+                            usage = chunk["usage"]
+                        choices = chunk.get("choices") or []
+                        if not choices:
+                            continue
+                        finish_reason = choices[0].get("finish_reason") or finish_reason
+                        delta = choices[0].get("delta") or {}
+
+                        if delta.get("content"):
+                            self._debug({"type": "chunk", "content": delta["content"][:80]})
+                            yield TextDelta(delta["content"])
+
+                        for tc in delta.get("tool_calls") or []:
+                            index = tc.get("index", 0)
+                            slot = calls.setdefault(index, {"id": "", "name": "", "arguments": ""})
+                            if tc.get("id"):
+                                slot["id"] = tc["id"]
+                            fn = tc.get("function") or {}
+                            if fn.get("name"):
+                                slot["name"] += fn["name"]
+                            if fn.get("arguments"):
+                                slot["arguments"] += fn["arguments"]
+        except httpx.HTTPError as exc:
+            yield StreamError(f"{type(exc).__name__}: {exc}", retryable=True)
+            return
+
+        if calls:
+            parsed: list[ToolCall] = []
+            for index in sorted(calls):
+                slot = calls[index]
+                try:
+                    args = json.loads(slot["arguments"] or "{}")
+                except json.JSONDecodeError:
+                    args = {"_raw": slot["arguments"]}
+                parsed.append(
+                    ToolCall(
+                        name=slot["name"],
+                        args=args,
+                        id=slot["id"] or f"call_{self._call_seq}_{index}",
+                    )
+                )
+            yield ToolCallsReady(parsed)
+
+        self._debug({"type": "calls", "count": len(calls), "finish_reason": finish_reason})
+        self._call_seq += 1
+        yield StreamDone(finish_reason=finish_reason, usage=usage)
