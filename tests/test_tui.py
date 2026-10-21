@@ -16,6 +16,7 @@ from app.tui import ApprovalScreen, VibeApp
 from core.models import Message, Response, ToolCall
 from core.context import ContextBuilder
 from core.state import TaskState
+from tests.test_context_view import snapshot
 
 
 def _log_text(app):
@@ -442,6 +443,82 @@ def test_tui_updates_run_budget_without_session(tmp_path):
             assert "入 150,000" in _log_text(app)
             assert "出 10,000" in _log_text(app)
             await pilot.press("ctrl+q")
+
+    asyncio.run(scenario())
+
+
+def test_context_modal_replays_snapshots_and_keeps_usage_separate(tmp_path):
+    from app.tui import ContextScreen
+
+    session = SessionStore.new(tmp_path, "fake")
+    app = VibeApp(Config(workspace=tmp_path), Agent(FakeProvider([]), ToolRegistry(tmp_path)),
+                  session=session)
+
+    async def scenario():
+        async with app.run_test(size=(48, 22)) as pilot:
+            app._record_trace({"type": "run_start", "run_id": "run-a"})
+            app._record_trace(snapshot())
+            app._record_trace(snapshot(2, phase="after_compaction", delta_tokens=-50))
+            app._record_trace({"type": "budget_update", "used_tokens": 400, "limit_tokens": 1000})
+            app._on_context(type("LegacyContext", (), {
+                "sections": {"history_before": 900, "history_after": 100},
+                "caps": {}, "tokens": 999, "over_budget": False,
+            })())
+            assert "ctx 估算 250/900" in app._status_text()
+            assert "任务累计 400" in app._status_text()
+            assert "999" not in app._status_text()
+            await pilot.click("#prompt")
+            await pilot.press(*"/context", "enter")
+            await pilot.pause()
+            assert isinstance(app.screen, ContextScreen)
+            assert app.screen.index == 1
+            assert "压缩后" in app.screen.query_one("#context_body", Static).content.plain
+            await pilot.press("left")
+            assert app.screen.index == 0
+            await pilot.press("right")
+            assert app.screen.index == 1
+            app._record_trace(snapshot(3))
+            assert app.screen.index == 2
+            await pilot.press("escape")
+            await pilot.pause()
+            assert not isinstance(app.screen, ContextScreen)
+            events = [json.loads(line) for line in session.trace_path.read_text().splitlines()]
+            assert len([event for event in events if event["type"] == "context_snapshot"]) == 3
+            app._record_trace({"type": "run_start", "run_id": "run-b"})
+            assert app.context_history.snapshots == []
+            assert "250/900" not in app._status_text()
+
+    asyncio.run(scenario())
+
+
+def test_context_view_empty_and_restores_only_latest_run(tmp_path):
+    from app.tui import ContextScreen
+
+    session = SessionStore.new(tmp_path, "fake")
+    session.append_message(Message("user", "previous"))
+    session.append_message(Message("assistant", "done"))
+    session.append_trace({"type": "run_start", "run_id": "run-old"})
+    session.append_trace(snapshot(1, "run-old"))
+    session.append_trace({"type": "run_start", "run_id": "run-new"})
+    session.append_trace(snapshot(2, "run-new"))
+    session.append_trace({"type": "run_end", "run_id": "run-new", "status": "done"})
+    with session.trace_path.open("a") as stream:
+        stream.write("broken partial line\n")
+    provider = FakeProvider([])
+    app = VibeApp(Config(workspace=tmp_path), Agent(provider, ToolRegistry(tmp_path)),
+                  session=session, resumed=True)
+
+    async def scenario():
+        async with app.run_test(size=(36, 18)) as pilot:
+            assert app.context_history.run_id == "run-new"
+            assert [event["step"] for event in app.context_history.snapshots] == [2]
+            assert provider.seen == []
+            await pilot.press("ctrl+o")
+            await pilot.pause()
+            assert isinstance(app.screen, ContextScreen)
+            app._record_trace({"type": "run_start", "run_id": "run-next"})
+            assert "暂无" in app.screen.query_one("#context_body", Static).content.plain
+            await pilot.press("left", "right", "escape")
 
     asyncio.run(scenario())
 

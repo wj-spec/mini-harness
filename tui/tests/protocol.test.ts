@@ -1,6 +1,30 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {MAX_FRAME_BYTES, parseServerEvent, validateClientArgs} from '../src/protocol.js';
+import {contextSnapshot} from './context-fixture.js';
+
+test('validates estimated context snapshots, partition sums, and block accounting', () => {
+  const snapshot = contextSnapshot();
+  const frame = (change: Record<string, unknown> = {}) => JSON.stringify({v: 1, type: 'context_snapshot', id: 'run-1', snapshot: {...snapshot, ...change}});
+  assert.equal(parseServerEvent(frame()).type, 'context_snapshot');
+  assert.equal(parseServerEvent(frame({delta_tokens: -50, section_deltas: {system: 0, memory: 0, tools: 0, history: -50}})).type, 'context_snapshot');
+  for (const change of [
+    {schema_version: 2}, {snapshot_id: ''}, {request_id: null}, {run_id: 42}, {model: null}, {ts: -1}, {ts: null},
+    {step: -1}, {attempt: 0.1}, {phase: 'built'}, {reason: null}, {estimated: false}, {count_method: 'unknown'},
+    {context_window: -1}, {input_capacity: Number.MAX_SAFE_INTEGER + 1}, {total_tokens: 99},
+    {sections: {system: 20, memory: 0, tools: 30, history: 49}},
+    {sections: {...snapshot.sections, extra: 1}}, {sections: {...snapshot.sections, memory: -1}},
+    {caps: {...snapshot.caps, history: 0.5}}, {reserves: {output: -1, scratch: 0}}, {remaining_tokens: -1},
+    {over_budget: 'no'}, {delta_tokens: 0.5}, {section_deltas: {system: 0, memory: 0, tools: 0}},
+    {blocks: []}, {blocks: [{...snapshot.blocks[0], section: 'output'}]},
+    {blocks: snapshot.blocks.map((block, index) => index === 0 ? {...block, tokens: 19} : block)},
+    {blocks: snapshot.blocks.map((block, index) => index === 0 ? {...block, chars: -1} : block)},
+    {blocks: snapshot.blocks.map((block, index) => index === 0 ? {...block, source: null} : block)},
+    {blocks: snapshot.blocks.map((block, index) => index === 0 ? {...block, content_hash: 12} : block)},
+    {blocks: [...snapshot.blocks, {...snapshot.blocks[0], tokens: 0}]},
+  ]) assert.throws(() => parseServerEvent(frame(change)), JSON.stringify(change));
+  assert.throws(() => parseServerEvent(JSON.stringify({v: 1, type: 'context_snapshot', id: null, snapshot})));
+});
 
 test('accepts complete versioned events and unfinished results', () => {
   assert.equal(parseServerEvent('{"v":1,"type":"ready","id":null,"workspace":"/tmp","model":"fake","session_id":"s","capabilities":[]}').type, 'ready');

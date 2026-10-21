@@ -14,7 +14,7 @@ test('help works without a TTY and documents parity features while retaining Tex
   assert.equal(result.status, 0);
   assert.match(result.stdout, /--fake/);
   assert.match(result.stdout, /MCP/);
-  for(const feature of ['工作台','Ctrl+J','PageUp','Ctrl+O','/theme','/help','/cost','--continue','/resume','/permissions reset','/diff','/mcp','Textual','超越'])assert.ok(result.stdout.includes(feature),feature);
+  for(const feature of ['工作台','Ctrl+J','PageUp','Ctrl+O','Ctrl+K','/context','/theme','/help','/cost','--continue','/resume','/permissions reset','/diff','/mcp','Textual','超越'])assert.ok(result.stdout.includes(feature),feature);
   assert.equal(result.stderr, '');
 });
 

@@ -17,6 +17,7 @@ from app.skills import render_skills
 from app.trace import Pricing, TraceRecorder
 from app.tools import ToolRegistry
 from core.context import ContextBuilder, ContextResult, estimate_tokens, total_tokens
+from core.context_snapshot import build_context_snapshot
 from core.state import TaskState
 from core.summarize import summarize_messages
 
@@ -146,12 +147,20 @@ class Agent:
                     "You are a coding agent in chat-only mode. No tools are available. "
                     "Answer from the conversation only; do not emit tool calls."
                 )
+        self.system_parts = [{"kind": "base_instructions", "label": "基础指令",
+                              "source": "agent.system", "content": system}]
         if project_instructions:
-            system += "\n\n[PROJECT INSTRUCTIONS]\n" + project_instructions.strip()
+            project_part = "\n\n[PROJECT INSTRUCTIONS]\n" + project_instructions.strip()
+            self.system_parts.append({"kind": "project_instructions", "label": "项目规则",
+                                      "source": "AGENTS.md", "content": project_part})
+            system += project_part
         if tools_enabled:
             summary = render_skills(getattr(self.tools, "skills", None) or [])
             if summary:
-                system += "\n\n" + summary
+                skill_part = "\n\n" + summary
+                self.system_parts.append({"kind": "skills", "label": "技能目录",
+                                          "source": "skills", "content": skill_part})
+                system += skill_part
         self.system = system
 
     async def run(
@@ -229,6 +238,43 @@ class Agent:
         history_compacted = False
         compacted_at_tokens = 0
         high_water_suppressed = False
+        snapshot_sequence = 0
+        previous_snapshot = None
+        current_step = 0
+        current_attempt = 0
+
+        async def context_snapshot(
+            snapshot_messages: list[Message], snapshot_tools: list[dict],
+            phase: str, reason: str,
+        ) -> str:
+            nonlocal snapshot_sequence, previous_snapshot
+            request_id = f"{recorder.run_id}:{current_step}:{current_attempt}"
+            if self.context is None or trace is None:
+                return request_id
+            snapshot = await asyncio.to_thread(
+                build_context_snapshot,
+                snapshot_messages, snapshot_tools, policy=self.context.policy,
+                max_tokens=self.context.max_tokens, reserve_output=self.context.reserve_output,
+                system_parts=self.system_parts,
+            )
+            if phase == "request" and (
+                (cancel is not None and cancel.is_set())
+                or active_seconds() >= self.max_run_seconds
+            ):
+                return request_id
+            snapshot_sequence += 1
+            before = previous_snapshot or {"total_tokens": 0, "sections": {}}
+            snapshot.update(
+                snapshot_id=f"{recorder.run_id}:{snapshot_sequence}",
+                request_id=request_id, step=current_step, attempt=current_attempt,
+                phase=phase, reason=reason,
+                delta_tokens=snapshot["total_tokens"] - before["total_tokens"],
+                section_deltas={key: value - before["sections"].get(key, 0)
+                                for key, value in snapshot["sections"].items()},
+            )
+            previous_snapshot = snapshot
+            recorder.event("context_snapshot", **snapshot)
+            return request_id
 
         def input_capacity() -> int:
             assert self.context is not None
@@ -249,13 +295,17 @@ class Agent:
             nonlocal messages, raw_history, history_compacted, compacted_at_tokens
             assert self.context is not None
             budget_update("compacting")
+            working_tools = self.tools.specs() if self.tools_enabled else []
+            working_messages = [Message("system", self.system), state_message] + raw_history
+            await context_snapshot(working_messages, working_tools, "before_compaction", reason)
             result = await asyncio.to_thread(
                 self.context.compact_history,
-                [Message("system", self.system), state_message] + raw_history,
+                working_messages,
                 max(0, history_target), summarizer=summarize_messages,
             )
             raw_history = [m for m in result.messages if m.role != "system"]
             messages = result.messages
+            await context_snapshot(messages, working_tools, "after_compaction", reason)
             history_compacted = True
             # 只前移压缩周期，累计消耗和其他运行限制均保留。
             compacted_at_tokens = recorder.total_tokens
@@ -461,6 +511,8 @@ class Agent:
 
         try:
             for step in count(1):
+                current_step = step
+                current_attempt = 0
                 if cancel is not None and cancel.is_set():
                     return finish("cancelled", step - 1, "cancelled")
                 if self.max_steps > 0 and step > self.max_steps:
@@ -585,8 +637,6 @@ class Agent:
                     )
                     if cancel is not None and cancel.is_set():
                         return finish("cancelled", step - 1, "cancelled")
-                    recorder.llm_start(step)
-
                     remaining = self.max_run_seconds - active_seconds()
                     if remaining <= 0:
                         if progress_finalizing:
@@ -594,10 +644,30 @@ class Agent:
                         if finalizing:
                             return await pause_budget(step - 1, "运行时间已到，未发起模型收尾。")
                         return finish("stopped: max_run_seconds", step, "stopped")
+                    request_id = await context_snapshot(
+                        request_messages, tool_specs, "request",
+                        "finalizing" if finalizing else "model_call",
+                    )
+                    if cancel is not None and cancel.is_set():
+                        return finish("cancelled", step - 1, "cancelled")
+                    remaining = self.max_run_seconds - active_seconds()
+                    if remaining <= 0:
+                        if progress_finalizing:
+                            return pause_progress(step - 1, "运行时间已到，未发起模型收尾。")
+                        if finalizing:
+                            return await pause_budget(step - 1, "运行时间已到，未发起模型收尾。")
+                        return finish("stopped: max_run_seconds", step - 1, "stopped")
                     timeout = min(self.llm_timeout, remaining) if self.llm_timeout > 0 else remaining
+                    request_started = False
 
                     async def consume_stream() -> None:
-                        nonlocal calls, error, error_retryable, finish_reason, usage
+                        nonlocal calls, error, error_retryable, finish_reason, usage, request_started
+                        if cancel is not None and cancel.is_set():
+                            return
+                        if active_seconds() >= self.max_run_seconds:
+                            return
+                        request_started = True
+                        recorder.llm_start(step, request_id=request_id)
                         stream = self.provider.stream(request_messages, tool_specs)
                         try:
                             async for event in stream:
@@ -641,6 +711,13 @@ class Agent:
                         error = f"timeout after {timeout:.1f}s"
                         error_retryable = True
 
+                    if not request_started:
+                        if cancel is not None and cancel.is_set():
+                            return finish("cancelled", step - 1, "cancelled")
+                        if error:
+                            return finish(f"error: {error}", step - 1, "error")
+                        return finish("stopped: max_run_seconds", step - 1, "stopped")
+
                     estimated_usage = not usage or not any(
                         usage.get(key) for key in (
                             "total_tokens", "prompt_tokens", "input_tokens",
@@ -677,6 +754,7 @@ class Agent:
                         and not stream_cancelled
                     ):
                         attempt += 1
+                        current_attempt = attempt
                         if self.max_run_tokens and (
                             recorder.total_tokens + previous_prompt_tokens
                             + max(256, previous_completion_tokens) >= self.max_run_tokens

@@ -13,6 +13,7 @@ from dataclasses import asdict, replace
 
 from app.agent import Agent, AgentResult
 from app.config import Config
+from app.context_snapshot_display import snapshot_for_display
 from app.mcp import McpManager
 from app.policy import ApprovalDecision, ApprovalGate
 from app.providers.fake import FakeProvider
@@ -306,6 +307,12 @@ class _Connection:
         def record_trace(event):
             nonlocal terminal_trace, observed_tools
             trace_identity.update({key: event[key] for key in ("run_id", "model") if key in event})
+            if event["type"] == "context_snapshot":
+                self.session.append_trace(event)
+                self.send("context_snapshot", request_id, snapshot=snapshot_for_display(event))
+                metrics["context_tokens"] = event["total_tokens"]
+                publish_metrics()
+                return
             if event["type"] == "llm_end":
                 set_cost(metrics["cost_usd"] + event["cost_usd"])
                 for key in observed_usage:
@@ -332,8 +339,6 @@ class _Connection:
 
         def record_context(context):
             self.session.append_event("context", total_tokens=context.tokens, sections=context.sections)
-            metrics["context_tokens"] = context.tokens
-            publish_metrics()
 
         def record_state(state):
             self.session.save_state(state)

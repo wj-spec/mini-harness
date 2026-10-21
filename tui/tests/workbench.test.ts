@@ -3,9 +3,19 @@ import test from 'node:test';
 import React from 'react';
 import {renderToString} from 'ink';
 import stringWidth from 'string-width';
-import {detailLines, ReadingPane, toolState, toolTone, transcriptLines} from '../src/workbench.js';
+import {detailLines, metricsText, ReadingPane, toolState, toolTone, transcriptLines} from '../src/workbench.js';
 import {initialState, type Entry} from '../src/view-state.js';
 import {themes} from '../src/theme.js';
+import {contextSnapshot} from './context-fixture.js';
+
+test('context snapshot totals remain visible independently from task cumulative usage', () => {
+  const state = {...initialState, contextSnapshots: [contextSnapshot()]};
+  assert.match(metricsText(state), /上下文 ≈100\/1k/);
+  assert.doesNotMatch(metricsText(state), /任务 Tokens/);
+  const text = metricsText({...state, metrics: {used_tokens: 8000, limit_tokens: 10000, estimated: false, context_tokens: null, context_window: 1000, done: 0, planned: 0, cost_usd: 0}});
+  assert.match(text, /任务 Tokens 8k\/10k/);
+  assert.match(text, /上下文 ≈100\/1k/);
+});
 
 const command: Entry = {id: 1, kind: 'tool', text: 'bash', call: {id: 'cmd-1', name: 'bash', args: {command: 'python -m pytest -q'}}, ok: true, output: 'exit=0\nno tests ran'};
 
@@ -20,6 +30,14 @@ test('command cards use execution evidence and do not infer success from output 
   assert.match(lines, /exit=7/);
   assert.match(lines, /no tests ran/);
   assert.doesNotMatch(lines, /测试通过/);
+});
+
+test('a long remote tool name cannot hide the recorded failure status', () => {
+  const entry: Entry = {...command, call: {...command.call!, name: 'mcp_external_' + 'very_long_tool_name_'.repeat(5)}, ok: false, execution: {status: 'failed', exit_code: 7}};
+  const state = {...initialState, entries: [entry], nextEntry: 2};
+  const heading = transcriptLines(state, 43, null)[0].spans.map(span => span.text).join('');
+  assert.match(heading, /非零退出/);
+  assert.match(heading, /exit=7/);
 });
 
 test('tool result semantics remain readable without color and have matching semantic tones', () => {
@@ -46,7 +64,7 @@ test('scrollbar shows current position and the real Ink reading pane stays withi
     for (const top of [0, 16, 33]) {
       const output = renderToString(React.createElement(ReadingPane, {title: '对话 · 阅读', lines, top, height: 10, columns, palette: themes.system}), {columns});
       assert.equal(output.split('\n').length, 10);
-      assert.ok(output.split('\n').every(line => stringWidth(line) === columns));
+      assert.ok(output.split('\n').every(line => stringWidth(line) <= columns));
       assert.match(output, new RegExp(`第 ${top + 1} 行`));
       frames.push(output);
     }
@@ -71,4 +89,23 @@ test('transcript cards separate task, model, tool and diagnostics without losing
   assert.doesNotMatch(output, /\n提示\n/);
   for (const id of [10, 11, 12, 13]) assert.ok(lines.some(line => line.entryId === id));
   assert.ok(lines.find(line => line.entryId === 12 && line.kind === 'error'));
+});
+
+test('transcript surfaces replace enclosing frames while preserving focus and failure evidence', () => {
+  const lines = transcriptLines({...initialState, entries: [
+    {id: 10, kind: 'task', text: '修复输入🙂'},
+    {id: 11, kind: 'assistant', text: '先复现，再修改。'},
+    {...command, id: 12, execution: {status: 'failed', exit_code: 7}},
+    {...command, id: 13, pending: true},
+  ]}, 42, 13);
+  const output = lines.map(line => line.spans.map(span => span.text).join('')).join('\n');
+  assert.doesNotMatch(output, /[┌┐└┘│─╭╮╰╯]/u);
+  assert.ok(lines.some(line => line.entryId === 10 && line.surface === 'task'));
+  assert.ok(lines.some(line => line.entryId === 11 && line.surface === 'agent'));
+  assert.ok(lines.some(line => line.entryId === 12 && line.surface === 'error'));
+  assert.ok(lines.some(line => line.entryId === 13 && line.surface === 'selected' && line.selected));
+  assert.match(output, /非零退出.*exit=7/);
+  assert.match(output, /› 工具.*等待返回/);
+  assert.equal((output.match(/Ctrl\+O/g) ?? []).length, 1);
+  assert.ok(lines.every(line => stringWidth(line.spans.map(span => span.text).join('')) <= 42));
 });

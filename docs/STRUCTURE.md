@@ -41,9 +41,13 @@ mini-harness/
       cli.tsx           # 参数、渲染、进程信号与清理
       backend.ts        # Python 子进程、帧校验与关闭
       protocol.ts       # JSONL v1 类型与运行时校验
-      app.tsx           # 任务输入、流式文本、单次审批与取消
-      view-state.ts     # 界面事件状态、完整消息与工具记录
-      workbench.tsx     # 全屏阅读区、工具卡片与完整详情
+      app.tsx           # 阅读焦点、滚动、输入、审批与取消
+      view-state.ts     # 实际活动、最终状态、完整消息与工具记录
+      agent-status.tsx  # 活动、任务、工具与真实资源预算分区
+      workbench.tsx     # 全屏阅读、消息卡片、滚动条与详情
+      mouse.ts          # 有界鼠标滚轮协议解析与粘贴隔离
+      use-transcript-scroll.ts # 阅读区命中、鼠标模式生命周期
+      terminal-input.ts # 已识别鼠标包合并、原始输入与终端清理
       markdown.tsx      # 终端 Markdown、宽字符换行与安全显示
       theme.ts          # system / light / dark 语义配色
       composer.tsx      # 多行草稿、输入历史、光标与粘贴

@@ -1,10 +1,10 @@
 import React from 'react';
 import {Text} from 'ink';
 import stringWidth from 'string-width';
-import type {Palette, SemanticTone} from './theme.js';
+import type {Palette, SemanticTone, SurfaceName} from './theme.js';
 
 export type Span = {text: string; bold?: boolean; code?: boolean};
-export type ReadingLine = {spans: Span[]; kind?: 'heading' | 'code' | 'label' | 'tool' | 'error' | 'notice'; tone?: SemanticTone; selected?: boolean; entryId?: number};
+export type ReadingLine = {spans: Span[]; kind?: 'heading' | 'code' | 'label' | 'tool' | 'error' | 'notice'; tone?: SemanticTone; surface?: SurfaceName; selected?: boolean; entryId?: number};
 const graphemes = new Intl.Segmenter(undefined, {granularity: 'grapheme'});
 
 export function visibleText(text: string): string {
@@ -66,12 +66,12 @@ export function markdownLines(markdown: string, columns: number): ReadingLine[] 
   for (const raw of visibleText(markdown).split('\n')) {
     const fence = raw.match(/^\s*(```+|~~~+)\s*(.*)$/);
     if (fence) {
-      lines.push(...textLines(code ? '└─' : `┌─ ${fence[2] || 'code'}`, columns, 'code'));
+      lines.push(...textLines(code ? '' : `code · ${fence[2] || 'text'}`, columns, 'code').map(line => ({...line, surface: 'code' as const})));
       code = !code;
       continue;
     }
     if (code) {
-      for (const spans of wrapSpans([{text: raw}], Math.max(1, columns - 2))) lines.push({spans: [{text: '│ '}, ...spans], kind: 'code'});
+      for (const spans of wrapSpans([{text: raw}], columns)) lines.push({spans, kind: 'code', surface: 'code'});
       continue;
     }
     const heading = raw.match(/^\s{0,3}#{1,6}\s+(.+?)(?:\s+#+)?$/);
@@ -82,10 +82,14 @@ export function markdownLines(markdown: string, columns: number): ReadingLine[] 
   return lines;
 }
 
-export function ReadingText({line, palette}: {line: ReadingLine; palette: Palette}) {
+export function ReadingText({line, palette, columns}: {line: ReadingLine; palette: Palette; columns?: number}) {
   const color = line.tone ? palette[line.tone] : line.kind === 'error' ? palette.error : line.kind === 'notice' ? palette.warning :
-    line.kind === 'heading' || line.kind === 'label' || line.selected ? palette.accent : undefined;
-  return <Text color={color} bold={line.kind === 'heading' || line.kind === 'label' || line.selected}>
-    {line.spans.length ? line.spans.map((span, index) => <Text key={index} bold={span.bold} color={span.code ? palette.accent : undefined}>{span.text || ' '}</Text>) : ' '}
+    line.kind === 'heading' || line.kind === 'label' || line.selected ? palette.accent : palette.foreground;
+  const width = line.spans.reduce((total, span) => total + stringWidth(span.text), 0);
+  const padding = Math.max(0, (columns ?? Math.max(1, width)) - width);
+  const surface = line.kind === 'code' ? 'code' : line.surface;
+  return <Text color={color} backgroundColor={surface ? palette.surfaces[surface] : palette.background} bold={line.kind === 'heading' || line.kind === 'label' || line.selected}>
+    {line.spans.map((span, index) => <Text key={index} bold={span.bold} color={span.code ? palette.accent : undefined}>{span.text}</Text>)}
+    {' '.repeat(padding)}
   </Text>;
 }

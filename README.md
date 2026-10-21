@@ -15,7 +15,7 @@
 
 安装、运行和配置见 [使用指南](docs/USAGE.md)。命令以当前用户权限执行，现有审批与超时机制不提供操作系统级沙箱隔离。
 
-Ink 工作台已接通全屏布局、多行输入、Markdown、工具详情、真实执行结果、会话恢复、MCP、分级审批与权限撤销。安装 Node.js 22+ 后执行 `npm --prefix tui ci`，再用 `./run_ink.sh --fake` 体验；`./run_ink.sh --continue` 恢复会话，输入 `/resume` 才继续任务。**默认入口继续保留 Textual，直到 Ink 的开发与实际体验超越 Textual**；eval 仍走 `./run_vibe.sh --eval`。范围与证据见 [功能补齐](docs/specs/ink-parity.md)。
+Ink 工作台已接通全屏布局、多行输入、Markdown、工具详情、真实执行结果、会话恢复、MCP、分级审批与权限撤销；支持滚轮 / 键盘阅读历史、状态分区与真实预算展示。安装 Node.js 22+ 后执行 `npm --prefix tui ci`，再用 `./run_ink.sh --fake` 体验；`./run_ink.sh --continue` 恢复会话，输入 `/resume` 才继续任务。**默认入口继续保留 Textual，直到 Ink 的开发与实际体验超越 Textual**；eval 仍走 `./run_vibe.sh --eval`。范围与证据见 [功能补齐](docs/specs/ink-parity.md) 和 [阅读与状态展示](docs/specs/ink-reading-state.md)。
 
 ## 开发规划
 
@@ -26,3 +26,5 @@ Ink 工作台已接通全屏布局、多行输入、Markdown、工具详情、�
 - **界面与全栈学习**：逐步迁移到 TypeScript + React/Ink，再根据实际需求发展浏览器入口，积累交互、状态管理、通信和交付经验。
 
 以上为后续方向，具体设计随实际使用反馈推进，详见 [路线图](docs/roadmap.md)。
+
+采用 [MIT](LICENSE) 许可证。

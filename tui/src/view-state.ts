@@ -1,4 +1,6 @@
-import type {ApprovalDecision, BackendCommand, CommandExecution, PersistedMessage, RunMetrics, RunResult, ServerEvent, ToolCall} from './protocol.js';
+import type {ApprovalDecision, BackendCommand, CommandExecution, ContextSnapshot, PersistedMessage, RunMetrics, RunResult, ServerEvent, ToolCall} from './protocol.js';
+
+export const MAX_CONTEXT_SNAPSHOTS = 100;
 
 export type Entry = {
   id: number;
@@ -33,6 +35,7 @@ export type ViewState = {
   sessionPath: string;
   provider: string;
   metrics: RunMetrics | null;
+  contextSnapshots: ContextSnapshot[];
   resumed: boolean;
 };
 export type Action =
@@ -46,7 +49,7 @@ export type Action =
 export const initialState: ViewState = {
   phase: 'starting', activeId: null, activeCommand: null, activity: 'initializing', entries: [], nextEntry: 0, live: '', segment: '',
   approval: null, model: '', workspace: '', lastResult: '', lastStatus: null, lastStopReason: null, error: null,
-  sessionId: '', sessionPath: '', provider: '', metrics: null, resumed: false,
+  sessionId: '', sessionPath: '', provider: '', metrics: null, contextSnapshots: [], resumed: false,
 };
 
 function append(state: ViewState, kind: Entry['kind'], text: string): ViewState {
@@ -117,10 +120,10 @@ function restoreMessage(state: ViewState, message: PersistedMessage): ViewState 
 }
 
 export function reduceView(state: ViewState, action: Action): ViewState {
-  if (action.type === 'begin') return append({...state, phase: 'running', activeId: action.id, activeCommand: null, activity: 'waiting_model', live: '', segment: '', approval: null, lastResult: '', lastStatus: null, lastStopReason: null, error: null, metrics: null}, 'task', action.text);
+  if (action.type === 'begin') return append({...state, phase: 'running', activeId: action.id, activeCommand: null, activity: 'waiting_model', live: '', segment: '', approval: null, lastResult: '', lastStatus: null, lastStopReason: null, error: null, metrics: null, contextSnapshots: []}, 'task', action.text);
   if (action.type === 'begin_command') return {...state, phase: 'running', activeId: action.id, activeCommand: action.command,
     activity: action.command === 'resume' ? 'waiting_model' : null, approval: null, error: null,
-    ...(action.command === 'resume' ? {live: '', segment: '', lastResult: '', lastStatus: null, lastStopReason: null, metrics: null} : {})};
+    ...(action.command === 'resume' ? {live: '', segment: '', lastResult: '', lastStatus: null, lastStopReason: null, metrics: null, contextSnapshots: []} : {})};
   if (action.type === 'notice') return append(state, 'notice', action.text);
   if (action.type === 'cancel') return {...state, phase: 'stopping', approval: null};
   if (action.type === 'approval_sent') return afterApproval(state);
@@ -130,7 +133,7 @@ export function reduceView(state: ViewState, action: Action): ViewState {
     return {...state, phase: 'starting', activeId: event.id, activeCommand: null, activity: 'initializing'};
   }
   if (event.id && state.activeId && event.id !== state.activeId) return state;
-  if (event.id && !state.activeId && ['status', 'text_delta', 'tool_call', 'tool_result', 'approval_request', 'approval_resolved', 'done', 'metrics', 'command_result'].includes(event.type)) return state;
+  if (event.id && !state.activeId && ['status', 'text_delta', 'tool_call', 'tool_result', 'approval_request', 'approval_resolved', 'done', 'metrics', 'context_snapshot', 'command_result'].includes(event.type)) return state;
   switch (event.type) {
     case 'ready':
       return {...state, phase: 'starting', activity: 'initializing', workspace: event.workspace, model: event.model, error: null,
@@ -143,7 +146,14 @@ export function reduceView(state: ViewState, action: Action): ViewState {
       return {...append(state, 'notice', event.text), phase: 'idle', activeId: null, activeCommand: null, activity: null, approval: null};
     case 'metrics': {
       const {v, type, id, ...metrics} = event;
-      return {...state, metrics};
+      const latest = state.contextSnapshots.at(-1);
+      return {...state, metrics: latest ? {...metrics, context_tokens: latest.total_tokens, context_window: latest.context_window} : metrics};
+    }
+    case 'context_snapshot': {
+      const snapshot = event.snapshot;
+      if (state.contextSnapshots.some(item => item.snapshot_id === snapshot.snapshot_id)) return state;
+      return {...state, contextSnapshots: [...state.contextSnapshots, snapshot].slice(-MAX_CONTEXT_SNAPSHOTS),
+        metrics: state.metrics ? {...state.metrics, context_tokens: snapshot.total_tokens, context_window: snapshot.context_window} : null};
     }
     case 'status':
       if (event.phase === 'idle') return state.activeId && state.activeId !== 'startup' ? state : {...state, phase: 'idle', activeId: null, activeCommand: null, activity: null, approval: null};

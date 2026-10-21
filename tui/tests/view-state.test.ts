@@ -2,10 +2,48 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {initialState, reduceView} from '../src/view-state.js';
 import type {ServerEvent} from '../src/protocol.js';
+import {contextSnapshot} from './context-fixture.js';
 
 const call = {id: 'read-1', name: 'read_file', args: {path: 'hello.py'}};
 const result = {text: '# 结果\n已读取。', status: 'done' as const, steps: 2, usage: {}, cost_usd: 0, run_id: 'internal', stop_reason: ''};
 const event = (type: string, fields: Record<string, unknown> = {}) => ({v: 1, type, id: 'run-1', ...fields}) as ServerEvent;
+
+test('context snapshots follow one run without changing cumulative token accounting', () => {
+  let state = reduceView(initialState, {type: 'begin', id: 'run-1', text: 'work'});
+  const metrics = {used_tokens: 1000, limit_tokens: 10000, estimated: false, context_tokens: 500, context_window: 1000, done: 0, planned: 0, cost_usd: 0};
+  state = reduceView(state, {type: 'event', event: event('metrics', metrics)});
+  const snapshot = contextSnapshot();
+  state = reduceView(state, {type: 'event', event: event('context_snapshot', {snapshot})});
+  assert.deepEqual(state.contextSnapshots, [snapshot]);
+  assert.equal(state.metrics?.used_tokens, 1000);
+  assert.equal(state.metrics?.estimated, false);
+  assert.equal(state.metrics?.context_tokens, 100);
+  state = reduceView(state, {type: 'event', event: event('metrics', {...metrics, used_tokens: 1200, context_tokens: null})});
+  assert.equal(state.metrics?.context_tokens, 100);
+  state = reduceView(state, {type: 'event', event: event('context_snapshot', {id: 'old-run', snapshot: {...snapshot, snapshot_id: 'old'}})});
+  assert.deepEqual(state.contextSnapshots, [snapshot]);
+  state = reduceView(state, {type: 'event', event: event('done', {result})});
+  state = reduceView(state, {type: 'event', event: event('context_snapshot', {snapshot: {...snapshot, snapshot_id: 'late'}})});
+  assert.deepEqual(state.contextSnapshots, [snapshot]);
+  state = reduceView(state, {type: 'begin', id: 'run-2', text: 'next'});
+  assert.deepEqual(state.contextSnapshots, []);
+});
+
+test('context replay is bounded, deduplicated, retained for local commands, and reset for resume', () => {
+  let state = reduceView(initialState, {type: 'begin', id: 'run-1', text: 'work'});
+  for (let index = 0; index < 105; index += 1) {
+    state = reduceView(state, {type: 'event', event: event('context_snapshot', {snapshot: {...contextSnapshot(), snapshot_id: `s-${index}`}})});
+  }
+  assert.equal(state.contextSnapshots.length, 100);
+  assert.equal(state.contextSnapshots[0].snapshot_id, 's-5');
+  state = reduceView(state, {type: 'event', event: event('context_snapshot', {snapshot: {...contextSnapshot(), snapshot_id: 's-104'}})});
+  assert.equal(state.contextSnapshots.length, 100);
+  state = reduceView(state, {type: 'event', event: event('done', {result})});
+  state = reduceView(state, {type: 'begin_command', id: 'command-1', command: 'cost'});
+  assert.equal(state.contextSnapshots.length, 100);
+  state = reduceView(state, {type: 'begin_command', id: 'resume-1', command: 'resume'});
+  assert.deepEqual(state.contextSnapshots, []);
+});
 
 test('retains complete Markdown messages and pairs tool results with their call', () => {
   let state = reduceView(initialState, {type: 'begin', id: 'run-1', text: '读取代码'});

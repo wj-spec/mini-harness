@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 from rich.markup import escape
 from textual import work
@@ -13,10 +14,90 @@ from textual.widgets import Footer, Header, Input, RichLog, Static
 
 from app.agent import Agent
 from app.config import Config
+from app.context_view import ContextHistory, context_detail, context_summary
 from app.policy import ApprovalDecision
 from app.sandbox import run_command
 from app.skills import discover_skills
 from core.models import Message, ToolCall
+
+
+class ContextScreen(ModalScreen[None]):
+    BINDINGS = [
+        ("left", "previous", "上个快照"),
+        ("right", "next", "下个快照"),
+        ("escape", "close", "返回"),
+        Binding("ctrl+c", "cancel", "取消任务", priority=True),
+        Binding("ctrl+q", "quit_app", "退出", priority=True),
+    ]
+
+    CSS = """
+    ContextScreen { align: center middle; }
+    #context_dialog { width: 96%; height: 92%; border: round $primary; background: $surface; padding: 0 1; }
+    #context_title, #context_hint { height: auto; }
+    #context_scroll { height: 1fr; }
+    #context_scroll:focus { border: tall $primary; }
+    #context_body { height: auto; }
+    #context_hint { color: $text-muted; }
+    """
+
+    def __init__(self, history: ContextHistory):
+        super().__init__()
+        self.history = history
+        self.index = max(0, len(history.snapshots) - 1)
+        self._following_latest = True
+        self._selected_id = None
+
+    def compose(self) -> ComposeResult:
+        yield Vertical(
+            Static("上下文 · 本轮回放（最多 100 张）", id="context_title"),
+            VerticalScroll(Static("", id="context_body"), id="context_scroll"),
+            Static("←/→ 切换 · ↑/↓ 滚动 · Esc 返回 · Ctrl+C 取消任务", id="context_hint"),
+            id="context_dialog",
+        )
+
+    def on_mount(self) -> None:
+        self.update_snapshot()
+        self.query_one("#context_scroll", VerticalScroll).focus()
+
+    def on_resize(self) -> None:
+        if self.is_mounted:
+            self.update_snapshot()
+
+    def update_snapshot(self) -> None:
+        snapshots = self.history.snapshots
+        if self._following_latest:
+            self.index = max(0, len(snapshots) - 1)
+        elif self._selected_id is not None:
+            self.index = next((i for i, item in enumerate(snapshots)
+                               if item["snapshot_id"] == self._selected_id), 0)
+        self.index = max(0, min(self.index, len(snapshots) - 1))
+        self._selected_id = snapshots[self.index]["snapshot_id"] if snapshots else None
+        self.query_one("#context_body", Static).update(
+            context_detail(snapshots, self.index, max(20, self.size.width - 8))
+        )
+
+    def _select(self, direction: int) -> None:
+        snapshots = self.history.snapshots
+        self.index = max(0, min(self.index + direction, len(snapshots) - 1))
+        self._following_latest = self.index == len(snapshots) - 1
+        self._selected_id = snapshots[self.index]["snapshot_id"] if snapshots else None
+        self.update_snapshot()
+        self.query_one("#context_scroll", VerticalScroll).scroll_home(animate=False)
+
+    def action_previous(self) -> None:
+        self._select(-1)
+
+    def action_next(self) -> None:
+        self._select(1)
+
+    def action_close(self) -> None:
+        self.dismiss(None)
+
+    def action_cancel(self) -> None:
+        self.app.action_cancel()
+
+    async def action_quit_app(self) -> None:
+        await self.app.action_quit()
 
 
 class ApprovalScreen(ModalScreen[str]):
@@ -102,12 +183,13 @@ class VibeApp(App):
     #log { height: 1fr; border: round $primary; padding: 0 1; }
     #stream { height: auto; max-height: 10; padding: 0 1; }
     #prompt { height: 3; }
-    #status { height: auto; min-height: 2; max-height: 3; background: $boost; color: $text-muted; padding: 0 1; }
+    #status { height: auto; min-height: 2; max-height: 5; background: $boost; color: $text-muted; padding: 0 1; }
     """
 
     BINDINGS = [
         ("ctrl+c", "cancel", "Cancel"),
         ("ctrl+q", "quit", "Quit"),
+        ("ctrl+o", "context", "Context"),
     ]
 
     def __init__(self, config: Config, agent: Agent, session=None, resumed: bool = False, mcp=None):
@@ -121,6 +203,7 @@ class VibeApp(App):
         self.current_text = ""
         self.last_state = None
         self.last_context = None
+        self.context_history = ContextHistory()
         self.run_budget = None
         self.mcp = mcp
         self._mcp_starting = bool(mcp is not None and mcp.servers and agent.tools_enabled)
@@ -143,7 +226,7 @@ class VibeApp(App):
         self.query_one("#status", Static).update(self._status_text())
         self.query_one("#prompt", Input).focus()
         self.query_one("#log", RichLog).write(
-            "[dim]/cost 看花费；/permissions 查看授权；/resume 继续已暂停任务。审批：y 单次、s 精确规则、p 工作区、n 拒绝。[/]"
+            "[dim]/cost 看花费；/context 或 Ctrl+O 看上下文；/permissions 查看授权；/resume 继续已暂停任务。审批：y 单次、s 精确规则、p 工作区、n 拒绝。[/]"
         )
         if getattr(self.agent, "project_instructions", None):
             self.query_one("#log", RichLog).write(
@@ -189,6 +272,7 @@ class VibeApp(App):
             log = self.query_one("#log", RichLog)
             log.write(f"[dim]session {self.session.id} · {self.session.root}[/]")
             if self.resumed:
+                self._restore_context_snapshots()
                 history = self.session.load_context()
                 latest_run = self.session.latest_run()
                 self.last_state = self.session.load_state()
@@ -227,6 +311,9 @@ class VibeApp(App):
         if text in {"/cost", "/costs"}:
             self.show_cost()
             return
+        if text == "/context":
+            self.action_context()
+            return
         if text == "/diff":
             self.show_diff()
             return
@@ -250,7 +337,7 @@ class VibeApp(App):
             return
         if text == "/help":
             self.query_one("#log", RichLog).write(
-                "[dim]/cost 看 token / 花费；/diff 看 git diff；/skills 列出技能；/permissions 查看授权，reset 撤销；/resume 继续暂停任务；其它输入交给 agent[/]"
+                "[dim]/cost 看 token / 花费；/context 或 Ctrl+O 看上下文回放；/diff 看 git diff；/skills 列出技能；/permissions 查看授权，reset 撤销；/resume 继续暂停任务；其它输入交给 agent[/]"
             )
             return
         self.handle_turn(text)
@@ -354,7 +441,6 @@ class VibeApp(App):
         )
 
     def _on_context(self, result) -> None:
-        self.last_context = result
         if "history_before" in result.sections:
             before = result.sections["history_before"]
             after = result.sections["history_after"]
@@ -362,7 +448,9 @@ class VibeApp(App):
             self.query_one("#log", RichLog).write(
                 f"[dim]history 压缩：约 {before:,} → {after:,} tokens，保留近期 {recent} 组；原文已留存。[/]"
             )
-        self.query_one("#status", Static).update(self._status_text(result))
+        else:
+            self.last_context = result
+        self.query_one("#status", Static).update(self._status_text())
 
     def _record_history(self, messages: list[Message]) -> None:
         if self.session is not None:
@@ -448,6 +536,12 @@ class VibeApp(App):
         )
 
     def _record_trace(self, event: dict) -> None:
+        if event.get("type") == "run_start":
+            self.last_context = None
+        if self.context_history.accept(event):
+            self.query_one("#status", Static).update(self._status_text())
+            if isinstance(self.screen, ContextScreen):
+                self.screen.update_snapshot()
         self._update_budget(event)
         if event.get("type") == "no_progress":
             reasons = {
@@ -465,6 +559,27 @@ class VibeApp(App):
             self.session.append_trace(event)
         except OSError as exc:
             self.query_one("#log", RichLog).write(f"[red]trace append failed: {exc}[/]")
+
+    def _restore_context_snapshots(self) -> None:
+        try:
+            with self.session.trace_path.open(encoding="utf-8") as stream:
+                for line in stream:
+                    try:
+                        event = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if isinstance(event, dict):
+                        self.context_history.accept(event)
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            self.query_one("#log", RichLog).write(f"[red]context replay failed: {exc}[/]")
+        self.query_one("#status", Static).update(self._status_text())
+
+    def action_context(self) -> None:
+        if isinstance(self.screen, (ApprovalScreen, ContextScreen)):
+            return
+        self.push_screen(ContextScreen(self.context_history))
 
     def _update_budget(self, event: dict) -> None:
         event_type = event.get("type")
@@ -515,7 +630,9 @@ class VibeApp(App):
         result = result if result is not None else self.last_context
         builder = self.agent.context
         budget = builder.display_budget if builder is not None else "?"
-        if result is None:
+        if self.context_history.snapshots:
+            usage = context_summary(self.context_history.snapshots[-1], max(20, self.size.width - 2))
+        elif result is None:
             usage = f"ctx -/{budget}"
         else:
             mark = " over" if result.over_budget else ""

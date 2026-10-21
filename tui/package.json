@@ -21,5 +21,6 @@
     "@types/react": "19.3.0",
     "ink-testing-library": "4.0.0",
     "typescript": "7.0.2"
-  }
+  },
+  "license": "MIT"
 }

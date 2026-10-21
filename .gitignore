@@ -15,3 +15,4 @@ venv/
 .env.*
 !.env.example
 /docs/个人记录的实际使用问题.md
+/docs/LEARNING.md

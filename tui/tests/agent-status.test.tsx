@@ -6,9 +6,48 @@ import stringWidth from 'string-width';
 import {AgentHeader, StatusPanel, agentStatus, budgetBar} from '../src/agent-status.js';
 import {initialState, type ViewState} from '../src/view-state.js';
 import {themes} from '../src/theme.js';
+import {contextSnapshot} from './context-fixture.js';
+
+test('context panel shows estimated partition occupancy before usage exists and keeps task usage separate', () => {
+  const snapshot = contextSnapshot();
+  for (const metrics of [null, {used_tokens: 8000, limit_tokens: 10000, estimated: false, context_tokens: 100, context_window: 1000, done: 0, planned: 0, cost_usd: 0}]) {
+    const output = renderToString(<StatusPanel state={{...initialState, phase: 'running', contextSnapshots: [snapshot], metrics}} columns={32} height={26} palette={themes.system}/>, {columns: 32});
+    assert.match(output, /上下文.*估算/);
+    assert.match(output, /S20 M0 T30 H50/);
+    assert.match(output, /100\/1k/);
+    assert.match(output, /Ctrl\+K/);
+    assert.ok(output.split('\n').every(line => stringWidth(line) <= 32));
+    if (metrics) assert.match(output, /8k\/10k/);
+    else assert.doesNotMatch(output, /任务 Tokens 0|尚无用量记录/);
+  }
+});
 
 const ready: ViewState = {...initialState, phase: 'idle', workspace: '/项目/mini-harness', model: 'deepseek-flash', sessionId: 'session-123', provider: 'openai'};
 const running = {...ready, phase: 'running' as const, activeId: 'run-1'};
+
+test('status surfaces separate sections without drawing panel frames or horizontal rules', () => {
+  const state: ViewState = {...running, activity: 'using_tool', entries: [
+    {id: 0, kind: 'task', text: '检查工作区并保留审批。'},
+    {id: 1, kind: 'tool', text: '执行失败', call: {id: 'call-1', name: 'mcp_external_' + 'remote_tool_'.repeat(6), args: {}}, ok: false,
+      execution: {status: 'failed', exit_code: 1}},
+  ], contextSnapshots: [contextSnapshot()]};
+  for (const palette of [themes.light, themes.dark]) {
+    const panel = renderToString(<StatusPanel state={state} columns={32} height={26} palette={palette}/>, {columns: 32});
+    assert.doesNotMatch(panel, /[╭╮╰╯┌┐└┘│─]/);
+    assert.match(panel, /当前任务/);
+    assert.match(panel, /工具实况/);
+    assert.match(panel, /异常 1/);
+    assert.match(panel, /资源预算/);
+    assert.match(panel, /非零退出.*exit=1[^\n]*\n\s*\n\s*资源预算/u);
+    assert.match(panel, /S20 M0 T30 H50/);
+    assert.match(panel, /Ctrl\+K/);
+    assert.equal(panel.split('\n').length, 26);
+    assert.ok(panel.split('\n').every(line => stringWidth(line) <= 32));
+    const header = renderToString(<AgentHeader state={state} columns={80} palette={palette}/>, {columns: 80});
+    assert.doesNotMatch(header, /\[运行中/);
+    assert.match(header, /运行中 · 调用工具/);
+  }
+});
 
 test('agent status reflects observed lifecycle instead of inventing task progress', () => {
   assert.match(agentStatus(initialState).label, /启动/);

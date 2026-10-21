@@ -8,6 +8,7 @@ import type {BackendClient} from '../src/backend.js';
 import type {ServerEvent} from '../src/protocol.js';
 import {initialState} from '../src/view-state.js';
 import stringWidth from 'string-width';
+import {contextSnapshot} from './context-fixture.js';
 
 class MockClient {
   listeners = new Set<(event: ServerEvent) => void>();
@@ -50,6 +51,67 @@ async function enter(stdin: {write(value: string): void}, text: string) {
   stdin.write('\r');
   await pause(25);
 }
+
+for (const [columns, rows] of [[80, 24], [120, 40]]) {
+  test(`/context opens local partition replay in the ${columns} column layout`, async () => {
+    const client = new MockClient();
+    const first = contextSnapshot();
+    const second = {...first, snapshot_id: 'snapshot-2', request_id: 'request-2', step: 2, phase: 'after_compaction' as const};
+    const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} windowSize={{columns: columns!, rows: rows!}}
+      initialState={{...initialState, phase: 'idle', contextSnapshots: [first, second]}}/>);
+    await pause(25);
+    await enter(stdin, '/context');
+    assert.match(lastFrame() ?? '', /上下文分区/);
+    assert.match(lastFrame() ?? '', /快照 2\/2/);
+    assert.match(lastFrame() ?? '', /压缩后/);
+    assert.match(lastFrame() ?? '', /估算/);
+    assert.match(lastFrame() ?? '', /history 历史/);
+    assert.deepEqual(client.runs, []);
+    assert.deepEqual(client.commands, []);
+    stdin.write('\u001b[D');
+    await pause(25);
+    assert.match(lastFrame() ?? '', /快照 1\/2/);
+    assert.match(lastFrame() ?? '', /步骤 1/);
+    stdin.write('\u001b[F');
+    await pause(25);
+    assert.match(lastFrame() ?? '', /README.md/);
+    assert.ok((lastFrame() ?? '').split('\n').every(line => stringWidth(line) <= columns!));
+    assert.ok((lastFrame() ?? '').split('\n').length <= rows!);
+    stdin.write('l');
+    await pause(25);
+    assert.match(lastFrame() ?? '', /快照 2\/2/);
+    stdin.write('\u001b');
+    await pause(25);
+    assert.doesNotMatch(lastFrame() ?? '', /上下文分区 · \d/);
+  });
+}
+
+test('context detail is available during a run and keeps an older snapshot stable while new events arrive', async () => {
+  const {client, stdin, lastFrame} = await mount();
+  await enter(stdin, 'work');
+  client.emit({type: 'context_snapshot', id: 'run-1', snapshot: contextSnapshot()});
+  stdin.write('\u000b');
+  await pause(25);
+  assert.match(lastFrame() ?? '', /上下文分区/);
+  client.emit({type: 'context_snapshot', id: 'run-1', snapshot: {...contextSnapshot(), snapshot_id: 'snapshot-2', step: 2}});
+  await pause(25);
+  assert.match(lastFrame() ?? '', /快照 2\/2/);
+  stdin.write('\u001b[D');
+  await pause(25);
+  client.emit({type: 'context_snapshot', id: 'run-1', snapshot: {...contextSnapshot(), snapshot_id: 'snapshot-3', step: 3}});
+  await pause(25);
+  assert.match(lastFrame() ?? '', /快照 1\/3/);
+  assert.match(lastFrame() ?? '', /步骤 1/);
+  assert.deepEqual(client.runs, ['work']);
+});
+
+test('context detail explains missing snapshots with older backends without sending a model command', async () => {
+  const {client, stdin, lastFrame} = await mount();
+  await enter(stdin, '/context');
+  assert.match(lastFrame() ?? '', /尚无分区快照/);
+  assert.deepEqual(client.runs, []);
+  assert.deepEqual(client.commands, []);
+});
 
 test('streams a task and retains two completed rounds without duplicate final text', async () => {
   const {client, stdin, lastFrame, frames, unmount} = await mount();

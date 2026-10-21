@@ -47,6 +47,45 @@ export interface RunMetrics {
   cost_usd: number;
 }
 
+export const CONTEXT_SECTIONS = ['system', 'memory', 'tools', 'history'] as const;
+export type ContextSection = typeof CONTEXT_SECTIONS[number];
+export type ContextCounts = Record<ContextSection, number>;
+export interface ContextBlock {
+  id: string;
+  section: ContextSection;
+  kind: string;
+  label: string;
+  source: string;
+  tokens: number;
+  chars: number;
+  content_hash: string;
+}
+export interface ContextSnapshot {
+  schema_version: 1;
+  snapshot_id: string;
+  request_id: string;
+  run_id: string;
+  model: string;
+  ts: number;
+  step: number;
+  attempt: number;
+  phase: 'request' | 'before_compaction' | 'after_compaction';
+  reason: string;
+  estimated: true;
+  count_method: 'heuristic_cjk_v1';
+  context_window: number;
+  input_capacity: number;
+  total_tokens: number;
+  sections: ContextCounts;
+  caps: Record<string, number>;
+  reserves: {output: number; scratch: number};
+  remaining_tokens: number;
+  over_budget: boolean;
+  blocks: ContextBlock[];
+  delta_tokens: number;
+  section_deltas: ContextCounts;
+}
+
 type Envelope<T extends string, P = Record<never, never>> = {
   v: 1;
   type: T;
@@ -59,6 +98,7 @@ export type ServerEvent =
   | Envelope<'notice', {message: string}>
   | Envelope<'command_result', {command: BackendCommand; text: string}>
   | Envelope<'metrics', RunMetrics>
+  | Envelope<'context_snapshot', {snapshot: ContextSnapshot}>
   | Envelope<'diagnostic', {message: string}>
   | Envelope<'status', {phase: 'starting' | 'idle' | 'running' | 'waiting_approval' | 'stopping'}>
   | Envelope<'text_delta', {delta: string}>
@@ -120,6 +160,44 @@ function runResult(value: unknown): value is RunResult {
     typeof value.run_id === 'string' && typeof value.stop_reason === 'string';
 }
 
+function safeInteger(value: unknown, signed = false): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && (signed || value >= 0);
+}
+
+function contextCounts(value: unknown, signed = false): value is ContextCounts {
+  return record(value) && Object.keys(value).length === CONTEXT_SECTIONS.length &&
+    CONTEXT_SECTIONS.every(section => safeInteger(value[section], signed));
+}
+
+function contextSnapshot(value: unknown): value is ContextSnapshot {
+  if (!record(value) || value.schema_version !== 1 || value.estimated !== true || value.count_method !== 'heuristic_cjk_v1' ||
+      !['snapshot_id', 'request_id', 'run_id'].every(key => typeof value[key] === 'string' && (value[key] as string).length > 0) ||
+      typeof value.model !== 'string' || typeof value.reason !== 'string' ||
+      typeof value.ts !== 'number' || !Number.isFinite(value.ts) || value.ts < 0 ||
+      !['request', 'before_compaction', 'after_compaction'].includes(String(value.phase)) ||
+      !['step', 'attempt', 'context_window', 'input_capacity', 'total_tokens', 'remaining_tokens'].every(key => safeInteger(value[key])) ||
+      !contextCounts(value.sections) || !contextCounts(value.section_deltas, true) || !safeInteger(value.delta_tokens, true) ||
+      !record(value.caps) || !Object.values(value.caps).every(cap => safeInteger(cap)) ||
+      !record(value.reserves) || !safeInteger(value.reserves.output) || !safeInteger(value.reserves.scratch) ||
+      typeof value.over_budget !== 'boolean' || !Array.isArray(value.blocks)) return false;
+  const sections = value.sections;
+  const total = CONTEXT_SECTIONS.reduce((sum, section) => sum + sections[section], 0);
+  if (!Number.isSafeInteger(total) || total !== value.total_tokens ||
+      value.remaining_tokens !== Math.max(0, (value.input_capacity as number) - total) ||
+      value.over_budget !== (total > (value.input_capacity as number))) return false;
+  const blockTotals: ContextCounts = {system: 0, memory: 0, tools: 0, history: 0};
+  const ids = new Set<string>();
+  for (const block of value.blocks) {
+    if (!record(block) || typeof block.id !== 'string' || !block.id || ids.has(block.id) ||
+        !CONTEXT_SECTIONS.includes(block.section as ContextSection) ||
+        !['kind', 'label', 'source', 'content_hash'].every(key => typeof block[key] === 'string') ||
+        !safeInteger(block.tokens) || !safeInteger(block.chars)) return false;
+    ids.add(block.id);
+    blockTotals[block.section as ContextSection] += block.tokens;
+  }
+  return CONTEXT_SECTIONS.every(section => blockTotals[section] === sections[section]);
+}
+
 export function parseServerEvent(line: string): ServerEvent {
   if (Buffer.byteLength(line, 'utf8') > MAX_FRAME_BYTES) {
     throw new Error('后端消息超过 1 MiB 帧大小上限');
@@ -156,6 +234,7 @@ export function parseServerEvent(line: string): ServerEvent {
         (value.context_tokens === null || (typeof value.context_tokens === 'number' && Number.isSafeInteger(value.context_tokens) && value.context_tokens >= 0)) &&
         typeof value.estimated === 'boolean' && typeof value.cost_usd === 'number' && Number.isFinite(value.cost_usd) && value.cost_usd >= 0;
       break;
+    case 'context_snapshot': valid = validId(value.id) && contextSnapshot(value.snapshot); break;
     case 'diagnostic': valid = value.id === null && typeof value.message === 'string'; break;
     case 'status':
       valid = ['starting', 'idle', 'running', 'waiting_approval', 'stopping'].includes(String(value.phase)) &&

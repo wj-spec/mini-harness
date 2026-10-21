@@ -39,6 +39,7 @@ class TraceRecorder:
         self.usage_estimated = False
         self.tool_calls = 0
         self._llm_started: float | None = None
+        self._request_id: str | None = None
         self._tool_started: dict[int, float] = {}
 
     def event(self, event_type: str, **data) -> None:
@@ -57,9 +58,10 @@ class TraceRecorder:
     def start(self, task: str | None) -> None:
         self.event("run_start", task=(task or "")[:200])
 
-    def llm_start(self, step: int) -> None:
+    def llm_start(self, step: int, request_id: str | None = None) -> None:
         self._llm_started = time.monotonic()
-        self.event("llm_start", step=step)
+        self._request_id = request_id
+        self.event("llm_start", step=step, request_id=request_id)
 
     def llm_end(
         self, step: int, usage: dict | None, finish_reason: str | None,
@@ -83,6 +85,7 @@ class TraceRecorder:
         self.event(
             "llm_end",
             step=step,
+            request_id=self._request_id,
             duration_ms=round(duration, 1),
             prompt_tokens=prompt,
             completion_tokens=completion,

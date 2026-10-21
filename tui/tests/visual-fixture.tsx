@@ -4,6 +4,8 @@ import {pathToFileURL} from 'node:url';
 import {App} from '../src/app.js';
 import type {BackendClient} from '../src/backend.js';
 import {initialState, type ViewState} from '../src/view-state.js';
+import {contextSnapshot} from './context-fixture.js';
+import type {ThemeName} from '../src/theme.js';
 
 export function fixtureState(scenario: string): ViewState {
   const state: ViewState = {...initialState, phase: 'idle', activity: null, workspace: '/workspace/mini-harness', model: '视觉测试 · 不调用模型', sessionId: 'visual-fixture', provider: 'fixture'};
@@ -18,6 +20,21 @@ export function fixtureState(scenario: string): ViewState {
   state.lastResult = '本轮结束 · 视觉测试';
   state.lastStatus = 'done';
   state.metrics = {used_tokens: 163400, limit_tokens: 1000000, estimated: true, context_tokens: 24600, context_window: 1000000, done: 2, planned: 4, cost_usd: 0.012};
+  if (scenario === 'context') {
+    const sample = contextSnapshot();
+    const before = {...sample, phase: 'before_compaction' as const, context_window: 1_000_000, input_capacity: 960_000,
+      total_tokens: 198_000, sections: {system: 6000, memory: 0, tools: 12000, history: 180000},
+      caps: {system: 8000, memory: 64000, tools: 16000, history: 942000, history_nominal: 872000},
+      reserves: {output: 32000, scratch: 8000}, remaining_tokens: 762000,
+      blocks: sample.blocks.map(block => ({...block, tokens: block.section === 'system' ? 6000 : block.section === 'tools' ? 12000 : 180000})),
+      delta_tokens: 198000, section_deltas: {system: 6000, memory: 0, tools: 12000, history: 180000}};
+    const after = {...before, snapshot_id: 'snapshot-2', phase: 'after_compaction' as const, total_tokens: 98000,
+      sections: {...before.sections, history: 80000}, remaining_tokens: 862000,
+      blocks: before.blocks.map(block => block.section === 'history' ? {...block, tokens: 80000} : block),
+      delta_tokens: -100000, section_deltas: {system: 0, memory: 0, tools: 0, history: -100000}};
+    state.contextSnapshots = [before, after];
+    state.metrics.context_tokens = after.total_tokens;
+  }
   if (scenario === 'running') {
     state.phase = 'running'; state.activeId = 'fixture-run'; state.activity = 'using_tool'; state.lastStatus = null; state.lastResult = '';
     state.entries = [
@@ -48,13 +65,15 @@ const client: BackendClient = {
   subscribe: () => () => {}, start: () => {}, run: () => 'fixture-run', command: () => 'fixture-command', cancel: () => {}, approve: () => {}, shutdown: async () => {},
 };
 
-export function VisualFixture({scenario = 'welcome', columns = 80, rows = 24}: {scenario?: string; columns?: number; rows?: number}) {
-  return <App client={client} initialState={fixtureState(scenario)} windowSize={{columns, rows}}/>;
+export function VisualFixture({scenario = 'welcome', columns = 80, rows = 24, theme = 'system'}: {scenario?: string; columns?: number; rows?: number; theme?: ThemeName}) {
+  return <App client={client} initialState={fixtureState(scenario)} windowSize={{columns, rows}} initialTheme={theme}/>;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [scenario = 'welcome', columns = '80', rows = '24'] = process.argv.slice(2);
-  const tree = <VisualFixture scenario={scenario} columns={Number(columns)} rows={Number(rows)}/>;
+  const themeOption = process.argv.find(value => value.startsWith('--theme='))?.slice('--theme='.length);
+  const theme = themeOption === 'light' || themeOption === 'dark' ? themeOption : 'system';
+  const tree = <VisualFixture scenario={scenario} columns={Number(columns)} rows={Number(rows)} theme={theme}/>;
   if (process.argv.includes('--snapshot')) {
     process.stdout.write(`${renderToString(tree, {columns: Number(columns)})}\n`);
   } else {

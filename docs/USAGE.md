@@ -39,13 +39,17 @@ npm --prefix tui test
 
 `run_ink.sh` 每次先编译 TypeScript，再启动界面；Node 通过 JSON Lines 调用同一套 Python Agent，继续遵循 `PYTHON` 解释器选择与 `VIBE_*` 配置。需要在交互式终端运行，`--help` 可在普通管道中查看。
 
-当前采用全屏布局，上方显示项目、模型与会话，中间阅读对话和工具，下方编辑多行草稿并显示真实用量。退出恢复原终端内容。普通文本继承终端前景色，可用 `/theme system|light|dark` 切换语义颜色。
+当前采用全屏布局，上方显示项目、模型与会话，中间阅读对话和工具，下方编辑多行草稿并显示真实用量。退出恢复原终端内容。消息、输入与状态区采用底色深浅和留白分层，普通回复不画外框；失败、审批与选中工具用轻染色强调。
+
+`/theme light` 使用浅色底板，`/theme dark` 使用深色底板，文字与背景配套。默认 `system` 根据终端提供的 `COLORFGBG` 背景提示选择；未提供或无法识别时回退深色，浅色终端可手动切换。低色终端会按能力降级显示，状态仍用文字标明。
 
 | 操作 | 键位 / 命令 |
 |---|---|
 | 发送 / 换行 | `Enter` / `Ctrl+J`；终端支持时也可 `Shift+Enter` |
 | 历史与草稿 | 首末行用 `↑↓` 浏览历史；多行内用上下键移动，粘贴不会自动发送 |
-| 回看对话 / 返回最新 | `PgUp/PgDn` / `Ctrl+End`；回看时新文本不抢滚动 |
+| 回看对话 | 阅读区内滚轮 / 触控板、`PgUp/PgDn` 翻页；`Ctrl+P/N` 或 `Ctrl+↑/↓` 逐行 |
+| 阅读焦点 / 返回输入 | `Ctrl+R` 切换；阅读时 `↑↓` 滚动、空格下一页、`Home/End` 到首尾；`Esc` 返回输入 |
+| 返回最新 | `Ctrl+End`；回看时新文本不抢位置，滚动条和行号显示当前位置 |
 | 工具详情 | `Tab` 选本会话已发生工具，`Ctrl+O` 查看完整参数和输出，`Esc` 返回 |
 | 审批 | `y` 单次、`s` 精确规则、`p` 工作区、`n` 拒绝；按后端允许范围显示，粘贴不批准 |
 | 取消 / 退出 | `Ctrl+C` 取消当前任务，空闲时退出；`Ctrl+Q` 或 `/quit` 退出并清理 |
@@ -54,7 +58,9 @@ npm --prefix tui test
 | 查看改动 | `/diff` 经审批执行 git diff，全文可翻页 |
 | 查看技能 | `/skills`（或 `/skill`）重新扫描 `.vibe/skills` 并列出摘要，不调用模型 |
 
-运行时允许编辑下一条草稿，结束后再发送；审批和工具详情聚焦时暂停编辑。工具结果默认摘要，全文在详情页查看；原始消息和结果仍保存在 `.vibe/sessions/`。取消后需核对已发生的副作用。界面尺寸、阅读和输入设计见 [工作台规格](specs/ink-workbench.md)。
+运行时允许编辑下一条草稿，结束后再发送；阅读、审批和工具详情聚焦时暂停编辑，滚动不会改写草稿。终端支持时可按住 Shift 拖选文字；没有鼠标事件的终端可以用上述键盘操作。工具结果默认摘要，全文在详情页查看；原始消息和结果仍保存在 `.vibe/sessions/`。取消后需核对已发生的副作用。
+
+状态与消息按块展示：等待模型、回复、调用工具、审批、暂停和错误分别标注；宽屏右侧显示当前任务、工具记录和真实预算，窄屏使用紧凑状态条。命令失败、超时、取消、未知结果显示实际状态，长工具名不会遮住结果。界面与验证见 [历史阅读与状态分区](specs/ink-reading-state.md)。
 
 Ink 支持 `--continue`、已有 `VIBE_MCP_*` 配置与本进程权限管理。恢复后不会自动调用模型或重放工具；`/resume` 才开启新一轮预算。MCP 初始化期间也能取消，服务启动与工具调用分别审批。新命令结果显示真实退出码、超时或取消，旧记录没有执行元数据时显示未记录；零退出本身不证明需求验收通过。
 
@@ -99,6 +105,7 @@ VIBE_MODEL=qwen2.5-coder:7b \
 TUI 里：
 
 - `/cost`：本轮输入/输出 tokens，以及本 session 的 tokens / cost / tools；
+- `/context`：查看估算分区、内容块来源和本轮快照；Textual 可按 `Ctrl+O`，Ink 可按 `Ctrl+K`，运行中也能打开；
 - `/resume`：明确继续暂停任务，开启一轮新预算；
 - `/permissions`：查看当前工作区授权；`/permissions reset` 撤销本进程授权；
 - 写文件或执行命令会弹审批：`y/a` once、`s` session、`n/d` deny。
@@ -130,6 +137,14 @@ TUI 里：
 history 实际额度 = 窗口 − 输出预留 − 安全余量 − 实际 system/memory/tools 用量；空闲时最高 960k。显式设置 `VIBE_HISTORY_CAP` 会再取较小值，未分配额度可在 policy 中查看。小窗口下默认预留同比缩放，预算默认值统一由 `core/budget.py` 提供。
 
 可调：`VIBE_CONTEXT_WINDOW`、`VIBE_RESERVE_OUTPUT`、`VIBE_SCRATCH_CAP`、`VIBE_SYSTEM_CAP`、`VIBE_MEMORY_CAP`、`VIBE_TOOLS_CAP`、`VIBE_HISTORY_CAP`、`VIBE_KEEP_RECENT_GROUPS`、`VIBE_SUMMARY_MODEL`、`VIBE_SUMMARY_MAX_CHARS`。旧 `VIBE_MAX_TOKENS` 作为 context window 后备别名，优先使用 `VIBE_CONTEXT_WINDOW`。窗口配置需要与提供方模型能力对应；输出预留用于本地容量计算。
+
+### 分区快照与回放
+
+`/context` 展示当前占用条、四区用量与额度、输出和安全预留、逐步骤变化及块来源。`←/→` 切换快照，`↑/↓` 或滚轮翻阅，`Esc` 返回；Ink 的 `l` 恢复跟随最新。界面最多保留本轮最近 100 张快照，新任务或 `/resume` 开启新一轮；Textual 重开会话时也能查看上轮已有记录。
+
+快照区分请求前、主动压缩前和压缩后；最终请求的纠偏指令、工具定义及无工具收尾按实际内容计数，重试有独立请求 ID。分区使用当前字符启发式估算，不是供应商逐区精确计数；当前占用与 `/cost` 累计消耗分别记录，压缩不会清零累计消耗。
+
+完整快照保存在 `.vibe/sessions/<session>/trace.jsonl` 的 `context_snapshot` 事件，块只记录来源、hash 和用量，不重复保存正文。块数很多时，界面保留主要块并按分区合并其余块，最多 256 项，总量不变；完整明细仍在 trace。接口与验证范围见 [分区快照规格](specs/context-observability.md)。
 
 ## 单次任务预算与暂停
 

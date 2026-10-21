@@ -133,6 +133,14 @@ test('Tab completes local commands and unrelated global keys do not insert text'
   assert.equal(values.at(-1), '/tools');
 });
 
+test('context inspection is discoverable through local command completion', async () => {
+  const {key, values, submitted} = await mount();
+  await key('/cont');
+  await key('\t');
+  assert.equal(values.at(-1), '/context');
+  assert.deepEqual(submitted, []);
+});
+
 test('Home, End and Ctrl+U affect the current line', async () => {
   const {key, values} = await mount();
   await key('头行');

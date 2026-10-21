@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import {execFileSync} from 'node:child_process';
 import {test} from 'node:test';
+import {stripVTControlCharacters} from 'node:util';
 import stringWidth from 'string-width';
 import {fitText, markdownLines, visibleText} from '../src/markdown.js';
 
@@ -13,6 +15,24 @@ test('renders headings, lists, emphasis and fenced source as readable terminal l
   assert.match(output, /• fixed state/);
   assert.match(output, /const answer = 42/);
   assert.doesNotMatch(output, /```|\*\*/);
+  assert.doesNotMatch(output, /[┌└│]/);
+  assert.ok(lines.filter(line => line.kind === 'code').every(line => line.surface === 'code'));
+});
+
+test('shaded reading lines fill their terminal width without losing Chinese or emoji', () => {
+  const environment: NodeJS.ProcessEnv = {...process.env, FORCE_COLOR: '3'};
+  delete environment.NO_COLOR;
+  const output = execFileSync(process.execPath, ['--input-type=module', '-e', `
+    import React from 'react';
+    import {renderToString} from 'ink';
+    import {ReadingText} from './dist/src/markdown.js';
+    import {themes} from './dist/src/theme.js';
+    process.stdout.write(renderToString(React.createElement(ReadingText, {
+      line: {spans: [{text: '中文🙂'}], surface: 'task'}, palette: themes.light, columns: 18,
+    }), {columns: 18}));
+  `], {encoding: 'utf8', cwd: new URL('../../', import.meta.url), env: environment});
+  assert.equal(stringWidth(stripVTControlCharacters(output)), 18);
+  assert.match(output, /\u001b\[48;2;231;237;244m中文🙂 {12}/);
 });
 
 test('wraps CJK and emoji by terminal columns without losing content', () => {

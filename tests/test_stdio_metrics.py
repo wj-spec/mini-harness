@@ -66,8 +66,11 @@ def test_metrics_use_actual_trace_context_state_and_final_result(tmp_path):
         assert final["cost_usd"] == pytest.approx(done["result"]["cost_usd"]) == pytest.approx(46 / 1_000_000)
         events = [json.loads(line) for line in session.events_path.read_text().splitlines()]
         contexts = [e for e in events if e["type"] == "context"]
-        assert final["context_tokens"] == contexts[-1]["total_tokens"] > 0
         budget = [json.loads(line) for line in session.trace_path.read_text().splitlines()]
+        snapshots = [e for e in budget if e["type"] == "context_snapshot"]
+        assert final["context_tokens"] == snapshots[-1]["total_tokens"] > 0
+        # 旧 flat 回调不含工具定义，新指标以完整请求快照为准。
+        assert final["context_tokens"] > contexts[-1]["total_tokens"]
         assert any(e["type"] == "budget_update" and e["used_tokens"] == 38 for e in budget)
         assert session.load_state().done == ["read"]
         assert session.load_context() == agent.history

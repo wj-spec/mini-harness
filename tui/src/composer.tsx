@@ -14,13 +14,15 @@ type ComposerProps = {
   maxRows?: number;
   accentColor?: string;
   warningColor?: string;
+  foregroundColor?: string;
+  secondaryColor?: string;
   disabledHint?: string;
   onCommand?: (command: string) => void;
 };
 
-const commands = ['/help', '/resume', '/cost', '/tools', '/diff', '/permissions', '/permissions reset', '/mcp', '/session', '/theme', '/quit'];
+const commands = ['/help', '/resume', '/context', '/cost', '/tools', '/diff', '/permissions', '/permissions reset', '/mcp', '/session', '/theme', '/quit'];
 
-export function Composer({value, onChange, onSubmit, history, disabled = false, focused = true, placeholder = '输入任务，开始一次编码', columns, maxRows = 3, accentColor, warningColor, disabledHint}: ComposerProps) {
+export function Composer({value, onChange, onSubmit, history, disabled = false, focused = true, placeholder = '输入任务，开始一次编码', columns, maxRows = 3, accentColor, warningColor, foregroundColor, secondaryColor, disabledHint}: ComposerProps) {
   const [cursor, setCursorState] = useState(() => graphemes(value).length);
   const draft = useRef({value, cursor});
   const [, renderSubmission] = useState(0);
@@ -149,12 +151,12 @@ export function Composer({value, onChange, onSubmit, history, disabled = false, 
       const row = visible[index];
       const active = focused && wrapped.cursorRow === start + index;
       const prefix = index === 0 && start > 0 ? '↑ ' : index === visibleHeight - 1 && start + visibleHeight < wrapped.rows.length ? '↓ ' : index === 0 && start === 0 ? '› ' : '· ';
-      if (!value && index === 0) return <Text key={index} wrap="truncate-end"><Text bold color={disabled ? warningColor : accentColor}>{prefix}</Text><Text inverse={focused}> </Text><Text>{clipCells(placeholder, width - 3)}</Text></Text>;
+      if (!value && index === 0) return <Text key={index} color={foregroundColor} wrap="truncate-end"><Text bold color={disabled ? warningColor : accentColor}>{prefix}</Text><Text inverse={focused}> </Text><Text color={secondaryColor}>{clipCells(placeholder, width - 3)}</Text></Text>;
       if (!row) return <Text key={index}> </Text>;
       const chars = graphemes(row.text);
       const localCursor = cursor - row.start;
-      return <Text key={index} wrap="truncate-end"><Text bold color={disabled ? warningColor : accentColor}>{prefix}</Text>{active ? <>{chars.slice(0, localCursor).join('')}<Text inverse>{chars[localCursor] ?? ' '}</Text>{chars.slice(localCursor + 1).join('')}</> : row.text || ' '}</Text>;
+      return <Text key={index} color={foregroundColor} wrap="truncate-end"><Text bold color={disabled ? warningColor : accentColor}>{prefix}</Text>{active ? <>{chars.slice(0, localCursor).join('')}<Text inverse>{chars[localCursor] ?? ' '}</Text>{chars.slice(localCursor + 1).join('')}</> : row.text || ' '}</Text>;
     })}
-    {showHint ? <Text bold={disabled} color={disabled ? warningColor : undefined} wrap="truncate-end">{clipCells(status, width)}</Text> : null}
+    {showHint ? <Text bold={disabled} color={disabled ? warningColor : secondaryColor} wrap="truncate-end">{clipCells(status, width)}</Text> : null}
   </Box>;
 }

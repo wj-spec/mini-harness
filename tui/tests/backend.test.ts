@@ -275,7 +275,13 @@ readline.createInterface({input:process.stdin}).on('line',line=>{const request=J
 test('runs the actual Python fake backend and shuts it down',{skip:!existsSync(path.join(repoRoot,'.venv','bin','python3'))},async()=>{
   const base=path.join(repoRoot,'.vibe','node-transport-tests');await mkdir(base,{recursive:true});const workspace=await mkdtemp(path.join(base,'workspace-'));
   const client=createBackendClient({repoRoot,args:['--fake','--workspace',workspace,'--chat-only'],shutdownTimeoutMs:1000});const state=observer(client);
-  try{client.start();await state.wait(event=>event.type==='ready');const id=client.run('你好');const done=await state.wait(event=>event.type==='done'&&event.id===id);assert.ok(state.events.some(event=>event.type==='text_delta'&&event.id===id),JSON.stringify(state.events));assert.equal(done.type==='done'&&done.result.status,'done');await client.shutdown();assert.ok(state.events.some(event=>event.type==='closed'));}
+  try{client.start();await state.wait(event=>event.type==='ready');const id=client.run('你好');const done=await state.wait(event=>event.type==='done'&&event.id===id);assert.ok(state.events.some(event=>event.type==='text_delta'&&event.id===id),JSON.stringify(state.events));assert.equal(done.type==='done'&&done.result.status,'done');
+    const snapshots=state.events.filter(event=>event.type==='context_snapshot');
+    assert.ok(snapshots.length>0,JSON.stringify(state.events));
+    assert.ok(snapshots.every(event=>event.id===id&&event.snapshot.phase==='request'&&event.snapshot.estimated));
+    assert.ok(snapshots.every(event=>done.type==='done'&&event.snapshot.run_id===done.result.run_id));
+    assert.ok(snapshots.every(event=>event.snapshot.request_id.startsWith(event.snapshot.run_id+':')));
+    await client.shutdown();assert.ok(state.events.some(event=>event.type==='closed'));}
   finally{await client.shutdown();await rm(workspace,{recursive:true,force:true});}
 });
 
