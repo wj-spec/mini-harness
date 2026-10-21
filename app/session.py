@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
-from core.models import Message, ToolCall
+from core.models import Message, ToolCall, parse_execution_outcome
 from core.state import TaskState
 
 
@@ -20,6 +20,9 @@ def _message_from_dict(d: dict) -> Message:
             raise ValueError(f"invalid message {field}")
     if d.get("usage") is not None and not isinstance(d["usage"], dict):
         raise ValueError("invalid message usage")
+    execution = parse_execution_outcome(d.get("execution"))
+    if execution is not None and d["role"] != "tool":
+        raise ValueError("only tool messages can carry execution outcomes")
     raw_calls = d.get("tool_calls", [])
     if not isinstance(raw_calls, list):
         raise ValueError("invalid tool calls")
@@ -48,6 +51,7 @@ def _message_from_dict(d: dict) -> Message:
         finish_reason=d.get("finish_reason"),
         name=d.get("name"),
         tool_call_id=d.get("tool_call_id"),
+        execution=execution,
     )
 
 

@@ -1,6 +1,17 @@
 .vibe/
 .pylibs/
+.venv/
+node_modules/
+tui/dist/
 __pycache__/
 .pytest_cache/
 *.pyc
 drafts/*.bak
+
+# 本地环境与个人记录
+venv/
+.DS_Store
+.env
+.env.*
+!.env.example
+/docs/个人记录的实际使用问题.md

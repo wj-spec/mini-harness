@@ -23,6 +23,7 @@ mini-harness/
       fake.py           # 脚本 provider
       openai_compat.py  # SSE /chat/completions
     tools.py            # read/list/grep/recall/update_task/write_file/edit_file/bash
+    mcp.py              # FastMCP Client：stdio 接入、启动审批、工具映射与清理
     policy.py           # 审批闸、session allowlist、审计
     diff.py             # unified diff 预览
     sandbox.py          # 命令黑名单、超时、进程组 kill、输出截断
@@ -33,6 +34,22 @@ mini-harness/
     eval.py             # 10 任务 eval、check、报告、regression delta
     agent.py            # 唯一运行 loop：流式 + 工具执行 + context 接入
     tui.py              # Textual 界面
+    stdio.py            # Ink JSONL：恢复、审批、MCP、命令、取消、会话记录
+
+  tui/                  # Node.js + TypeScript + React/Ink 新入口
+    src/
+      cli.tsx           # 参数、渲染、进程信号与清理
+      backend.ts        # Python 子进程、帧校验与关闭
+      protocol.ts       # JSONL v1 类型与运行时校验
+      app.tsx           # 任务输入、流式文本、单次审批与取消
+      view-state.ts     # 界面事件状态、完整消息与工具记录
+      workbench.tsx     # 全屏阅读区、工具卡片与完整详情
+      markdown.tsx      # 终端 Markdown、宽字符换行与安全显示
+      theme.ts          # system / light / dark 语义配色
+      composer.tsx      # 多行草稿、输入历史、光标与粘贴
+      editor.ts         # grapheme 编辑和终端单元格宽度
+    tests/              # Node 通信与 Ink 渲染测试
+    package-lock.json   # 固定 Node 依赖
 
   evals/                # tasks.json（10 个任务）
   examples/demo-repo/   # 3 分钟 demo 仓库
@@ -58,6 +75,7 @@ mini-harness/
     test_provider.py
 
   docs/
+    USAGE.md           # 安装、配置与运行参考
     VIBE-PROTOCOL.md    # 协作规则
     MILESTONES.md       # 工作台里程碑与验收状态
     roadmap.md          # 产品方向与阶段取舍
@@ -75,6 +93,7 @@ mini-harness/
   README.md
   pyproject.toml
   run_vibe.sh
+  run_ink.sh            # 编译并启动 Ink，默认入口仍是 run_vibe.sh
   run_tests.sh
   .gitignore
 ```
@@ -89,7 +108,7 @@ core ──> 只依赖 stdlib
 
 **硬规则**：`core/` 不能 import `app/`，也不能 import `textual` / `httpx`。core 一旦沾上 TUI，就不能复用到别的项目。
 
-TUI 和 eval 都调用 `app.agent.Agent.run()`；循环测试统一放在 `tests/test_agent.py`。
+Textual、stdio 后端与 eval 都调用 `app.agent.Agent.run()`。Ink 通过本地 JSONL 与 stdio 后端交互，工具执行和审批决定仍由 Python 持有。循环测试放在 `tests/test_agent.py` 等 Python 回归中，界面与传输测试另见 `tui/tests/`。
 `app.summarize.LLMSummarizer` 通过现有 `summarizer` 参数注入 `ContextBuilder`，`core/` 不负责网络请求。
 
 ## 新文件放哪

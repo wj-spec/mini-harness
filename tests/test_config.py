@@ -115,7 +115,7 @@ def test_cli_max_steps_overrides_environment_even_when_zero(tmp_path, monkeypatc
 
     monkeypatch.setattr(Config, "from_env", lambda: Config(workspace=tmp_path, max_steps=17))
     captured = []
-    monkeypatch.setattr(entrypoint, "_run", lambda config, *args: captured.append(config.max_steps))
+    monkeypatch.setattr(entrypoint, "_run", lambda config, *args, **kwargs: captured.append(config.max_steps))
     monkeypatch.setattr(sys, "argv", ["vibe", "--fake", "--max-steps", str(max_steps)])
 
     entrypoint.main()

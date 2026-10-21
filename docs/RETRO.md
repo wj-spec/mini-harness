@@ -1,6 +1,6 @@
 # Retro · mini-harness M1–M8
 
-> 保留旧 M1–M8 的历史验收数据；架构描述已随单循环清理更新。当前产品验收使用 [W0–W7](MILESTONES.md)，旧编号见 [历史计划](history/MILESTONES-M1-M8.md)。
+> 保留旧 M1–M8 的历史验收数据；架构描述已随单循环清理更新。下文的测试数、能力差距和优先级保留当时结论；当前 MCP 能力见 [README](../README.md)，当前产品验收使用 [W0–W7](MILESTONES.md)，旧编号见 [历史计划](history/MILESTONES-M1-M8.md)。
 
 ## 结论
 

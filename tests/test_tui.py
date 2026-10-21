@@ -22,6 +22,172 @@ def _log_text(app):
     return "\n".join(line.text for line in app.query_one("#log", RichLog).lines)
 
 
+class StartupMcp:
+    servers = [object()]
+
+    def __init__(self):
+        self.errors = []
+        self.clients = {}
+        self.events = []
+        self.loop = None
+
+    async def register_into(self, registry, approval):
+        self.loop = asyncio.get_running_loop()
+        self.events.append("approval")
+        decision = await approval.request(
+            ToolCall("mcp_start", {"command": "fake-mcp"}), "启动 fake-mcp", registry.root,
+        )
+        if not decision.allowed:
+            self.errors.append("fake: startup denied")
+            return []
+        self.events.append("started")
+        self.clients["fake"] = object()
+        registry.register(ToolSpec("mcp_fake_echo", "Echo", {"type": "object"}, lambda: "ok"))
+        return ["mcp_fake_echo"]
+
+    async def close(self):
+        assert asyncio.get_running_loop() is self.loop
+        self.events.append("closed")
+        self.clients.clear()
+
+
+def test_mcp_startup_approval_precedes_resume_and_closes_on_quit(tmp_path):
+    session = SessionStore.new(tmp_path, "fake")
+    session.append_message(Message("user", "continue the MCP task"))
+    provider = FakeProvider(["resumed"])
+    gate = ApprovalGate(audit_path=session.audit_path)
+    manager = StartupMcp()
+    app = VibeApp(Config(workspace=tmp_path),
+                  Agent(provider, ToolRegistry(tmp_path), approval=gate, history=session.load_context()),
+                  session=session, resumed=True, mcp=manager)
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            await pilot.pause(0.2)
+            assert isinstance(app.screen, ApprovalScreen)
+            assert app.screen.tool_call.name == "mcp_start"
+            assert provider.seen == [] and manager.events == ["approval"]
+            assert app.query_one("#prompt", Input).disabled
+            await pilot.press("y")
+            await pilot.pause(0.4)
+            assert manager.events == ["approval", "started"]
+            assert len(provider.seen) == 1
+            assert any(tool["function"]["name"] == "mcp_fake_echo" for tool in provider.seen_tools[0])
+            assert "mcp tools: 1" in _log_text(app)
+            await pilot.press("ctrl+q")
+        assert manager.events == ["approval", "started", "closed"]
+
+    asyncio.run(scenario())
+
+
+def test_mcp_denied_startup_stays_usable_and_reports_warning(tmp_path):
+    manager = StartupMcp()
+    provider = FakeProvider(["still usable"])
+    app = VibeApp(Config(workspace=tmp_path),
+                  Agent(provider, ToolRegistry(tmp_path), approval=ApprovalGate()), mcp=manager)
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            await pilot.pause(0.2)
+            await pilot.press("n")
+            await pilot.pause(0.2)
+            assert manager.events == ["approval"]
+            assert "startup denied" in _log_text(app)
+            assert not app.query_one("#prompt", Input).disabled
+            await pilot.click("#prompt")
+            await pilot.press(*"hi", "enter")
+            await pilot.pause(0.2)
+            assert len(provider.seen) == 1
+            await pilot.press("ctrl+q")
+        assert manager.events == ["approval", "closed"]
+
+    asyncio.run(scenario())
+
+
+def test_quit_during_mcp_startup_does_not_resume_or_leave_modal(tmp_path):
+    session = SessionStore.new(tmp_path, "fake")
+    session.append_message(Message("user", "interrupted task"))
+    manager = StartupMcp()
+    provider = FakeProvider(["must not run"])
+    app = VibeApp(Config(workspace=tmp_path),
+                  Agent(provider, ToolRegistry(tmp_path), approval=ApprovalGate(), history=session.load_context()),
+                  session=session, resumed=True, mcp=manager)
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            await pilot.pause(0.2)
+            assert isinstance(app.screen, ApprovalScreen)
+            await pilot.press("ctrl+q")
+        assert provider.seen == []
+        assert manager.events == ["approval", "closed"]
+
+    asyncio.run(scenario())
+
+
+def test_cancel_mcp_startup_keeps_prompt_usable_without_auto_resume(tmp_path):
+    session = SessionStore.new(tmp_path, "fake")
+    session.append_message(Message("user", "interrupted task"))
+    manager = StartupMcp()
+    provider = FakeProvider(["new request"])
+    app = VibeApp(Config(workspace=tmp_path),
+                  Agent(provider, ToolRegistry(tmp_path), approval=ApprovalGate(), history=session.load_context()),
+                  session=session, resumed=True, mcp=manager)
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            await pilot.pause(0.2)
+            await pilot.press("ctrl+c")
+            await pilot.pause(0.2)
+            assert not isinstance(app.screen, ApprovalScreen)
+            assert manager.events == ["approval"] and provider.seen == []
+            assert not app.busy and not app.query_one("#prompt", Input).disabled
+            await pilot.click("#prompt")
+            await pilot.press(*"hi", "enter")
+            await pilot.pause(0.2)
+            assert len(provider.seen) == 1
+            await pilot.press("ctrl+q")
+        assert manager.events == ["approval", "closed"]
+
+    asyncio.run(scenario())
+
+
+def test_mcp_cleanup_also_runs_when_tui_is_unmounted(tmp_path):
+    manager = StartupMcp()
+    app = VibeApp(Config(workspace=tmp_path),
+                  Agent(FakeProvider([]), ToolRegistry(tmp_path), approval=ApprovalGate()), mcp=manager)
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            await pilot.pause(0.2)
+            await pilot.press("y")
+            await pilot.pause(0.2)
+        assert manager.events == ["approval", "started", "closed"]
+
+    asyncio.run(scenario())
+
+
+def test_mcp_cleanup_failure_does_not_block_quit(tmp_path):
+    class FailingCloseMcp(StartupMcp):
+        async def close(self):
+            await super().close()
+            raise RuntimeError("cleanup failed")
+
+    manager = FailingCloseMcp()
+    app = VibeApp(Config(workspace=tmp_path),
+                  Agent(FakeProvider([]), ToolRegistry(tmp_path), approval=ApprovalGate()), mcp=manager)
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            await pilot.pause(0.2)
+            await pilot.press("y")
+            await pilot.pause(0.2)
+            await pilot.press("ctrl+q")
+        assert manager.events == ["approval", "started", "closed"]
+        assert app._mcp_shutdown_error == "cleanup failed"
+
+    asyncio.run(scenario())
+
+
 def test_approval_modal_allows_write(tmp_path):
     provider = FakeProvider(
         [
@@ -115,6 +281,41 @@ def test_tui_does_not_resume_completed_turn(tmp_path):
         async with app.run_test() as pilot:
             await pilot.pause(0.4)
             assert provider.seen == []
+            await pilot.press("ctrl+q")
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("cancelled_terminal", [True, False])
+def test_mcp_unknown_outcome_requires_resume_after_recorded_cancellation(tmp_path, cancelled_terminal):
+    session = SessionStore.new(tmp_path, "fake")
+    call = ToolCall("mcp_fake_write", {"path": "a.txt", "content": "hello"}, id="mcp-write")
+    session.append_message(Message("user", "write through MCP"))
+    session.append_message(Message("assistant", tool_calls=[call]))
+    session.append_message(Message("tool", "ERROR cancelled: execution outcome unknown",
+                                   name=call.name, tool_call_id=call.id))
+    session.append_trace({"type": "run_start", "run_id": "mcp-run"})
+    if cancelled_terminal:
+        session.append_trace({"type": "run_end", "run_id": "mcp-run", "status": "cancelled"})
+    provider = FakeProvider(["先核对远端结果。"])
+    app = VibeApp(Config(workspace=tmp_path),
+                  Agent(provider, ToolRegistry(tmp_path), history=session.load_context()),
+                  session=session, resumed=True)
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            await pilot.pause(0.2)
+            if cancelled_terminal:
+                assert provider.seen == []
+                assert "任务已取消" in _log_text(app)
+                assert "/resume" in _log_text(app)
+                assert "重新打开会话不会自动续跑" in _log_text(app)
+                await pilot.click("#prompt")
+                await pilot.press(*"/resume", "enter")
+                await pilot.pause(0.2)
+                assert "核对" in provider.seen[0][-1].content
+            assert len(provider.seen) == 1
+            assert any("execution outcome unknown" in m.content for m in provider.seen[0])
             await pilot.press("ctrl+q")
 
     asyncio.run(scenario())
@@ -523,6 +724,47 @@ def test_diff_command_does_not_call_model(tmp_path):
             await pilot.press(*"/diff")
             await pilot.press("enter")
             await pilot.pause(0.3)
+            assert provider.seen == []
+            await pilot.press("ctrl+q")
+
+    asyncio.run(scenario())
+
+
+def test_skills_command_lists_rescan_without_model(tmp_path):
+    provider = FakeProvider([])
+    app = VibeApp(Config(workspace=tmp_path), Agent(provider, ToolRegistry(tmp_path)))
+    skill_dir = tmp_path / ".vibe" / "skills" / "release"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "name: release\ndescription: 打包并发布\n\n跑 make release\n", encoding="utf-8"
+    )
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            await pilot.click("#prompt")
+            await pilot.press(*"/skill")
+            await pilot.press("enter")
+            await pilot.pause(0.3)
+            text = _log_text(app)
+            assert "skills" in text
+            assert "release: 打包并发布" in text
+            assert provider.seen == []
+            await pilot.press("ctrl+q")
+
+    asyncio.run(scenario())
+
+
+def test_skills_command_handles_empty_directory(tmp_path):
+    provider = FakeProvider([])
+    app = VibeApp(Config(workspace=tmp_path), Agent(provider, ToolRegistry(tmp_path)))
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            await pilot.click("#prompt")
+            await pilot.press(*"/skills")
+            await pilot.press("enter")
+            await pilot.pause(0.3)
+            assert "no skills" in _log_text(app)
             assert provider.seen == []
             await pilot.press("ctrl+q")
 

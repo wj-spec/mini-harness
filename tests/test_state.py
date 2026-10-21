@@ -15,13 +15,13 @@ def test_render_and_update():
     assert "started" in rendered
 
 
-def test_observe_tool_tracks_files_and_tests():
+def test_observe_tool_tracks_files_without_assuming_commands_are_tests():
     state = TaskState(goal="g")
     state.observe_tool("write_file", {"path": "a.py"}, True, "ok")
     state.observe_tool("bash", {"command": "pytest -q"}, False, "1 failed")
 
     assert state.files_changed == ["a.py"]
-    assert state.tests_run == ["pytest -q"]
+    assert state.tests_run == []
     assert any("bash failed" in note for note in state.notes)
 
 

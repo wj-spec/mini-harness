@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 from .budget import BudgetPolicy
-from .models import Message, ToolCall
+from .models import Message, ToolCall, parse_execution_outcome
 from .summarize import summarize_messages
 
 Estimator = Callable[[str], int]
@@ -503,6 +503,9 @@ class ContextBuilder:
 
     @staticmethod
     def _message_from_dict(d: dict) -> Message:
+        execution = parse_execution_outcome(d.get("execution"))
+        if execution is not None and d["role"] != "tool":
+            raise ValueError("only tool messages can carry execution outcomes")
         calls = [ToolCall(name=c["name"], args=c.get("args", {}), id=c.get("id")) for c in d.get("tool_calls", [])]
         return Message(
             role=d["role"],
@@ -512,4 +515,5 @@ class ContextBuilder:
             finish_reason=d.get("finish_reason"),
             name=d.get("name"),
             tool_call_id=d.get("tool_call_id"),
+            execution=execution,
         )

@@ -187,7 +187,7 @@ def test_bash_timeout(tmp_path):
     ok, output = ToolRegistry(tmp_path).execute(
         ToolCall("bash", {"command": "sleep 1", "timeout": 0.1})
     )
-    assert ok is True
+    assert ok is False
     assert "timeout" in output.lower()
 
 
@@ -252,3 +252,72 @@ def test_write_file_rejects_stale_read(tmp_path):
     )
     assert ok is False
     assert "changed since last read" in output
+
+
+def test_async_tool_runs_on_callers_event_loop(tmp_path):
+    import asyncio
+    from app.tools import ToolSpec
+
+    async def run():
+        loop = asyncio.get_running_loop()
+
+        async def echo(text):
+            assert asyncio.get_running_loop() is loop
+            await asyncio.sleep(0)
+            return text
+
+        registry = ToolRegistry(tmp_path)
+        registry.register(ToolSpec("remote", "", {}, echo))
+        assert await registry.execute_async(ToolCall("remote", {"text": "你好"})) == (True, "你好")
+        ok, output = registry.execute(ToolCall("remote", {"text": "你好"}))
+        assert not ok and "execute_async" in output
+
+    asyncio.run(run())
+
+
+def test_async_tool_timeout_cancels_operation(tmp_path):
+    import asyncio
+    from app.tools import ToolSpec
+
+    async def run():
+        cancelled = asyncio.Event()
+
+        async def hang():
+            try:
+                await asyncio.sleep(10)
+            finally:
+                cancelled.set()
+
+        registry = ToolRegistry(tmp_path)
+        registry.register(ToolSpec("remote", "", {}, hang, timeout=0.02))
+        ok, output = await registry.execute_async(ToolCall("remote", {}))
+        assert not ok and "timeout" in output
+        assert cancelled.is_set()
+
+    asyncio.run(run())
+
+
+def test_async_tool_cancel_event_stops_pending_operation(tmp_path):
+    import asyncio
+    from app.tools import ToolSpec
+
+    async def run():
+        entered, stopped, cancel = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+        async def hang():
+            entered.set()
+            try:
+                await asyncio.sleep(10)
+            finally:
+                stopped.set()
+
+        registry = ToolRegistry(tmp_path)
+        registry.register(ToolSpec("remote", "", {}, hang))
+        pending = asyncio.create_task(registry.execute_async(ToolCall("remote", {}), cancel=cancel))
+        await asyncio.wait_for(entered.wait(), 0.2)
+        cancel.set()
+        ok, output = await asyncio.wait_for(pending, 0.2)
+        assert not ok and "cancelled" in output and "unknown" in output
+        assert stopped.is_set()
+
+    asyncio.run(run())

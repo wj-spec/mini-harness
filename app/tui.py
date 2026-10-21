@@ -8,12 +8,14 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical, VerticalScroll
 from textual.screen import ModalScreen
+from textual.worker import WorkerCancelled, WorkerFailed
 from textual.widgets import Footer, Header, Input, RichLog, Static
 
 from app.agent import Agent
 from app.config import Config
 from app.policy import ApprovalDecision
 from app.sandbox import run_command
+from app.skills import discover_skills
 from core.models import Message, ToolCall
 
 
@@ -84,8 +86,8 @@ class ApprovalScreen(ModalScreen[str]):
     def action_cancel(self) -> None:
         self.app.action_cancel()
 
-    def action_quit_app(self) -> None:
-        self.app.action_quit()
+    async def action_quit_app(self) -> None:
+        await self.app.action_quit()
 
     def action_deny(self) -> None:
         self.dismiss("deny")
@@ -108,7 +110,7 @@ class VibeApp(App):
         ("ctrl+q", "quit", "Quit"),
     ]
 
-    def __init__(self, config: Config, agent: Agent, session=None, resumed: bool = False):
+    def __init__(self, config: Config, agent: Agent, session=None, resumed: bool = False, mcp=None):
         super().__init__()
         self.config = config
         self.agent = agent
@@ -120,6 +122,12 @@ class VibeApp(App):
         self.last_state = None
         self.last_context = None
         self.run_budget = None
+        self.mcp = mcp
+        self._mcp_starting = bool(mcp is not None and mcp.servers and agent.tools_enabled)
+        self._mcp_worker = None
+        self._mcp_closed = False
+        self._mcp_shutdown_error = None
+        self._quitting = False
         if getattr(agent, "approval", None) is not None:
             agent.approval.handler = self.request_approval
 
@@ -141,10 +149,42 @@ class VibeApp(App):
             self.query_one("#log", RichLog).write(
                 f"[dim]AGENTS.md loaded ({len(self.agent.project_instructions)} chars)[/]"
             )
+        if getattr(self.agent, "tools", None) is not None and getattr(self.agent.tools, "skills", None):
+            names = ", ".join(skill.name for skill in self.agent.tools.skills)
+            self.query_one("#log", RichLog).write(f"[dim]skills: {names}[/]")
         if getattr(self.agent, "approval", None) is None:
             self.query_one("#log", RichLog).write(
                 "[red]approval gate missing：写工具会 fail closed（approval_required）[/]"
             )
+        if self._mcp_starting:
+            self.busy = True
+            self.query_one("#prompt", Input).disabled = True
+            self._mcp_worker = self.initialize_mcp()
+        else:
+            self._restore_session()
+
+    @work(group="mcp-startup", exclusive=True)
+    async def initialize_mcp(self) -> None:
+        log = self.query_one("#log", RichLog)
+        try:
+            loaded = await self.mcp.register_into(self.agent.tools, self.agent.approval)
+            for message in self.mcp.errors:
+                log.write(f"[yellow]warning: mcp server failed: {escape(message)}[/]")
+            if loaded:
+                log.write(f"[dim]mcp tools: {len(loaded)} from {len(self.mcp.clients)} server(s)[/]")
+        except Exception as exc:
+            log.write(f"[red]MCP startup failed: {escape(str(exc))}[/]")
+        finally:
+            self._mcp_starting = False
+            self.busy = False
+            prompt = self.query_one("#prompt", Input)
+            if prompt.is_mounted and not self._quitting:
+                prompt.disabled = False
+                prompt.focus()
+        if not self._quitting and not self.cancel_event.is_set():
+            self._restore_session()
+
+    def _restore_session(self) -> None:
         if self.session is not None:
             log = self.query_one("#log", RichLog)
             log.write(f"[dim]session {self.session.id} · {self.session.root}[/]")
@@ -170,6 +210,9 @@ class VibeApp(App):
                         pending = "；".join(self.last_state.open) or "暂无已记录项"
                         log.write(f"[dim]已完成：{escape(done)}；待继续：{escape(pending)}[/]")
                     self._show_resume_hint(reason)
+                elif latest_run and latest_run.get("status") == "cancelled":
+                    log.write("[yellow]任务已取消；结果未知的操作需要先核对，取消不代表撤销。[/]")
+                    self._show_resume_hint("cancelled")
                 elif self._needs_resume(history):
                     log.write("[yellow]resuming interrupted turn…[/]")
                     self.handle_turn(None)
@@ -186,6 +229,9 @@ class VibeApp(App):
             return
         if text == "/diff":
             self.show_diff()
+            return
+        if text in {"/skill", "/skills"}:
+            self.show_skills()
             return
         if text in {"/permissions", "/permissions reset"}:
             self.show_permissions(reset=text.endswith(" reset"))
@@ -204,7 +250,7 @@ class VibeApp(App):
             return
         if text == "/help":
             self.query_one("#log", RichLog).write(
-                "[dim]/cost 看 token / 花费；/diff 看 git diff；/permissions 查看授权，reset 撤销；/resume 继续暂停任务；其它输入交给 agent[/]"
+                "[dim]/cost 看 token / 花费；/diff 看 git diff；/skills 列出技能；/permissions 查看授权，reset 撤销；/resume 继续暂停任务；其它输入交给 agent[/]"
             )
             return
         self.handle_turn(text)
@@ -353,6 +399,23 @@ class VibeApp(App):
             return
         log.write(output[-4000:])
 
+    def show_skills(self) -> None:
+        """列出 .vibe/skills；每次重新扫描，新增文件不用重启。"""
+        log = self.query_one("#log", RichLog)
+        tools = getattr(self.agent, "tools", None)
+        if tools is None:
+            log.write("[yellow]skills 不可用：当前没有工具注册表[/]")
+            return
+        skills = discover_skills(self.config.workspace)
+        tools.skills = skills
+        if not skills:
+            log.write("[dim]no skills; add .vibe/skills/<name>/SKILL.md[/]")
+            return
+        log.write(f"[bold]skills[/] {len(skills)} 个（.vibe/skills）")
+        for skill in skills:
+            log.write(f"- {escape(skill.name)}: {escape(skill.summary())}")
+        log.write("[dim]agent 需要时会自己调用 load_skill 读取正文。[/]")
+
     def show_cost(self) -> None:
         log = self.query_one("#log", RichLog)
         if self.run_budget is not None:
@@ -485,7 +548,44 @@ class VibeApp(App):
         self.cancel_event.set()
         if isinstance(self.screen, ApprovalScreen):
             self.screen.dismiss("cancelled")
+        if self._mcp_starting and self._mcp_worker is not None:
+            self._mcp_worker.cancel()
         self.query_one("#log", RichLog).write("[yellow]cancelling…[/]")
 
-    def action_quit(self) -> None:
+    async def _close_mcp(self) -> None:
+        if self.mcp is None or self._mcp_closed:
+            return
+        self._mcp_closed = True
+        try:
+            await self.mcp.close()
+        except Exception as exc:
+            self._mcp_shutdown_error = str(exc)
+            self.log.error(f"MCP cleanup failed: {exc}")
+            for log in self.query("#log"):
+                if log.is_mounted:
+                    log.write(f"[red]MCP cleanup failed: {escape(str(exc))}[/]")
+
+    async def _stop_mcp_startup(self) -> None:
+        worker = self._mcp_worker
+        if worker is not None and not worker.is_finished:
+            worker.cancel()
+            try:
+                await worker.wait()
+            except (WorkerCancelled, WorkerFailed):
+                pass
+
+    async def on_unmount(self) -> None:
+        self.cancel_event.set()
+        await self._stop_mcp_startup()
+        await self._close_mcp()
+
+    async def action_quit(self) -> None:
+        if self._quitting:
+            return
+        self._quitting = True
+        self.cancel_event.set()
+        if isinstance(self.screen, ApprovalScreen):
+            self.screen.dismiss("cancelled")
+        await self._stop_mcp_startup()
+        await self._close_mcp()
         self.exit()

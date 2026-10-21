@@ -22,13 +22,13 @@ def test_continue_opens_previous_conversation_after_empty_launch(tmp_path, monke
     opened = []
 
     class CaptureApp:
-        def __init__(self, config, agent, session, resumed):
+        def __init__(self, config, agent, session, resumed, mcp=None):
             opened.append((agent, session, resumed))
 
         def run(self):
             pass
 
-    monkeypatch.setattr(entrypoint, "VibeApp", CaptureApp)
+    monkeypatch.setattr(entrypoint, "build_textual_app", CaptureApp)
     monkeypatch.setattr(sys, "argv", ["vibe", "--fake", "--workspace", str(tmp_path), "--continue"])
 
     entrypoint.main()
@@ -73,7 +73,7 @@ def test_continue_restores_checkpoint_and_resume_after_empty_launch(tmp_path, mo
 
             asyncio.run(scenario())
 
-    monkeypatch.setattr(entrypoint, "VibeApp", CheckedApp)
+    monkeypatch.setattr(entrypoint, "build_textual_app", CheckedApp)
     monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path))
     monkeypatch.setattr(sys, "argv", ["vibe", "--fake", "--continue"])
 
@@ -90,7 +90,7 @@ def test_invalid_mcp_config_exits_before_tui(tmp_path, monkeypatch, capsys):
         def run(self):
             pass
 
-    monkeypatch.setattr(entrypoint, "VibeApp", CaptureApp)
+    monkeypatch.setattr(entrypoint, "build_textual_app", CaptureApp)
     monkeypatch.setattr(
         entrypoint.Config,
         "from_env",
@@ -104,3 +104,87 @@ def test_invalid_mcp_config_exits_before_tui(tmp_path, monkeypatch, capsys):
     assert exc.value.code == 1
     assert "invalid MCP config" in capsys.readouterr().err
     assert opened == []
+
+
+@pytest.mark.parametrize("chat_only", [False, True])
+def test_mcp_starts_inside_tui_lifecycle(tmp_path, monkeypatch, chat_only):
+    opened = []
+
+    class Manager:
+        servers = [object()]
+
+        async def register_into(self, registry, approval):
+            pytest.fail("entrypoint must leave MCP startup to the TUI")
+
+        async def close(self):
+            pytest.fail("entrypoint must leave MCP cleanup to the TUI event loop")
+
+    manager = Manager()
+
+    class CaptureApp:
+        def __init__(self, config, agent, session, resumed, mcp=None):
+            opened.append((agent, mcp))
+
+        def run(self):
+            pass
+
+    monkeypatch.setattr(entrypoint, "build_textual_app", CaptureApp)
+    monkeypatch.setattr(entrypoint.McpManager, "from_env", lambda *args: manager)
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path))
+    args = ["vibe", "--fake"] + (["--chat-only"] if chat_only else [])
+    monkeypatch.setattr(sys, "argv", args)
+
+    entrypoint.main()
+
+    assert len(opened) == 1
+    assert opened[0][1] is (None if chat_only else manager)
+    assert opened[0][0].tools_enabled is not chat_only
+
+
+def test_stdio_continue_restores_session_checkpoint_and_mcp(tmp_path, monkeypatch):
+    from app import stdio
+
+    previous = SessionStore.new(tmp_path, "fake")
+    goal = Message("user", "继续接口")
+    summary = Message("assistant", "已完成调研", name="history_summary_l2")
+    previous.append_message(goal)
+    previous.append_message(Message("assistant", "原文"))
+    previous.save_context([goal, summary])
+    previous.save_state(TaskState(goal="继续接口", open=["实现"]))
+    manager = object()
+    opened = []
+    monkeypatch.setattr(stdio, "run_stdio", lambda agent, config, **kwargs: opened.append((agent, kwargs)))
+    monkeypatch.setattr(entrypoint.McpManager, "from_env", lambda *args: manager)
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path))
+    monkeypatch.setattr(sys, "argv", ["vibe", "--fake", "--stdio", "--continue"])
+
+    entrypoint.main()
+
+    agent, options = opened[0]
+    assert options["resumed"] is True and options["session"].id == previous.id
+    assert options["mcp"] is manager
+    assert agent.history == [goal, summary] and agent.state.open == ["实现"]
+    assert not agent.provider.seen
+
+
+def test_stdio_accepts_configured_mcp_and_keeps_startup_in_event_loop(tmp_path, monkeypatch):
+    from app import stdio
+
+    manager = object()
+    opened = []
+    monkeypatch.setattr(stdio, "run_stdio", lambda agent, config, **kwargs: opened.append(kwargs))
+    monkeypatch.setattr(entrypoint.McpManager, "from_env", lambda *args: manager)
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path, mcp_servers="{}"))
+    monkeypatch.setattr(sys, "argv", ["vibe", "--fake", "--stdio"])
+
+    entrypoint.main()
+
+    assert opened[0]["mcp"] is manager and opened[0]["resumed"] is False
+
+
+def test_stdio_eval_still_rejected(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["vibe", "--stdio", "--eval"])
+    with pytest.raises(SystemExit) as error:
+        entrypoint.main()
+    assert error.value.code == 2
+    assert "eval" in capsys.readouterr().err

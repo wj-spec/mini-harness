@@ -1,9 +1,8 @@
 # 3 分钟 demo
 
-前置：项目根目录，`.pylibs` 已就绪。
+前置：按 [使用指南](USAGE.md) 安装依赖并配置真实模型，在项目根目录运行。此演示会调用模型，运行时间取决于模型响应和审批等待。
 
 ```bash
-cd Agent精进/产出/mini-harness
 ./run_tests.sh -q
 ```
 
@@ -73,7 +72,7 @@ VIBE_INPUT_PRICE_PER_1M=0.27 VIBE_OUTPUT_PRICE_PER_1M=1.10 ./scripts/demo.sh
 ./run_vibe.sh --workspace <demo-repo> --continue
 ```
 
-如果上一轮没完成，会自动续跑；否则只加载历史。
+将 `<demo-repo>` 替换为启动时输出的临时工作区路径。明确停止或取消的任务先展示保存进度，输入 `/resume` 才开启新一轮预算；缺少终态记录的中断任务沿恢复流程处理。恢复后先核对实际文件和执行结果。
 
 最后跑一个小 eval：
 

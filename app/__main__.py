@@ -16,10 +16,15 @@ from app.trace import Pricing
 from app.providers.fake import FakeProvider
 from app.providers.openai_compat import OpenAICompatProvider
 from app.tools import ToolRegistry
-from app.tui import VibeApp
 from core.context import ContextBuilder
 from core.state import TaskState
 from core.summarize import summarize_messages
+
+
+def build_textual_app(*args, **kwargs):
+    from app.tui import VibeApp
+
+    return VibeApp(*args, **kwargs)
 
 
 def build_provider(config: Config, fake: bool, debug_path=None):
@@ -49,6 +54,7 @@ def build_provider(config: Config, fake: bool, debug_path=None):
 def main() -> None:
     parser = argparse.ArgumentParser(prog="vibe")
     parser.add_argument("--fake", action="store_true", help="不联网，用脚本 provider")
+    parser.add_argument("--stdio", action="store_true", help="供 Ink 使用的 JSONL 后端")
     parser.add_argument("--provider", default=None, help="openai | fake")
     parser.add_argument("--model", default=None)
     parser.add_argument("--base-url", default=None)
@@ -61,6 +67,11 @@ def main() -> None:
     parser.add_argument("--eval-tasks", default=None)
     args = parser.parse_args()
 
+    if args.stdio and (
+        args.eval
+        or args.eval_limit is not None or args.eval_tasks is not None
+    ):
+        parser.error("--stdio cannot be combined with eval options")
     config = Config.from_env()
     if args.provider:
         config.provider = args.provider
@@ -133,19 +144,11 @@ def main() -> None:
     except (OSError, ValueError) as exc:
         print(f"error: invalid MCP config: {exc}", file=sys.stderr)
         raise SystemExit(1)
-    try:
-        if mcp.servers:
-            loaded = mcp.register_into(tools)
-            for message in mcp.errors:
-                print(f"warning: mcp server failed: {message}", file=sys.stderr)
-            if loaded:
-                print(f"mcp tools: {len(loaded)} from {len(mcp.clients)} server(s)", file=sys.stderr)
-        _run(config, session, tools, approval, provider, context, state, history, args)
-    finally:
-        mcp.close()
+    _run(config, session, tools, approval, provider, context, state, history, args,
+         mcp=None if args.chat_only else mcp)
 
 
-def _run(config, session, tools, approval, provider, context, state, history, args) -> None:
+def _run(config, session, tools, approval, provider, context, state, history, args, mcp=None) -> None:
     instructions = load_agents_md(config.workspace, config.agents_max_chars)
     pricing = Pricing(config.input_price_per_1m, config.output_price_per_1m)
     agent = Agent(
@@ -170,7 +173,12 @@ def _run(config, session, tools, approval, provider, context, state, history, ar
         pricing=pricing,
         project_instructions=instructions,
     )
-    VibeApp(config, agent, session=session, resumed=args.continue_session).run()
+    if args.stdio:
+        from app.stdio import run_stdio
+
+        run_stdio(agent, config, session=session, resumed=args.continue_session, mcp=mcp)
+    else:
+        build_textual_app(config, agent, session=session, resumed=args.continue_session, mcp=mcp).run()
 
 
 if __name__ == "__main__":

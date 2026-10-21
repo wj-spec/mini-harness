@@ -1,5 +1,7 @@
 # S2 Spec · Context
 
+> 早期规格，保留用于理解最初的接口与取舍。当前预算、压缩和失败行为以 [ContextBuilder](../../core/context.py) 及 [上下文测试](../../tests/test_context.py) 为准。
+
 > 目标：给定一串 messages 和一个 token 预算，产出一串更小的 messages。
 > 硬约束：pinned 不丢；每条被压缩的内容都有引用或摘要；工具调用和结果不被拆散。
 

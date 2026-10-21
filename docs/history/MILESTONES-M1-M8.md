@@ -302,7 +302,7 @@
 M1 只差你真跑一次：
 
 ```bash
-cd Agent精进/产出/mini-harness
+# 在项目根目录运行
 ./run_vibe.sh --chat-only
 ```
 

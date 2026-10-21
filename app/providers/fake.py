@@ -21,7 +21,7 @@ class FakeProvider:
         self.seen_tools.append(list(tools))
         if self.i >= len(self.script):
             yield TextDelta("[fake provider exhausted]")
-            yield StreamDone(usage=None if isinstance(item, str) else item.usage, finish_reason=None if isinstance(item, str) else item.finish_reason)
+            yield StreamDone()
             return
 
         item = self.script[self.i]
