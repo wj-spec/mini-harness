@@ -73,6 +73,92 @@ class AgentResult:
     error: str | None = None
 
 
+@dataclass
+class _RunContext:
+    """一次 run 的可变工作区；步骤函数只通过它共享状态，不跨 run 复用。"""
+
+    cancel: asyncio.Event | None
+    on_text: TextCallback | None
+    on_tool: ToolCallback | None
+    on_result: ResultCallback | None
+    on_execution: Callable[[ToolCall, ExecutionOutcome], None] | None
+    on_context: Callable[[ContextResult], None] | None
+    on_state: Callable[[TaskState], None] | None
+    on_message: Callable[[Message], None] | None
+    on_history: Callable[[list[Message]], None] | None
+    trace: Callable[[dict], None] | None
+    state: TaskState
+    state_message: Message
+    recorder: TraceRecorder
+    messages: list[Message]
+    raw_history: list[Message]
+    model_error: str | None = None
+    history_compacted: bool = False
+    compacted_at_tokens: int = 0
+    high_water_suppressed: bool = False
+    snapshot_sequence: int = 0
+    previous_snapshot: dict | None = None
+    current_step: int = 0
+    current_attempt: int = 0
+    tool_calls: int = 0
+    previous_prompt_tokens: int = 0
+    previous_completion_tokens: int = 0
+    previous_prompt_estimate: int = 0
+    progress: ProgressMonitor | None = None
+    progress_stop: str = ""
+    correction_instruction: str = ""
+    denied_requests: set[tuple[str, str]] = field(default_factory=set)
+    empty_retries: int = 0
+    action_required_sent: bool = False
+    continuations: int = 0
+    started: float = 0.0
+    approval_wait_seconds: float = 0.0
+
+
+@dataclass
+class _StepPlan:
+    """一次 step 在请求模型前的准备结果。"""
+
+    request_messages: list[Message]
+    tool_specs: list[dict]
+    finalizing: bool = False
+    progress_finalizing: bool = False
+
+
+@dataclass
+class _ModelTurn:
+    """一次模型请求（含重试后）的最终结果。"""
+
+    text: str = ""
+    calls: list[ToolCall] = field(default_factory=list)
+    error: str | None = None
+    finish_reason: str | None = None
+    reasoning_content: str | None = None
+    stream_cancelled: bool = False
+
+
+@dataclass
+class _StreamCapture:
+    """一次流式请求的原始采集结果；不包含预算与重试判断。"""
+
+    text_parts: list[str] = field(default_factory=list)
+    calls: list[ToolCall] = field(default_factory=list)
+    error: str | None = None
+    error_retryable: bool = False
+    finish_reason: str | None = None
+    usage: dict | None = None
+    reasoning_content: str | None = None
+    request_started: bool = False
+    cancelled: bool = False
+
+
+@dataclass
+class _StepDecision:
+    """模型回复之后：继续下一步，或执行这一批工具调用。"""
+
+    calls: list[ToolCall] = field(default_factory=list)
+
+
 class Agent:
     def __init__(
         self,
@@ -281,6 +367,7 @@ class Agent:
         trace: Callable[[dict], None] | None = None,
         cancel: asyncio.Event | None = None,
     ) -> AgentResult:
+        """准备一次 run 的共享状态，然后交给 _loop 逐步执行。"""
         if self.tools_enabled:
             try:
                 self.tools.skill_manager.refresh()
@@ -309,759 +396,886 @@ class Agent:
             model=getattr(self.provider, "model", ""),
         )
         recorder.start(task)
-        model_error: str | None = None
+        run = _RunContext(
+            cancel=cancel,
+            on_text=on_text,
+            on_tool=on_tool,
+            on_result=on_result,
+            on_execution=on_execution,
+            on_context=on_context,
+            on_state=on_state,
+            on_message=on_message,
+            on_history=on_history,
+            trace=trace,
+            state=state,
+            state_message=state_message,
+            recorder=recorder,
+            messages=messages,
+            raw_history=raw_history,
+        )
+        self._budget_update(run, "running")
+        run.progress = ProgressMonitor(self.max_no_progress)
+        run.started = time.monotonic()
+        try:
+            return await self._loop(run)
+        finally:
+            self.history = run.raw_history
 
-        def finish(text: str, steps: int, status: str, stop_reason: str = "") -> AgentResult:
-            recorder.tool_calls = tool_calls
-            recorder.end(status, steps, stop_reason, self.max_run_tokens)
-            return AgentResult(
-                text,
-                steps,
-                status,
-                recorder.usage(),
-                recorder.cost_usd,
-                recorder.run_id,
-                stop_reason,
-                model_error,
+    async def _loop(self, run: _RunContext) -> AgentResult:
+        """单 Agent 主循环：准备请求 → 模型回复 → 判断 → 执行工具。"""
+        for step in count(1):
+            run.current_step = step
+            run.current_attempt = 0
+            plan = await self._prepare_step(run, step)
+            if isinstance(plan, AgentResult):
+                return plan
+            turn = await self._call_model(run, step, plan)
+            if isinstance(turn, AgentResult):
+                return turn
+            decision = await self._decide_after_model(run, step, plan, turn)
+            if isinstance(decision, AgentResult):
+                return decision
+            if decision.calls:
+                stopped = await self._run_tool_calls(run, step, decision.calls)
+                if stopped is not None:
+                    return stopped
+        raise AssertionError("unreachable")
+
+    async def _prepare_step(self, run: _RunContext, step: int) -> _StepPlan | AgentResult:
+        """检查停止条件、压缩上下文并组装这一 step 的请求。"""
+        if run.cancel is not None and run.cancel.is_set():
+            return self._finish(run, "cancelled", step - 1, "cancelled")
+        if self.max_steps > 0 and step > self.max_steps:
+            if run.progress_stop:
+                return self._pause_progress(run, step - 1, "步骤上限已到，未发起模型收尾。")
+            return self._finish(
+                run, "stopped: max_steps", self.max_steps, "stopped", "max_steps",
             )
 
-        def record_message(message: Message) -> None:
-            nonlocal history_compacted
-            history_compacted = False
-            messages.append(message)
-            raw_history.append(message)
-            if on_message:
-                on_message(message)
+        self._sync_skill_context()
+        run.messages[0] = Message("system", self.system)
+        run.state_message.content = run.state.render()
+        tool_specs = self.tools.specs() if self.tools_enabled else []
+        tool_tokens = estimate_tokens(json.dumps(tool_specs, ensure_ascii=False))
+        request_messages = run.messages
+        finalizing = False
+        progress_finalizing = bool(run.progress_stop)
+        compacted_this_step = False
+        ratio = max(1.0, run.previous_prompt_tokens / max(1, run.previous_prompt_estimate))
+        output_reserve = max(256, run.previous_completion_tokens)
+        remaining_tokens = (
+            self.max_run_tokens - run.recorder.total_tokens if self.max_run_tokens else 0
+        )
 
-        def budget_update(phase: str) -> None:
-            recorder.event(
-                "budget_update",
-                used_tokens=recorder.total_tokens,
-                limit_tokens=self.max_run_tokens,
-                remaining_tokens=max(0, self.max_run_tokens - recorder.total_tokens),
-                prompt_tokens=recorder.prompt_tokens,
-                completion_tokens=recorder.completion_tokens,
-                phase=phase,
-                estimated=recorder.usage_estimated,
-                compact_interval_tokens=self.compact_interval_tokens,
+        if self.context is not None and not progress_finalizing:
+            capacity = self._history_capacity(run, tool_tokens)
+            high_water = total_tokens(run.raw_history) >= capacity * 0.8
+            if not high_water:
+                run.high_water_suppressed = False
+            periodic = (
+                self.compact_interval_tokens > 0
+                and run.recorder.total_tokens - run.compacted_at_tokens
+                >= self.compact_interval_tokens * 0.8
             )
-
-        history_compacted = False
-        compacted_at_tokens = 0
-        high_water_suppressed = False
-        snapshot_sequence = 0
-        previous_snapshot = None
-        current_step = 0
-        current_attempt = 0
-
-        async def context_snapshot(
-            snapshot_messages: list[Message], snapshot_tools: list[dict],
-            phase: str, reason: str,
-        ) -> str:
-            nonlocal snapshot_sequence, previous_snapshot
-            request_id = f"{recorder.run_id}:{current_step}:{current_attempt}"
-            if self.context is None or trace is None:
-                return request_id
-            snapshot = await asyncio.to_thread(
-                build_context_snapshot,
-                snapshot_messages, snapshot_tools, policy=self.context.policy,
-                max_tokens=self.context.max_tokens, reserve_output=self.context.reserve_output,
-                system_parts=self.system_parts,
+            if periodic or (high_water and not run.high_water_suppressed):
+                reason = "interval" if periodic else "context_high_water"
+                await self._compact(
+                    run,
+                    self._automatic_history_target(
+                        run, tool_tokens, ratio, remaining_tokens, output_reserve,
+                    ),
+                    reason,
+                )
+                compacted_this_step = True
+                run.high_water_suppressed = total_tokens(run.raw_history) >= capacity * 0.8
+            ctx_result = await asyncio.to_thread(
+                self.context.build, run.messages, tool_tokens, 0,
             )
-            if phase == "request" and (
-                (cancel is not None and cancel.is_set())
-                or active_seconds() >= self.max_run_seconds
+            run.messages = ctx_result.messages
+            request_messages = run.messages
+            if run.on_context:
+                run.on_context(ctx_result)
+
+        if run.correction_instruction and not progress_finalizing:
+            request_messages = list(request_messages) + [
+                Message("system", run.correction_instruction),
+            ]
+
+        if self.max_run_tokens and not progress_finalizing:
+            estimated_prompt = total_tokens(request_messages) + tool_tokens
+            next_request = int(estimated_prompt * ratio) + output_reserve
+            if next_request >= remaining_tokens and self.context is not None and not compacted_this_step:
+                await self._compact(
+                    run,
+                    self._automatic_history_target(
+                        run, tool_tokens, ratio, remaining_tokens, output_reserve,
+                    ),
+                    "request_budget",
+                )
+                ctx_result = await asyncio.to_thread(
+                    self.context.build, run.messages, tool_tokens, 0,
+                )
+                run.messages = ctx_result.messages
+                request_messages = run.messages
+                if run.correction_instruction:
+                    request_messages = list(request_messages) + [
+                        Message("system", run.correction_instruction),
+                    ]
+                if run.on_context:
+                    run.on_context(ctx_result)
+                estimated_prompt = total_tokens(request_messages) + tool_tokens
+                next_request = int(estimated_prompt * ratio) + output_reserve
+            finalizing = next_request >= remaining_tokens
+            if finalizing:
+                self._budget_update(run, "finalizing")
+                request_messages = await self._checkpoint(run, remaining_tokens, ratio)
+                if request_messages is None:
+                    return await self._pause_budget(run, step - 1)
+                tool_specs = []
+
+        if progress_finalizing:
+            finalizing = True
+            self._budget_update(run, "finalizing")
+            if self.max_run_cost_usd and run.recorder.cost_usd > self.max_run_cost_usd:
+                return self._pause_progress(run, step - 1, "费用上限已到，未发起模型收尾。")
+            request_messages = await self._checkpoint(
+                run,
+                remaining_tokens if self.max_run_tokens else None,
+                ratio,
+                "Tool execution has been suspended because it produced no progress. "
+                f"Observed evidence: {run.progress_stop}. The task is not verified complete. ",
+                reason="no_progress",
+            )
+            if request_messages is None:
+                return self._pause_progress(
+                    run, step - 1, "剩余预算或上下文容量不足，未发起模型收尾。",
+                )
+            tool_specs = []
+        run.correction_instruction = ""
+
+        if self.context is not None and (
+            total_tokens(request_messages)
+            + estimate_tokens(json.dumps(tool_specs, ensure_ascii=False)) > self._input_capacity()
+        ):
+            note = "stopped: context_window；固定目标或必要上下文超过窗口，请缩短任务或调整窗口配置。"
+            self._record_message(run, Message("assistant", note, name="context_stop"))
+            self._budget_update(run, "stopped")
+            return self._finish(run, note, step - 1, "stopped", "context_window")
+
+        return _StepPlan(
+            request_messages=request_messages,
+            tool_specs=tool_specs,
+            finalizing=finalizing,
+            progress_finalizing=progress_finalizing,
+        )
+
+    async def _call_model(
+        self, run: _RunContext, step: int, plan: _StepPlan,
+    ) -> _ModelTurn | AgentResult:
+        """请求模型，处理 usage 估算、超时与重试；单次流式细节在 _stream_once。"""
+        attempt = 0
+        while True:
+            request_prompt_estimate = total_tokens(plan.request_messages) + estimate_tokens(
+                json.dumps(plan.tool_specs, ensure_ascii=False)
+            )
+            if run.cancel is not None and run.cancel.is_set():
+                return self._finish(run, "cancelled", step - 1, "cancelled")
+            remaining = self.max_run_seconds - self._active_seconds(run)
+            if remaining <= 0:
+                if plan.progress_finalizing:
+                    return self._pause_progress(run, step - 1, "运行时间已到，未发起模型收尾。")
+                if plan.finalizing:
+                    return await self._pause_budget(run, step - 1, "运行时间已到，未发起模型收尾。")
+                return self._finish(run, "stopped: max_run_seconds", step, "stopped")
+            request_id = await self._context_snapshot(
+                run, plan.request_messages, plan.tool_specs, "request",
+                "finalizing" if plan.finalizing else "model_call",
+            )
+            if run.cancel is not None and run.cancel.is_set():
+                return self._finish(run, "cancelled", step - 1, "cancelled")
+            remaining = self.max_run_seconds - self._active_seconds(run)
+            if remaining <= 0:
+                if plan.progress_finalizing:
+                    return self._pause_progress(run, step - 1, "运行时间已到，未发起模型收尾。")
+                if plan.finalizing:
+                    return await self._pause_budget(run, step - 1, "运行时间已到，未发起模型收尾。")
+                return self._finish(run, "stopped: max_run_seconds", step - 1, "stopped")
+            timeout = min(self.llm_timeout, remaining) if self.llm_timeout > 0 else remaining
+
+            capture = await self._stream_once(run, step, plan, request_id, timeout)
+            run.model_error = capture.error
+            if capture.error:
+                run.recorder.event(
+                    "llm_error", step=step, error=capture.error,
+                    retryable=capture.error_retryable,
+                )
+            if not capture.request_started:
+                if run.cancel is not None and run.cancel.is_set():
+                    return self._finish(run, "cancelled", step - 1, "cancelled")
+                if capture.error:
+                    return self._finish(run, f"error: {capture.error}", step - 1, "error")
+                return self._finish(run, "stopped: max_run_seconds", step - 1, "stopped")
+
+            usage = capture.usage
+            estimated_usage = not usage or not any(
+                usage.get(key) for key in (
+                    "total_tokens", "prompt_tokens", "input_tokens",
+                    "completion_tokens", "output_tokens",
+                )
+            )
+            if estimated_usage:
+                prompt_tokens = request_prompt_estimate
+                output = (capture.reasoning_content or "") + "".join(capture.text_parts) + json.dumps(
+                    [{"name": c.name, "args": c.args} for c in capture.calls], ensure_ascii=False
+                )
+                completion_tokens = estimate_tokens(output)
+                usage = {
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": prompt_tokens + completion_tokens,
+                }
+            run.recorder.llm_end(
+                step, usage, capture.finish_reason, estimated=estimated_usage,
+            )
+            run.previous_prompt_tokens = int(
+                (usage or {}).get("prompt_tokens") or (usage or {}).get("input_tokens") or 0
+            )
+            run.previous_completion_tokens = int(
+                (usage or {}).get("completion_tokens") or (usage or {}).get("output_tokens") or 0
+            )
+            run.previous_prompt_estimate = request_prompt_estimate
+            self._budget_update(run, "finalizing" if plan.finalizing else "running")
+            if (
+                capture.error
+                and capture.error_retryable
+                and not capture.text_parts
+                and not capture.calls
+                and attempt < self.llm_retries
+                and not plan.finalizing
+                and not capture.cancelled
             ):
-                return request_id
-            snapshot_sequence += 1
-            before = previous_snapshot or {"total_tokens": 0, "sections": {}}
-            snapshot.update(
-                snapshot_id=f"{recorder.run_id}:{snapshot_sequence}",
-                request_id=request_id, step=current_step, attempt=current_attempt,
-                phase=phase, reason=reason,
-                delta_tokens=snapshot["total_tokens"] - before["total_tokens"],
-                section_deltas={key: value - before["sections"].get(key, 0)
-                                for key, value in snapshot["sections"].items()},
-            )
-            previous_snapshot = snapshot
-            recorder.event("context_snapshot", **snapshot)
-            return request_id
-
-        def input_capacity() -> int:
-            assert self.context is not None
-            policy = self.context.policy
-            if policy is not None:
-                return max(0, policy.prompt_cap - policy.scratch_cap)
-            return self.context.budget
-
-        def history_capacity(tool_tokens: int = 0, prompt_ratio: float = 1.0) -> int:
-            assert self.context is not None
-            system_tokens = total_tokens([Message("system", self.system), state_message])
-            capacity = max(0, int(input_capacity() / prompt_ratio) - system_tokens - tool_tokens)
-            if self.context.policy is not None and self.context.policy.history_cap is not None:
-                capacity = min(capacity, self.context.policy.history_cap)
-            return capacity
-
-        async def compact_working_history(history_target: int, reason: str) -> None:
-            nonlocal messages, raw_history, history_compacted, compacted_at_tokens
-            assert self.context is not None
-            budget_update("compacting")
-            working_tools = self.tools.specs() if self.tools_enabled else []
-            working_messages = [Message("system", self.system), state_message] + raw_history
-            await context_snapshot(working_messages, working_tools, "before_compaction", reason)
-            result = await asyncio.to_thread(
-                self.context.compact_history,
-                working_messages,
-                max(0, history_target), summarizer=summarize_messages,
-            )
-            raw_history = [m for m in result.messages if m.role != "system"]
-            messages = result.messages
-            await context_snapshot(messages, working_tools, "after_compaction", reason)
-            history_compacted = True
-            # 只前移压缩周期，累计消耗和其他运行限制均保留。
-            compacted_at_tokens = recorder.total_tokens
-            if on_history:
-                on_history(list(raw_history))
-            if on_context:
-                on_context(result)
-            recorder.event(
-                "history_compacted", reason=reason,
-                before_tokens=result.sections.get("history_before", 0),
-                after_tokens=result.sections.get("history_after", 0),
-                target_tokens=max(0, history_target),
-                recent_groups=result.sections.get("recent_groups", 0),
-                summary_layers=result.sections.get("summary_layers", 0),
-                offloaded=result.offloaded, over_budget=result.over_budget, notes=result.notes,
-            )
-            budget_update("finalizing" if reason in {"task_budget", "no_progress"} else "running")
-
-        async def pause_budget(
-            step: int, text: str = "", calls: list[ToolCall] | None = None,
-            reason: str = "token_budget",
-        ) -> AgentResult:
-            for call in calls or []:
-                record_message(Message(
-                    "tool", f"ERROR not_executed: {reason}; request was not executed",
-                    name=call.name, tool_call_id=call.id,
-                ))
-                recorder.event("tool_not_executed", tool=call.name, tool_call_id=call.id)
-            if reason == "token_budget" and self.context is not None and not history_compacted:
-                await checkpoint_messages(max(0, self.max_run_tokens - recorder.total_tokens), 1.0)
-            limit = f"/{self.max_run_tokens}" if self.max_run_tokens else ""
-            value = f"{recorder.total_tokens}{limit}"
-            if reason == "cost_budget":
-                value = f"${recorder.cost_usd:.4f}"
-            lines = [
-                f"stopped: {reason} ({value})",
-                f"任务：{state.goal}",
-                "已记录文件（待核对）：" + (", ".join(state.files_changed) or "无"),
-                "已记录命令：" + state.command_summary(),
-                "待完成：" + ("; ".join(state.open) or "任务是否达成仍需核对"),
-            ]
-            if text.strip():
-                excerpt = text[:2000]
-                if len(text) > 2000:
-                    excerpt += "\n…完整内容已保存在会话记录中。"
-                lines.append("本轮已生成内容：\n" + excerpt)
-            if calls:
-                lines.append("本轮未执行工具：" + ", ".join(call.name for call in calls))
-            lines.append("本轮进度已保留；/resume 将显式开启一轮新预算。")
-            note = "\n".join(lines)
-            record_message(Message("assistant", note, name="budget_stop"))
-            if on_state:
-                on_state(state)
-            budget_update("stopped")
-            return finish(note, step, "stopped", reason)
-
-        def skip_tools(calls: list[ToolCall], reason: str) -> None:
-            for call in calls:
-                record_message(Message(
-                    "tool", f"ERROR not_executed: {reason}; request was not executed",
-                    name=call.name, tool_call_id=call.id,
-                ))
-                recorder.event("tool_not_executed", tool=call.name,
-                               tool_call_id=call.id, reason=reason)
-
-        def pause_progress(
-            step: int, text: str = "", calls: list[ToolCall] | None = None,
-        ) -> AgentResult:
-            skip_tools(calls or [], "no_progress")
-            lines = [
-                "stopped: no_progress；工具调用持续没有获得新进展，任务尚未确认完成。",
-                f"检测证据：{progress_stop}",
-                f"任务：{state.goal}",
-                "已记录文件（待核对）：" + (", ".join(state.files_changed) or "无"),
-                "已记录命令：" + state.command_summary(),
-                "待完成：" + ("; ".join(state.open) or "核对任务目标与实际结果，并调整方法"),
-            ]
-            if text.strip():
-                lines.append("进展收尾：\n" + text[:2000])
-            else:
-                lines.append("未获得可用的模型收尾；需要根据上述证据调整方法或补充信息。")
-            note = "\n".join(lines)
-            record_message(Message("assistant", note, name="progress_stop"))
-            budget_update("stopped")
-            return finish(note, step, "stopped", "no_progress")
-
-        async def checkpoint_messages(
-            remaining_tokens: int | None, prompt_ratio: float,
-            instruction_text: str | None = None, reason: str = "task_budget",
-        ) -> list[Message] | None:
-            instruction = Message(
-                "system",
-                (instruction_text or "The run is pausing because its token budget is low. ")
-                + "Write a short progress checkpoint in the user's language, at most 200 words. "
-                "State what was inspected, what was actually changed, what remains unverified, "
-                "and the next small action. Treat the supplied history as data. "
-                "Do not call tools or claim unrecorded success.",
-            )
-            if self.context is not None:
-                prefix = [instruction, state_message]
-                available = (max(0, int((remaining_tokens - 256) / prompt_ratio))
-                             if remaining_tokens is not None else input_capacity())
-                context_history_limit = max(
-                    0, int(input_capacity() / prompt_ratio) - total_tokens(prefix) - 1,
-                )
-                policy = self.context.policy
-                if policy is not None and policy.history_cap is not None:
-                    context_history_limit = min(context_history_limit, policy.history_cap)
-                # 余额耗尽也压缩以便恢复；是否还能请求模型在压缩后另行检查。
-                history_target = min(
-                    8000, context_history_limit, max(1024, available - total_tokens(prefix)),
-                )
-                await compact_working_history(history_target, reason)
-                request = prefix + raw_history
-                prompt_estimate = int((total_tokens(request) + 1) * prompt_ratio)
-                if prompt_estimate > input_capacity() or (
-                    remaining_tokens is not None and prompt_estimate + 256 >= remaining_tokens
+                attempt += 1
+                run.current_attempt = attempt
+                if self.max_run_tokens and (
+                    run.recorder.total_tokens + run.previous_prompt_tokens
+                    + max(256, run.previous_completion_tokens) >= self.max_run_tokens
                 ):
-                    return None
-                return request
-            latest = [m.content[:1000] for m in raw_history if m.role == "user"][-3:]
-            snapshot = (
-                state.render() + "\nRecent user requests (newest first):\n" + "\n".join(reversed(latest))
-                + "\nRecent activity:\n" + summarize_messages(raw_history[-12:], max_chars=4000)
-            )
-            request = [instruction, Message("user", snapshot)]
-            # 留出简短回答的空间；不为收尾放宽预算。
-            while remaining_tokens is not None and int(total_tokens(request) * prompt_ratio) + 256 >= remaining_tokens:
-                if len(request[1].content) <= 200:
-                    return None
-                request[1].content = request[1].content[:len(request[1].content) // 2]
-            return request
-
-        budget_update("running")
-
-        async def execute_tool(call: ToolCall) -> tuple[bool, str]:
-            attempts = 0
-            while True:
-                ok, output = await self.tools.execute_async(call, cancel=cancel)
-                transient = _is_transient_tool_error(output)
-                if (
-                    not transient
-                    or attempts >= self.tool_retries
-                    or not self.tools.is_retryable(call.name)
-                ):
-                    return ok, output
-                attempts += 1
-                recorder.event(
-                    "tool_retry",
-                    tool=call.name,
-                    attempt=attempts,
-                    error=output[:120],
+                    return await self._pause_budget(
+                        run, step, f"剩余预算不足以重试：{capture.error}",
+                    )
+                run.recorder.event(
+                    "llm_retry", step=step, attempt=attempt, error=capture.error,
                 )
-                await asyncio.sleep(0.2 * attempts)
+                await asyncio.sleep(self.llm_retry_backoff * attempt)
+                continue
+            break
+        return _ModelTurn(
+            text="".join(capture.text_parts),
+            calls=capture.calls,
+            error=capture.error,
+            finish_reason=capture.finish_reason,
+            reasoning_content=capture.reasoning_content,
+            stream_cancelled=capture.cancelled,
+        )
 
-        progress = ProgressMonitor(self.max_no_progress)
-        progress_stop = ""
-        correction_instruction = ""
-        denied_requests: set[tuple[str, str]] = set()
-        empty_retries = 0
-        action_required_sent = False
-        continuations = 0
-        started = time.monotonic()
-        approval_wait_seconds = 0.0
+    async def _stream_once(
+        self,
+        run: _RunContext,
+        step: int,
+        plan: _StepPlan,
+        request_id: str,
+        timeout: float,
+    ) -> _StreamCapture:
+        """发起一次流式请求；只采集事件，并在超时或取消时返回手头结果。"""
+        capture = _StreamCapture()
 
-        def active_seconds() -> float:
-            return time.monotonic() - started - approval_wait_seconds
-
-        async def request_approval(call: ToolCall, preview: str):
-            nonlocal approval_wait_seconds
-            wait_started = time.monotonic()
-            approval_task = asyncio.create_task(
-                self.approval.request(call, preview, workspace=self.tools.root)
-            )
-            cancel_task = asyncio.create_task(cancel.wait()) if cancel is not None else None
+        async def consume() -> None:
+            if run.cancel is not None and run.cancel.is_set():
+                return
+            if self._active_seconds(run) >= self.max_run_seconds:
+                return
+            capture.request_started = True
+            run.recorder.llm_start(step, request_id=request_id)
+            stream = self.provider.stream(plan.request_messages, plan.tool_specs)
             try:
-                if cancel_task is not None:
-                    await asyncio.wait({approval_task, cancel_task}, return_when=asyncio.FIRST_COMPLETED)
-                    if cancel.is_set():
-                        return None
-                return await approval_task
+                async for event in stream:
+                    if isinstance(event, TextDelta):
+                        capture.text_parts.append(event.text)
+                        if run.on_text:
+                            run.on_text(event.text)
+                    elif isinstance(event, ReasoningDelta):
+                        capture.reasoning_content = (capture.reasoning_content or "") + event.text
+                    elif isinstance(event, ToolCallsReady):
+                        capture.calls = event.calls
+                    elif isinstance(event, StreamError):
+                        capture.error = event.message
+                        capture.error_retryable = bool(getattr(event, "retryable", False))
+                    elif isinstance(event, StreamDone):
+                        capture.finish_reason = event.finish_reason
+                        capture.usage = event.usage
+                        if event.reasoning_content is not None:
+                            capture.reasoning_content = event.reasoning_content
             finally:
-                for pending in (approval_task, cancel_task):
-                    if pending is not None and not pending.done():
-                        pending.cancel()
-                await asyncio.gather(
-                    *(pending for pending in (approval_task, cancel_task) if pending is not None),
-                    return_exceptions=True,
-                )
-                waited = time.monotonic() - wait_started
-                approval_wait_seconds += waited
-                recorder.event("approval_wait", seconds=waited, tool=call.name)
-
-        def cancel_pending(step: int, pending: list[ToolCall]) -> AgentResult:
-            for call in pending:
-                record_message(Message("tool", "ERROR cancelled: not executed", name=call.name,
-                                       tool_call_id=call.id))
-            return finish("cancelled", step, "cancelled")
-
-        tool_calls = 0
-        previous_prompt_tokens = 0
-        previous_completion_tokens = 0
-        previous_prompt_estimate = 0
+                close = getattr(stream, "aclose", None)
+                if close is not None:
+                    await close()
 
         try:
-            for step in count(1):
-                current_step = step
-                current_attempt = 0
-                if cancel is not None and cancel.is_set():
-                    return finish("cancelled", step - 1, "cancelled")
-                if self.max_steps > 0 and step > self.max_steps:
-                    if progress_stop:
-                        return pause_progress(step - 1, "步骤上限已到，未发起模型收尾。")
-                    return finish("stopped: max_steps", self.max_steps, "stopped", "max_steps")
-
-                self._sync_skill_context()
-                messages[0] = Message("system", self.system)
-                state_message.content = state.render()
-                tool_specs = self.tools.specs() if self.tools_enabled else []
-                tool_tokens = estimate_tokens(json.dumps(tool_specs, ensure_ascii=False))
-                request_messages = messages
-                finalizing = False
-                progress_finalizing = bool(progress_stop)
-                compacted_this_step = False
-                ratio = max(1.0, previous_prompt_tokens / max(1, previous_prompt_estimate))
-                output_reserve = max(256, previous_completion_tokens)
-                remaining_tokens = (
-                    self.max_run_tokens - recorder.total_tokens if self.max_run_tokens else 0
+            async with asyncio.timeout(timeout):
+                stream_task = asyncio.create_task(consume())
+                cancel_task = (
+                    asyncio.create_task(run.cancel.wait())
+                    if run.cancel is not None else None
                 )
-
-                def automatic_history_target() -> int:
-                    capacity = history_capacity(tool_tokens, ratio)
-                    if self.max_run_tokens:
-                        prefix_tokens = total_tokens([Message("system", self.system), state_message])
-                        affordable = int((remaining_tokens - output_reserve) / ratio)
-                        capacity = min(capacity, max(0, affordable - prefix_tokens - tool_tokens - 1))
-                    return min(8000, capacity)
-
-                if self.context is not None and not progress_finalizing:
-                    capacity = history_capacity(tool_tokens)
-                    high_water = total_tokens(raw_history) >= capacity * 0.8
-                    if not high_water:
-                        high_water_suppressed = False
-                    periodic = (
-                        self.compact_interval_tokens > 0
-                        and recorder.total_tokens - compacted_at_tokens
-                        >= self.compact_interval_tokens * 0.8
-                    )
-                    if periodic or (high_water and not high_water_suppressed):
-                        reason = "interval" if periodic else "context_high_water"
-                        await compact_working_history(automatic_history_target(), reason)
-                        compacted_this_step = True
-                        high_water_suppressed = total_tokens(raw_history) >= capacity * 0.8
-                    ctx_result = await asyncio.to_thread(
-                        self.context.build, messages, tool_tokens, 0
-                    )
-                    messages = ctx_result.messages
-                    request_messages = messages
-                    if on_context:
-                        on_context(ctx_result)
-
-                if correction_instruction and not progress_finalizing:
-                    request_messages = list(request_messages) + [Message("system", correction_instruction)]
-
-                if self.max_run_tokens and not progress_finalizing:
-                    estimated_prompt = total_tokens(request_messages) + tool_tokens
-                    next_request = int(estimated_prompt * ratio) + output_reserve
-                    if next_request >= remaining_tokens and self.context is not None and not compacted_this_step:
-                        await compact_working_history(automatic_history_target(), "request_budget")
-                        ctx_result = await asyncio.to_thread(
-                            self.context.build, messages, tool_tokens, 0,
+                try:
+                    if cancel_task is not None:
+                        await asyncio.wait(
+                            {stream_task, cancel_task},
+                            return_when=asyncio.FIRST_COMPLETED,
                         )
-                        messages = ctx_result.messages
-                        request_messages = messages
-                        if correction_instruction:
-                            request_messages = list(request_messages) + [Message("system", correction_instruction)]
-                        if on_context:
-                            on_context(ctx_result)
-                        estimated_prompt = total_tokens(request_messages) + tool_tokens
-                        next_request = int(estimated_prompt * ratio) + output_reserve
-                    finalizing = next_request >= remaining_tokens
-                    if finalizing:
-                        budget_update("finalizing")
-                        request_messages = await checkpoint_messages(remaining_tokens, ratio)
-                        if request_messages is None:
-                            return await pause_budget(step - 1)
-                        tool_specs = []
-
-                if progress_finalizing:
-                    finalizing = True
-                    budget_update("finalizing")
-                    if self.max_run_cost_usd and recorder.cost_usd > self.max_run_cost_usd:
-                        return pause_progress(step - 1, "费用上限已到，未发起模型收尾。")
-                    request_messages = await checkpoint_messages(
-                        remaining_tokens if self.max_run_tokens else None, ratio,
-                        "Tool execution has been suspended because it produced no progress. "
-                        f"Observed evidence: {progress_stop}. The task is not verified complete. ",
-                        reason="no_progress",
+                        capture.cancelled = run.cancel.is_set()
+                    if not capture.cancelled:
+                        await stream_task
+                finally:
+                    for pending in (stream_task, cancel_task):
+                        if pending is not None and not pending.done():
+                            pending.cancel()
+                    await asyncio.gather(
+                        *(pending for pending in (stream_task, cancel_task)
+                          if pending is not None),
+                        return_exceptions=True,
                     )
-                    if request_messages is None:
-                        return pause_progress(step - 1, "剩余预算或上下文容量不足，未发起模型收尾。")
-                    tool_specs = []
-                correction_instruction = ""
+        except TimeoutError:
+            capture.error = f"timeout after {timeout:.1f}s"
+            capture.error_retryable = True
+        return capture
 
-                if self.context is not None and (
-                    total_tokens(request_messages)
-                    + estimate_tokens(json.dumps(tool_specs, ensure_ascii=False)) > input_capacity()
-                ):
-                    note = "stopped: context_window；固定目标或必要上下文超过窗口，请缩短任务或调整窗口配置。"
-                    record_message(Message("assistant", note, name="context_stop"))
-                    budget_update("stopped")
-                    return finish(note, step - 1, "stopped", "context_window")
+    async def _decide_after_model(
+        self, run: _RunContext, step: int, plan: _StepPlan, turn: _ModelTurn,
+    ) -> _StepDecision | AgentResult:
+        """解释模型回复：记录消息，判断结束、继续下一步还是执行工具。"""
+        token_exhausted = bool(
+            self.max_run_tokens and run.recorder.total_tokens >= self.max_run_tokens
+        )
+        cost_exhausted = bool(
+            self.max_run_cost_usd and run.recorder.cost_usd > self.max_run_cost_usd
+        )
+        if turn.error and not (
+            plan.finalizing or token_exhausted or cost_exhausted or turn.stream_cancelled
+        ):
+            return self._finish(run, f"error: {turn.error}", step, "error")
+        text = turn.text
+        if turn.error:
+            text = f"请求未完成：{turn.error}\n" + text
 
-                text_parts: list[str] = []
-                calls: list[ToolCall] = []
-                error: str | None = None
-                error_retryable = False
-                finish_reason: str | None = None
-                usage: dict | None = None
-                reasoning_content: str | None = None
-                attempt = 0
-
-                while True:
-                    text_parts = []
-                    calls = []
-                    error = None
-                    error_retryable = False
-                    finish_reason = None
-                    usage = None
-                    reasoning_content = None
-                    stream_cancelled = False
-                    request_prompt_estimate = total_tokens(request_messages) + estimate_tokens(
-                        json.dumps(tool_specs, ensure_ascii=False)
+        calls = turn.calls
+        if not calls:
+            text_calls = parse_text_tool_calls(text, prefix=f"step{step}")
+            if text_calls:
+                if not self.tools_enabled and not plan.finalizing and not turn.stream_cancelled:
+                    return self._finish(
+                        run, "error: model attempted a tool call in chat-only mode", step, "error",
                     )
-                    if cancel is not None and cancel.is_set():
-                        return finish("cancelled", step - 1, "cancelled")
-                    remaining = self.max_run_seconds - active_seconds()
-                    if remaining <= 0:
-                        if progress_finalizing:
-                            return pause_progress(step - 1, "运行时间已到，未发起模型收尾。")
-                        if finalizing:
-                            return await pause_budget(step - 1, "运行时间已到，未发起模型收尾。")
-                        return finish("stopped: max_run_seconds", step, "stopped")
-                    request_id = await context_snapshot(
-                        request_messages, tool_specs, "request",
-                        "finalizing" if finalizing else "model_call",
-                    )
-                    if cancel is not None and cancel.is_set():
-                        return finish("cancelled", step - 1, "cancelled")
-                    remaining = self.max_run_seconds - active_seconds()
-                    if remaining <= 0:
-                        if progress_finalizing:
-                            return pause_progress(step - 1, "运行时间已到，未发起模型收尾。")
-                        if finalizing:
-                            return await pause_budget(step - 1, "运行时间已到，未发起模型收尾。")
-                        return finish("stopped: max_run_seconds", step - 1, "stopped")
-                    timeout = min(self.llm_timeout, remaining) if self.llm_timeout > 0 else remaining
-                    request_started = False
+                calls = text_calls
+                text = strip_text_tool_calls(text)
 
-                    async def consume_stream() -> None:
-                        nonlocal calls, error, error_retryable, finish_reason, usage, request_started
-                        nonlocal reasoning_content
-                        if cancel is not None and cancel.is_set():
-                            return
-                        if active_seconds() >= self.max_run_seconds:
-                            return
-                        request_started = True
-                        recorder.llm_start(step, request_id=request_id)
-                        stream = self.provider.stream(request_messages, tool_specs)
-                        try:
-                            async for event in stream:
-                                if isinstance(event, TextDelta):
-                                    text_parts.append(event.text)
-                                    if on_text:
-                                        on_text(event.text)
-                                elif isinstance(event, ReasoningDelta):
-                                    reasoning_content = (reasoning_content or "") + event.text
-                                elif isinstance(event, ToolCallsReady):
-                                    calls = event.calls
-                                elif isinstance(event, StreamError):
-                                    error = event.message
-                                    error_retryable = bool(getattr(event, "retryable", False))
-                                elif isinstance(event, StreamDone):
-                                    finish_reason = event.finish_reason
-                                    usage = event.usage
-                                    if event.reasoning_content is not None:
-                                        reasoning_content = event.reasoning_content
-                        finally:
-                            close = getattr(stream, "aclose", None)
-                            if close is not None:
-                                await close()
+        for index, call in enumerate(calls):
+            if not call.id:
+                call.id = f"step{step}_call{index}"
+        assistant_message = Message(
+            "assistant", text, calls, reasoning_content=turn.reasoning_content,
+        )
+        if text or calls or not turn.stream_cancelled:
+            self._record_message(run, assistant_message)
 
+        if turn.stream_cancelled:
+            return self._cancel_pending(run, step, calls)
+        if plan.progress_finalizing:
+            return self._pause_progress(run, step, text, calls)
+        if plan.finalizing or token_exhausted:
+            return await self._pause_budget(run, step, text, calls)
+        if cost_exhausted:
+            return await self._pause_budget(run, step, text, calls, reason="cost_budget")
+
+        if turn.finish_reason == "length":
+            if calls:
+                return self._finish(
+                    run, "error: truncated tool call; not executed", step, "truncated",
+                )
+            if run.continuations < self.max_continuations:
+                run.continuations += 1
+                run.recorder.event("continuation", step=step, attempt=run.continuations)
+                continuation = Message(
+                    "user",
+                    "Continue exactly from where you stopped. Do not repeat. "
+                    "If the answer is complete, say DONE.",
+                    name="continuation",
+                )
+                run.messages.append(continuation)
+                run.raw_history.append(continuation)
+                if run.on_message:
+                    run.on_message(continuation)
+                return _StepDecision()
+            return self._finish(run, text or "truncated: max tokens", step, "truncated")
+
+        if not calls:
+            if not text.strip():
+                run.empty_retries += 1
+                if run.empty_retries >= 2:
+                    return self._finish(run, "error: empty model response", step, "error")
+                return _StepDecision()
+            if self.require_tool_use and run.tool_calls == 0:
+                if run.action_required_sent:
+                    run.recorder.event("no_action", step=step)
+                    return self._finish(run, text, step, "stopped", "no_action")
+                run.action_required_sent = True
+                self._record_message(run, Message(
+                    "system",
+                    "No tool action has been requested in this run. Execute the user's "
+                    "requested action using available tools and follow approval decisions, "
+                    "or explain the obstacle if you cannot proceed. A statement of intent "
+                    "does not complete an action task. Base the final answer on observed results.",
+                    name="action_required",
+                ))
+                run.recorder.event("action_required", step=step)
+                return _StepDecision()
+            return self._finish(run, text, step, "done")
+
+        if not self.tools_enabled:
+            return self._finish(
+                run, "error: model requested tools, but chat-only mode is on", step, "error",
+            )
+        return _StepDecision(calls=calls)
+
+    async def _run_tool_calls(
+        self, run: _RunContext, step: int, calls: list[ToolCall],
+    ) -> AgentResult | None:
+        """执行这一批工具调用（审批、结果回灌、进展检测）；None 表示继续下一步。"""
+        for call_index, call in enumerate(calls):
+            if run.cancel is not None and run.cancel.is_set():
+                return self._cancel_pending(run, step, calls[call_index:])
+            if self._active_seconds(run) > self.max_run_seconds:
+                self._skip_tools(run, calls[call_index:], "max_run_seconds")
+                return self._finish(run, "stopped: max_run_seconds", step, "stopped")
+            run.tool_calls += 1
+            if run.on_tool:
+                run.on_tool(call)
+
+            risk = self.tools.risk(call.name)
+            key = (call.name, json.dumps(call.args, sort_keys=True, ensure_ascii=False,
+                                        separators=(",", ":")))
+            if risk != "read":
+                if key in run.denied_requests:
+                    ok, output = False, "ERROR denied_by_user: already denied in this run"
+                elif self.approval is None:
+                    ok, output = False, "ERROR approval_required"
+                    run.denied_requests.add(key)
+                else:
                     try:
-                        async with asyncio.timeout(timeout):
-                            stream_task = asyncio.create_task(consume_stream())
-                            cancel_task = asyncio.create_task(cancel.wait()) if cancel is not None else None
-                            try:
-                                if cancel_task is not None:
-                                    await asyncio.wait({stream_task, cancel_task},
-                                                       return_when=asyncio.FIRST_COMPLETED)
-                                    stream_cancelled = cancel.is_set()
-                                if not stream_cancelled:
-                                    await stream_task
-                            finally:
-                                for pending in (stream_task, cancel_task):
-                                    if pending is not None and not pending.done():
-                                        pending.cancel()
-                                await asyncio.gather(
-                                    *(pending for pending in (stream_task, cancel_task) if pending is not None),
-                                    return_exceptions=True,
-                                )
-                    except TimeoutError:
-                        error = f"timeout after {timeout:.1f}s"
-                        error_retryable = True
-
-                    model_error = error
-                    if error:
-                        recorder.event("llm_error", step=step, error=error, retryable=error_retryable)
-                    if not request_started:
-                        if cancel is not None and cancel.is_set():
-                            return finish("cancelled", step - 1, "cancelled")
-                        if error:
-                            return finish(f"error: {error}", step - 1, "error")
-                        return finish("stopped: max_run_seconds", step - 1, "stopped")
-
-                    estimated_usage = not usage or not any(
-                        usage.get(key) for key in (
-                            "total_tokens", "prompt_tokens", "input_tokens",
-                            "completion_tokens", "output_tokens",
-                        )
-                    )
-                    if estimated_usage:
-                        prompt_tokens = request_prompt_estimate
-                        output = (reasoning_content or "") + "".join(text_parts) + json.dumps(
-                            [{"name": c.name, "args": c.args} for c in calls], ensure_ascii=False
-                        )
-                        completion_tokens = estimate_tokens(output)
-                        usage = {
-                            "prompt_tokens": prompt_tokens,
-                            "completion_tokens": completion_tokens,
-                            "total_tokens": prompt_tokens + completion_tokens,
-                        }
-                    recorder.llm_end(step, usage, finish_reason, estimated=estimated_usage)
-                    previous_prompt_tokens = int(
-                        (usage or {}).get("prompt_tokens") or (usage or {}).get("input_tokens") or 0
-                    )
-                    previous_completion_tokens = int(
-                        (usage or {}).get("completion_tokens") or (usage or {}).get("output_tokens") or 0
-                    )
-                    previous_prompt_estimate = request_prompt_estimate
-                    budget_update("finalizing" if finalizing else "running")
-                    if (
-                        error
-                        and error_retryable
-                        and not text_parts
-                        and not calls
-                        and attempt < self.llm_retries
-                        and not finalizing
-                        and not stream_cancelled
-                    ):
-                        attempt += 1
-                        current_attempt = attempt
-                        if self.max_run_tokens and (
-                            recorder.total_tokens + previous_prompt_tokens
-                            + max(256, previous_completion_tokens) >= self.max_run_tokens
-                        ):
-                            return await pause_budget(step, f"剩余预算不足以重试：{error}")
-                        recorder.event("llm_retry", step=step, attempt=attempt, error=error)
-                        await asyncio.sleep(self.llm_retry_backoff * attempt)
-                        continue
-                    break
-
-                token_exhausted = bool(
-                    self.max_run_tokens and recorder.total_tokens >= self.max_run_tokens
-                )
-                cost_exhausted = bool(
-                    self.max_run_cost_usd and recorder.cost_usd > self.max_run_cost_usd
-                )
-                if error and not (finalizing or token_exhausted or cost_exhausted or stream_cancelled):
-                    return finish(f"error: {error}", step, "error")
-                text = "".join(text_parts)
-                if error:
-                    text = f"请求未完成：{error}\n" + text
-
-                if not calls:
-                    text_calls = parse_text_tool_calls(text, prefix=f"step{step}")
-                    if text_calls:
-                        if not self.tools_enabled and not finalizing and not stream_cancelled:
-                            return finish(
-                                "error: model attempted a tool call in chat-only mode",
-                                step,
-                                "error",
-                            )
-                        calls = text_calls
-                        text = strip_text_tool_calls(text)
-
-                for index, call in enumerate(calls):
-                    if not call.id:
-                        call.id = f"step{step}_call{index}"
-                assistant_message = Message("assistant", text, calls, reasoning_content=reasoning_content)
-                if text or calls or not stream_cancelled:
-                    record_message(assistant_message)
-
-                if stream_cancelled:
-                    return cancel_pending(step, calls)
-
-                if progress_finalizing:
-                    return pause_progress(step, text, calls)
-                if finalizing or token_exhausted:
-                    return await pause_budget(step, text, calls)
-                if cost_exhausted:
-                    return await pause_budget(step, text, calls, reason="cost_budget")
-
-                if finish_reason == "length":
-                    if calls:
-                        return finish(
-                            "error: truncated tool call; not executed", step, "truncated"
-                        )
-                    if continuations < self.max_continuations:
-                        continuations += 1
-                        recorder.event("continuation", step=step, attempt=continuations)
-                        continuation = Message(
-                            "user",
-                            "Continue exactly from where you stopped. Do not repeat. "
-                            "If the answer is complete, say DONE.",
-                            name="continuation",
-                        )
-                        messages.append(continuation)
-                        raw_history.append(continuation)
-                        if on_message:
-                            on_message(continuation)
-                        continue
-                    return finish(text or "truncated: max tokens", step, "truncated")
-
-                if not calls:
-                    if not text.strip():
-                        empty_retries += 1
-                        if empty_retries >= 2:
-                            return finish("error: empty model response", step, "error")
-                        continue
-                    if self.require_tool_use and tool_calls == 0:
-                        if action_required_sent:
-                            recorder.event("no_action", step=step)
-                            return finish(text, step, "stopped", "no_action")
-                        action_required_sent = True
-                        record_message(Message(
-                            "system",
-                            "No tool action has been requested in this run. Execute the user's "
-                            "requested action using available tools and follow approval decisions, "
-                            "or explain the obstacle if you cannot proceed. A statement of intent "
-                            "does not complete an action task. Base the final answer on observed results.",
-                            name="action_required",
-                        ))
-                        recorder.event("action_required", step=step)
-                        continue
-                    return finish(text, step, "done")
-
-                if not self.tools_enabled:
-                    return finish(
-                        "error: model requested tools, but chat-only mode is on",
-                        step,
-                        "error",
-                    )
-
-                for call_index, call in enumerate(calls):
-                    if cancel is not None and cancel.is_set():
-                        return cancel_pending(step, calls[call_index:])
-                    if active_seconds() > self.max_run_seconds:
-                        skip_tools(calls[call_index:], "max_run_seconds")
-                        return finish("stopped: max_run_seconds", step, "stopped")
-                    tool_calls += 1
-                    if on_tool:
-                        on_tool(call)
-
-                    risk = self.tools.risk(call.name)
-                    key = (call.name, json.dumps(call.args, sort_keys=True, ensure_ascii=False,
-                                                 separators=(",", ":")))
-                    if risk != "read":
-                        if key in denied_requests:
-                            ok, output = False, "ERROR denied_by_user: already denied in this run"
-                        elif self.approval is None:
-                            ok, output = False, "ERROR approval_required"
-                            denied_requests.add(key)
+                        preview = self.tools.preview(call)
+                    except Exception as exc:
+                        ok, output = False, f"ERROR {type(exc).__name__}: {exc}"
+                    else:
+                        try:
+                            decision = await self._request_approval(run, call, preview)
+                        except Exception as exc:
+                            ok, output = False, f"ERROR approval_failed: {type(exc).__name__}: {exc}"
                         else:
-                            try:
-                                preview = self.tools.preview(call)
-                            except Exception as exc:
-                                ok, output = False, f"ERROR {type(exc).__name__}: {exc}"
+                            if decision is None or (run.cancel is not None and run.cancel.is_set()):
+                                return self._cancel_pending(run, step, calls[call_index:])
+                            if not decision.allowed:
+                                ok, output = False, "ERROR denied_by_user"
+                                run.denied_requests.add(key)
                             else:
-                                try:
-                                    decision = await request_approval(call, preview)
-                                except Exception as exc:
-                                    ok, output = False, f"ERROR approval_failed: {type(exc).__name__}: {exc}"
-                                else:
-                                    if decision is None or (cancel is not None and cancel.is_set()):
-                                        return cancel_pending(step, calls[call_index:])
-                                    if not decision.allowed:
-                                        ok, output = False, "ERROR denied_by_user"
-                                        denied_requests.add(key)
-                                    else:
-                                        ok, output = await execute_tool(call)
-                    else:
-                        ok, output = await execute_tool(call)
+                                ok, output = await self._execute_tool(run, call)
+            else:
+                ok, output = await self._execute_tool(run, call)
 
-                    execution = getattr(output, "execution", None)
-                    if execution is not None:
-                        execution = dict(execution)
-                        recorder.event("command_result", tool=call.name, tool_call_id=call.id,
-                                       command=call.args.get("command", ""), cwd=call.args.get("cwd", "."),
-                                       **execution)
-                        if on_execution:
-                            on_execution(call, dict(execution))
-                    if on_result:
-                        on_result(call, ok, output)
-                    state.observe_tool(call.name, call.args, ok, output, execution=execution)
-                    state_message.content = state.render()
-                    if on_state:
-                        on_state(state)
-                    tool_message = Message("tool", str(output), name=call.name, tool_call_id=call.id,
-                                           execution=execution)
-                    record_message(tool_message)
-                    if cancel is not None and cancel.is_set():
-                        return cancel_pending(step, calls[call_index + 1:])
-                    decision = progress.observe(call, ok, output)
-                    if decision.action == "continue":
-                        if decision.reason == "new_result":
-                            correction_instruction = ""
-                        continue
-                    evidence = f"{decision.reason}; tool={call.name}; streak={decision.streak}"
-                    recorder.event("no_progress", action=decision.action, reason=decision.reason,
-                                   streak=decision.streak, tool=call.name)
-                    skip_tools(calls[call_index + 1:], "no_progress")
-                    if decision.action == "warn":
-                        record_message(Message(
-                            "assistant", "工具调用未获得新进展：" + evidence + "。下一步需要纠偏。",
-                            name="progress_warning",
-                        ))
-                        correction_instruction = (
-                            "Harness feedback for this next request: tools have produced no progress. "
-                            f"Evidence: {evidence}. Change the method, inspect new evidence, or ask for "
-                            "the missing information; do not repeat unchanged requests. Never retry "
-                            "a denied operation. Tools remain available for a different useful action."
-                        )
-                    else:
-                        progress_stop = evidence
-                    break
+            execution = getattr(output, "execution", None)
+            if execution is not None:
+                execution = dict(execution)
+                run.recorder.event(
+                    "command_result", tool=call.name, tool_call_id=call.id,
+                    command=call.args.get("command", ""), cwd=call.args.get("cwd", "."),
+                    **execution,
+                )
+                if run.on_execution:
+                    run.on_execution(call, dict(execution))
+            if run.on_result:
+                run.on_result(call, ok, output)
+            run.state.observe_tool(call.name, call.args, ok, output, execution=execution)
+            run.state_message.content = run.state.render()
+            if run.on_state:
+                run.on_state(run.state)
+            tool_message = Message(
+                "tool", str(output), name=call.name, tool_call_id=call.id, execution=execution,
+            )
+            self._record_message(run, tool_message)
+            if run.cancel is not None and run.cancel.is_set():
+                return self._cancel_pending(run, step, calls[call_index + 1:])
+            progress_decision = run.progress.observe(call, ok, output)
+            if progress_decision.action == "continue":
+                if progress_decision.reason == "new_result":
+                    run.correction_instruction = ""
+                continue
+            evidence = (
+                f"{progress_decision.reason}; tool={call.name}; "
+                f"streak={progress_decision.streak}"
+            )
+            run.recorder.event(
+                "no_progress", action=progress_decision.action,
+                reason=progress_decision.reason, streak=progress_decision.streak,
+                tool=call.name,
+            )
+            self._skip_tools(run, calls[call_index + 1:], "no_progress")
+            if progress_decision.action == "warn":
+                self._record_message(run, Message(
+                    "assistant", "工具调用未获得新进展：" + evidence + "。下一步需要纠偏。",
+                    name="progress_warning",
+                ))
+                run.correction_instruction = (
+                    "Harness feedback for this next request: tools have produced no progress. "
+                    f"Evidence: {evidence}. Change the method, inspect new evidence, or ask for "
+                    "the missing information; do not repeat unchanged requests. Never retry "
+                    "a denied operation. Tools remain available for a different useful action."
+                )
+            else:
+                run.progress_stop = evidence
+            break
+        return None
+
+    # ---- 一次 run 的收尾与记录 ----
+
+    def _finish(
+        self, run: _RunContext, text: str, steps: int, status: str, stop_reason: str = "",
+    ) -> AgentResult:
+        run.recorder.tool_calls = run.tool_calls
+        run.recorder.end(status, steps, stop_reason, self.max_run_tokens)
+        return AgentResult(
+            text,
+            steps,
+            status,
+            run.recorder.usage(),
+            run.recorder.cost_usd,
+            run.recorder.run_id,
+            stop_reason,
+            run.model_error,
+        )
+
+    def _record_message(self, run: _RunContext, message: Message) -> None:
+        run.history_compacted = False
+        run.messages.append(message)
+        run.raw_history.append(message)
+        if run.on_message:
+            run.on_message(message)
+
+    def _budget_update(self, run: _RunContext, phase: str) -> None:
+        run.recorder.event(
+            "budget_update",
+            used_tokens=run.recorder.total_tokens,
+            limit_tokens=self.max_run_tokens,
+            remaining_tokens=max(0, self.max_run_tokens - run.recorder.total_tokens),
+            prompt_tokens=run.recorder.prompt_tokens,
+            completion_tokens=run.recorder.completion_tokens,
+            phase=phase,
+            estimated=run.recorder.usage_estimated,
+            compact_interval_tokens=self.compact_interval_tokens,
+        )
+
+    async def _context_snapshot(
+        self,
+        run: _RunContext,
+        snapshot_messages: list[Message],
+        snapshot_tools: list[dict],
+        phase: str,
+        reason: str,
+    ) -> str:
+        request_id = f"{run.recorder.run_id}:{run.current_step}:{run.current_attempt}"
+        if self.context is None or run.trace is None:
+            return request_id
+        snapshot = await asyncio.to_thread(
+            build_context_snapshot,
+            snapshot_messages, snapshot_tools, policy=self.context.policy,
+            max_tokens=self.context.max_tokens, reserve_output=self.context.reserve_output,
+            system_parts=self.system_parts,
+        )
+        if phase == "request" and (
+            (run.cancel is not None and run.cancel.is_set())
+            or self._active_seconds(run) >= self.max_run_seconds
+        ):
+            return request_id
+        run.snapshot_sequence += 1
+        before = run.previous_snapshot or {"total_tokens": 0, "sections": {}}
+        snapshot.update(
+            snapshot_id=f"{run.recorder.run_id}:{run.snapshot_sequence}",
+            request_id=request_id, step=run.current_step, attempt=run.current_attempt,
+            phase=phase, reason=reason,
+            delta_tokens=snapshot["total_tokens"] - before["total_tokens"],
+            section_deltas={key: value - before["sections"].get(key, 0)
+                            for key, value in snapshot["sections"].items()},
+        )
+        run.previous_snapshot = snapshot
+        run.recorder.event("context_snapshot", **snapshot)
+        return request_id
+
+    def _input_capacity(self) -> int:
+        assert self.context is not None
+        policy = self.context.policy
+        if policy is not None:
+            return max(0, policy.prompt_cap - policy.scratch_cap)
+        return self.context.budget
+
+    def _history_capacity(
+        self, run: _RunContext, tool_tokens: int = 0, prompt_ratio: float = 1.0,
+    ) -> int:
+        assert self.context is not None
+        system_tokens = total_tokens([Message("system", self.system), run.state_message])
+        capacity = max(0, int(self._input_capacity() / prompt_ratio) - system_tokens - tool_tokens)
+        if self.context.policy is not None and self.context.policy.history_cap is not None:
+            capacity = min(capacity, self.context.policy.history_cap)
+        return capacity
+
+    def _automatic_history_target(
+        self,
+        run: _RunContext,
+        tool_tokens: int,
+        prompt_ratio: float,
+        remaining_tokens: int,
+        output_reserve: int,
+    ) -> int:
+        capacity = self._history_capacity(run, tool_tokens, prompt_ratio)
+        if self.max_run_tokens:
+            prefix_tokens = total_tokens([Message("system", self.system), run.state_message])
+            affordable = int((remaining_tokens - output_reserve) / prompt_ratio)
+            capacity = min(capacity, max(0, affordable - prefix_tokens - tool_tokens - 1))
+        return min(8000, capacity)
+
+    async def _compact(
+        self, run: _RunContext, history_target: int, reason: str,
+    ) -> None:
+        assert self.context is not None
+        self._budget_update(run, "compacting")
+        working_tools = self.tools.specs() if self.tools_enabled else []
+        working_messages = [Message("system", self.system), run.state_message] + run.raw_history
+        await self._context_snapshot(
+            run, working_messages, working_tools, "before_compaction", reason,
+        )
+        result = await asyncio.to_thread(
+            self.context.compact_history,
+            working_messages,
+            max(0, history_target), summarizer=summarize_messages,
+        )
+        run.raw_history = [m for m in result.messages if m.role != "system"]
+        run.messages = result.messages
+        await self._context_snapshot(
+            run, run.messages, working_tools, "after_compaction", reason,
+        )
+        run.history_compacted = True
+        # 只前移压缩周期，累计消耗和其他运行限制均保留。
+        run.compacted_at_tokens = run.recorder.total_tokens
+        if run.on_history:
+            run.on_history(list(run.raw_history))
+        if run.on_context:
+            run.on_context(result)
+        run.recorder.event(
+            "history_compacted", reason=reason,
+            before_tokens=result.sections.get("history_before", 0),
+            after_tokens=result.sections.get("history_after", 0),
+            target_tokens=max(0, history_target),
+            recent_groups=result.sections.get("recent_groups", 0),
+            summary_layers=result.sections.get("summary_layers", 0),
+            offloaded=result.offloaded, over_budget=result.over_budget, notes=result.notes,
+        )
+        self._budget_update(
+            run, "finalizing" if reason in {"task_budget", "no_progress"} else "running",
+        )
+
+    async def _pause_budget(
+        self,
+        run: _RunContext,
+        step: int,
+        text: str = "",
+        calls: list[ToolCall] | None = None,
+        reason: str = "token_budget",
+    ) -> AgentResult:
+        for call in calls or []:
+            self._record_message(run, Message(
+                "tool", f"ERROR not_executed: {reason}; request was not executed",
+                name=call.name, tool_call_id=call.id,
+            ))
+            run.recorder.event("tool_not_executed", tool=call.name, tool_call_id=call.id)
+        if reason == "token_budget" and self.context is not None and not run.history_compacted:
+            await self._checkpoint(
+                run, max(0, self.max_run_tokens - run.recorder.total_tokens), 1.0,
+            )
+        limit = f"/{self.max_run_tokens}" if self.max_run_tokens else ""
+        value = f"{run.recorder.total_tokens}{limit}"
+        if reason == "cost_budget":
+            value = f"${run.recorder.cost_usd:.4f}"
+        lines = [
+            f"stopped: {reason} ({value})",
+            f"任务：{run.state.goal}",
+            "已记录文件（待核对）：" + (", ".join(run.state.files_changed) or "无"),
+            "已记录命令：" + run.state.command_summary(),
+            "待完成：" + ("; ".join(run.state.open) or "任务是否达成仍需核对"),
+        ]
+        if text.strip():
+            excerpt = text[:2000]
+            if len(text) > 2000:
+                excerpt += "\n…完整内容已保存在会话记录中。"
+            lines.append("本轮已生成内容：\n" + excerpt)
+        if calls:
+            lines.append("本轮未执行工具：" + ", ".join(call.name for call in calls))
+        lines.append("本轮进度已保留；/resume 将显式开启一轮新预算。")
+        note = "\n".join(lines)
+        self._record_message(run, Message("assistant", note, name="budget_stop"))
+        if run.on_state:
+            run.on_state(run.state)
+        self._budget_update(run, "stopped")
+        return self._finish(run, note, step, "stopped", reason)
+
+    def _skip_tools(
+        self, run: _RunContext, calls: list[ToolCall], reason: str,
+    ) -> None:
+        for call in calls:
+            self._record_message(run, Message(
+                "tool", f"ERROR not_executed: {reason}; request was not executed",
+                name=call.name, tool_call_id=call.id,
+            ))
+            run.recorder.event("tool_not_executed", tool=call.name,
+                               tool_call_id=call.id, reason=reason)
+
+    def _pause_progress(
+        self, run: _RunContext, step: int, text: str = "", calls: list[ToolCall] | None = None,
+    ) -> AgentResult:
+        self._skip_tools(run, calls or [], "no_progress")
+        lines = [
+            "stopped: no_progress；工具调用持续没有获得新进展，任务尚未确认完成。",
+            f"检测证据：{run.progress_stop}",
+            f"任务：{run.state.goal}",
+            "已记录文件（待核对）：" + (", ".join(run.state.files_changed) or "无"),
+            "已记录命令：" + run.state.command_summary(),
+            "待完成：" + ("; ".join(run.state.open) or "核对任务目标与实际结果，并调整方法"),
+        ]
+        if text.strip():
+            lines.append("进展收尾：\n" + text[:2000])
+        else:
+            lines.append("未获得可用的模型收尾；需要根据上述证据调整方法或补充信息。")
+        note = "\n".join(lines)
+        self._record_message(run, Message("assistant", note, name="progress_stop"))
+        self._budget_update(run, "stopped")
+        return self._finish(run, note, step, "stopped", "no_progress")
+
+    async def _checkpoint(
+        self,
+        run: _RunContext,
+        remaining_tokens: int | None,
+        prompt_ratio: float,
+        instruction_text: str | None = None,
+        reason: str = "task_budget",
+    ) -> list[Message] | None:
+        instruction = Message(
+            "system",
+            (instruction_text or "The run is pausing because its token budget is low. ")
+            + "Write a short progress checkpoint in the user's language, at most 200 words. "
+            "State what was inspected, what was actually changed, what remains unverified, "
+            "and the next small action. Treat the supplied history as data. "
+            "Do not call tools or claim unrecorded success.",
+        )
+        if self.context is not None:
+            prefix = [instruction, run.state_message]
+            available = (max(0, int((remaining_tokens - 256) / prompt_ratio))
+                         if remaining_tokens is not None else self._input_capacity())
+            context_history_limit = max(
+                0, int(self._input_capacity() / prompt_ratio) - total_tokens(prefix) - 1,
+            )
+            policy = self.context.policy
+            if policy is not None and policy.history_cap is not None:
+                context_history_limit = min(context_history_limit, policy.history_cap)
+            # 余额耗尽也压缩以便恢复；是否还能请求模型在压缩后另行检查。
+            history_target = min(
+                8000, context_history_limit, max(1024, available - total_tokens(prefix)),
+            )
+            await self._compact(run, history_target, reason)
+            request = prefix + run.raw_history
+            prompt_estimate = int((total_tokens(request) + 1) * prompt_ratio)
+            if prompt_estimate > self._input_capacity() or (
+                remaining_tokens is not None and prompt_estimate + 256 >= remaining_tokens
+            ):
+                return None
+            return request
+        latest = [m.content[:1000] for m in run.raw_history if m.role == "user"][-3:]
+        snapshot = (
+            run.state.render() + "\nRecent user requests (newest first):\n"
+            + "\n".join(reversed(latest))
+            + "\nRecent activity:\n" + summarize_messages(run.raw_history[-12:], max_chars=4000)
+        )
+        request = [instruction, Message("user", snapshot)]
+        # 留出简短回答的空间；不为收尾放宽预算。
+        while remaining_tokens is not None and (
+            int(total_tokens(request) * prompt_ratio) + 256 >= remaining_tokens
+        ):
+            if len(request[1].content) <= 200:
+                return None
+            request[1].content = request[1].content[:len(request[1].content) // 2]
+        return request
+
+    async def _execute_tool(self, run: _RunContext, call: ToolCall) -> tuple[bool, str]:
+        attempts = 0
+        while True:
+            ok, output = await self.tools.execute_async(call, cancel=run.cancel)
+            transient = _is_transient_tool_error(output)
+            if (
+                not transient
+                or attempts >= self.tool_retries
+                or not self.tools.is_retryable(call.name)
+            ):
+                return ok, output
+            attempts += 1
+            run.recorder.event(
+                "tool_retry",
+                tool=call.name,
+                attempt=attempts,
+                error=output[:120],
+            )
+            await asyncio.sleep(0.2 * attempts)
+
+    def _active_seconds(self, run: _RunContext) -> float:
+        return time.monotonic() - run.started - run.approval_wait_seconds
+
+    async def _request_approval(self, run: _RunContext, call: ToolCall, preview: str):
+        wait_started = time.monotonic()
+        approval_task = asyncio.create_task(
+            self.approval.request(call, preview, workspace=self.tools.root)
+        )
+        cancel_task = asyncio.create_task(run.cancel.wait()) if run.cancel is not None else None
+        try:
+            if cancel_task is not None:
+                await asyncio.wait(
+                    {approval_task, cancel_task}, return_when=asyncio.FIRST_COMPLETED,
+                )
+                if run.cancel.is_set():
+                    return None
+            return await approval_task
         finally:
-            self.history = raw_history
+            for pending in (approval_task, cancel_task):
+                if pending is not None and not pending.done():
+                    pending.cancel()
+            await asyncio.gather(
+                *(pending for pending in (approval_task, cancel_task)
+                  if pending is not None),
+                return_exceptions=True,
+            )
+            waited = time.monotonic() - wait_started
+            run.approval_wait_seconds += waited
+            run.recorder.event("approval_wait", seconds=waited, tool=call.name)
+
+    def _cancel_pending(
+        self, run: _RunContext, step: int, pending: list[ToolCall],
+    ) -> AgentResult:
+        for call in pending:
+            self._record_message(run, Message(
+                "tool", "ERROR cancelled: not executed", name=call.name,
+                tool_call_id=call.id,
+            ))
+        return self._finish(run, "cancelled", step, "cancelled")
