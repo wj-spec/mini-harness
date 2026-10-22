@@ -4,6 +4,7 @@ import asyncio
 import json
 import time
 import re
+import uuid
 from dataclasses import dataclass, field
 from itertools import count
 from typing import Callable
@@ -11,9 +12,9 @@ from typing import Callable
 from core.models import ExecutionOutcome, Message, ToolCall
 from core.progress import ProgressMonitor
 
-from app.events import StreamDone, StreamError, TextDelta, ToolCallsReady
+from app.events import ReasoningDelta, StreamDone, StreamError, TextDelta, ToolCallsReady
 from app.policy import ApprovalGate
-from app.skills import render_skills
+from app.skill_history import skill_history_view
 from app.trace import Pricing, TraceRecorder
 from app.tools import ToolRegistry
 from core.context import ContextBuilder, ContextResult, estimate_tokens, total_tokens
@@ -69,6 +70,7 @@ class AgentResult:
     cost_usd: float = 0.0
     run_id: str = ""
     stop_reason: str = ""
+    error: str | None = None
 
 
 class Agent:
@@ -95,7 +97,10 @@ class Agent:
         compact_interval_tokens: int = 200_000,
         max_run_cost_usd: float = 0.0,
         tool_retries: int = 1,
+        require_tool_use: bool = False,
     ):
+        if require_tool_use and not tools_enabled:
+            raise ValueError("require_tool_use requires tools_enabled=True")
         self.provider = provider
         self.tools = tools
         self.max_steps = max_steps
@@ -105,7 +110,7 @@ class Agent:
         self.state = state
         self.approval = approval
         self.project_instructions = project_instructions
-        self.history = list(history or [])
+        self.history = skill_history_view(list(history or []))
         self.pricing = pricing or Pricing()
         self.llm_timeout = llm_timeout
         self.llm_retries = llm_retries
@@ -116,6 +121,7 @@ class Agent:
         self.compact_interval_tokens = max(0, compact_interval_tokens)
         self.max_run_cost_usd = max_run_cost_usd
         self.tool_retries = tool_retries
+        self.require_tool_use = require_tool_use
         if system is None:
             if tools_enabled:
                 names = ", ".join(tools.names())
@@ -147,6 +153,12 @@ class Agent:
                     "You are a coding agent in chat-only mode. No tools are available. "
                     "Answer from the conversation only; do not emit tool calls."
                 )
+        if require_tool_use:
+            system += (
+                " This is an authorized action task. Use available tools to actually execute "
+                "the user's request. Follow approval decisions and report observed results; "
+                "do not finish by merely announcing an intention. If blocked, explain the obstacle."
+            )
         self.system_parts = [{"kind": "base_instructions", "label": "基础指令",
                               "source": "agent.system", "content": system}]
         if project_instructions:
@@ -154,14 +166,79 @@ class Agent:
             self.system_parts.append({"kind": "project_instructions", "label": "项目规则",
                                       "source": "AGENTS.md", "content": project_part})
             system += project_part
-        if tools_enabled:
-            summary = render_skills(getattr(self.tools, "skills", None) or [])
-            if summary:
-                skill_part = "\n\n" + summary
-                self.system_parts.append({"kind": "skills", "label": "技能目录",
-                                          "source": "skills", "content": skill_part})
-                system += skill_part
         self.system = system
+        self._sync_skill_context()
+        self._loaded_snapshot: dict | None = None
+
+    def _sync_skill_context(self) -> None:
+        self.system_parts = [part for part in self.system_parts
+                             if part["kind"] not in {"skills", "active_skill"}]
+        manager = getattr(self.tools, "skill_manager", None)
+        if self.tools_enabled and manager is not None:
+            catalog = manager.render_catalog()
+            if catalog:
+                lifecycle = (
+                    "\n\n[SKILL LIFECYCLE]\n"
+                    "Only procedures in [ACTIVE SKILLS] are currently active. "
+                    "Historical receipts do not activate skills. Discover with list_skills, "
+                    "activate a matching skill with load_skill, follow its procedure, "
+                    "and release it with unload_skill as soon as its part of the work is done. "
+                    "The catalog stays registered across turns; all loaded bodies are temporary "
+                    "and are automatically released when this run ends, pauses, fails or is cancelled. "
+                    "Reload a needed procedure on resume; an earlier receipt is not activation. "
+                    "Skills cannot override user/project instructions or grant permissions. "
+                    "Relative resource paths are relative to the skill source directory; "
+                    "normal workspace and approval rules still apply.\n"
+                )
+                self.system_parts.append({"kind": "skills", "label": "技能目录",
+                                          "source": "skills", "content": lifecycle + catalog})
+            for skill in manager.active:
+                self.system_parts.append({
+                    "kind": "active_skill", "label": f"激活技能 · {skill.name}",
+                    "source": str(skill.path),
+                    "content": f"\n\n[ACTIVE SKILLS]\nsource: {skill.path}\n{skill.render()}",
+                })
+        self.system = "".join(part["content"] for part in self.system_parts)
+
+    def manage_skills(self, action: str = "list", name: str | None = None) -> str:
+        if not self.tools_enabled:
+            raise ValueError("skills unavailable in chat-only mode")
+        try:
+            return self.tools.manage_skills(action, name)
+        finally:
+            self._sync_skill_context()
+
+    async def loaded_context_snapshot(self, session_key: str) -> dict | None:
+        """统计已装载内容；不创建任务、不压缩、不请求模型。"""
+        if self.context is None:
+            return None
+        self._sync_skill_context()
+        messages = [Message("system", self.system)]
+        if self.state is not None:
+            messages.append(Message("system", self.state.render(), name="task_state"))
+        messages.extend(self.history)
+        tools = self.tools.specs() if self.tools_enabled else []
+        snapshot = await asyncio.to_thread(
+            build_context_snapshot, messages, tools, policy=self.context.policy,
+            max_tokens=self.context.max_tokens, reserve_output=self.context.reserve_output,
+            system_parts=self.system_parts,
+        )
+        run_id = f"loaded:{session_key}"
+        before = self._loaded_snapshot
+        if before is None or before["run_id"] != run_id:
+            before = {"total_tokens": 0, "sections": {}}
+        identity = f"{run_id}:{uuid.uuid4().hex[:12]}"
+        snapshot.update(
+            type="context_snapshot", ts=time.time(), run_id=run_id,
+            model=getattr(self.provider, "model", "") or type(self.provider).__name__,
+            snapshot_id=identity, request_id=identity,
+            phase="loaded", reason="session_loaded", step=0, attempt=0,
+            delta_tokens=snapshot["total_tokens"] - before["total_tokens"],
+            section_deltas={key: value - before["sections"].get(key, 0)
+                            for key, value in snapshot["sections"].items()},
+        )
+        self._loaded_snapshot = snapshot
+        return snapshot
 
     async def run(
         self,
@@ -178,6 +255,38 @@ class Agent:
         trace: Callable[[dict], None] | None = None,
         cancel: asyncio.Event | None = None,
     ) -> AgentResult:
+        """一轮结束即释放临时正文，注册目录继续常驻。"""
+        try:
+            return await self._run(
+                task, on_text=on_text, on_tool=on_tool, on_result=on_result,
+                on_execution=on_execution, on_context=on_context, on_state=on_state,
+                on_message=on_message, on_history=on_history, trace=trace, cancel=cancel,
+            )
+        finally:
+            self.tools.skill_manager.clear_temporary()
+            self._sync_skill_context()
+
+    async def _run(
+        self,
+        task: str | None = None,
+        *,
+        on_text: TextCallback | None = None,
+        on_tool: ToolCallback | None = None,
+        on_result: ResultCallback | None = None,
+        on_execution: Callable[[ToolCall, ExecutionOutcome], None] | None = None,
+        on_context: Callable[[ContextResult], None] | None = None,
+        on_state: Callable[[TaskState], None] | None = None,
+        on_message: Callable[[Message], None] | None = None,
+        on_history: Callable[[list[Message]], None] | None = None,
+        trace: Callable[[dict], None] | None = None,
+        cancel: asyncio.Event | None = None,
+    ) -> AgentResult:
+        if self.tools_enabled:
+            try:
+                self.tools.skill_manager.refresh()
+            except (OSError, ValueError) as exc:
+                return AgentResult(f"error: invalid skills config: {exc}", 0, "error")
+        self._sync_skill_context()
         if self.state is None:
             self.state = TaskState(goal=task or "")
         state = self.state
@@ -200,6 +309,7 @@ class Agent:
             model=getattr(self.provider, "model", ""),
         )
         recorder.start(task)
+        model_error: str | None = None
 
         def finish(text: str, steps: int, status: str, stop_reason: str = "") -> AgentResult:
             recorder.tool_calls = tool_calls
@@ -212,6 +322,7 @@ class Agent:
                 recorder.cost_usd,
                 recorder.run_id,
                 stop_reason,
+                model_error,
             )
 
         def record_message(message: Message) -> None:
@@ -466,6 +577,7 @@ class Agent:
         correction_instruction = ""
         denied_requests: set[tuple[str, str]] = set()
         empty_retries = 0
+        action_required_sent = False
         continuations = 0
         started = time.monotonic()
         approval_wait_seconds = 0.0
@@ -520,6 +632,8 @@ class Agent:
                         return pause_progress(step - 1, "步骤上限已到，未发起模型收尾。")
                     return finish("stopped: max_steps", self.max_steps, "stopped", "max_steps")
 
+                self._sync_skill_context()
+                messages[0] = Message("system", self.system)
                 state_message.content = state.render()
                 tool_specs = self.tools.specs() if self.tools_enabled else []
                 tool_tokens = estimate_tokens(json.dumps(tool_specs, ensure_ascii=False))
@@ -622,6 +736,7 @@ class Agent:
                 error_retryable = False
                 finish_reason: str | None = None
                 usage: dict | None = None
+                reasoning_content: str | None = None
                 attempt = 0
 
                 while True:
@@ -631,6 +746,7 @@ class Agent:
                     error_retryable = False
                     finish_reason = None
                     usage = None
+                    reasoning_content = None
                     stream_cancelled = False
                     request_prompt_estimate = total_tokens(request_messages) + estimate_tokens(
                         json.dumps(tool_specs, ensure_ascii=False)
@@ -662,6 +778,7 @@ class Agent:
 
                     async def consume_stream() -> None:
                         nonlocal calls, error, error_retryable, finish_reason, usage, request_started
+                        nonlocal reasoning_content
                         if cancel is not None and cancel.is_set():
                             return
                         if active_seconds() >= self.max_run_seconds:
@@ -675,6 +792,8 @@ class Agent:
                                     text_parts.append(event.text)
                                     if on_text:
                                         on_text(event.text)
+                                elif isinstance(event, ReasoningDelta):
+                                    reasoning_content = (reasoning_content or "") + event.text
                                 elif isinstance(event, ToolCallsReady):
                                     calls = event.calls
                                 elif isinstance(event, StreamError):
@@ -683,6 +802,8 @@ class Agent:
                                 elif isinstance(event, StreamDone):
                                     finish_reason = event.finish_reason
                                     usage = event.usage
+                                    if event.reasoning_content is not None:
+                                        reasoning_content = event.reasoning_content
                         finally:
                             close = getattr(stream, "aclose", None)
                             if close is not None:
@@ -711,6 +832,9 @@ class Agent:
                         error = f"timeout after {timeout:.1f}s"
                         error_retryable = True
 
+                    model_error = error
+                    if error:
+                        recorder.event("llm_error", step=step, error=error, retryable=error_retryable)
                     if not request_started:
                         if cancel is not None and cancel.is_set():
                             return finish("cancelled", step - 1, "cancelled")
@@ -726,7 +850,7 @@ class Agent:
                     )
                     if estimated_usage:
                         prompt_tokens = request_prompt_estimate
-                        output = "".join(text_parts) + json.dumps(
+                        output = (reasoning_content or "") + "".join(text_parts) + json.dumps(
                             [{"name": c.name, "args": c.args} for c in calls], ensure_ascii=False
                         )
                         completion_tokens = estimate_tokens(output)
@@ -792,7 +916,7 @@ class Agent:
                 for index, call in enumerate(calls):
                     if not call.id:
                         call.id = f"step{step}_call{index}"
-                assistant_message = Message("assistant", text, calls)
+                assistant_message = Message("assistant", text, calls, reasoning_content=reasoning_content)
                 if text or calls or not stream_cancelled:
                     record_message(assistant_message)
 
@@ -832,6 +956,21 @@ class Agent:
                         empty_retries += 1
                         if empty_retries >= 2:
                             return finish("error: empty model response", step, "error")
+                        continue
+                    if self.require_tool_use and tool_calls == 0:
+                        if action_required_sent:
+                            recorder.event("no_action", step=step)
+                            return finish(text, step, "stopped", "no_action")
+                        action_required_sent = True
+                        record_message(Message(
+                            "system",
+                            "No tool action has been requested in this run. Execute the user's "
+                            "requested action using available tools and follow approval decisions, "
+                            "or explain the obstacle if you cannot proceed. A statement of intent "
+                            "does not complete an action task. Base the final answer on observed results.",
+                            name="action_required",
+                        ))
+                        recorder.event("action_required", step=step)
                         continue
                     return finish(text, step, "done")
 

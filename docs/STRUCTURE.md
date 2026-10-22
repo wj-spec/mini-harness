@@ -30,6 +30,8 @@ mini-harness/
     session.py          # JSONL 事件、state 投影、--continue、崩溃对账
     trace.py            # TraceRecorder / Pricing
     instructions.py     # AGENTS.md 加载与注入
+    skills.py           # 项目/本机发现、常驻注册目录、临时正文与来源边界
+    skill_history.py    # 旧技能正文的模型视图，保留原始历史
     summarize.py        # LLM 摘要 HTTP 适配器 + 确定性回退
     eval.py             # 10 任务 eval、check、报告、regression delta
     agent.py            # 唯一运行 loop：流式 + 工具执行 + context 接入
@@ -40,6 +42,7 @@ mini-harness/
     src/
       cli.tsx           # 参数、渲染、进程信号与清理
       backend.ts        # Python 子进程、帧校验与关闭
+      backend-launch.ts # 交互后端与只读会话列表共用启动环境
       protocol.ts       # JSONL v1 类型与运行时校验
       app.tsx           # 阅读焦点、滚动、输入、审批与取消
       view-state.ts     # 实际活动、最终状态、完整消息与工具记录
@@ -49,7 +52,8 @@ mini-harness/
       use-transcript-scroll.ts # 阅读区命中、鼠标模式生命周期
       terminal-input.ts # 已识别鼠标包合并、原始输入与终端清理
       markdown.tsx      # 终端 Markdown、宽字符换行与安全显示
-      theme.ts          # system / light / dark 语义配色
+      theme.ts          # 浅深主题及真彩 / 256 / 16 色分层
+      terminal-colors.ts # 与 Ink 共用颜色能力及禁色规则
       composer.tsx      # 多行草稿、输入历史、光标与粘贴
       editor.ts         # grapheme 编辑和终端单元格宽度
     tests/              # Node 通信与 Ink 渲染测试
@@ -57,6 +61,7 @@ mini-harness/
 
   evals/                # tasks.json（10 个任务）
   examples/demo-repo/   # 3 分钟 demo 仓库
+  examples/skills.json  # 可提交的静态技能配置示例
   scripts/demo.sh       # 复制 demo 并启动 TUI
   AGENTS.md             # 项目规则（自举）
 
@@ -74,6 +79,9 @@ mini-harness/
     test_trace.py
     test_eval.py
     test_instructions.py
+    test_skills.py
+    test_skill_discovery.py
+    test_skill_lifecycle.py
     test_policy.py
     test_tui.py
     test_provider.py

@@ -1,4 +1,4 @@
-import type {ApprovalDecision, BackendCommand, CommandExecution, ContextSnapshot, PersistedMessage, RunMetrics, RunResult, ServerEvent, ToolCall} from './protocol.js';
+import type {ApprovalDecision, BackendCommand, CommandExecution, ContextSnapshot, PersistedMessage, RunMetrics, RunResult, ServerEvent, SessionPurpose, ToolCall} from './protocol.js';
 
 export const MAX_CONTEXT_SNAPSHOTS = 100;
 
@@ -33,9 +33,11 @@ export type ViewState = {
   error: string | null;
   sessionId: string;
   sessionPath: string;
+  sessionPurpose: SessionPurpose;
   provider: string;
   metrics: RunMetrics | null;
   contextSnapshots: ContextSnapshot[];
+  hasStartedRun: boolean;
   resumed: boolean;
 };
 export type Action =
@@ -49,7 +51,7 @@ export type Action =
 export const initialState: ViewState = {
   phase: 'starting', activeId: null, activeCommand: null, activity: 'initializing', entries: [], nextEntry: 0, live: '', segment: '',
   approval: null, model: '', workspace: '', lastResult: '', lastStatus: null, lastStopReason: null, error: null,
-  sessionId: '', sessionPath: '', provider: '', metrics: null, contextSnapshots: [], resumed: false,
+  sessionId: '', sessionPath: '', sessionPurpose: 'user', provider: '', metrics: null, contextSnapshots: [], hasStartedRun: false, resumed: false,
 };
 
 function append(state: ViewState, kind: Entry['kind'], text: string): ViewState {
@@ -120,15 +122,17 @@ function restoreMessage(state: ViewState, message: PersistedMessage): ViewState 
 }
 
 export function reduceView(state: ViewState, action: Action): ViewState {
-  if (action.type === 'begin') return append({...state, phase: 'running', activeId: action.id, activeCommand: null, activity: 'waiting_model', live: '', segment: '', approval: null, lastResult: '', lastStatus: null, lastStopReason: null, error: null, metrics: null, contextSnapshots: []}, 'task', action.text);
+  if (action.type === 'begin') return append({...state, phase: 'running', activeId: action.id, activeCommand: null, activity: 'waiting_model', live: '', segment: '', approval: null, lastResult: '', lastStatus: null, lastStopReason: null, error: null, metrics: null, contextSnapshots: [], hasStartedRun: true}, 'task', action.text);
   if (action.type === 'begin_command') return {...state, phase: 'running', activeId: action.id, activeCommand: action.command,
     activity: action.command === 'resume' ? 'waiting_model' : null, approval: null, error: null,
-    ...(action.command === 'resume' ? {live: '', segment: '', lastResult: '', lastStatus: null, lastStopReason: null, metrics: null, contextSnapshots: []} : {})};
+    ...(action.command === 'resume' ? {live: '', segment: '', lastResult: '', lastStatus: null, lastStopReason: null, metrics: null, contextSnapshots: [], hasStartedRun: true} : {})};
   if (action.type === 'notice') return append(state, 'notice', action.text);
   if (action.type === 'cancel') return {...state, phase: 'stopping', approval: null};
   if (action.type === 'approval_sent') return afterApproval(state);
 
   const event = action.event;
+  if (event.id === null && (event.type === 'context_snapshot' || event.type === 'metrics') &&
+    (state.hasStartedRun || state.phase === 'closed')) return state;
   if (event.type === 'status' && event.phase === 'starting' && event.id && !state.activeId) {
     return {...state, phase: 'starting', activeId: event.id, activeCommand: null, activity: 'initializing'};
   }
@@ -137,7 +141,8 @@ export function reduceView(state: ViewState, action: Action): ViewState {
   switch (event.type) {
     case 'ready':
       return {...state, phase: 'starting', activity: 'initializing', workspace: event.workspace, model: event.model, error: null,
-        provider: event.provider ?? '', sessionId: event.session_id, sessionPath: event.session_path ?? '', resumed: event.resumed ?? false};
+        provider: event.provider ?? '', sessionId: event.session_id, sessionPath: event.session_path ?? '',
+        sessionPurpose: event.session_purpose ?? 'user', resumed: event.resumed ?? false};
     case 'history_message':
       return restoreMessage(state, event.message);
     case 'notice':
@@ -152,7 +157,7 @@ export function reduceView(state: ViewState, action: Action): ViewState {
     case 'context_snapshot': {
       const snapshot = event.snapshot;
       if (state.contextSnapshots.some(item => item.snapshot_id === snapshot.snapshot_id)) return state;
-      return {...state, contextSnapshots: [...state.contextSnapshots, snapshot].slice(-MAX_CONTEXT_SNAPSHOTS),
+      return {...state, contextSnapshots: snapshot.phase === 'loaded' ? [snapshot] : [...state.contextSnapshots, snapshot].slice(-MAX_CONTEXT_SNAPSHOTS),
         metrics: state.metrics ? {...state.metrics, context_tokens: snapshot.total_tokens, context_window: snapshot.context_window} : null};
     }
     case 'status':

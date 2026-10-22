@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
+import {execFileSync} from 'node:child_process';
 import {chmod, mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {existsSync} from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import test from 'node:test';
 import {createBackendClient, type BackendClient} from '../src/backend.js';
-import {MAX_FRAME_BYTES, type ServerEvent} from '../src/protocol.js';
+import {MAX_FRAME_BYTES, type BackendCommand, type SkillsCommandArgs, type PersistedMessage, type ServerEvent} from '../src/protocol.js';
+import {initialState, reduceView} from '../src/view-state.js';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const ready = {v:1,type:'ready',id:null,workspace:'/tmp',model:'fake',session_id:'test',capabilities:[]};
@@ -180,6 +182,39 @@ if(request.type==='shutdown'){console.log(JSON.stringify({v:1,type:'closed',id:r
   }finally{await client.shutdown();await f.close();}
 });
 
+test('skills command forwards typed arguments and rejects invalid payloads before sending', async()=>{
+  const f = await fixture(`import readline from 'node:readline';import {appendFileSync} from 'node:fs';
+console.log(JSON.stringify(${JSON.stringify(ready)}));
+readline.createInterface({input:process.stdin}).on('line',line=>{
+appendFileSync('requests.jsonl',line+'\\n');const request=JSON.parse(line);
+if(request.type==='command')console.log(JSON.stringify({v:1,type:'command_result',id:request.id,command:request.command,text:'skills updated'}));
+if(request.type==='shutdown'){console.log(JSON.stringify({v:1,type:'closed',id:request.id}));process.exit(0);}
+});`);
+  const client = createBackendClient({repoRoot: f.root, shutdownTimeoutMs: 500});
+  const state = observer(client);
+  try {
+    client.start(); await state.wait(event=>event.type==='ready');
+    for (const args of [undefined, {}, {action: 'refresh'}, {action: 'activate', name: 'release'}, {action: 'unload', name: 'release'}] as const) {
+      const id = client.command('skills', args);
+      await state.wait(event=>event.type==='command_result'&&event.id===id);
+    }
+    for (const [command, args] of [
+      ['cost', {}], ['skills', null], ['skills', []], ['skills', {unknown: true}],
+      ['skills', {action: 'delete'}], ['skills', {action: 1}], ['skills', {action: 'activate'}],
+      ['skills', {action: 'unload', name: ' '}], ['skills', {action: 'activate', name: 7}],
+      ['skills', {action: 'list', name: 'release'}], ['skills', {action: 'refresh', name: 'release'}],
+    ] as const) {
+      assert.throws(()=>client.command(command as BackendCommand, args as SkillsCommandArgs), /参数|skills|技能/);
+    }
+    await client.shutdown();
+    const requests = (await readFile(path.join(f.root, 'requests.jsonl'), 'utf8')).trim().split('\n').map(line=>JSON.parse(line));
+    assert.equal(requests.length, 6);
+    assert.ok(!('args' in requests[0]));
+    assert.deepEqual(requests.slice(1,5).map(request=>request.args), [{}, {action: 'refresh'},
+      {action: 'activate', name: 'release'}, {action: 'unload', name: 'release'}]);
+  } finally {await client.shutdown(); await f.close();}
+});
+
 test('late subscribers receive restored history and unresolved startup approval in order', async()=>{
   const f=await fixture(`import readline from 'node:readline';
 console.log(JSON.stringify({...${JSON.stringify(ready)},resumed:true}));
@@ -275,14 +310,64 @@ readline.createInterface({input:process.stdin}).on('line',line=>{const request=J
 test('runs the actual Python fake backend and shuts it down',{skip:!existsSync(path.join(repoRoot,'.venv','bin','python3'))},async()=>{
   const base=path.join(repoRoot,'.vibe','node-transport-tests');await mkdir(base,{recursive:true});const workspace=await mkdtemp(path.join(base,'workspace-'));
   const client=createBackendClient({repoRoot,args:['--fake','--workspace',workspace,'--chat-only'],shutdownTimeoutMs:1000});const state=observer(client);
-  try{client.start();await state.wait(event=>event.type==='ready');const id=client.run('你好');const done=await state.wait(event=>event.type==='done'&&event.id===id);assert.ok(state.events.some(event=>event.type==='text_delta'&&event.id===id),JSON.stringify(state.events));assert.equal(done.type==='done'&&done.result.status,'done');
-    const snapshots=state.events.filter(event=>event.type==='context_snapshot');
+  try{client.start();await state.wait(event=>event.type==='status'&&event.phase==='idle');
+    const loaded=state.events.find(event=>event.type==='context_snapshot'&&event.snapshot.phase==='loaded');
+    assert.ok(loaded?.type==='context_snapshot'&&loaded.id===null&&loaded.snapshot.total_tokens>0);
+    const startupUsage=state.events.find(event=>event.type==='metrics'&&event.id===null);
+    assert.ok(startupUsage?.type==='metrics'&&startupUsage.used_tokens===0);
+    assert.equal(state.events.some(event=>['text_delta','done'].includes(event.type)),false);
+    const id=client.run('你好');const done=await state.wait(event=>event.type==='done'&&event.id===id);assert.ok(state.events.some(event=>event.type==='text_delta'&&event.id===id),JSON.stringify(state.events));assert.equal(done.type==='done'&&done.result.status,'done');
+    const snapshots=state.events.filter(event=>event.type==='context_snapshot').filter(event=>event.snapshot.phase!=='loaded');
     assert.ok(snapshots.length>0,JSON.stringify(state.events));
     assert.ok(snapshots.every(event=>event.id===id&&event.snapshot.phase==='request'&&event.snapshot.estimated));
     assert.ok(snapshots.every(event=>done.type==='done'&&event.snapshot.run_id===done.result.run_id));
     assert.ok(snapshots.every(event=>event.snapshot.request_id.startsWith(event.snapshot.run_id+':')));
+    const late=observer(client);await late.wait(event=>event.type==='ready');
+    assert.equal(late.events.some(event=>event.type==='context_snapshot'||event.type==='metrics'),false);
     await client.shutdown();assert.ok(state.events.some(event=>event.type==='closed'));}
   finally{await client.shutdown();await rm(workspace,{recursive:true,force:true});}
+});
+
+test('restored task progress does not disconnect actual Python startup',{skip:!existsSync(path.join(repoRoot,'.venv','bin','python3'))},async()=>{
+  const base=path.join(repoRoot,'.vibe','node-transport-tests');await mkdir(base,{recursive:true});
+  const workspace=await mkdtemp(path.join(base,'resume-progress-'));
+  execFileSync(path.join(repoRoot,'.venv','bin','python3'),['-c',
+    `import sys
+from app.session import SessionStore
+from core.models import Message
+from core.state import TaskState
+session = SessionStore.new(sys.argv[1], 'fake', purpose='test')
+session.append_message(Message('user', '继续已有计划'))
+session.append_message(Message('assistant', '已完成第一步'))
+session.save_state(TaskState(goal='已有任务', plan=['第一步', '第二步'], done=['第一步']))
+`,workspace],{cwd:repoRoot});
+  const client=createBackendClient({repoRoot,args:['--fake','--workspace',workspace,'--continue'],shutdownTimeoutMs:1000});
+  const state=observer(client);
+  try{
+    client.start();
+    const startup=await state.wait(event=>event.type==='error'||event.type==='closed'||(event.type==='status'&&event.phase==='idle'));
+    assert.equal(startup.type,'status',JSON.stringify(startup));
+    const metrics=state.events.find(event=>event.type==='metrics');
+    assert.ok(metrics?.type==='metrics');
+    assert.equal(metrics.id,null);
+    assert.equal(metrics.used_tokens,0);
+    assert.equal(metrics.cost_usd,0);
+    assert.equal(metrics.done,1);
+    assert.equal(metrics.planned,2);
+    const view=state.events.reduce((current,event)=>reduceView(current,{type:'event',event}),initialState);
+    assert.equal(view.phase,'idle');
+    assert.equal(view.activeId,null);
+    assert.equal(view.hasStartedRun,false);
+    assert.equal(view.metrics?.done,1);
+    assert.equal(view.metrics?.planned,2);
+    const late=observer(client);
+    await late.wait(event=>event.type==='metrics');
+    assert.ok(late.events.some(event=>event.type==='metrics'&&event.done===1&&event.planned===2));
+    const id=client.command('cost');
+    const cost=await state.wait(event=>event.type==='command_result'&&event.id===id);
+    assert.match(cost.type==='command_result'?cost.text:'',/runs 0/);
+    assert.equal(state.events.some(event=>event.type==='error'||event.type==='done'||event.type==='text_delta'),false);
+  }finally{await client.shutdown();await rm(workspace,{recursive:true,force:true});}
 });
 
 test('actual Python restores a session without running and serves explicit commands',{skip:!existsSync(path.join(repoRoot,'.venv','bin','python3'))},async()=>{
@@ -306,7 +391,7 @@ test('actual Python restores a session without running and serves explicit comma
       const result=await state.wait(event=>event.type==='command_result'&&event.id===commandId);
       assert.ok(result.type==='command_result'&&result.text.length>0);
     }
-    assert.equal(state.events.some(event=>event.type==='metrics'||event.type==='text_delta'||event.type==='done'),false);
+    assert.equal(state.events.some(event=>(event.type==='metrics'&&event.id!==null)||event.type==='text_delta'||event.type==='done'),false);
     const diffId=restored.command('diff');
     const approval=await state.wait(event=>event.type==='approval_request'&&event.id===diffId);
     assert.ok(approval.type==='approval_request'&&approval.decisions?.includes('deny'));
@@ -317,6 +402,62 @@ test('actual Python restores a session without running and serves explicit comma
     const done=await state.wait(event=>event.type==='done'&&event.id===resumeId);
     assert.equal(done.type==='done'&&done.result.status,'done');
   }finally{await first.shutdown();await restored?.shutdown();await rm(workspace,{recursive:true,force:true});}
+});
+
+test('actual Python restores original conversation after context compaction for live and late subscribers',{skip:!existsSync(path.join(repoRoot,'.venv','bin','python3'))},async()=>{
+  const base=path.join(repoRoot,'.vibe','node-transport-tests');await mkdir(base,{recursive:true});
+  const workspace=await mkdtemp(path.join(base,'compacted-resume-'));
+  const client=createBackendClient({repoRoot,args:['--fake','--workspace',workspace,'--chat-only','--continue'],shutdownTimeoutMs:1000});
+  try{
+    const seeded:{id:string;messages:PersistedMessage[]}=JSON.parse(execFileSync(path.join(repoRoot,'.venv','bin','python3'),['-c',`
+import json
+import sys
+from dataclasses import asdict
+from app.session import SessionStore
+from core.models import Message, ToolCall
+
+session = SessionStore.new(sys.argv[1], "fake", purpose="test")
+goal = Message("user", "第一轮：保留完整旧对话")
+tail = Message("user", "第二轮：继续检查")
+messages = [
+    goal,
+    Message("assistant", "旧回复正文，压缩之后仍应该可以回看。\\n第二行内容。"),
+    Message("assistant", "已请求保存文件", tool_calls=[ToolCall("write_file", {"path": "should-not-run.txt", "content": "saved"}, "saved-write")]),
+    Message("tool", "旧工具结果完整内容", name="write_file", tool_call_id="saved-write"),
+    Message("assistant", "第一轮已经结束"),
+    tail,
+    Message("assistant", "第二轮旧回复"),
+]
+for message in messages:
+    session.append_message(message)
+session.save_context([goal, Message("assistant", "模型专用分层摘要", name="history_summary_l2"), tail])
+print(json.dumps({"id": session.id, "messages": [asdict(message) for message in messages]}, ensure_ascii=False))
+`,workspace],{cwd:repoRoot,encoding:'utf8'}));
+    const live=observer(client);client.start();
+    await live.wait(event=>event.type==='status'&&event.phase==='idle');
+    const ready=live.events.find(event=>event.type==='ready');
+    assert.equal(ready?.type==='ready'&&ready.resumed,true);
+    assert.equal(ready?.type==='ready'&&ready.session_id,seeded.id);
+    const late=observer(client);
+    await late.wait(event=>event.type==='status'&&event.phase==='idle');
+    for(const received of [live.events,late.events]){
+      assert.deepEqual(received.filter(event=>event.type==='history_message').map(event=>event.message),seeded.messages);
+      const view=received.reduce((state,event)=>reduceView(state,{type:'event',event}),initialState);
+      assert.equal(view.phase,'idle');
+      assert.equal(view.activeId,null);
+      assert.deepEqual(view.entries.filter(entry=>entry.kind==='task').map(entry=>entry.text),['第一轮：保留完整旧对话','第二轮：继续检查']);
+      assert.ok(view.entries.some(entry=>entry.kind==='assistant'&&entry.text==='旧回复正文，压缩之后仍应该可以回看。\n第二行内容。'));
+      assert.equal(view.entries.find(entry=>entry.call?.id==='saved-write')?.output,'旧工具结果完整内容');
+      assert.equal(view.entries.some(entry=>entry.text==='模型专用分层摘要'),false);
+      assert.equal(received.some(event=>['text_delta','tool_call','tool_result','done'].includes(event.type)||(event.type==='metrics'&&event.id!==null)),false);
+      assert.equal(view.contextSnapshots.length,1);
+      assert.equal(view.contextSnapshots[0]?.phase,'loaded');
+      assert.ok(view.contextSnapshots[0]!.sections.history>0);
+      assert.equal(view.metrics?.used_tokens,0);
+      assert.equal(received.some(event=>event.type==='error'),false);
+    }
+    assert.equal(existsSync(path.join(workspace,'should-not-run.txt')),false);
+  }finally{await client.shutdown();await rm(workspace,{recursive:true,force:true});}
 });
 
 test('actual FastMCP startup is approved through Node and its process exits on shutdown',{skip:process.platform==='win32'||!existsSync(path.join(repoRoot,'.venv','bin','python3'))},async()=>{
@@ -336,8 +477,18 @@ test('actual FastMCP startup is approved through Node and its process exits on s
     assert.ok(approval.type==='approval_request'&&approval.call.name==='mcp_start');
     assert.deepEqual(approval.type==='approval_request'&&approval.decisions,['once','session','deny']);
     assert.equal(existsSync(marker),false);
+    const base=state.events.find(event=>event.type==='context_snapshot');
+    assert.ok(base?.type==='context_snapshot'&&base.snapshot.phase==='loaded');
     client.approve(approval.type==='approval_request'?approval.approval_id:'','once');
     await state.wait(event=>event.type==='status'&&event.phase==='idle');
+    const loaded=state.events.filter(event=>event.type==='context_snapshot');
+    assert.equal(loaded.length,2);
+    assert.ok(loaded.every(event=>event.id===null&&event.snapshot.phase==='loaded'));
+    assert.ok(loaded.at(-1)!.snapshot.sections.tools>loaded[0]!.snapshot.sections.tools);
+    const view=state.events.reduce((view,event)=>reduceView(view,{type:'event',event}),initialState);
+    assert.equal(view.contextSnapshots.length,1);
+    assert.equal(view.contextSnapshots[0]?.snapshot_id,loaded.at(-1)!.snapshot.snapshot_id);
+    assert.equal(view.metrics?.used_tokens,0);
     const id=client.command('tools');
     const tools=await state.wait(event=>event.type==='command_result'&&event.id===id);
     assert.match(tools.type==='command_result'?tools.text:'',/mcp_local_echo/);

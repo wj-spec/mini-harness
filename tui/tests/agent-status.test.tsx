@@ -14,7 +14,7 @@ test('context panel shows estimated partition occupancy before usage exists and 
     const output = renderToString(<StatusPanel state={{...initialState, phase: 'running', contextSnapshots: [snapshot], metrics}} columns={32} height={26} palette={themes.system}/>, {columns: 32});
     assert.match(output, /上下文.*估算/);
     assert.match(output, /S20 M0 T30 H50/);
-    assert.match(output, /100\/1k/);
+    assert.match(output, /100\/900/);
     assert.match(output, /Ctrl\+K/);
     assert.ok(output.split('\n').every(line => stringWidth(line) <= 32));
     if (metrics) assert.match(output, /8k\/10k/);
@@ -24,6 +24,20 @@ test('context panel shows estimated partition occupancy before usage exists and 
 
 const ready: ViewState = {...initialState, phase: 'idle', workspace: '/项目/mini-harness', model: 'deepseek-flash', sessionId: 'session-123', provider: 'openai'};
 const running = {...ready, phase: 'running' as const, activeId: 'run-1'};
+
+test('test sessions stay visibly marked even in the narrow two-row header', () => {
+  for (const columns of [32, 80, 120]) {
+    for (const height of [2, 3]) {
+      const state = Object.assign({...ready, sessionId: 'saved-' + 'long-session-'.repeat(8)}, {sessionPurpose: 'test'});
+      const output = renderToString(<AgentHeader state={state} columns={columns} height={height} palette={themes.system}/>, {columns});
+      assert.match(output, /测试会话/);
+      assert.equal(output.split('\n').length, height);
+      assert.ok(output.split('\n').every(line => stringWidth(line) <= columns));
+      const ordinary = renderToString(<AgentHeader state={ready} columns={columns} height={height} palette={themes.system}/>, {columns});
+      assert.doesNotMatch(ordinary, /测试会话/);
+    }
+  }
+});
 
 test('status surfaces separate sections without drawing panel frames or horizontal rules', () => {
   const state: ViewState = {...running, activity: 'using_tool', entries: [

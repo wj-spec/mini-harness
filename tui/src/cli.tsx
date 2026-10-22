@@ -1,27 +1,35 @@
 #!/usr/bin/env node
 import React from 'react';
+import {spawn} from 'node:child_process';
+import {constants} from 'node:os';
 import {render} from 'ink';
 import {App} from './app.js';
 import {createBackendClient} from './backend.js';
 import {validateClientArgs} from './protocol.js';
 import {createTerminalInput} from './terminal-input.js';
+import {backendCommand, backendLaunchOptions} from './backend-launch.js';
 
 const help = `vibe Ink — 个人编码工作台
 
 用法：./run_ink.sh [选项]
 
-  --fake                  使用本地 fake provider
+  --fake                  使用本地 fake provider，自动进入测试会话范围
   --workspace PATH        项目工作区
   --provider PROVIDER     openai | fake
   --model MODEL           模型名称
   --base-url URL          模型服务地址
   --max-steps NUMBER      单任务最大步数，0 表示不限
   --chat-only             只对话，不加载工具
-  --continue              恢复当前工作区最近有对话的会话
+  --continue              恢复当前工作区最近有对话的普通会话
+  --session SESSION_ID    恢复当前工作区指定普通会话
+  --list-sessions         只读列出当前工作区普通会话后退出（无需交互终端）
+  --test-session          显式进入测试会话范围，恢复和列表也仅限测试会话
   --help                  显示帮助
 
 支持会话恢复、MCP 启动与调用、分范围审批和可靠取消。
---continue 仅恢复对话，不会自动续跑；输入 /resume 继续任务。
+普通使用不显示或加载测试会话；--fake 或 --provider fake 自动进入测试会话范围。
+--continue 在当前范围内选择最近有对话的会话；查找更早会话用 --list-sessions，再用 --session SESSION_ID 打开。
+恢复会话不会自动续跑；输入 /resume 继续任务。
 Enter 发送任务；Ctrl+J 换行（终端支持时也可用 Shift+Enter）。
 滚轮 / 触控板在对话区滚动；PageUp / PageDown 翻页。
 Ctrl+R 切换阅读与输入；阅读时 ↑↓ 滚动，Esc 回输入。
@@ -61,6 +69,16 @@ async function main() {
   } catch (error) {
     process.stderr.write(`${(error as Error).message}\n`);
     process.exitCode = 2;
+    return;
+  }
+  if (checkedArgs.includes('--list-sessions')) {
+    process.exitCode = await new Promise<number>((resolve, reject) => {
+      const child = spawn(backendCommand, checkedArgs, {
+        ...backendLaunchOptions(), stdio: ['ignore', 'inherit', 'inherit'],
+      });
+      child.once('error', reject);
+      child.once('close', (code, signal) => resolve(code ?? (signal ? 128 + constants.signals[signal] : 1)));
+    });
     return;
   }
   if (!process.stdin.isTTY || !process.stdout.isTTY) {

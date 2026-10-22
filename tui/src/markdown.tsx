@@ -1,10 +1,10 @@
 import React from 'react';
 import {Text} from 'ink';
 import stringWidth from 'string-width';
-import type {Palette, SemanticTone, SurfaceName} from './theme.js';
+import type {ContextColor, Palette, SemanticTone, SurfaceName} from './theme.js';
 
-export type Span = {text: string; bold?: boolean; code?: boolean};
-export type ReadingLine = {spans: Span[]; kind?: 'heading' | 'code' | 'label' | 'tool' | 'error' | 'notice'; tone?: SemanticTone; surface?: SurfaceName; selected?: boolean; entryId?: number};
+export type Span = {text: string; bold?: boolean; code?: boolean; contextSection?: ContextColor};
+export type ReadingLine = {spans: Span[]; kind?: 'heading' | 'code' | 'label' | 'tool' | 'error' | 'notice'; tone?: SemanticTone; contextSection?: ContextColor; surface?: SurfaceName; selected?: boolean; entryId?: number};
 const graphemes = new Intl.Segmenter(undefined, {granularity: 'grapheme'});
 
 export function visibleText(text: string): string {
@@ -49,7 +49,7 @@ export function wrapSpans(spans: Span[], columns: number): Span[][] {
     if (size > maximum) continue;
     const current = lines.at(-1)!;
     const last = current.at(-1);
-    if (last && last.bold === span.bold && last.code === span.code) last.text += segment;
+    if (last && last.bold === span.bold && last.code === span.code && last.contextSection === span.contextSection) last.text += segment;
     else current.push({...span, text: segment});
     width += size;
   }
@@ -83,13 +83,18 @@ export function markdownLines(markdown: string, columns: number): ReadingLine[] 
 }
 
 export function ReadingText({line, palette, columns}: {line: ReadingLine; palette: Palette; columns?: number}) {
-  const color = line.tone ? palette[line.tone] : line.kind === 'error' ? palette.error : line.kind === 'notice' ? palette.warning :
+  const color = line.contextSection ? palette.contextColors[line.contextSection] : line.tone ? palette[line.tone] : line.kind === 'error' ? palette.error : line.kind === 'notice' ? palette.warning :
     line.kind === 'heading' || line.kind === 'label' || line.selected ? palette.accent : palette.foreground;
   const width = line.spans.reduce((total, span) => total + stringWidth(span.text), 0);
   const padding = Math.max(0, (columns ?? Math.max(1, width)) - width);
   const surface = line.kind === 'code' ? 'code' : line.surface;
   return <Text color={color} backgroundColor={surface ? palette.surfaces[surface] : palette.background} bold={line.kind === 'heading' || line.kind === 'label' || line.selected}>
-    {line.spans.map((span, index) => <Text key={index} bold={span.bold} color={span.code ? palette.accent : undefined}>{span.text}</Text>)}
+    <ReadingSpans spans={line.spans} palette={palette}/>
     {' '.repeat(padding)}
   </Text>;
+}
+
+export function ReadingSpans({spans, palette}: {spans: readonly Span[]; palette: Palette}) {
+  return <>{spans.map((span, index) => <Text key={index} bold={span.bold}
+    color={span.contextSection ? palette.contextColors[span.contextSection] : span.code ? palette.accent : undefined}>{span.text}</Text>)}</>;
 }

@@ -8,7 +8,7 @@ import type {BackendClient} from '../src/backend.js';
 import type {ServerEvent} from '../src/protocol.js';
 import {initialState} from '../src/view-state.js';
 import stringWidth from 'string-width';
-import {contextSnapshot} from './context-fixture.js';
+import {contextSnapshot, loadedContextSnapshot} from './context-fixture.js';
 
 class MockClient {
   listeners = new Set<(event: ServerEvent) => void>();
@@ -16,6 +16,7 @@ class MockClient {
   cancellations: string[] = [];
   approvals: [string, 'once' | 'session' | 'workspace' | 'deny'][] = [];
   commands: string[] = [];
+  commandArgs: (Record<string, unknown> | undefined)[] = [];
   shutdowns = 0;
   sendError = false;
 
@@ -26,7 +27,7 @@ class MockClient {
   run(text: string) {this.runs.push(text); return `run-${this.runs.length}`;}
   cancel(id: string) {if (this.sendError) throw new Error('backend disconnected'); this.cancellations.push(id);}
   approve(id: string, decision: 'once' | 'session' | 'workspace' | 'deny') {if (this.sendError) throw new Error('backend disconnected'); this.approvals.push([id, decision]);}
-  command(command: string) {if (this.sendError) throw new Error('backend disconnected'); this.commands.push(command); return `command-${this.commands.length}`;}
+  command(command: string, args?: Record<string, unknown>) {if (this.sendError) throw new Error('backend disconnected'); this.commands.push(command); this.commandArgs.push(args); return `command-${this.commands.length}`;}
   async shutdown() {this.shutdowns += 1;}
   emit(event: Record<string, unknown>) {
     for (const listener of this.listeners) listener({v: 1, id: null, ...event} as ServerEvent);
@@ -51,6 +52,61 @@ async function enter(stdin: {write(value: string): void}, text: string) {
   stdin.write('\r');
   await pause(25);
 }
+
+for (const [columns, rows] of [[80, 24], [120, 24], [120, 40]]) {
+  test(`session load shows base occupancy without running a task at ${columns}x${rows}`, async () => {
+    const client = new MockClient();
+    const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} windowSize={{columns: columns!, rows: rows!}}/>);
+    await pause(20);
+    client.emit({type: 'ready', workspace: '/repo', model: 'fake', session_id: 's', capabilities: []});
+    const snapshot = loadedContextSnapshot();
+    client.emit({type: 'context_snapshot', snapshot});
+    client.emit({type: 'metrics', used_tokens: 0, limit_tokens: 1000, estimated: true,
+      context_tokens: snapshot.total_tokens, context_window: snapshot.context_window, done: 0, planned: 0, cost_usd: 0});
+    client.emit({type: 'status', phase: 'idle'});
+    await pause(25);
+    const frame = lastFrame() ?? '';
+    assert.match(frame, /上下文.*估算.*50\/900/);
+    assert.match(frame, /S20 M0 T30 H0/);
+    assert.doesNotMatch(frame, /尚无用量记录/);
+    assert.ok(frame.split('\n').every(line => stringWidth(line) <= columns!));
+    assert.ok(frame.split('\n').length <= rows!);
+    assert.deepEqual(client.runs, []);
+    assert.deepEqual(client.commands, []);
+    await enter(stdin, '/context');
+    assert.match(lastFrame() ?? '', /基础上下文已装载/);
+    assert.match(lastFrame() ?? '', /尚未请求模型/);
+    assert.doesNotMatch(lastFrame() ?? '', /请求前|步骤 0/);
+    stdin.write('\u001b');
+    await pause(20);
+    await enter(stdin, 'work');
+    client.emit({type: 'context_snapshot', id: 'run-1', snapshot: contextSnapshot()});
+    await pause(20);
+    stdin.write('\u000b');
+    await pause(20);
+    assert.match(lastFrame() ?? '', /快照 1\/1/);
+    assert.match(lastFrame() ?? '', /步骤 1/);
+    assert.doesNotMatch(lastFrame() ?? '', /基础上下文已装载/);
+    assert.deepEqual(client.runs, ['work']);
+  });
+}
+
+test('short sidebar keeps partition occupancy visible during a run with task, tools and metrics', async () => {
+  const client = new MockClient();
+  const snapshot = {...contextSnapshot(), input_capacity: 960000, context_window: 1000000};
+  const state = {...initialState, phase: 'running' as const, contextSnapshots: [snapshot],
+    metrics: {used_tokens: 8000, limit_tokens: 10000, estimated: false, context_tokens: 100, context_window: 1000000, done: 0, planned: 0, cost_usd: 0},
+    entries: [{id: 0, kind: 'task' as const, text: '检查工作区'}, {id: 1, kind: 'tool' as const, text: '读取文件', call: {id: 'c', name: 'read_file', args: {}}, ok: true}]};
+  const {lastFrame} = render(<App client={client as unknown as BackendClient} initialState={state} windowSize={{columns: 120, rows: 24}}/>);
+  await pause(20);
+  const frame = lastFrame() ?? '';
+  assert.match(frame, /上下文估算 100\/960k/);
+  assert.match(frame, /S20 M0 T30 H50/);
+  assert.match(frame, /已用构成/);
+  assert.match(frame, /━/);
+  assert.ok(frame.split('\n').every(line => stringWidth(line) <= 120));
+  assert.ok(frame.split('\n').length <= 24);
+});
 
 for (const [columns, rows] of [[80, 24], [120, 40]]) {
   test(`/context opens local partition replay in the ${columns} column layout`, async () => {
@@ -451,6 +507,40 @@ test('theme stays local and cost displays backend session accounting', async () 
   assert.match(lastFrame() ?? '', /1,234/);
   await enter(stdin, 'next task');
   assert.deepEqual(client.runs, ['next task']);
+});
+
+test('skills lifecycle commands use backend management and display results without running a task', async () => {
+  const {client, stdin, lastFrame} = await mount();
+  const commands = ['/skill', '/skills refresh', '/skills activate release', '/skill unload release'];
+  for (const [index, command] of commands.entries()) {
+    await enter(stdin, command);
+    client.emit({type: 'command_result', id: `command-${index + 1}`, command: 'skills', text: `技能操作完成 ${index + 1}`});
+    await pause(20);
+    assert.match(lastFrame() ?? '', new RegExp(`技能操作完成 ${index + 1}`));
+  }
+  assert.deepEqual(client.commands, Array(4).fill('skills'));
+  assert.deepEqual(client.commandArgs, [{action: 'list'}, {action: 'refresh'},
+    {action: 'activate', name: 'release'}, {action: 'unload', name: 'release'}]);
+  assert.deepEqual(client.runs, []);
+});
+
+test('invalid skills syntax shows usage without invoking model or backend', async () => {
+  const {client, stdin, lastFrame} = await mount();
+  for (const command of ['/skills activate', '/skills list release', '/skills delete release']) {
+    await enter(stdin, command);
+    assert.match(lastFrame() ?? '', /用法/);
+  }
+  assert.deepEqual(client.commands, []);
+  assert.deepEqual(client.runs, []);
+});
+
+test('skills management stays in the draft while a task is running', async () => {
+  const {client, stdin, lastFrame} = await mount();
+  await enter(stdin, 'active task');
+  await enter(stdin, '/skills activate release');
+  assert.deepEqual(client.commands, []);
+  assert.deepEqual(client.runs, ['active task']);
+  assert.match(lastFrame() ?? '', /\/skills activate release/);
 });
 
 test('startup approvals support exact rules and ignore forbidden workspace scope', async () => {

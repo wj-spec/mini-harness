@@ -1,7 +1,28 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {MAX_FRAME_BYTES, parseServerEvent, validateClientArgs} from '../src/protocol.js';
-import {contextSnapshot} from './context-fixture.js';
+import {contextSnapshot, loadedContextSnapshot} from './context-fixture.js';
+
+test('accepts startup context independently of model requests and only zero startup usage', () => {
+  const snapshot = loadedContextSnapshot();
+  const frame = {v: 1, type: 'context_snapshot', id: null, snapshot};
+  assert.equal(parseServerEvent(JSON.stringify(frame)).type, 'context_snapshot');
+  for (const change of [{step: 1}, {attempt: 1}, {reason: 'model_call'}]) {
+    assert.throws(() => parseServerEvent(JSON.stringify({...frame, snapshot: {...snapshot, ...change}})));
+  }
+  assert.throws(() => parseServerEvent(JSON.stringify({...frame, id: 'run-1'})));
+  const metrics = {v: 1, type: 'metrics', id: null, used_tokens: 0, limit_tokens: 1000, estimated: true,
+    context_tokens: 50, context_window: 1000, done: 0, planned: 0, cost_usd: 0};
+  assert.equal(parseServerEvent(JSON.stringify(metrics)).type, 'metrics');
+  assert.equal(parseServerEvent(JSON.stringify({...metrics, estimated: false})).type, 'metrics');
+  for (const progress of [{done: 1, planned: 2}, {done: 7, planned: 6}, {done: 0, planned: 6}]) {
+    assert.equal(parseServerEvent(JSON.stringify({...metrics, ...progress})).type, 'metrics');
+  }
+  for (const change of [{used_tokens: 1}, {done: -1}, {planned: -1}, {done: 0.5},
+    {planned: '6'}, {cost_usd: 0.01}, {context_tokens: null}]) {
+    assert.throws(() => parseServerEvent(JSON.stringify({...metrics, ...change})));
+  }
+});
 
 test('validates estimated context snapshots, partition sums, and block accounting', () => {
   const snapshot = contextSnapshot();
@@ -29,6 +50,17 @@ test('validates estimated context snapshots, partition sums, and block accountin
 test('accepts complete versioned events and unfinished results', () => {
   assert.equal(parseServerEvent('{"v":1,"type":"ready","id":null,"workspace":"/tmp","model":"fake","session_id":"s","capabilities":[]}').type, 'ready');
   assert.equal(parseServerEvent(JSON.stringify({v:1,type:'done',id:'run-1',result:{text:'',steps:1,status:'truncated',usage:{input_tokens:1},cost_usd:0,run_id:'run-1',stop_reason:'length'}})).type, 'done');
+});
+
+test('ready preserves an explicit session purpose while accepting older backends', () => {
+  const ready = {v: 1, type: 'ready', id: null, workspace: '/repo', model: 'fake', session_id: 's', capabilities: []};
+  for (const purpose of ['user', 'test']) {
+    assert.equal(Reflect.get(parseServerEvent(JSON.stringify({...ready, session_purpose: purpose})), 'session_purpose'), purpose);
+  }
+  assert.equal(parseServerEvent(JSON.stringify(ready)).type, 'ready');
+  for (const purpose of ['all', '', null, false, 1]) {
+    assert.throws(() => parseServerEvent(JSON.stringify({...ready, session_purpose: purpose})));
+  }
 });
 
 test('accepts real progress metrics and rejects invalid numeric values', () => {
@@ -65,6 +97,7 @@ test('restores typed history and accepts explicit backend commands and startup s
     {v:1,type:'status',id:'startup',phase:'starting'},
     {v:1,type:'notice',id:null,message:'会话已恢复；输入 /resume 继续'},
     {v:1,type:'command_result',id:'c',command:'permissions',text:'无授权规则'},
+    {v:1,type:'command_result',id:'s',command:'skills',text:'技能已激活'},
   ];
   for (const event of events) assert.equal(parseServerEvent(JSON.stringify(event)).type,event.type);
   for (const event of [
@@ -118,7 +151,20 @@ test('only forwards supported migration arguments as distinct values', () => {
   assert.deepEqual(validateClientArgs(['--fake','--workspace','/tmp/a b','--model','x; echo bad','--chat-only']), ['--fake','--workspace','/tmp/a b','--model','x; echo bad','--chat-only']);
   assert.deepEqual(validateClientArgs(['--max-steps','0']),['--max-steps','0']);
   assert.deepEqual(validateClientArgs(['--continue','--fake']),['--continue','--fake']);
+  assert.deepEqual(validateClientArgs(['--session','20261021-112233-123456','--workspace','/tmp/a b']),['--session','20261021-112233-123456','--workspace','/tmp/a b']);
+  assert.deepEqual(validateClientArgs(['--list-sessions','--workspace','/tmp/a b']),['--list-sessions','--workspace','/tmp/a b']);
+  for (const args of [['--test-session', '--continue'], ['--test-session', '--list-sessions'], ['--session', 'saved-test', '--test-session']]) {
+    assert.deepEqual(validateClientArgs(args), args);
+  }
   for (const args of [['--eval'],['--stdio'],['--workspace'],['--unknown'],['--provider','--fake'],['--max-steps','bad'],['--max-steps','-1']]) {
     assert.throws(() => validateClientArgs(args));
   }
+});
+
+test('session selection and listing are mutually exclusive before backend startup', () => {
+  for (const args of [
+    ['--continue','--session','saved'], ['--session','saved','--continue'],
+    ['--list-sessions','--continue'], ['--session','saved','--list-sessions'],
+    ['--list-sessions','--session','saved'], ['--session'], ['--session',''],
+  ]) assert.throws(() => validateClientArgs(args));
 });

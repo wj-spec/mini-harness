@@ -2,11 +2,60 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {initialState, reduceView} from '../src/view-state.js';
 import type {ServerEvent} from '../src/protocol.js';
-import {contextSnapshot} from './context-fixture.js';
+import {contextSnapshot, loadedContextSnapshot} from './context-fixture.js';
 
 const call = {id: 'read-1', name: 'read_file', args: {path: 'hello.py'}};
 const result = {text: '# 结果\n已读取。', status: 'done' as const, steps: 2, usage: {}, cost_usd: 0, run_id: 'internal', stop_reason: ''};
 const event = (type: string, fields: Record<string, unknown> = {}) => ({v: 1, type, id: 'run-1', ...fields}) as ServerEvent;
+
+test('session purpose follows ready metadata and defaults older backends to ordinary use', () => {
+  const fields = {id: null, workspace: '/repo', model: 'm', session_id: 's', capabilities: []};
+  const testSession = reduceView(initialState, {type: 'event', event: event('ready', {...fields, session_purpose: 'test'})});
+  assert.equal(Reflect.get(testSession, 'sessionPurpose'), 'test');
+  const userSession = reduceView(testSession, {type: 'event', event: event('ready', {...fields, session_purpose: 'user'})});
+  assert.equal(Reflect.get(userSession, 'sessionPurpose'), 'user');
+  const legacy = reduceView(testSession, {type: 'event', event: event('ready', fields)});
+  assert.equal(Reflect.get(legacy, 'sessionPurpose'), 'user');
+});
+
+test('loaded context refreshes startup without starting a task or appending run replay', () => {
+  let state = reduceView(initialState, {type: 'event', event: event('ready', {id: null, workspace: '/repo', model: 'fake', session_id: 's', capabilities: []})});
+  const first = loadedContextSnapshot();
+  const metrics = {id: null, used_tokens: 0, limit_tokens: 1000, estimated: true, context_tokens: first.total_tokens,
+    context_window: first.context_window, done: 0, planned: 0, cost_usd: 0};
+  state = reduceView(state, {type: 'event', event: event('context_snapshot', {id: null, snapshot: first})});
+  state = reduceView(state, {type: 'event', event: event('metrics', metrics)});
+  assert.equal(state.phase, 'starting');
+  assert.equal(state.activeId, null);
+  assert.deepEqual(state.entries, []);
+  assert.equal(state.metrics?.used_tokens, 0);
+  state = reduceView(state, {type: 'event', event: event('status', {id: 'startup', phase: 'starting'})});
+  const refreshed = {...first, snapshot_id: 'loaded-mcp', sections: {...first.sections, tools: 40}, total_tokens: 60,
+    remaining_tokens: 840, blocks: first.blocks.map(block => block.section === 'tools' ? {...block, tokens: 40} : block)};
+  state = reduceView(state, {type: 'event', event: event('context_snapshot', {id: null, snapshot: refreshed})});
+  assert.deepEqual(state.contextSnapshots, [refreshed]);
+  assert.equal(state.metrics?.context_tokens, 60);
+  state = reduceView(state, {type: 'event', event: event('status', {id: null, phase: 'idle'})});
+  assert.equal(state.phase, 'idle');
+  assert.equal(state.activeId, null);
+  for (const start of [{type: 'begin', id: 'run-1', text: 'work'} as const,
+    {type: 'begin_command', id: 'run-1', command: 'resume'} as const]) {
+    let running = reduceView(state, start);
+    assert.deepEqual(running.contextSnapshots, []);
+    assert.equal(running.metrics, null);
+    running = reduceView(running, {type: 'event', event: event('context_snapshot', {id: null, snapshot: first})});
+    running = reduceView(running, {type: 'event', event: event('metrics', metrics)});
+    assert.deepEqual(running.contextSnapshots, []);
+    assert.equal(running.metrics, null);
+    running = reduceView(running, {type: 'event', event: event('context_snapshot', {snapshot: contextSnapshot()})});
+    assert.equal(running.contextSnapshots[0]?.phase, 'request');
+    running = reduceView(running, {type: 'event', event: event('done', {result})});
+    const completed = running;
+    running = reduceView(running, {type: 'event', event: event('context_snapshot', {id: null, snapshot: first})});
+    running = reduceView(running, {type: 'event', event: event('metrics', metrics)});
+    assert.equal(running, completed);
+  }
+});
 
 test('context snapshots follow one run without changing cumulative token accounting', () => {
   let state = reduceView(initialState, {type: 'begin', id: 'run-1', text: 'work'});

@@ -1,13 +1,22 @@
 from __future__ import annotations
 
 import json
+import unicodedata
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterator
+from typing import Iterator, Literal
 
 from core.models import Message, ToolCall, parse_execution_outcome
 from core.state import TaskState
+
+
+SessionPurpose = Literal["user", "test"]
+
+
+def _validate_purpose(purpose: SessionPurpose) -> None:
+    if purpose not in ("user", "test"):
+        raise ValueError("session purpose must be 'user' or 'test'")
 
 
 def _message_from_dict(d: dict) -> Message:
@@ -15,7 +24,7 @@ def _message_from_dict(d: dict) -> Message:
         raise ValueError("invalid message role")
     if not isinstance(d.get("content", ""), str):
         raise ValueError("invalid message content")
-    for field in ("name", "tool_call_id", "finish_reason"):
+    for field in ("name", "tool_call_id", "finish_reason", "reasoning_content"):
         if d.get(field) is not None and not isinstance(d[field], str):
             raise ValueError(f"invalid message {field}")
     if d.get("usage") is not None and not isinstance(d["usage"], dict):
@@ -52,6 +61,7 @@ def _message_from_dict(d: dict) -> Message:
         name=d.get("name"),
         tool_call_id=d.get("tool_call_id"),
         execution=execution,
+        reasoning_content=d.get("reasoning_content"),
     )
 
 
@@ -73,8 +83,27 @@ class SessionStore:
     def audit_path(self) -> Path:
         return self.root / "audit.jsonl"
 
+    @property
+    def purpose(self) -> SessionPurpose | None:
+        """旧元数据默认为用户会话；损坏或未知标记不进入任何范围。"""
+        if self.meta_path.is_symlink():
+            return None
+        try:
+            metadata = json.loads(self.meta_path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return "user"
+        except (OSError, ValueError):
+            return None
+        if not isinstance(metadata, dict):
+            return None
+        purpose = metadata.get("purpose", "user")
+        return purpose if purpose in ("user", "test") else None
+
     @classmethod
-    def new(cls, workspace: str | Path, model: str) -> "SessionStore":
+    def new(
+        cls, workspace: str | Path, model: str, *, purpose: SessionPurpose = "user",
+    ) -> "SessionStore":
+        _validate_purpose(purpose)
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
         root = Path(workspace) / ".vibe" / "sessions" / stamp
         root.mkdir(parents=True, exist_ok=True)
@@ -86,6 +115,7 @@ class SessionStore:
                     "created_at": datetime.now(timezone.utc).isoformat(),
                     "workspace": str(Path(workspace).resolve()),
                     "model": model,
+                    "purpose": purpose,
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -96,16 +126,95 @@ class SessionStore:
         return store
 
     @classmethod
-    def latest(cls, workspace: str | Path) -> "SessionStore | None":
+    def latest(
+        cls, workspace: str | Path, *, purpose: SessionPurpose = "user",
+    ) -> "SessionStore | None":
+        sessions = cls.list_sessions(workspace, purpose=purpose)
+        return cls.open_existing(workspace, sessions[0]["id"], purpose=purpose) if sessions else None
+
+    @classmethod
+    def open_existing(
+        cls, workspace: str | Path, session_id: str, *, purpose: SessionPurpose = "user",
+    ) -> "SessionStore | None":
+        _validate_purpose(purpose)
+        if (
+            not isinstance(session_id, str) or not session_id
+            or session_id in {".", ".."}
+            or "/" in session_id or "\\" in session_id
+            or any(unicodedata.category(char).startswith("C") for char in session_id)
+        ):
+            raise ValueError("session ID must be a single directory name")
         base = Path(workspace) / ".vibe" / "sessions"
-        if not base.exists():
+        if not base.resolve().is_relative_to(Path(workspace).resolve()):
             return None
-        dirs = [p for p in base.iterdir() if p.is_dir() and (p / "events.jsonl").exists()]
-        for path in sorted(dirs, key=lambda p: (p.stat().st_mtime, p.name), reverse=True):
-            store = cls(path)
-            if store.load_context():
-                return store
-        return None
+        root = base / session_id
+        if root.is_symlink() or not root.is_dir():
+            return None
+        store = cls(root)
+        if store.events_path.is_symlink() or not store.events_path.is_file():
+            return None
+        if store.purpose != purpose:
+            return None
+        return store
+
+    @classmethod
+    def list_sessions(
+        cls, workspace: str | Path, *, purpose: SessionPurpose = "user",
+    ) -> list[dict]:
+        """只读会话索引；以消息事件排序，不受打开或新增附件影响。"""
+        _validate_purpose(purpose)
+        base = Path(workspace) / ".vibe" / "sessions"
+        if not base.is_dir() or not base.resolve().is_relative_to(Path(workspace).resolve()):
+            return []
+        sessions: list[dict] = []
+        for path in base.iterdir():
+            try:
+                store = cls.open_existing(workspace, path.name, purpose=purpose)
+            except ValueError:
+                continue
+            if store is None:
+                continue
+            summary = store._summary()
+            if summary is not None:
+                sessions.append(summary)
+        return sorted(sessions, key=lambda row: (row["updated_at"], row["id"]), reverse=True)
+
+    def _summary(self) -> dict | None:
+        count = 0
+        title = None
+        updated = None
+        for event in self._events():
+            if event.get("type") != "message":
+                continue
+            try:
+                message = _message_from_dict(event.get("message"))
+            except ValueError:
+                continue
+            count += 1
+            if message.role == "user" and title is None:
+                first_line = message.content.split("\n", 1)[0]
+                visible = "".join(
+                    char if not unicodedata.category(char).startswith("C") else ascii(char)[1:-1]
+                    for char in first_line
+                )
+                title = visible[:80] + ("…" if len(visible) > 80 else "")
+            stamp = event.get("ts")
+            if isinstance(stamp, str):
+                try:
+                    timestamp = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+                    if timestamp.tzinfo is None:
+                        timestamp = timestamp.replace(tzinfo=timezone.utc)
+                    updated = timestamp.astimezone(timezone.utc)
+                except (ValueError, OverflowError):
+                    pass
+        if not count:
+            return None
+        if updated is None:
+            updated = datetime.fromtimestamp(self.events_path.stat().st_mtime, timezone.utc)
+        return {
+            "id": self.id, "message_count": count, "title": title or "（无用户标题）",
+            "updated_at": updated.isoformat(timespec="microseconds"),
+        }
 
     def append_message(self, message: Message) -> None:
         self._append(

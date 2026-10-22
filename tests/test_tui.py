@@ -52,6 +52,178 @@ class StartupMcp:
         self.clients.clear()
 
 
+def test_new_session_shows_loaded_context_before_first_model_request(tmp_path):
+    from app.tui import ContextScreen
+
+    provider = FakeProvider(["done"])
+    session = SessionStore.new(tmp_path, "fake")
+    agent = Agent(provider, ToolRegistry(tmp_path), approval=ApprovalGate(),
+                  context=ContextBuilder(policy=Config().budget_policy()),
+                  project_instructions="项目规则")
+    app = VibeApp(Config(workspace=tmp_path), agent, session=session)
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            await pilot.pause(0.2)
+            current = app.context_history.snapshots[-1]
+            assert current["phase"] == "loaded"
+            assert current["sections"]["system"] > 0 and current["sections"]["tools"] > 0
+            assert current["sections"]["history"] == current["sections"]["memory"] == 0
+            assert provider.seen == [] and agent.state is None
+            assert app.run_budget is None and session.latest_run() is None
+            assert "基础装载" in str(app.query_one("#status", Static).content)
+            assert "ctx -" not in app._status_text()
+            await pilot.press("ctrl+o")
+            await pilot.pause()
+            assert isinstance(app.screen, ContextScreen)
+            assert str(app.screen.query_one("#context_title", Static).content) == "上下文 · 基础装载"
+            assert "尚未请求模型" in app.screen.query_one("#context_body", Static).content.plain
+            await pilot.press("escape")
+            await pilot.click("#prompt")
+            await pilot.press(*"hi", "enter")
+            await pilot.pause(0.3)
+            assert len(provider.seen) == 1
+            assert all(event["phase"] != "loaded" for event in app.context_history.snapshots)
+            events = [json.loads(line) for line in session.trace_path.read_text().splitlines()]
+            assert events[0]["phase"] == "loaded"
+            assert sum(event["type"] == "run_start" for event in events) == 1
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("width,height", [(80, 24), (36, 24), (36, 18)])
+def test_context_status_renders_colored_composition_without_clipping(tmp_path, width, height):
+    from rich.cells import cell_len
+    from rich.text import Text
+
+    agent = Agent(FakeProvider([]), ToolRegistry(tmp_path),
+                  context=ContextBuilder(policy=Config().budget_policy()))
+    app = VibeApp(Config(workspace=tmp_path), agent)
+
+    async def scenario():
+        async with app.run_test(size=(width, height)) as pilot:
+            await pilot.pause(0.2)
+            status = app.query_one("#status", Static)
+            content = status.content
+            assert isinstance(content, Text)
+            assert "基础装载" in content.plain and "构成" in content.plain
+            assert "━" in content.plain and "M 0" in content.plain
+            assert all(cell_len(line) <= width - 2 for line in content.plain.splitlines())
+            colors = {span.style for span in content.spans if str(span.style).startswith("#")}
+            assert len(colors) == 4
+            assert status.size.height >= len(content.plain.splitlines())
+            initial_colors = colors
+            app.theme = "textual-light"
+            await pilot.pause()
+            assert {span.style for span in status.content.spans if str(span.style).startswith("#")} != initial_colors
+            app._record_trace({"type": "budget_update", "used_tokens": 160000, "limit_tokens": 200000,
+                               "remaining_tokens": 40000, "phase": "finalizing", "estimated": True})
+            await pilot.pause()
+            content = status.content
+            assert "累计" in content.plain and "收尾" in content.plain
+            assert all(cell_len(line) <= width - 2 for line in content.plain.splitlines())
+            assert status.size.height >= len(content.plain.splitlines())
+            prompt = app.query_one("#prompt", Input)
+            assert prompt.region.height == 3 and prompt.size.height == 1
+            assert app.query_one("#log", RichLog).size.height >= 3
+            assert prompt.region.bottom <= status.region.y
+            await pilot.click("#prompt")
+            await pilot.press(*"hi", "enter")
+            await pilot.pause(0.2)
+            assert "基础装载" not in status.content.plain
+            assert "构成" in status.content.plain
+
+    asyncio.run(scenario())
+
+
+def test_theme_can_be_selected_before_tui_mounts(tmp_path):
+    app = VibeApp(Config(workspace=tmp_path), Agent(FakeProvider([]), ToolRegistry(tmp_path)))
+    app.theme = "textual-light"
+    assert not app.current_theme.dark
+
+
+@pytest.mark.parametrize("decision", ["y", "n", "ctrl+c"])
+def test_loaded_context_refreshes_after_mcp_startup_resolution(tmp_path, decision):
+    provider = FakeProvider([])
+    manager = StartupMcp()
+    agent = Agent(provider, ToolRegistry(tmp_path), approval=ApprovalGate(),
+                  context=ContextBuilder(policy=Config().budget_policy()))
+    session = SessionStore.new(tmp_path, "fake")
+    app = VibeApp(Config(workspace=tmp_path), agent, session=session, mcp=manager)
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            await pilot.pause(0.2)
+            assert isinstance(app.screen, ApprovalScreen)
+            before = app.context_history.snapshots[-1]
+            assert before["phase"] == "loaded" and provider.seen == []
+            await pilot.press(decision)
+            await pilot.pause(0.2)
+            after = app.context_history.snapshots[-1]
+            assert after["snapshot_id"] != before["snapshot_id"]
+            assert (after["sections"]["tools"] > before["sections"]["tools"]) is (decision == "y")
+            assert len(app.context_history.snapshots) == 1
+            assert provider.seen == [] and app.run_budget is None
+            assert not app.query_one("#prompt", Input).disabled
+            traces = [json.loads(line) for line in session.trace_path.read_text().splitlines()]
+            assert len(traces) == 2 and all(event["phase"] == "loaded" for event in traces)
+
+    asyncio.run(scenario())
+
+
+def test_slow_loaded_context_keeps_input_usable_and_cannot_replace_request(tmp_path):
+    provider = FakeProvider(["done"])
+    agent = Agent(provider, ToolRegistry(tmp_path), approval=ApprovalGate(),
+                  context=ContextBuilder(policy=Config().budget_policy()))
+    original = agent.loaded_context_snapshot
+    release = asyncio.Event()
+
+    async def delayed_snapshot(key):
+        event = await original(key)
+        await release.wait()
+        return event
+
+    agent.loaded_context_snapshot = delayed_snapshot
+    app = VibeApp(Config(workspace=tmp_path), agent)
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            await pilot.pause(0.1)
+            assert "统计中" in app._status_text()
+            assert not app.query_one("#prompt", Input).disabled
+            await pilot.click("#prompt")
+            await pilot.press(*"hi", "enter")
+            await pilot.pause(0.3)
+            assert len(provider.seen) == 1
+            assert app.context_history.snapshots[-1]["phase"] == "request"
+            request_id = app.context_history.snapshots[-1]["snapshot_id"]
+            release.set()
+            await pilot.pause(0.1)
+            assert app.context_history.snapshots[-1]["snapshot_id"] == request_id
+
+    asyncio.run(scenario())
+
+
+def test_failed_loaded_context_reports_failure_without_blocking_input(tmp_path):
+    agent = Agent(FakeProvider([]), ToolRegistry(tmp_path),
+                  context=ContextBuilder(policy=Config().budget_policy()))
+
+    async def fail_snapshot(key):
+        raise RuntimeError("count failed")
+
+    agent.loaded_context_snapshot = fail_snapshot
+    app = VibeApp(Config(workspace=tmp_path), agent)
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            await pilot.pause(0.1)
+            assert "基础装载统计失败" in app._status_text()
+            assert "count failed" in _log_text(app)
+            assert not app.query_one("#prompt", Input).disabled
+
+    asyncio.run(scenario())
+
+
 def test_mcp_startup_approval_precedes_resume_and_closes_on_quit(tmp_path):
     session = SessionStore.new(tmp_path, "fake")
     session.append_message(Message("user", "continue the MCP task"))
@@ -491,7 +663,8 @@ def test_context_modal_replays_snapshots_and_keeps_usage_separate(tmp_path):
     asyncio.run(scenario())
 
 
-def test_context_view_empty_and_restores_only_latest_run(tmp_path):
+@pytest.mark.parametrize("with_context", [False, True])
+def test_context_view_empty_and_restores_only_latest_run(tmp_path, with_context):
     from app.tui import ContextScreen
 
     session = SessionStore.new(tmp_path, "fake")
@@ -505,13 +678,24 @@ def test_context_view_empty_and_restores_only_latest_run(tmp_path):
     with session.trace_path.open("a") as stream:
         stream.write("broken partial line\n")
     provider = FakeProvider([])
-    app = VibeApp(Config(workspace=tmp_path), Agent(provider, ToolRegistry(tmp_path)),
+    context = ContextBuilder(policy=Config().budget_policy()) if with_context else None
+    app = VibeApp(Config(workspace=tmp_path),
+                  Agent(provider, ToolRegistry(tmp_path), context=context, history=session.load_context()),
                   session=session, resumed=True)
 
     async def scenario():
         async with app.run_test(size=(36, 18)) as pilot:
-            assert app.context_history.run_id == "run-new"
-            assert [event["step"] for event in app.context_history.snapshots] == [2]
+            await pilot.pause(0.1)
+            if with_context:
+                assert app.context_history.run_id == f"loaded:{session.id}"
+                assert len(app.context_history.snapshots) == 1
+                current = app.context_history.snapshots[0]
+                assert current["phase"] == "loaded" and current["sections"]["history"] > 0
+                trace = session.trace_path.read_text()
+                assert '"run_id": "run-old"' in trace and '"run_id": "run-new"' in trace
+            else:
+                assert app.context_history.run_id == "run-new"
+                assert [event["step"] for event in app.context_history.snapshots] == [2]
             assert provider.seen == []
             await pilot.press("ctrl+o")
             await pilot.pause()
@@ -843,6 +1027,112 @@ def test_skills_command_handles_empty_directory(tmp_path):
             await pilot.pause(0.3)
             assert "no skills" in _log_text(app)
             assert provider.seen == []
+            await pilot.press("ctrl+q")
+
+    asyncio.run(scenario())
+
+
+def test_skill_management_commands_delegate_and_render_plain_text(tmp_path):
+    provider = FakeProvider([])
+    agent = Agent(provider, ToolRegistry(tmp_path))
+    calls = []
+
+    def manage(action="list", name=None):
+        calls.append((action, name))
+        return f"skills {action}: [red]literal[/red] {name or 'catalog'}"
+
+    agent.manage_skills = manage
+    app = VibeApp(Config(workspace=tmp_path), agent)
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            for command in ("/skill", "/skills refresh", "/skills activate release", "/skill unload release"):
+                await pilot.click("#prompt")
+                await pilot.press(*command, "enter")
+                await pilot.pause()
+            assert calls == [("list", None), ("refresh", None),
+                             ("activate", "release"), ("unload", "release")]
+            assert "[red]literal[/red]" in _log_text(app)
+            assert not provider.seen
+            await pilot.press("ctrl+q")
+
+    asyncio.run(scenario())
+
+
+def test_skill_management_refreshes_loaded_context_without_starting_task(tmp_path):
+    skill_file = tmp_path / ".vibe/skills/release/SKILL.md"
+    skill_file.parent.mkdir(parents=True)
+    skill_file.write_text("---\nname: release\ndescription: 发布检查\n---\n\nACTIVE_SKILL_BODY\n")
+    provider = FakeProvider([])
+    agent = Agent(provider, ToolRegistry(tmp_path), context=ContextBuilder(policy=Config().budget_policy()))
+    session = SessionStore.new(tmp_path, "fake", purpose="test")
+    app = VibeApp(Config(workspace=tmp_path), agent, session=session)
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            await pilot.pause(0.2)
+            original = app.context_history.snapshots[-1]
+            assert not any(block["kind"] == "active_skill" for block in original["blocks"])
+            for action, expected_active in (("activate", True), ("unload", False)):
+                await pilot.click("#prompt")
+                await pilot.press(*f"/skills {action} release", "enter")
+                await pilot.pause(0.2)
+                current = app.context_history.snapshots[-1]
+                assert current["snapshot_id"] != original["snapshot_id"]
+                assert current["phase"] == "loaded"
+                assert any(block["kind"] == "active_skill" for block in current["blocks"]) is expected_active
+                assert len(app.context_history.snapshots) == 1
+                original = current
+            assert not provider.seen and not agent.history and agent.state is None
+            assert app.run_budget is None and session.latest_run() is None
+            assert session.load_messages() == []
+            await pilot.press("ctrl+q")
+
+    asyncio.run(scenario())
+
+
+def test_skill_management_after_task_keeps_context_replay_and_usage(tmp_path):
+    skill_file = tmp_path / ".vibe/skills/release/SKILL.md"
+    skill_file.parent.mkdir(parents=True)
+    skill_file.write_text("---\nname: release\ndescription: 发布检查\n---\n\nACTIVE_SKILL_BODY\n")
+    provider = FakeProvider([Response(content="done", usage={"total_tokens": 17})])
+    agent = Agent(provider, ToolRegistry(tmp_path), context=ContextBuilder(policy=Config().budget_policy()))
+    session = SessionStore.new(tmp_path, "fake", purpose="test")
+    app = VibeApp(Config(workspace=tmp_path), agent, session=session)
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            await pilot.click("#prompt")
+            await pilot.press(*"检查项目", "enter")
+            await pilot.pause(0.3)
+            snapshots = list(app.context_history.snapshots)
+            budget = dict(app.run_budget)
+            cost = session.cost_summary()
+            await pilot.click("#prompt")
+            await pilot.press(*"/skills activate release", "enter")
+            await pilot.pause(0.2)
+            assert app.context_history.snapshots == snapshots
+            assert app.run_budget == budget and budget["used_tokens"] == 17
+            assert session.cost_summary() == cost and len(provider.seen) == 1
+            await pilot.press("ctrl+q")
+
+    asyncio.run(scenario())
+
+
+def test_invalid_skill_commands_do_not_reach_model(tmp_path):
+    provider = FakeProvider([])
+    agent = Agent(provider, ToolRegistry(tmp_path))
+    agent.manage_skills = lambda **kwargs: pytest.fail("invalid skill command")
+    app = VibeApp(Config(workspace=tmp_path), agent)
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            for command in ("/skills activate", "/skills list release", "/skills delete release"):
+                await pilot.click("#prompt")
+                await pilot.press(*command, "enter")
+                await pilot.pause()
+            assert "用法" in _log_text(app)
+            assert not provider.seen
             await pilot.press("ctrl+q")
 
     asyncio.run(scenario())

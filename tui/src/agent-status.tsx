@@ -2,10 +2,11 @@ import React from 'react';
 import {Box, Text} from 'ink';
 import stringWidth from 'string-width';
 import type {ViewState} from './view-state.js';
-import {fitText} from './markdown.js';
+import {fitText, ReadingSpans, wrapSpans, type Span} from './markdown.js';
 import {compactNumber, toolState} from './workbench.js';
 import type {Palette, SemanticTone} from './theme.js';
-import {contextBar, contextSummary} from './context-view.js';
+import {contextLine, contextSummarySpans, needsContextComposition} from './context-view.js';
+import type {ContextSnapshot} from './protocol.js';
 
 export type AgentStatus = {label: string; detail: string; tone: SemanticTone};
 
@@ -50,10 +51,11 @@ export function AgentHeader({state, columns, height = 3, palette}: {
   const showStatus = columns >= 50;
   const statusWidth = showStatus ? Math.min(stringWidth(statusText), Math.max(14, columns - 24)) : 0;
   const titleWidth = Math.max(1, columns - (showStatus ? statusWidth + 1 : 0));
+  const title = state.sessionPurpose === 'test' ? '测试会话 · mini-harness' : columns >= 65 ? 'mini-harness / 个人编码工作台' : 'mini-harness';
   const badgeBackground = status.tone === 'warning' || status.tone === 'error' ? palette.surfaces[status.tone] : palette.raised;
   return <Box width={columns} height={height} backgroundColor={palette.background} flexDirection="column" flexShrink={0} overflow="hidden">
     <Box height={1} width={columns} flexShrink={0}>
-      <Box width={titleWidth}><Text bold color={palette.accent}>{fitText(columns >= 65 ? 'mini-harness / 个人编码工作台' : 'mini-harness', titleWidth)}</Text></Box>
+      <Box width={titleWidth}><Text bold color={palette.accent}>{fitText(title, titleWidth)}</Text></Box>
       {showStatus ? <Box width={statusWidth + 1} justifyContent="flex-end"><Text bold color={palette[status.tone]} backgroundColor={badgeBackground}>{fitText(statusText, statusWidth)}</Text></Box> : null}
     </Box>
     {height > 1 ? <Text color={palette.secondary}>{fitText(`${state.workspace || '工作区待连接'}  ·  ${state.model || '模型待连接'}`, columns, true)}</Text> : null}
@@ -61,19 +63,54 @@ export function AgentHeader({state, columns, height = 3, palette}: {
   </Box>;
 }
 
-type StatusLine = {text: string; tone?: SemanticTone; bold?: boolean; muted?: boolean; highlighted?: boolean};
+type StatusLine = {text: string; spans?: Span[]; tone?: SemanticTone; bold?: boolean; muted?: boolean; highlighted?: boolean};
 
-function statusLines(state: ViewState, columns: number): StatusLine[] {
+const richStatusLine = (spans: Span[]): StatusLine => ({text: spans.map(span => span.text).join(''), spans});
+const inputPercentage = (snapshot: ContextSnapshot) => snapshot.input_capacity ? `${(snapshot.total_tokens / snapshot.input_capacity * 100).toFixed(1)}%` : '容量0';
+function occupancyStatusLines(snapshot: ContextSnapshot, columns: number): StatusLine[] {
+  const prefix = `输入${inputPercentage(snapshot)} `;
+  const main = contextLine(snapshot, columns, false, prefix);
+  return [
+    {text: `上下文估算 ${compactNumber(snapshot.total_tokens)}/${compactNumber(snapshot.input_capacity)}`, tone: snapshot.over_budget ? 'warning' : undefined},
+    richStatusLine(contextSummarySpans(snapshot)),
+    richStatusLine(main.spans),
+    ...(needsContextComposition(snapshot, Math.max(1, columns - stringWidth(prefix) - 2)) ? [richStatusLine(contextLine(snapshot, columns, true, '已用构成 ').spans)] : []),
+  ];
+}
+
+function statusLines(state: ViewState, columns: number, contextFirst = false): StatusLine[] {
   const status = agentStatus(state);
   const task = state.entries.findLast(entry => entry.kind === 'task');
   const tools = state.entries.filter(entry => entry.kind === 'tool');
   const failures = tools.filter(entry => entry.ok === false || ['failed', 'timed_out', 'cancelled'].includes(entry.execution?.status ?? ''));
   const latest = tools.at(-1);
   const separator = {text: ' '};
+  const snapshot = state.contextSnapshots.at(-1);
+  const metrics = state.metrics;
+  const context: StatusLine[] = snapshot ? [
+    ...occupancyStatusLines(snapshot, columns),
+    {text: `预留 输出${compactNumber(snapshot.reserves.output)} 安全${compactNumber(snapshot.reserves.scratch)}`},
+    {text: `输入剩余 ${compactNumber(snapshot.remaining_tokens)}`},
+    {text: 'Ctrl+K 分区与本轮回放'},
+  ] : [];
+  if (snapshot?.phase === 'loaded') return [
+    {text: status.label, tone: status.tone, bold: true, highlighted: true},
+    {text: '基础上下文已装载', bold: true},
+    {text: '尚未请求模型', muted: true},
+    separator,
+    ...occupancyStatusLines(snapshot, columns),
+    ...(metrics ? [{text: `任务 Tokens ${metrics.used_tokens}（尚未开始）`}] : []),
+    {text: task ? '历史任务已恢复' : '尚未提交任务', muted: true},
+    {text: 'Ctrl+K 装载详情'},
+    separator,
+    {text: `预留 输出${compactNumber(snapshot.reserves.output)} 安全${compactNumber(snapshot.reserves.scratch)}`},
+    {text: `输入剩余 ${compactNumber(snapshot.remaining_tokens)}`},
+  ];
   const lines: StatusLine[] = [
     {text: status.label, tone: status.tone, bold: true, highlighted: true},
     {text: status.detail, muted: true},
     separator,
+    ...(contextFirst ? [...context, separator] : []),
     {text: '当前任务', bold: true, muted: true},
     {text: task?.text.split('\n').find(Boolean) || '尚未提交任务'},
     separator,
@@ -83,23 +120,14 @@ function statusLines(state: ViewState, columns: number): StatusLine[] {
     separator,
     {text: '资源预算', bold: true, muted: true},
   ];
-  const metrics = state.metrics;
-  const snapshot = state.contextSnapshots.at(-1);
   if (!metrics && !snapshot) return [...lines, {text: '尚无用量记录'}];
   if (metrics) {
     lines.push({text: `任务 Tokens ${metrics.estimated ? '≈' : ''}${compactNumber(metrics.used_tokens)}/${metrics.limit_tokens ? compactNumber(metrics.limit_tokens) : '不限'}`});
     lines.push({text: budgetBar(metrics.used_tokens, metrics.limit_tokens, Math.min(12, Math.max(2, columns - 10))),
       tone: metrics.limit_tokens && metrics.used_tokens / metrics.limit_tokens >= 0.8 ? 'warning' : undefined});
   }
-  if (snapshot) lines.push(
-    {text: `上下文估算 ${compactNumber(snapshot.total_tokens)}/${compactNumber(snapshot.context_window)}`, tone: snapshot.over_budget ? 'warning' : undefined},
-    {text: contextSummary(snapshot)},
-    {text: contextBar(snapshot, Math.max(1, columns - 2))},
-    {text: `预留 输出${compactNumber(snapshot.reserves.output)} 安全${compactNumber(snapshot.reserves.scratch)}`},
-    {text: `输入剩余 ${compactNumber(snapshot.remaining_tokens)}`},
-    {text: 'Ctrl+K 分区与本轮回放'},
-  );
-  else if (metrics?.context_tokens !== null && metrics?.context_tokens !== undefined) lines.push({text: `上下文 ${compactNumber(metrics.context_tokens)}/${compactNumber(metrics.context_window)}`});
+  if (snapshot && !contextFirst) lines.push(...context);
+  else if (!snapshot && metrics?.context_tokens !== null && metrics?.context_tokens !== undefined) lines.push({text: `上下文 ${compactNumber(metrics.context_tokens)}/${compactNumber(metrics.context_window)}`});
   if (metrics?.planned) lines.push({text: `已记计划 ${metrics.done}/${metrics.planned}`});
   if (metrics?.cost_usd) lines.push({text: `成本 $${metrics.cost_usd.toFixed(3)}`});
   return lines;
@@ -112,14 +140,25 @@ export function StatusPanel({state, columns, height, palette}: {
   const status = agentStatus(state);
   const task = state.entries.findLast(entry => entry.kind === 'task');
   const compact = height < 8;
-  const lines: StatusLine[] = compact ? [{text: `${status.label}${task ? `  |  ${task.text}` : `  |  ${status.detail}`}`, tone: status.tone, bold: true, highlighted: true}] : statusLines(state, available);
+  const snapshot = state.contextSnapshots.at(-1);
+  const compactContext = compact && snapshot !== undefined;
+  const compactInputPrefix = '输入 ';
+  const compactComposition = snapshot ? needsContextComposition(snapshot, Math.max(1, available - stringWidth(compactInputPrefix) - 2)) : false;
+  const lines: StatusLine[] = compact ? [
+    {text: `${status.label}${snapshot?.phase === 'loaded' ? '  |  基础上下文已装载 · 尚未请求模型' : task ? `  |  ${task.text}` : `  |  ${status.detail}`}`, tone: status.tone, bold: true, highlighted: true},
+    ...(snapshot ? [
+      {...richStatusLine([{text: `上下文估算 ${compactNumber(snapshot.total_tokens)}/${compactNumber(snapshot.input_capacity)} 输入${inputPercentage(snapshot)} · `}, ...contextSummarySpans(snapshot)]), tone: snapshot.over_budget ? 'warning' as const : undefined},
+      richStatusLine(contextLine(snapshot, available, compactComposition, compactComposition ? '已用构成 ' : compactInputPrefix).spans),
+    ] : []),
+  ] : statusLines(state, available, height < 24 && snapshot !== undefined);
   const statusBackground = status.tone === 'warning' || status.tone === 'error' ? palette.surfaces[status.tone] : palette.raised;
-  return <Box width={columns} height={height} backgroundColor={palette.surface} flexShrink={0} flexDirection="column" paddingX={2} paddingY={1} overflow="hidden">
-    {lines.slice(0, Math.max(0, height - 2)).map((line, index) => {
+  return <Box width={columns} height={height} backgroundColor={palette.surface} flexShrink={0} flexDirection="column" paddingX={2} paddingY={compactContext ? 0 : 1} overflow="hidden">
+    {lines.slice(0, Math.max(0, height - (compactContext ? 0 : 2))).map((line, index) => {
       const text = fitText(line.text, available);
       return <Text key={index} color={line.tone ? palette[line.tone] : line.muted ? palette.secondary : palette.foreground}
         backgroundColor={line.highlighted ? statusBackground : undefined} bold={line.bold}>
-        {line.highlighted ? text + ' '.repeat(Math.max(0, available - stringWidth(text))) : text}
+        {line.spans ? <ReadingSpans spans={wrapSpans(line.spans, available)[0] ?? []} palette={palette}/> :
+          line.highlighted ? text + ' '.repeat(Math.max(0, available - stringWidth(text))) : text}
       </Text>;
     })}
   </Box>;

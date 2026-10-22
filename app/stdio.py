@@ -23,7 +23,7 @@ from core.models import ToolCall
 
 MAX_FRAME_BYTES = 1024 * 1024
 _OVERSIZED = object()
-COMMANDS = frozenset({"resume", "permissions", "permissions_reset", "cost", "tools", "diff", "mcp"})
+COMMANDS = frozenset({"resume", "permissions", "permissions_reset", "cost", "tools", "diff", "mcp", "skills"})
 RESUME_INSTRUCTION = (
     "继续上次暂停的任务，开启新一轮预算。先核对已保存的进度和未执行操作；"
     "对于结果未知的写入或命令，先检查实际文件与执行结果，禁止直接重放。"
@@ -76,6 +76,7 @@ class _Connection:
         self.pending: tuple[str, asyncio.Future, list[str]] | None = None
         self.active_phase = "running"
         self.output_open = True
+        self.has_started_run = False
 
     def send(self, kind: str, request_id: str | None = None, **data):
         if not self.output_open:
@@ -106,6 +107,22 @@ class _Connection:
 
     def error(self, request_id, code, message):
         self.send("error", request_id, code=code, message=message)
+
+    async def publish_loaded_context(self) -> None:
+        try:
+            snapshot = await self.agent.loaded_context_snapshot(self.session.id)
+            if snapshot is None or self.stop.is_set() or self.active_id not in {None, "startup"}:
+                return
+            self.session.append_trace(snapshot)
+            self.send("context_snapshot", snapshot=snapshot_for_display(snapshot))
+            state = self.agent.state
+            self.send("metrics", used_tokens=0, limit_tokens=self.agent.max_run_tokens,
+                      estimated=False, context_tokens=snapshot["total_tokens"],
+                      context_window=snapshot["context_window"],
+                      done=len(state.done) if state is not None else 0,
+                      planned=len(state.plan) if state is not None else 0, cost_usd=0.0)
+        except Exception as exc:
+            self.send("notice", message=f"基础上下文统计失败：{type(exc).__name__}: {exc}"[:16000])
 
     async def approve(self, call: ToolCall, preview: str) -> ApprovalDecision:
         if self.stop.is_set() or self.cancel.is_set():
@@ -141,7 +158,8 @@ class _Connection:
             self.send("status", self.active_id, phase="stopping")
 
     def restore(self):
-        for message in self.agent.history:
+        messages = self.session.load_messages() or self.agent.history
+        for message in messages:
             payload = asdict(message)
             if len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) > MAX_FRAME_BYTES - 1024:
                 payload = {"role": message.role, "content": message.content[:MAX_FRAME_BYTES // 8]
@@ -159,7 +177,7 @@ class _Connection:
             self.send("history_message", message=payload)
         state = self.agent.state
         latest = self.session.latest_run()
-        lines = [f"已恢复会话 {self.session.id}；未自动续跑。"]
+        lines = [f"已恢复会话 {self.session.id}；历史记录 {len(messages)} 条；未自动续跑。"]
         if state is not None:
             lines.extend([f"任务：{state.goal}", "已完成：" + ("；".join(state.done) or "暂无已记录项"),
                           "待继续：" + ("；".join(state.open) or "请核对目标与实际结果")])
@@ -199,9 +217,10 @@ class _Connection:
             self.active_id = None
             self.active_phase = "running"
             if not self.stop.is_set():
+                await self.publish_loaded_context()
                 self.send("status", phase="idle")
 
-    async def command(self, request_id, command):
+    async def command(self, request_id, command, args=None):
         if command == "resume" and self.agent.history:
             await self.run(request_id, RESUME_INSTRUCTION)
             return
@@ -229,6 +248,9 @@ class _Connection:
                     f"- {spec['function']['name']}: {spec['function']['description']}"
                     for spec in self.agent.tools.specs()
                 ) if self.agent.tools_enabled else "chat-only：工具已禁用。"
+            elif command == "skills":
+                text = (self.agent.manage_skills(**(args or {})) if self.agent.tools_enabled
+                        else "skills 不可用：chat-only 模式已禁用工具。")
             elif command == "mcp":
                 if self.mcp is None or not self.mcp.servers:
                     text = "未配置 MCP 服务。"
@@ -270,9 +292,12 @@ class _Connection:
         finally:
             self.active_id = None
             if not self.stop.is_set():
+                if command == "skills" and not self.has_started_run:
+                    await self.publish_loaded_context()
                 self.send("status", phase="idle")
 
     async def run(self, request_id: str, text: str):
+        self.has_started_run = True
         result = AgentResult("cancelled", 0, "cancelled")
         completed = False
         metrics = {
@@ -447,6 +472,8 @@ class _Connection:
             }
             if not isinstance(kind, str) or kind not in fields:
                 raise ValueError("unknown request type")
+            if kind == "command" and request.get("command") == "skills" and "args" in request:
+                fields[kind] = fields[kind] | {"args"}
             if set(request) != {"v", "type", "id"} | fields[kind]:
                 raise ValueError("unexpected or missing request fields")
             if kind in {"run", "command"}:
@@ -454,6 +481,18 @@ class _Connection:
                     raise ValueError("run text must be a nonempty string")
                 if kind == "command" and (not isinstance(request["command"], str) or request["command"] not in COMMANDS):
                     raise ValueError("unknown command")
+                if kind == "command" and request["command"] == "skills" and "args" in request:
+                    args = request["args"]
+                    if not isinstance(args, dict) or set(args) - {"action", "name"}:
+                        raise ValueError("skills args must contain only action and name")
+                    action = args.get("action", "list")
+                    if not isinstance(action, str) or action not in {"list", "refresh", "activate", "unload"}:
+                        raise ValueError("unknown skills action")
+                    if action in {"activate", "unload"}:
+                        if not isinstance(args.get("name"), str) or not args["name"].strip():
+                            raise ValueError("skills activate/unload requires a nonempty name")
+                    elif "name" in args:
+                        raise ValueError("skills list/refresh does not accept name")
                 if self.active is not None and not self.active.done():
                     self.error(request_id, "busy", "another run is active")
                     return
@@ -462,7 +501,7 @@ class _Connection:
                 self.send("status", request_id, phase="running")
                 self.active = asyncio.create_task(
                     self.run(request_id, request["text"]) if kind == "run"
-                    else self.command(request_id, request["command"])
+                    else self.command(request_id, request["command"], request.get("args"))
                 )
             elif kind == "cancel":
                 if not isinstance(request["target"], str) or not request["target"]:
@@ -506,7 +545,10 @@ async def serve(
     mcp: McpManager | None = None,
 ) -> None:
     """单连接 JSONL 适配器；执行、工具和审批仍由 Python 持有。"""
-    session = session or SessionStore.new(config.workspace, config.model)
+    session = session or SessionStore.new(
+        config.workspace, config.model,
+        purpose="test" if isinstance(agent.provider, FakeProvider) else "user",
+    )
     if emit is None:
         stream = sys.stdout
         emit = lambda event: print(json.dumps(event, ensure_ascii=False), file=stream, flush=True)
@@ -537,20 +579,22 @@ async def serve(
         else "openai" if isinstance(agent.provider, OpenAICompatProvider)
         else type(agent.provider).__name__
     )
-    connection.send("ready", workspace=str(config.workspace.resolve()), model=config.model,
-                    session_id=session.id, session_path=str(session.root.resolve()),
-                    provider=provider, capabilities=capabilities, resumed=resumed)
-    if resumed:
-        connection.restore()
-    if mcp is not None and mcp.servers and agent.tools_enabled:
-        connection.seen.add("startup")
-        connection.active_id = "startup"
-        connection.active_phase = "starting"
-        connection.send("status", "startup", phase="starting")
-        connection.active = asyncio.create_task(connection.initialize())
-    else:
-        connection.send("status", phase="idle")
     try:
+        connection.send("ready", workspace=str(config.workspace.resolve()), model=config.model,
+                        session_id=session.id, session_path=str(session.root.resolve()),
+                    provider=provider, capabilities=capabilities, resumed=resumed,
+                    session_purpose=session.purpose)
+        if resumed:
+            connection.restore()
+        await connection.publish_loaded_context()
+        if mcp is not None and mcp.servers and agent.tools_enabled:
+            connection.seen.add("startup")
+            connection.active_id = "startup"
+            connection.active_phase = "starting"
+            connection.send("status", "startup", phase="starting")
+            connection.active = asyncio.create_task(connection.initialize())
+        else:
+            connection.send("status", phase="idle")
         while not connection.stop.is_set():
             reading = asyncio.create_task(anext(frames))
             finished, _ = await asyncio.wait({reading, stopped}, return_when=asyncio.FIRST_COMPLETED)

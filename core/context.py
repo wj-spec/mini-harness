@@ -27,6 +27,8 @@ def estimate_tokens(text: str) -> int:
 
 def message_tokens(message: Message, estimator: Estimator = estimate_tokens) -> int:
     n = estimator(message.content)
+    if message.reasoning_content:
+        n += estimator(message.reasoning_content)
     for call in message.tool_calls:
         n += estimator(call.name + json.dumps(call.args, ensure_ascii=False, sort_keys=True))
     return n
@@ -503,6 +505,9 @@ class ContextBuilder:
 
     @staticmethod
     def _message_from_dict(d: dict) -> Message:
+        reasoning = d.get("reasoning_content")
+        if reasoning is not None and not isinstance(reasoning, str):
+            raise ValueError("invalid message reasoning_content")
         execution = parse_execution_outcome(d.get("execution"))
         if execution is not None and d["role"] != "tool":
             raise ValueError("only tool messages can carry execution outcomes")
@@ -516,4 +521,5 @@ class ContextBuilder:
             name=d.get("name"),
             tool_call_id=d.get("tool_call_id"),
             execution=execution,
+            reasoning_content=reasoning,
         )

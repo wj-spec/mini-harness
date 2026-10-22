@@ -4,6 +4,7 @@ import asyncio
 import json
 
 from rich.markup import escape
+from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -14,10 +15,9 @@ from textual.widgets import Footer, Header, Input, RichLog, Static
 
 from app.agent import Agent
 from app.config import Config
-from app.context_view import ContextHistory, context_detail, context_summary
+from app.context_view import ContextHistory, context_detail, context_legend, context_stack, context_summary
 from app.policy import ApprovalDecision
 from app.sandbox import run_command
-from app.skills import discover_skills
 from core.models import Message, ToolCall
 
 
@@ -72,8 +72,12 @@ class ContextScreen(ModalScreen[None]):
                                if item["snapshot_id"] == self._selected_id), 0)
         self.index = max(0, min(self.index, len(snapshots) - 1))
         self._selected_id = snapshots[self.index]["snapshot_id"] if snapshots else None
+        loaded = bool(snapshots and snapshots[self.index]["phase"] == "loaded")
+        self.query_one("#context_title", Static).update(
+            "上下文 · 基础装载" if loaded else "上下文 · 本轮回放（最多 100 张）"
+        )
         self.query_one("#context_body", Static).update(
-            context_detail(snapshots, self.index, max(20, self.size.width - 8))
+            context_detail(snapshots, self.index, max(20, self.size.width - 8), dark=self.app.current_theme.dark)
         )
 
     def _select(self, direction: int) -> None:
@@ -183,7 +187,7 @@ class VibeApp(App):
     #log { height: 1fr; border: round $primary; padding: 0 1; }
     #stream { height: auto; max-height: 10; padding: 0 1; }
     #prompt { height: 3; }
-    #status { height: auto; min-height: 2; max-height: 5; background: $boost; color: $text-muted; padding: 0 1; }
+    #status { height: auto; min-height: 2; max-height: 9; background: $boost; color: $text-muted; padding: 0 1; }
     """
 
     BINDINGS = [
@@ -197,6 +201,8 @@ class VibeApp(App):
         self.config = config
         self.agent = agent
         self.session = session
+        if session is not None and session.purpose == "test":
+            self.title = "测试会话 · vibe"
         self.resumed = resumed
         self.cancel_event = asyncio.Event()
         self.busy = False
@@ -204,6 +210,9 @@ class VibeApp(App):
         self.last_state = None
         self.last_context = None
         self.context_history = ContextHistory()
+        self._run_generation = 0
+        self._loaded_context_pending = False
+        self._loaded_context_error = False
         self.run_budget = None
         self.mcp = mcp
         self._mcp_starting = bool(mcp is not None and mcp.servers and agent.tools_enabled)
@@ -223,7 +232,7 @@ class VibeApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
-        self.query_one("#status", Static).update(self._status_text())
+        self.query_one("#status", Static).update(self._status_renderable())
         self.query_one("#prompt", Input).focus()
         self.query_one("#log", RichLog).write(
             "[dim]/cost 看花费；/context 或 Ctrl+O 看上下文；/permissions 查看授权；/resume 继续已暂停任务。审批：y 单次、s 精确规则、p 工作区、n 拒绝。[/]"
@@ -245,6 +254,31 @@ class VibeApp(App):
             self._mcp_worker = self.initialize_mcp()
         else:
             self._restore_session()
+        self.refresh_loaded_context()
+
+    @work(group="loaded-context", exclusive=True)
+    async def refresh_loaded_context(self) -> None:
+        if self.agent.context is None or self._run_generation or self._quitting:
+            return
+        generation = self._run_generation
+        self._loaded_context_pending = True
+        self._loaded_context_error = False
+        self.query_one("#status", Static).update(self._status_renderable())
+        try:
+            key = self.session.id if self.session is not None else f"tui-{id(self)}"
+            snapshot = await self.agent.loaded_context_snapshot(key)
+            if generation == self._run_generation and not self._quitting and snapshot is not None:
+                self._record_trace(snapshot)
+        except Exception as exc:
+            if generation == self._run_generation and not self._quitting:
+                self._loaded_context_error = True
+                self.query_one("#log", RichLog).write(
+                    f"[red]基础上下文统计失败：{escape(str(exc))}[/]"
+                )
+        finally:
+            self._loaded_context_pending = False
+            if self.is_mounted and not self._quitting:
+                self.query_one("#status", Static).update(self._status_renderable())
 
     @work(group="mcp-startup", exclusive=True)
     async def initialize_mcp(self) -> None:
@@ -264,6 +298,8 @@ class VibeApp(App):
             if prompt.is_mounted and not self._quitting:
                 prompt.disabled = False
                 prompt.focus()
+            if not self._quitting:
+                self.refresh_loaded_context()
         if not self._quitting and not self.cancel_event.is_set():
             self._restore_session()
 
@@ -317,8 +353,16 @@ class VibeApp(App):
         if text == "/diff":
             self.show_diff()
             return
-        if text in {"/skill", "/skills"}:
-            self.show_skills()
+        if text.split()[0] in {"/skill", "/skills"}:
+            parts = text.split()
+            action = parts[1] if len(parts) > 1 else "list"
+            if ((action in {"list", "refresh"} and len(parts) <= 2)
+                    or (action in {"activate", "unload"} and len(parts) == 3)):
+                self.show_skills(action, parts[2] if len(parts) == 3 else None)
+            else:
+                self.query_one("#log", RichLog).write(
+                    "[yellow]用法：/skills；/skills refresh；/skills activate NAME；/skills unload NAME[/]"
+                )
             return
         if text in {"/permissions", "/permissions reset"}:
             self.show_permissions(reset=text.endswith(" reset"))
@@ -337,7 +381,7 @@ class VibeApp(App):
             return
         if text == "/help":
             self.query_one("#log", RichLog).write(
-                "[dim]/cost 看 token / 花费；/context 或 Ctrl+O 看上下文回放；/diff 看 git diff；/skills 列出技能；/permissions 查看授权，reset 撤销；/resume 继续暂停任务；其它输入交给 agent[/]"
+                "[dim]/cost 看 token / 花费；/context 或 Ctrl+O 看上下文回放；/diff 看 git diff；/skills 列出技能，refresh 重扫，activate NAME 激活，unload NAME 卸载；/permissions 查看授权，reset 撤销；/resume 继续暂停任务；其它输入交给 agent[/]"
             )
             return
         self.handle_turn(text)
@@ -450,7 +494,7 @@ class VibeApp(App):
             )
         else:
             self.last_context = result
-        self.query_one("#status", Static).update(self._status_text())
+        self.query_one("#status", Static).update(self._status_renderable())
 
     def _record_history(self, messages: list[Message]) -> None:
         if self.session is not None:
@@ -466,7 +510,7 @@ class VibeApp(App):
                 self.session.save_state(state)
             except OSError as exc:
                 self.query_one("#log", RichLog).write(f"[red]session save failed: {exc}[/]")
-        self.query_one("#status", Static).update(self._status_text())
+        self.query_one("#status", Static).update(self._status_renderable())
 
     def show_diff(self) -> None:
         log = self.query_one("#log", RichLog)
@@ -487,22 +531,18 @@ class VibeApp(App):
             return
         log.write(output[-4000:])
 
-    def show_skills(self) -> None:
-        """列出 .vibe/skills；每次重新扫描，新增文件不用重启。"""
+    def show_skills(self, action: str = "list", name: str | None = None) -> None:
         log = self.query_one("#log", RichLog)
         tools = getattr(self.agent, "tools", None)
-        if tools is None:
-            log.write("[yellow]skills 不可用：当前没有工具注册表[/]")
+        if tools is None or not self.agent.tools_enabled:
+            log.write("[yellow]skills 不可用：当前工具已禁用[/]")
             return
-        skills = discover_skills(self.config.workspace)
-        tools.skills = skills
-        if not skills:
-            log.write("[dim]no skills; add .vibe/skills/<name>/SKILL.md[/]")
-            return
-        log.write(f"[bold]skills[/] {len(skills)} 个（.vibe/skills）")
-        for skill in skills:
-            log.write(f"- {escape(skill.name)}: {escape(skill.summary())}")
-        log.write("[dim]agent 需要时会自己调用 load_skill 读取正文。[/]")
+        try:
+            log.write(escape(self.agent.manage_skills(action=action, name=name)))
+        except Exception as exc:
+            log.write(f"[red]skills 失败：{escape(str(exc))}[/]")
+        finally:
+            self.refresh_loaded_context()
 
     def show_cost(self) -> None:
         log = self.query_one("#log", RichLog)
@@ -538,8 +578,9 @@ class VibeApp(App):
     def _record_trace(self, event: dict) -> None:
         if event.get("type") == "run_start":
             self.last_context = None
+            self._run_generation += 1
         if self.context_history.accept(event):
-            self.query_one("#status", Static).update(self._status_text())
+            self.query_one("#status", Static).update(self._status_renderable())
             if isinstance(self.screen, ContextScreen):
                 self.screen.update_snapshot()
         self._update_budget(event)
@@ -574,7 +615,8 @@ class VibeApp(App):
             return
         except OSError as exc:
             self.query_one("#log", RichLog).write(f"[red]context replay failed: {exc}[/]")
-        self.query_one("#status", Static).update(self._status_text())
+        self.context_history.run_active = False
+        self.query_one("#status", Static).update(self._status_renderable())
 
     def action_context(self) -> None:
         if isinstance(self.screen, (ApprovalScreen, ContextScreen)):
@@ -605,7 +647,7 @@ class VibeApp(App):
             }
         else:
             return
-        self.query_one("#status", Static).update(self._status_text())
+        self.query_one("#status", Static).update(self._status_renderable())
 
     def _show_resume_hint(self, reason: str = "") -> None:
         saved = "进度已保存在本会话。" if self.session is not None else "任务已暂停。"
@@ -627,19 +669,33 @@ class VibeApp(App):
             self.query_one("#log", RichLog).write(f"[red]session append failed: {exc}[/]")
 
     def _status_text(self, result=None) -> str:
+        return self._status_renderable(result).plain
+
+    def _status_renderable(self, result=None) -> Text:
         result = result if result is not None else self.last_context
         builder = self.agent.context
         budget = builder.display_budget if builder is not None else "?"
+        width = max(1, self.size.width - 2)
         if self.context_history.snapshots:
-            usage = context_summary(self.context_history.snapshots[-1], max(20, self.size.width - 2))
+            current = self.context_history.snapshots[-1]
+            usage = Text(context_summary(current, width, include_sections=False))
+            usage.append("\n已用构成 ")
+            usage.append(context_stack(current, max(0, width - 9), composition=True,
+                                       dark=self.current_theme.dark))
+            usage.append("\n")
+            usage.append(context_legend(current, width=width, dark=self.current_theme.dark))
+        elif self._loaded_context_error and not self._run_generation:
+            usage = Text("ctx 基础装载统计失败")
+        elif self._loaded_context_pending and not self._run_generation:
+            usage = Text("ctx 基础装载统计中…")
         elif result is None:
-            usage = f"ctx -/{budget}"
+            usage = Text(f"ctx -/{budget}")
         else:
             mark = " over" if result.over_budget else ""
             history = result.sections.get("history")
             history_cap = result.caps.get("history")
             extra = f" · hist {history}/{history_cap}" if history is not None else ""
-            usage = f"ctx {result.tokens}/{budget}{mark}{extra}"
+            usage = Text(f"ctx {result.tokens}/{budget}{mark}{extra}")
         run_usage = ""
         if self.run_budget is not None:
             used = self.run_budget.get("used_tokens", 0)
@@ -651,13 +707,36 @@ class VibeApp(App):
                 self.run_budget.get("phase"), ""
             )
             run_usage = f"任务累计 {mark}{used:,}/{ceiling}{phase}"
+            if width < 60 and limit > 0:
+                run_usage = f"任务累计 {mark}{used:,}/{limit:,}\n剩余 {remaining:,}{phase}"
         todo = ""
         if self.last_state is not None:
             total = len(self.last_state.done) + len(self.last_state.open)
             todo = f" · todo {len(self.last_state.done)}/{total}"
         project = self.config.workspace.name or str(self.config.workspace)
-        parts = [run_usage, f"{usage}{todo}", f"{self.config.model} · {project} · Ctrl+C 取消  Ctrl+Q 退出"]
-        return "\n".join(part for part in parts if part)
+        result_text = Text()
+        if run_usage:
+            result_text.append(run_usage + "\n")
+        result_text.append(usage)
+        result_text.append(todo + "\n")
+        footer = Text(f"{self.config.model} · {project} · Ctrl+C 取消  Ctrl+Q 退出")
+        footer.truncate(width, overflow="ellipsis")
+        result_text.append(footer)
+        return Text("\n").join(result_text.wrap(self.console, width, overflow="fold"))
+
+    def watch_theme(self) -> None:
+        self._refresh_context_display()
+
+    def on_resize(self) -> None:
+        self._refresh_context_display()
+
+    def _refresh_context_display(self) -> None:
+        if not self.screen_stack:
+            return
+        for status in self.query("#status"):
+            status.update(self._status_renderable())
+        if isinstance(self.screen, ContextScreen):
+            self.screen.update_snapshot()
 
     def action_cancel(self) -> None:
         if not self.busy:

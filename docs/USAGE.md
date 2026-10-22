@@ -33,15 +33,26 @@ npm --prefix tui ci
 # 恢复最近有对话的会话；只展示进度，输入 /resume 才继续
 ./run_ink.sh --workspace /path/to/your/repo --continue
 
+# 列出用户会话 ID、用途、原始消息数、更新时间和标题；无需 TTY 或 API key
+./run_ink.sh --workspace /path/to/your/repo --list-sessions
+
+# 打开更早的指定会话；不要同时加 --continue
+./run_ink.sh --workspace /path/to/your/repo --session SESSION_ID
+
+# 单独查看测试会话范围；--fake 会自动使用此范围
+./run_ink.sh --workspace /path/to/your/repo --test-session --list-sessions
+
 # 编译并运行 Node 通信和 Ink 界面测试
 npm --prefix tui test
 ```
 
-`run_ink.sh` 每次先编译 TypeScript，再启动界面；Node 通过 JSON Lines 调用同一套 Python Agent，继续遵循 `PYTHON` 解释器选择与 `VIBE_*` 配置。需要在交互式终端运行，`--help` 可在普通管道中查看。
+`run_ink.sh` 每次先编译 TypeScript，再启动界面；Node 通过 JSON Lines 调用同一套 Python Agent，继续遵循 `PYTHON` 解释器选择与 `VIBE_*` 配置。界面需要在交互式终端运行；`--help`、`--list-sessions` 可在普通管道中使用。
 
 当前采用全屏布局，上方显示项目、模型与会话，中间阅读对话和工具，下方编辑多行草稿并显示真实用量。退出恢复原终端内容。消息、输入与状态区采用底色深浅和留白分层，普通回复不画外框；失败、审批与选中工具用轻染色强调。
 
-`/theme light` 使用浅色底板，`/theme dark` 使用深色底板，文字与背景配套。默认 `system` 根据终端提供的 `COLORFGBG` 背景提示选择；未提供或无法识别时回退深色，浅色终端可手动切换。低色终端会按能力降级显示，状态仍用文字标明。
+`/theme light` 使用浅色底板，`/theme dark` 使用深色底板，文字与背景配套。默认 `system` 根据终端提供的 `COLORFGBG` 背景提示选择；未提供或无法识别时回退深色，浅色终端可手动切换。`/theme` 查看当前主题及实际颜色能力。真彩、256 色、16 色分别使用配套颜色；256 色采用明确灰阶，避免浅灰退化成白色、浅蓝变成亮青。`NO_COLOR` 非空时关闭颜色；显式 `FORCE_COLOR` 优先。
+
+界面按终端字符格布局，字体、字号和行距由终端设置。大窗口里的短会话会保留空白、输入区位于底部；恢复后的空闲会话不会显示构造预览中的工具活动或预算数值。
 
 | 操作 | 键位 / 命令 |
 |---|---|
@@ -62,7 +73,7 @@ npm --prefix tui test
 
 状态与消息按块展示：等待模型、回复、调用工具、审批、暂停和错误分别标注；宽屏右侧显示当前任务、工具记录和真实预算，窄屏使用紧凑状态条。命令失败、超时、取消、未知结果显示实际状态，长工具名不会遮住结果。界面与验证见 [历史阅读与状态分区](specs/ink-reading-state.md)。
 
-Ink 支持 `--continue`、已有 `VIBE_MCP_*` 配置与本进程权限管理。恢复后不会自动调用模型或重放工具；`/resume` 才开启新一轮预算。MCP 初始化期间也能取消，服务启动与工具调用分别审批。新命令结果显示真实退出码、超时或取消，旧记录没有执行元数据时显示未记录；零退出本身不证明需求验收通过。
+Ink 的 `--continue` 只选择最近有对话的用户会话，普通列表和按 ID 打开也排除已标记的测试会话。`--fake`、`--provider fake` 或配置 `VIBE_PROVIDER=fake` 自动使用测试范围；真实模型烟测用 `--test-session` 明确标记。两个范围各自列出、继续和按 ID 打开，测试模式也只加载测试会话；界面标题显示“测试会话”。历史区从原始消息日志恢复，压缩前的正文和工具记录仍可回看；模型续做读取压缩上下文，两者独立。恢复后不会自动调用模型或重放工具；`/resume` 才开启新一轮预算。已有 `VIBE_MCP_*` 配置与本进程权限管理继续可用，MCP 初始化期间也能取消，服务启动与工具调用分别审批。新命令结果显示真实退出码、超时或取消，旧记录没有执行元数据时显示未记录；零退出本身不证明需求验收通过。
 
 默认入口继续保留 Textual，直到 Ink 的开发与实际体验超越 Textual。运行中纠偏、会话选择器与真实模型联合任务仍待后续验收，eval 继续使用 `./run_vibe.sh --eval`。当前补齐范围见 [迁移规格](specs/ink-parity.md)。
 
@@ -98,8 +109,10 @@ VIBE_MODEL=qwen2.5-coder:7b \
 # 打开 workspace 最新 session；明确暂停的任务输入 /resume 继续
 ./run_vibe.sh --workspace /path/to/repo --continue
 
-# 跑 10 个 eval 任务（先 limit 3 控制成本）
-./run_vibe.sh --workspace . --eval --eval-limit 3
+# 先离线验证预算，再逐步运行内部真实任务
+./run_eval.sh check-budget
+./run_vibe.sh --workspace . --eval --eval-limit 1
+# 首题通过后再用 --eval-limit 3
 ```
 
 TUI 里：
@@ -140,7 +153,11 @@ history 实际额度 = 窗口 − 输出预留 − 安全余量 − 实际 syste
 
 ### 分区快照与回放
 
+新会话打开后即显示基础上下文的估算占用和四区分布，无须先发送消息。`/context` 可查看已装载的基础指令、项目规则、技能目录和工具定义；界面标记“尚未请求模型”，累计模型消耗为 0。MCP 初始化结束后会按实际注册的工具刷新。恢复会话则统计当前装载的任务状态与工作历史；首次发送任务后切换到本轮请求统计。
+
 `/context` 展示当前占用条、四区用量与额度、输出和安全预留、逐步骤变化及块来源。`←/→` 切换快照，`↑/↓` 或滚轮翻阅，`Esc` 返回；Ink 的 `l` 恢复跟随最新。界面最多保留本轮最近 100 张快照，新任务或 `/resume` 开启新一轮；Textual 重开会话时也能查看上轮已有记录。
+
+分区用连续彩色细线堆积展示：青色 system、紫色 memory、琥珀色 tools、绿色 history，灰色为剩余输入容量。标签和数值随线条显示，当前为 0 的分区不占线段。容量条保持真实比例；新会话占用很小时，另用标明“已用构成”的放大条看清分区。紧凑状态同样保留实际用量/容量，输出与安全预留单列。
 
 快照区分请求前、主动压缩前和压缩后；最终请求的纠偏指令、工具定义及无工具收尾按实际内容计数，重试有独立请求 ID。分区使用当前字符启发式估算，不是供应商逐区精确计数；当前占用与 `/cost` 累计消耗分别记录，压缩不会清零累计消耗。
 
@@ -244,11 +261,15 @@ VIBE_MCP_SERVERS='{"fs":{"command":"npx","args":["-y","@modelcontextprotocol/ser
 
 ## Session 与恢复
 
-- 每次启动新建 `.vibe/sessions/<id>/`：`events.jsonl`、`state.json`、`meta.json`、`audit.jsonl`。
+- 新对话创建 `.vibe/sessions/<id>/`：`events.jsonl`、`state.json`、`meta.json`、`audit.jsonl`；`--continue` / `--session ID` 恢复已有会话。
+- `meta.json` 的 `purpose` 保存 `user` / `test`。普通模式只访问用户范围；`--fake`、fake provider 或 `--test-session` 只访问测试范围。列表显示用途，测试模式的标题有明确标识。
+- 旧会话缺少 `purpose` 时兼容用户范围；只给来源已确认的旧烟测记录补测试标记，保留原始消息。损坏或未知标记的元数据不会被当成正常会话加载。
 - Agent 保留 history，TUI 多轮对话会将已有上下文带给模型。
-- `--continue` 加载 workspace 中最近有对话的 session，跳过空会话，模型读取最近有效压缩快照与后续消息。Ink 仅恢复展示，所有续做都等 `/resume` 或新指令；Textual 对明确停止的 run 等待 `/resume`，没有终态记录的中断轮次保留原自动恢复流程。
+- `--continue` 按有效消息事件时间选择当前工作区、当前用途范围内最近有对话的 session，跳过空会话，新增附件或仅打开会话不会影响排序。`--list-sessions` 只读列出用途、完整日志的消息数与标题；`--session ID` 精确打开同一范围内的指定会话，与 `--continue` 互斥。
+- 模型读取最近有效压缩快照与后续消息；Ink 阅读区读取完整原始消息日志，旧正文和工具结果可回看，过大的单条消息会明确标注显示截断。Ink 所有续做都等 `/resume` 或新指令；Textual 对明确停止的 run 等待 `/resume`，没有终态记录的中断轮次保留原自动恢复流程。
 - 崩溃后如果 `assistant(tool_calls)` 没有对应 `tool` 结果，恢复时补一条 `ERROR interrupted: tool result unknown after crash`，并记 `recovered_tool` 事件——**不假装成功**。
 - 事件日志 append-only；`state.json` 是 TaskState 投影；审批审计和 session 放在同一目录。
+- 自动化烟测使用临时工作区，并在调用 `SessionStore.new(..., purpose="test")` 时明确用途；工具仍按所选工作区和审批规则执行。eval 的运行记录位于 `.vibe/evals/`。
 
 试崩溃恢复：
 
@@ -262,11 +283,12 @@ VIBE_MCP_SERVERS='{"fs":{"command":"npx","args":["-y","@modelcontextprotocol/ser
 
 - 每次 run 写 `session/trace.jsonl`：`run_start`、`llm_start`、`llm_end`、`budget_update`、`run_end` 等；停止记录包含原因、预算及已进入执行流程的工具数，预算阻止的工具不计入已执行数量。
 - TUI 输入 `/cost`：显示本轮输入/输出，以及本 session 的 runs、tokens、cost、tool calls、最后状态；不会发给模型。
-- 价格按 token 计：`VIBE_INPUT_PRICE_PER_1M`、`VIBE_OUTPUT_PRICE_PER_1M`（默认 0）。
+- 价格按 token 计：`VIBE_INPUT_PRICE_PER_1M`、`VIBE_OUTPUT_PRICE_PER_1M`（默认 0）；0 表示未配置价格，不能据此认定模型调用免费。
 - 优先使用 provider 的 `stream_options.include_usage`；不支持可设 `VIBE_STREAM_USAGE=0`，此时按请求与输出估算 token 并明确标注，预算保护仍生效。
-- `--eval` 跑 10 个任务，自动审批，每个任务独立 workspace，输出：
-  `.vibe/evals/<timestamp>/report.json` + `report.md`，并与上一轮比 `delta`。
+- `./run_vibe.sh --eval` 跑 10 个内部任务，经过 `ApprovalGate` 自动审批，每个任务独立 workspace，输出：
+  `.vibe/evals/<fake|model>/<timestamp>/report.json` + `report.md`。只有相同任务、模型与配置 fingerprint 的记录才比较 `delta`。
 - `--eval-limit N` 只跑前 N 个；`--eval-tasks path` 用自己的任务文件。
+- 内部 eval 使用真实 `Config` 预算；只有 Agent 正常结束且评分检查全部通过才计为通过，命令评分任务的测试文件会受保护。任务在宿主执行，面向受信本地用例，没有操作系统沙箱或 shell 断网隔离。
 
 ```bash
 # 真实模型跑分（示例价格，按你的 provider 改）
@@ -275,7 +297,41 @@ VIBE_OUTPUT_PRICE_PER_1M=1.10 \
 ./run_vibe.sh --eval --eval-limit 3
 ```
 
-> eval 是**模型能力跑分**，不是单元测试；`--fake` 只验证 harness 能跑通，不代表模型会做。
+真实模型 eval 用于观察编码效果；`--fake` 使用脚本响应，不能作为模型能力成绩。先按预算边界做离线检查：
+
+```bash
+./run_eval.sh check-budget                 # 默认 --level all
+./run_eval.sh check-budget --level context
+./run_eval.sh check-budget --level compaction
+./run_eval.sh check-budget --level total
+```
+
+这些检查固定使用 fake 模型，无需 API Key 或 Docker；分别核对单请求容量、压缩后继续，以及累计预算耗尽后的暂停和工具副作用边界。默认依次执行全部层级，前层未通过时跳过后层。报告与逐层轨迹保存在 `.vibe/benchmarks/budget-checks/<timestamp>/`；已有一次实际 CLI 检查 3/3 层通过，见 [验证证据](specs/evaluation.md#已有验证证据2026-10-21)。预期暂停的用例通过表示预算机制正确，不表示编码任务完成。三种额度独立：`VIBE_CONTEXT_WINDOW` 默认 1M，`VIBE_COMPACT_INTERVAL_TOKENS` 默认 200k，`VIBE_MAX_RUN_TOKENS` 默认 1M；压缩不清零累计用量。
+
+开发验收依次运行：离线预算自检 → 内部真实 eval `--eval-limit 1`、再 `3` → SWE 首题 → 固定 3 题。真实阶段仅在用户显式运行时调用模型，不因未解决自动提高预算或重新评测；已有模型请求重试仍受配置与当前 run 预算限制。每阶段分别保留成功、暂停与错误记录。
+
+公开仓库任务使用独立入口 `./run_eval.sh run`，已接入固定版本的 SWE-bench Lite 开发集和官方 `swebench==4.1.0` 评分器。清单有 10 题，当前默认只跑首题，显式 `--limit 3` 才扩展到固定前三题。2026-10-21 用户用 `deepseek-flash` 运行首题，首轮 HTTP 400 协议错误已修复；第二轮 11 次请求成功，累计 100711/100000 tokens 后停止，尚无补丁，官方跳过测试。当时入口写死每题 50 步、100000 token、600 秒，覆盖本机配置；当前已改为继承配置。两轮原始记录保留于 `.vibe/benchmarks/swebench-lite-dev/model/20261021-164901-333616/` 与 `20261021-170835-513176/`；真实修复仍待完成。
+
+```bash
+uv sync --extra test --extra eval
+./run_eval.sh doctor
+./run_eval.sh prepare --limit 1
+./run_eval.sh run --fake --limit 1 --skip-grade
+./run_eval.sh validate --limit 1
+# 内部任务通过后，用本机模型和预算运行首题，默认自动评分：
+./run_eval.sh run --limit 1
+# 首题完成后再运行固定 3 题：
+./run_eval.sh run --limit 3
+./run_eval.sh grade --run-dir .vibe/benchmarks/swebench-lite-dev/model/<timestamp>
+```
+
+公开评测需要可用的 Docker daemon，M 系列 Mac 需支持 amd64 模拟；首次拉取官方镜像可能较大。可用 `DOCKER_HOST` 或 `--docker-host` 指定 Colima 等实例的 socket，入口不会切换全局 context。
+
+`run` 与 `doctor` 默认继承 `Config.from_env()`：先使用环境变量，再取代码默认值。未配置时每题累计 token 预算 1M、运行时限 600 秒、模型轮数不限；压缩周期 200k、单请求上下文容量 1M。只有显式 `--max-steps`、`--max-tokens`、`--max-seconds` 覆盖对应值；`--max-steps 0` 和 `--max-tokens 0` 分别表示不限轮数和累计 token，时间必须大于 0。`doctor` 的 `budget` 会展示实际配置，先核对再运行。此入口每次创建新工作区，暂不支持从旧运行 `/resume`。
+
+token 上限累计每轮 prompt 与 completion，重复历史也计入；首轮累计 95,917 token 后为下一请求压缩，并非单次上下文长达 95,917 token。一次响应后才更新实际用量，因此最终响应仍可能越过余额。
+
+`validate` 只验证第一题的空补丁与参考补丁，参考答案不提供给 Agent。公开评测的命令在无网容器运行，模型请求留在宿主，API Key 不进容器；文件工具操作宿主共享目录，仍有静态路径边界的限制。报告与轨迹位于 `.vibe/benchmarks/`。CLI 分开汇总解决、正常未解决、预算暂停与真实错误：全部解决或离线预算机制通过退出 0；正常未解决、预算暂停或未评分退出 1；接口、执行环境、评分、依赖与配置错误退出 2。`--skip-grade` 的 `ungraded` 不表示通过。完整协议、已有自检证据与隔离边界见 [编码 Agent 评测](specs/evaluation.md)。
 
 ## 项目规则（AGENTS.md）
 
@@ -288,14 +344,16 @@ VIBE_OUTPUT_PRICE_PER_1M=1.10 \
 
 ## Skill（可复用操作手册）
 
-把重复做法写进 workspace，agent 按需读取，不用每次贴长提示。
+技能分为**常驻注册目录**和**临时激活正文**：名称、用途和来源路径始终进入 Agent 的系统上下文；正文只在确实使用时加载，使用结束后清理。
 
-目录（同名时目录版优先）：
+默认发现当前项目与本机的标准技能目录：
 
 ```text
-.vibe/skills/<name>/SKILL.md
-.vibe/skills/<name>.md
+项目：.vibe/skills/  .agents/skills/  .claude/skills/  skills/
+本机：~/.vibe/skills/  ~/.agents/skills/  ~/.codex/skills/  ~/.claude/skills/
 ```
+
+每个根支持 `<name>/SKILL.md`、`<name>.md` 以及最多三级分类（包括 `.system`）；找到一个技能目录后，不把其中的 `references` / `scripts` / `assets` 当成其他技能。新增或修改文件可用 `/skills`、`list_skills` 或下一轮任务开始时重新发现。
 
 文件格式：开头几行 `key: value`（`name`、`description`），空行后是正文步骤；正文为空则忽略该文件。
 
@@ -307,13 +365,40 @@ description: 给新模块补单元测试
 3. 跑 PYTHONPATH=. .venv/bin/python3 -m pytest tests/test_xxx.py -q
 ```
 
-渐进式披露：
+Agent 从常驻目录判断哪些技能与当前工作有关，调用 `load_skill(name)` 将匹配技能的正文临时装入 `[ACTIVE SKILLS]`，根据步骤调用普通工具。相关工作完成后应主动 `unload_skill(name)`；程序在每轮完成、暂停、取消或报错时统一清理剩余临时正文，保留常驻目录和磁盘文件。正文贯穿本轮多次模型和工具调用，也不会因历史压缩丢失。
 
-- 启动时只把 `- name: 一句话描述` 注入 system prompt（`[SKILLS]` 块，每个摘要 ≤600 字符）；
-- agent 需要时调用 `list_skills` / `load_skill`，正文上限 8k 字符，超出截断；
-- TUI 启动日志显示 `skills: a, b`；随时输入 `/skills` 重新扫描并列出（新增 skill 不用重启）。
+工具历史只保存激活/卸载回执，防止正文留在历史里持续占用上下文。手动命令是查看和控制入口，正常流程由 Agent 按任务决定加载与卸载，无需用户逐项操作。
 
-> `.vibe/` 是运行时目录，skill 默认不提交；要团队共用就放进仓库并保留 `.vibe/skills/`（自行调整 `.gitignore`）。
+Textual 与 Ink 都支持以下管理命令，不调用模型：
+
+| 命令 | 行为 |
+|---|---|
+| `/skills` 或 `/skill` | 重新发现并列出技能、来源、状态和错误 |
+| `/skills refresh` | 重读配置和文件；更新已激活正文，移除已删除或禁用项 |
+| `/skills activate NAME` | 激活或更新指定技能 |
+| `/skills unload NAME` | 卸载正文，保留文件；重复卸载无副作用 |
+
+静态配置负责声明 Agent 可用的技能来源，默认读取 `.vibe/skills.json`；不需要配置就能发现上述目录。额外注册一个技能目录可写：
+
+```json
+{
+  "discover": true,
+  "paths": ["/path/to/shared-skills"],
+  "disabled": []
+}
+```
+
+`paths` 注册额外的技能根目录或单个 Markdown 文件，相对路径以工作区为基准。优先级为显式 `paths` → 项目目录 → 本机目录；相同文件重复出现时去重，异源同名时显示保留来源与冲突诊断。`disabled` 排除指定名称。设 `discover: false` 可以只使用显式配置的来源。
+
+扫描只在标准技能根及显式注册范围内进行；支持已知技能根之间的链接，拒绝跳到其他目录的符号链接。`VIBE_SKILLS_HOME` 可将本机目录基准改为指定目录，便于便携运行及隔离测试，不修改系统 `HOME`。
+
+可用 `VIBE_SKILLS_CONFIG=examples/skills.json ./run_vibe.sh`（或 `./run_ink.sh`）选用另一份配置。可提交的技能放仓库 `skills/`，配置可参考 [examples/skills.json](../examples/skills.json)；本地技能与配置仍可放忽略提交的 `.vibe/`。
+
+重启和 `--continue` 会重新构建常驻目录；临时正文不会因历史回执恢复。`/resume` 继续任务时，Agent 根据当前目录重新加载需要的技能。旧配置的 `activate` 仅兼容为启动时临时预装，不代表常驻正文；这类正文同样在首轮结束时清理，推荐配置仅保留注册来源。
+
+正文连同元信息最多 64,000 字符，超出时明确拒绝，避免按截断步骤执行；每个文件读取最多 256 KiB。解析范围见 [技能生命周期](specs/skill-lifecycle.md)。
+
+技能加载不会运行附带脚本或授予额外权限。资源相对路径以 `SKILL.md` 所在目录为基准，实际文件访问仍受工作区范围约束；写文件和执行命令继续经过 `ApprovalGate`。卸载不会撤销已经执行的动作，也不会删除原始对话或模型已经复述的内容。恢复旧会话时，旧版 `load_skill` 的正文仅在模型视图中替换成历史回执，原始记录保留供回看。
 
 ## 运行控制
 

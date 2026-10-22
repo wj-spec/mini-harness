@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import subprocess
+from copy import copy, deepcopy
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -18,7 +19,8 @@ from core.models import ExecutionOutcome, ToolCall
 from core.state import TaskState
 from app.diff import unified_diff
 from app.sandbox import CommandCancelled, check_command, run_command, run_command_async
-from app.skills import Skill, discover_skills
+from app.skills import Skill, SkillManager
+from app.skill_history import skill_history_view
 from app.web_search import validate_search, web_search
 
 IGNORE_DIRS = {
@@ -85,12 +87,14 @@ class ToolRegistry:
         workspace: str | Path,
         context: ContextBuilder | None = None,
         state: TaskState | None = None,
+        *,
+        skills_config: str = "",
     ):
         self.root = Path(workspace).resolve()
         self.context = context
         self.state = state
         self._read_hashes: dict[Path, str] = {}
-        self.skills = discover_skills(self.root)
+        self.skill_manager = SkillManager(self.root, config_path=skills_config)
         self._tools: dict[str, ToolSpec] = {
             "web_search": ToolSpec(
                 name="web_search",
@@ -209,8 +213,8 @@ class ToolRegistry:
             "list_skills": ToolSpec(
                 name="list_skills",
                 description=(
-                    "List the project's skills (.vibe/skills) with one-line descriptions. "
-                    "Skills are reusable procedures; call load_skill to read the full text."
+                    "Refresh and discover configured skills with summaries and active status. "
+                    "Call load_skill to activate a matching procedure."
                 ),
                 parameters={"type": "object", "properties": {}},
                 fn=self.list_skills,
@@ -219,8 +223,9 @@ class ToolRegistry:
             "load_skill": ToolSpec(
                 name="load_skill",
                 description=(
-                    "Read the full text of a skill by name. Load one only when the task matches "
-                    "its description, then follow its steps."
+                    "Activate a skill by name. Its full instructions appear in the managed system "
+                    "context on the next request; the result is only a status receipt. "
+                    "Use only when the task matches. Does not execute scripts or grant permissions."
                 ),
                 parameters={
                     "type": "object",
@@ -228,6 +233,21 @@ class ToolRegistry:
                     "required": ["name"],
                 },
                 fn=self.load_skill,
+                retryable=True,
+            ),
+            "unload_skill": ToolSpec(
+                name="unload_skill",
+                description=(
+                    "Deactivate a skill and remove its instructions from subsequent system context. "
+                    "Keep its files installed; use when its procedure is no longer needed."
+                ),
+                parameters={
+                    "type": "object",
+                    "properties": {"name": {"type": "string"}},
+                    "required": ["name"],
+                    "additionalProperties": False,
+                },
+                fn=self.unload_skill,
                 retryable=True,
             ),
         }
@@ -401,7 +421,7 @@ class ToolRegistry:
         if self.context is None:
             raise ValueError("recall unavailable: no context attached")
         try:
-            messages = self.context.resolve(ref)
+            messages = skill_history_view(self.context.resolve(ref))
         except KeyError as exc:
             raise ValueError(f"unknown ref: {ref}") from exc
         parts: list[str] = []
@@ -451,13 +471,24 @@ class ToolRegistry:
         if spec is None:
             return False, f"ERROR unknown_tool: {call.name}"
         native_bash = call.name == "bash" and spec.fn == self.bash
-        asynchronous = native_bash or inspect.iscoroutinefunction(spec.fn)
+        native_skills = (call.name in {"list_skills", "load_skill", "unload_skill"}
+                         and spec.fn == getattr(self, call.name))
+        asynchronous = native_bash or native_skills or inspect.iscoroutinefunction(spec.fn)
         if cancel is not None and cancel.is_set():
             return False, "ERROR cancelled: not executed"
 
         async def invoke():
             if native_bash:
                 return await self._bash_async(**call.args)
+            if native_skills:
+                # 线程只改候选状态；超时或取消后不能迟到提交。
+                staged = copy(self)
+                staged.skill_manager = deepcopy(self.skill_manager)
+                result = await asyncio.to_thread(getattr(staged, call.name), **call.args)
+                if cancel is not None and cancel.is_set():
+                    raise ValueError("cancelled: skill state not committed")
+                self.skill_manager = staged.skill_manager
+                return result
             if asynchronous:
                 return await spec.fn(**call.args)
             return await asyncio.to_thread(spec.fn, **call.args)
@@ -476,6 +507,8 @@ class ToolRegistry:
                     if native_bash:
                         operation.cancel()
                         return _tool_result(await operation)
+                    if native_skills:
+                        return False, "ERROR cancelled: skill state not committed"
                     return False, "ERROR cancelled: execution outcome unknown; already started"
                 else:
                     raise asyncio.TimeoutError
@@ -575,20 +608,38 @@ class ToolRegistry:
                         return "\n".join(matches)
         return "\n".join(matches) if matches else "(no matches)"
 
+    @property
+    def skills(self) -> list[Skill]:
+        return self.skill_manager.available
+
     def skill_index(self) -> dict[str, Skill]:
         return {skill.name: skill for skill in self.skills}
 
     def list_skills(self) -> str:
-        if not self.skills:
-            return "(no skills; add .vibe/skills/<name>/SKILL.md)"
-        return "\n".join(f"- {skill.name}: {skill.summary()}" for skill in self.skills)
+        self.skill_manager.refresh()
+        return self.skill_manager.format_status()
 
     def load_skill(self, name: str) -> str:
-        skill = self.skill_index().get(name.strip())
-        if skill is None:
-            known = ", ".join(s.name for s in self.skills) or "(none)"
-            raise KeyError(f"unknown skill: {name}; available: {known}")
-        return skill.render()
+        skill = self.skill_manager.activate(name)
+        return (f"skill active: {skill.name}\nsource: {skill.path}\n"
+                "Instructions are in the current [ACTIVE SKILLS] system context. "
+                "Historical activation receipts do not indicate current state. "
+                "Follow the active procedure using normal tools and approvals.")
+
+    def unload_skill(self, name: str) -> str:
+        changed = self.skill_manager.deactivate(name)
+        return f"skill inactive: {name}; {'unloaded' if changed else 'already inactive'}; files retained."
+
+    def manage_skills(self, action: str = "list", name: str | None = None) -> str:
+        if action not in {"list", "refresh", "activate", "unload"}:
+            raise ValueError(f"unknown skills action: {action}")
+        if action in {"activate", "unload"}:
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError(f"skills {action} requires a name")
+            return self.load_skill(name) if action == "activate" else self.unload_skill(name)
+        if name is not None:
+            raise ValueError(f"skills {action} does not accept a name")
+        return self.list_skills()
 
     def list_files(self, path: str = ".", depth: int = 2) -> str:
         target = self._resolve(path)

@@ -157,11 +157,13 @@ def test_stdio_sends_and_persists_the_same_normalized_snapshot(tmp_path):
         harness.send("run", "run-one", text="查看上下文")
         done = await harness.until("done", "run-one")
         assert done["result"]["status"] == "done"
-        snapshots = [event for event in harness.events if event["type"] == "context_snapshot"]
+        snapshots = [event for event in harness.events
+                     if event["type"] == "context_snapshot" and event["id"] == "run-one"]
         assert len(snapshots) == 1 and snapshots[0]["id"] == "run-one"
         snapshot = snapshots[0]["snapshot"]
         trace = [json.loads(line) for line in session.trace_path.read_text().splitlines()]
-        assert [event for event in trace if event["type"] == "context_snapshot"] == [snapshot]
+        assert [event for event in trace if event["type"] == "context_snapshot"
+                and event["phase"] == "request"] == [snapshot]
         metrics = [event for event in harness.events if event["type"] == "metrics"]
         assert metrics[-1]["context_tokens"] == snapshot["total_tokens"]
         assert metrics[-1]["used_tokens"] == done["result"]["usage"]["total_tokens"]

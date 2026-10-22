@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 import {existsSync} from 'node:fs';
-import {mkdir, mkdtemp, rm} from 'node:fs/promises';
+import {mkdir, mkdtemp, readFile, readdir, rm, writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import test from 'node:test';
@@ -13,8 +13,11 @@ test('help works without a TTY and documents parity features while retaining Tex
   const result = spawnSync(process.execPath, [cli, '--help'], {encoding: 'utf8', timeout: 10000});
   assert.equal(result.status, 0);
   assert.match(result.stdout, /--fake/);
+  assert.match(result.stdout, /--test-session/);
+  assert.match(result.stdout, /--fake[^\n]*测试会话/);
+  assert.match(result.stdout, /普通[^\n]*测试会话/);
   assert.match(result.stdout, /MCP/);
-  for(const feature of ['工作台','Ctrl+J','PageUp','Ctrl+O','Ctrl+K','/context','/theme','/help','/cost','--continue','/resume','/permissions reset','/diff','/mcp','Textual','超越'])assert.ok(result.stdout.includes(feature),feature);
+  for(const feature of ['工作台','Ctrl+J','PageUp','Ctrl+O','Ctrl+K','/context','/theme','/help','/cost','--continue','--session','--list-sessions','/resume','/permissions reset','/diff','/mcp','Textual','超越'])assert.ok(result.stdout.includes(feature),feature);
   assert.equal(result.stderr, '');
 });
 
@@ -94,4 +97,56 @@ test('--continue is supported and still requires an interactive terminal', () =>
   assert.equal(result.status, 2);
   assert.match(result.stderr, /需要交互式终端/);
   assert.doesNotMatch(result.stderr, /不支持参数/);
+});
+
+test('--session accepts an exact saved session and keeps the interactive terminal requirement', () => {
+  const result = spawnSync(process.execPath, [cli, '--session', 'saved-session', '--fake'], {encoding: 'utf8', timeout: 10000});
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /需要交互式终端/);
+  assert.doesNotMatch(result.stderr, /不支持参数/);
+});
+
+test('explicit test-session scope is forwarded without bypassing the interactive terminal requirement', () => {
+  const result = spawnSync(process.execPath, [cli, '--session', 'saved-test', '--test-session'], {encoding: 'utf8', timeout: 10000});
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /需要交互式终端/);
+  assert.doesNotMatch(result.stderr, /不支持参数/);
+});
+
+test('session listing forwards plain output and exit code through the configured Python launcher', {skip:process.platform==='win32'}, async () => {
+  const base=path.join(repoRoot,'.vibe','node-cli-tests');await mkdir(base,{recursive:true});
+  const fixture=await mkdtemp(path.join(base,'list-launcher-'));
+  const python=path.join(fixture,'python');
+  await writeFile(python, `#!/usr/bin/env bash
+if [ "$1" != "-m" ] || [ "$2" != "app" ] || [ "$3" != "--list-sessions" ] || [ "$4" != "--workspace" ] || [ "$5" != "a path with spaces" ]; then exit 91; fi
+printf 'fixture-session\\t2\\tfixture title\\n'
+printf 'fixture diagnostic\\n' >&2
+exit 7
+`,{mode:0o755});
+  try {
+    const result=spawnSync(process.execPath,[cli,'--list-sessions','--workspace','a path with spaces'],{encoding:'utf8',timeout:10000,env:{...process.env,PYTHON:python}});
+    assert.equal(result.status,7,result.stderr);
+    assert.equal(result.stdout,'fixture-session\t2\tfixture title\n');
+    assert.equal(result.stderr,'fixture diagnostic\n');
+  } finally {await rm(fixture,{recursive:true,force:true});}
+});
+
+test('session listing works without TTY, API credentials, or MCP startup and leaves the log unchanged', {skip:!existsSync(path.join(repoRoot,'.venv','bin','python3'))}, async () => {
+  const base=path.join(repoRoot,'.vibe','node-cli-tests');await mkdir(base,{recursive:true});
+  const workspace=await mkdtemp(path.join(base,'list-workspace-'));
+  const session='saved-conversation';
+  const root=path.join(workspace,'.vibe','sessions',session);
+  await mkdir(root,{recursive:true});
+  const log=[{type:'message',ts:'2026-10-21T01:00:00Z',message:{role:'user',content:'恢复更早的编码任务'}},{type:'message',ts:'2026-10-21T01:01:00Z',message:{role:'assistant',content:'历史回复'}}].map(item=>JSON.stringify(item)).join('\n')+'\n';
+  await writeFile(path.join(root,'events.jsonl'),log);
+  try {
+    const result=spawnSync(process.execPath,[cli,'--list-sessions','--workspace',workspace],{encoding:'utf8',timeout:10000,env:{...process.env,PYTHON:path.join(repoRoot,'.venv','bin','python3'),VIBE_API_KEY:'',OPENAI_API_KEY:'',DEEPSEEK_API_KEY:'',VIBE_MCP_SERVERS:'{invalid config',VIBE_MCP_CONFIG:''}});
+    assert.equal(result.status,0,result.stderr);
+    assert.match(result.stdout,/saved-conversation\tuser\t2\t/);
+    assert.match(result.stdout,/恢复更早的编码任务/);
+    assert.equal(result.stderr,'');
+    assert.deepEqual(await readdir(path.join(workspace,'.vibe','sessions')),[session]);
+    assert.deepEqual(await readdir(root),['events.jsonl']);
+    assert.equal(await readFile(path.join(root,'events.jsonl'),'utf8'),log);
+  } finally {await rm(workspace,{recursive:true,force:true});}
 });

@@ -13,12 +13,12 @@ from core.state import TaskState
 
 
 def test_continue_opens_previous_conversation_after_empty_launch(tmp_path, monkeypatch):
-    previous = SessionStore.new(tmp_path, "fake")
+    previous = SessionStore.new(tmp_path, "fake", purpose="test")
     previous.append_message(Message("user", "实现 MCP 客户端"))
     previous.append_message(Message("assistant", "已完成调研，等待继续。", name="budget_stop"))
     previous.save_state(TaskState(goal="实现 MCP 客户端", open=["实现客户端"]))
     previous.append_trace({"type": "run_end", "status": "stopped", "stop_reason": "token_budget"})
-    SessionStore.new(tmp_path, "fake")
+    SessionStore.new(tmp_path, "fake", purpose="test")
     opened = []
 
     class CaptureApp:
@@ -40,7 +40,7 @@ def test_continue_opens_previous_conversation_after_empty_launch(tmp_path, monke
 
 
 def test_continue_restores_checkpoint_and_resume_after_empty_launch(tmp_path, monkeypatch):
-    previous = SessionStore.new(tmp_path, "fake")
+    previous = SessionStore.new(tmp_path, "fake", purpose="test")
     goal = Message("user", "实现 MCP 客户端")
     previous.append_message(goal)
     previous.append_message(Message("assistant", "很早的原文"))
@@ -48,7 +48,7 @@ def test_continue_restores_checkpoint_and_resume_after_empty_launch(tmp_path, mo
     previous.save_context([goal, summary])
     previous.append_message(Message("assistant", "预算暂停，等待继续。", name="budget_stop"))
     previous.append_trace({"type": "run_end", "status": "stopped", "stop_reason": "token_budget"})
-    SessionStore.new(tmp_path, "fake")
+    SessionStore.new(tmp_path, "fake", purpose="test")
 
     class CheckedApp(VibeApp):
         def run(self):
@@ -144,7 +144,7 @@ def test_mcp_starts_inside_tui_lifecycle(tmp_path, monkeypatch, chat_only):
 def test_stdio_continue_restores_session_checkpoint_and_mcp(tmp_path, monkeypatch):
     from app import stdio
 
-    previous = SessionStore.new(tmp_path, "fake")
+    previous = SessionStore.new(tmp_path, "fake", purpose="test")
     goal = Message("user", "继续接口")
     summary = Message("assistant", "已完成调研", name="history_summary_l2")
     previous.append_message(goal)
@@ -188,3 +188,67 @@ def test_stdio_eval_still_rejected(tmp_path, monkeypatch, capsys):
         entrypoint.main()
     assert error.value.code == 2
     assert "eval" in capsys.readouterr().err
+
+
+def test_list_sessions_does_not_initialize_provider_or_mcp(tmp_path, monkeypatch, capsys):
+    session = SessionStore.new(tmp_path, "m")
+    session.append_message(Message("user", "查找这条会话\n不要展示正文"))
+    session.append_message(Message("assistant", "private response"))
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path))
+    monkeypatch.setattr(entrypoint, "build_provider", lambda *a, **k: pytest.fail("provider initialized"))
+    monkeypatch.setattr(entrypoint.McpManager, "from_env", lambda *a: pytest.fail("MCP initialized"))
+    monkeypatch.setattr(sys, "argv", ["vibe", "--list-sessions"])
+    before = session.events_path.read_bytes()
+
+    entrypoint.main()
+
+    output = capsys.readouterr().out
+    assert session.id in output and "查找这条会话" in output and "2" in output
+    assert "不要展示正文" not in output and "private response" not in output
+    assert session.events_path.read_bytes() == before
+
+
+def test_session_flag_restores_exact_conversation_checkpoint_without_auto_run(tmp_path, monkeypatch):
+    from app import stdio
+
+    previous = SessionStore.new(tmp_path, "fake", purpose="test")
+    goal = Message("user", "实现原来的任务")
+    summary = Message("assistant", "压缩的工作上下文", name="history_summary_l2")
+    previous.append_message(goal)
+    previous.append_message(Message("assistant", "原始历史"))
+    previous.save_context([goal, summary])
+    previous.save_state(TaskState(goal="实现原来的任务"))
+    newer = SessionStore.new(tmp_path, "fake", purpose="test")
+    newer.append_message(Message("user", "context smoke"))
+    opened = []
+    monkeypatch.setattr(stdio, "run_stdio", lambda agent, config, **kwargs: opened.append((agent, kwargs)))
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path))
+    monkeypatch.setattr(sys, "argv", ["vibe", "--fake", "--stdio", "--session", previous.id])
+
+    entrypoint.main()
+
+    agent, options = opened[0]
+    assert options["resumed"] is True and options["session"].id == previous.id
+    assert agent.history == [goal, summary] and agent.provider.seen == []
+
+
+@pytest.mark.parametrize("selection", ["missing", "../outside", "/tmp/outside"])
+def test_invalid_or_missing_session_fails_before_provider(tmp_path, monkeypatch, capsys, selection):
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path))
+    monkeypatch.setattr(entrypoint, "build_provider", lambda *a, **k: pytest.fail("provider initialized"))
+    monkeypatch.setattr(sys, "argv", ["vibe", "--session", selection])
+
+    with pytest.raises(SystemExit) as error:
+        entrypoint.main()
+
+    assert error.value.code in {1, 2}
+    assert "session" in capsys.readouterr().err
+    assert not (tmp_path / ".vibe").exists()
+
+
+def test_session_selection_flags_are_mutually_exclusive(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["vibe", "--continue", "--session", "old"])
+    with pytest.raises(SystemExit) as error:
+        entrypoint.main()
+    assert error.value.code == 2
+    assert "not allowed" in capsys.readouterr().err

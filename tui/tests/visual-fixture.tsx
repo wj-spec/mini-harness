@@ -4,12 +4,20 @@ import {pathToFileURL} from 'node:url';
 import {App} from '../src/app.js';
 import type {BackendClient} from '../src/backend.js';
 import {initialState, type ViewState} from '../src/view-state.js';
-import {contextSnapshot} from './context-fixture.js';
+import {contextSnapshot, loadedContextSnapshot} from './context-fixture.js';
 import type {ThemeName} from '../src/theme.js';
 
 export function fixtureState(scenario: string): ViewState {
   const state: ViewState = {...initialState, phase: 'idle', activity: null, workspace: '/workspace/mini-harness', model: '视觉测试 · 不调用模型', sessionId: 'visual-fixture', provider: 'fixture'};
   if (scenario === 'welcome') return state;
+  if (scenario === 'context-loaded') {
+    const sample = loadedContextSnapshot();
+    state.contextSnapshots = [{...sample, context_window: 1_000_000, input_capacity: 960_000, total_tokens: 1500,
+      sections: {system: 500, memory: 0, tools: 1000, history: 0},
+      reserves: {output: 32000, scratch: 8000}, remaining_tokens: 958500,
+      blocks: sample.blocks.map(block => ({...block, tokens: block.section === 'system' ? 500 : 1000}))}];
+    return state;
+  }
   state.entries = [
     {id: 0, kind: 'task', text: '解释项目入口，并给出一个小范围改进建议。'},
     {id: 1, kind: 'assistant', text: '我会先读取入口文件，确认实际调用关系。'},
@@ -20,6 +28,15 @@ export function fixtureState(scenario: string): ViewState {
   state.lastResult = '本轮结束 · 视觉测试';
   state.lastStatus = 'done';
   state.metrics = {used_tokens: 163400, limit_tokens: 1000000, estimated: true, context_tokens: 24600, context_window: 1000000, done: 2, planned: 4, cost_usd: 0.012};
+  if (scenario === 'restored') {
+    state.resumed = true; state.metrics = null; state.lastStatus = null; state.lastResult = '';
+    state.entries = [
+      {id: 0, kind: 'task', text: 'context smoke'},
+      {id: 1, kind: 'assistant', text: '上下文 smoke 完成'},
+      {id: 2, kind: 'notice', text: '已恢复会话 visual-fixture；未自动续跑。\n任务：context smoke\n已完成：暂无已记录项\n待继续：请核对目标与实际结果\n结果未知的操作需要先核对；取消不代表撤销。输入 /resume 显式开启新一轮预算。'},
+    ];
+    state.nextEntry = 3;
+  }
   if (scenario === 'context') {
     const sample = contextSnapshot();
     const before = {...sample, phase: 'before_compaction' as const, context_window: 1_000_000, input_capacity: 960_000,
@@ -33,7 +50,7 @@ export function fixtureState(scenario: string): ViewState {
       blocks: before.blocks.map(block => block.section === 'history' ? {...block, tokens: 80000} : block),
       delta_tokens: -100000, section_deltas: {system: 0, memory: 0, tools: 0, history: -100000}};
     state.contextSnapshots = [before, after];
-    state.metrics.context_tokens = after.total_tokens;
+    if (state.metrics) state.metrics.context_tokens = after.total_tokens;
   }
   if (scenario === 'running') {
     state.phase = 'running'; state.activeId = 'fixture-run'; state.activity = 'using_tool'; state.lastStatus = null; state.lastResult = '';

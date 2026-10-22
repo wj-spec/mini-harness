@@ -3,16 +3,23 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator
 from pathlib import Path
+from urllib.parse import urlparse
 
 import httpx
 
 from core.models import Message, ToolCall
 
-from app.events import StreamDone, StreamError, TextDelta, ToolCallsReady
+from app.events import ReasoningDelta, StreamDone, StreamError, TextDelta, ToolCallsReady
 
 
-def _to_openai(message: Message) -> dict:
+def _to_openai(message: Message, *, include_reasoning: bool = False) -> dict:
     data: dict = {"role": message.role, "content": message.content or ""}
+    if message.role == "assistant":
+        if message.reasoning_content is not None:
+            data["reasoning_content"] = message.reasoning_content
+        elif include_reasoning:
+            # 压缩摘要等本地生成的 assistant 没有模型推理。
+            data["reasoning_content"] = ""
     if message.tool_calls:
         data["tool_calls"] = [
             {
@@ -58,6 +65,10 @@ class OpenAICompatProvider:
         self.debug_path = Path(debug_path) if debug_path else None
         self.stream_usage = stream_usage
         self._call_seq = 0
+        self._reasoning_required = (
+            model.lower().startswith("deepseek-")
+            or urlparse(self.base_url).hostname == "api.deepseek.com"
+        )
 
     def _url(self) -> str:
         if self.base_url.endswith("/chat/completions"):
@@ -72,9 +83,12 @@ class OpenAICompatProvider:
             f.write(json.dumps(event, ensure_ascii=False) + "\n")
 
     async def stream(self, messages: list[Message], tools: list[dict]) -> AsyncIterator[object]:
+        self._reasoning_required = self._reasoning_required or any(
+            m.role == "assistant" and m.reasoning_content is not None for m in messages
+        )
         payload: dict = {
             "model": self.model,
-            "messages": [_to_openai(m) for m in messages],
+            "messages": [_to_openai(m, include_reasoning=self._reasoning_required) for m in messages],
             "stream": True,
         }
         if self.stream_usage:
@@ -90,6 +104,8 @@ class OpenAICompatProvider:
         calls: dict[int, dict] = {}
         finish_reason: str | None = None
         usage: dict | None = None
+        reasoning_parts: list[str] = []
+        reasoning_seen = False
         try:
             async with httpx.AsyncClient(
                 timeout=httpx.Timeout(self.timeout, connect=10.0),
@@ -124,6 +140,12 @@ class OpenAICompatProvider:
                             continue
                         finish_reason = choices[0].get("finish_reason") or finish_reason
                         delta = choices[0].get("delta") or {}
+
+                        if isinstance(delta.get("reasoning_content"), str):
+                            reasoning_seen = True
+                            self._reasoning_required = True
+                            reasoning_parts.append(delta["reasoning_content"])
+                            yield ReasoningDelta(delta["reasoning_content"])
 
                         if delta.get("content"):
                             self._debug({"type": "chunk", "content": delta["content"][:80]})
@@ -162,4 +184,7 @@ class OpenAICompatProvider:
 
         self._debug({"type": "calls", "count": len(calls), "finish_reason": finish_reason})
         self._call_seq += 1
-        yield StreamDone(finish_reason=finish_reason, usage=usage)
+        yield StreamDone(
+            finish_reason=finish_reason, usage=usage,
+            reasoning_content="".join(reasoning_parts) if reasoning_seen else None,
+        )

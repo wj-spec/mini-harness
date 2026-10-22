@@ -11,6 +11,11 @@ class TextDelta:
 
 
 @dataclass
+class ReasoningDelta:
+    text: str
+
+
+@dataclass
 class ToolCallsReady:
     calls: list[ToolCall]
 
@@ -19,6 +24,7 @@ class ToolCallsReady:
 class StreamDone:
     finish_reason: str | None = None
     usage: dict | None = None
+    reasoning_content: str | None = None
 
 
 @dataclass

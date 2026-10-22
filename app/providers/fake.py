@@ -36,4 +36,8 @@ class FakeProvider:
             if item.tool_calls:
                 yield ToolCallsReady(item.tool_calls)
 
-        yield StreamDone(usage=None if isinstance(item, str) else item.usage, finish_reason=None if isinstance(item, str) else item.finish_reason)
+        yield StreamDone(
+            usage=None if isinstance(item, str) else item.usage,
+            finish_reason=None if isinstance(item, str) else item.finish_reason,
+            reasoning_content=None if isinstance(item, str) else item.reasoning_content,
+        )

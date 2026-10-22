@@ -118,11 +118,11 @@ def test_context_is_applied_before_model_call(tmp_path):
     )
     context = ContextBuilder(
         policy=BudgetPolicy(
-            context_window=1200,
+            context_window=1600,
             output_cap=100,
             system_cap=100,
             memory_cap=100,
-            tools_cap=1000,
+            tools_cap=1400,
             history_cap=60,
             scratch_cap=10,
         ),

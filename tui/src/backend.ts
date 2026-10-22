@@ -1,14 +1,13 @@
 import {spawn, type ChildProcessWithoutNullStreams} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
-import path from 'node:path';
 import {StringDecoder} from 'node:string_decoder';
-import {fileURLToPath} from 'node:url';
-import {BACKEND_COMMANDS, MAX_FRAME_BYTES, parseServerEvent, validateClientArgs, type ApprovalDecision, type BackendCommand, type ClientRequest, type ServerEvent} from './protocol.js';
+import {backendCommand, backendLaunchOptions} from './backend-launch.js';
+import {BACKEND_COMMANDS, MAX_FRAME_BYTES, parseServerEvent, validateClientArgs, validateSkillsArgs, type ApprovalDecision, type BackendCommand, type ClientRequest, type ServerEvent, type SkillsCommandArgs} from './protocol.js';
 
 export interface BackendClient {
   subscribe(listener: (event: ServerEvent) => void): () => void;
   run(text: string): string;
-  command(command: BackendCommand): string;
+  command(command: BackendCommand, args?: SkillsCommandArgs): string;
   cancel(target: string): void;
   approve(approvalId: string, decision: ApprovalDecision): void;
   shutdown(): Promise<void>;
@@ -24,7 +23,6 @@ export interface BackendOptions {
   onDiagnostic?: (message: string) => void;
 }
 
-const defaultRepoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const MAX_DIAGNOSTIC_BYTES = 8192;
 const diagnosticNotice = '\n[后端诊断超过 8 KiB，其余内容已省略]\n';
 const diagnosticContentLimit = MAX_DIAGNOSTIC_BYTES - Buffer.byteLength(diagnosticNotice, 'utf8');
@@ -48,6 +46,9 @@ export function createBackendClient(options: BackendOptions = {}): BackendClient
   let historyTruncated = false;
   let latestStatus: ServerEvent | undefined;
   let startupStatus: ServerEvent | undefined;
+  let loadedContext: ServerEvent | undefined;
+  let loadedMetrics: ServerEvent | undefined;
+  let hasStartedRun = false;
   const pendingApprovals = new Map<string, Extract<ServerEvent, {type: 'approval_request'}>>();
   let terminalError: ServerEvent | undefined;
   let terminalClosed: ServerEvent | undefined;
@@ -79,6 +80,8 @@ export function createBackendClient(options: BackendOptions = {}): BackendClient
       }
     }
     if (event.type === 'notice' && notices.length < 32) notices.push(event);
+    if (!hasStartedRun && event.type === 'context_snapshot' && event.snapshot.phase === 'loaded') loadedContext = event;
+    if (!hasStartedRun && event.type === 'metrics' && event.id === null) loadedMetrics = event;
     if (event.type === 'status') {
       latestStatus = event;
       if (event.phase === 'starting') startupStatus = event;
@@ -190,6 +193,11 @@ export function createBackendClient(options: BackendOptions = {}): BackendClient
       throw new Error('Python 后端请求队列已满');
     }
     child.stdin.write(`${frame}\n`);
+    if (request.type === 'run' || (request.type === 'command' && request.command === 'resume')) {
+      hasStartedRun = true;
+      loadedContext = undefined;
+      loadedMetrics = undefined;
+    }
   }
 
   async function waitForExit(timeout: number): Promise<boolean> {
@@ -275,7 +283,7 @@ export function createBackendClient(options: BackendOptions = {}): BackendClient
       listeners.add(listener);
       const diagnostic: ServerEvent | undefined = diagnosticHistory ? {v: 1, type: 'diagnostic', id: null, message: diagnosticHistory} : undefined;
       const truncated: ServerEvent | undefined = historyTruncated ? {v: 1, type: 'notice', id: null, message: '恢复历史显示超过 16 MiB，较早消息已省略；模型仍使用后端保存的上下文。'} : undefined;
-      const previous = [ready, truncated, ...history, ...notices, diagnostic, startupStatus !== latestStatus ? startupStatus : undefined,
+      const previous = [ready, truncated, ...history, ...notices, diagnostic, loadedContext, loadedMetrics, startupStatus !== latestStatus ? startupStatus : undefined,
         latestStatus, ...pendingApprovals.values(), terminalError, terminalClosed].filter((event): event is ServerEvent => event !== undefined);
       if (previous.length) queueMicrotask(() => {
         if (listeners.has(listener)) for (const event of previous) listener(event);
@@ -288,9 +296,8 @@ export function createBackendClient(options: BackendOptions = {}): BackendClient
       exitedPromise = new Promise<void>(resolve => {markExited = resolve;});
       closedPromise = new Promise<void>(resolve => {markClosed = resolve;});
       try {
-        child = spawn('./run_vibe.sh', ['--stdio', ...args], {
-          cwd: options.repoRoot ?? defaultRepoRoot,
-          env: options.python ? {...process.env, PYTHON: options.python} : process.env,
+        child = spawn(backendCommand, ['--stdio', ...args], {
+          ...backendLaunchOptions(options),
           detached: process.platform !== 'win32',
           stdio: ['pipe', 'pipe', 'pipe'],
         });
@@ -351,11 +358,14 @@ export function createBackendClient(options: BackendOptions = {}): BackendClient
       send({v: 1, type: 'run', id, text});
       return id;
     },
-    command(command) {
+    command(command, args) {
       if (!ready) throw new Error('Python 后端尚未就绪');
       if (!BACKEND_COMMANDS.includes(command)) throw new Error('后端命令无效');
+      if (args !== undefined && command !== 'skills') throw new Error('只有 skills 命令接受参数');
+      if (args !== undefined) validateSkillsArgs(args);
       const id = randomUUID();
-      send({v: 1, type: 'command', id, command});
+      if (command === 'skills') send({v: 1, type: 'command', id, command, ...(args === undefined ? {} : {args})});
+      else send({v: 1, type: 'command', id, command});
       return id;
     },
     cancel(target) {

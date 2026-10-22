@@ -1,13 +1,14 @@
 import React, {useEffect, useMemo, useReducer, useRef, useState} from 'react';
 import {Box, Text, useApp, useInput, usePaste, useWindowSize} from 'ink';
 import type {BackendClient} from './backend.js';
-import type {ApprovalDecision, BackendCommand} from './protocol.js';
+import type {ApprovalDecision, BackendCommand, SkillsCommandArgs} from './protocol.js';
 import {initialState as emptyState, reduceView, type ViewState} from './view-state.js';
 import {Composer} from './composer.js';
 import {fitText, textLines} from './markdown.js';
 import {detailLines, errorLines, liveLines, metricsText, ReadingPane, transcriptLines, welcomeLines} from './workbench.js';
 import {AgentHeader, agentStatus, StatusPanel} from './agent-status.js';
-import {themes, type ThemeName} from './theme.js';
+import {getPalette, type ThemeName} from './theme.js';
+import {terminalColorLevel} from './terminal-colors.js';
 import {useTranscriptMouse} from './use-transcript-scroll.js';
 import {contextLines} from './context-view.js';
 
@@ -42,7 +43,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
   const terminal = useWindowSize();
   const columns = Math.max(1, windowSize?.columns ?? terminal.columns);
   const rows = Math.max(1, windowSize?.rows ?? terminal.rows);
-  const palette = themes[theme];
+  const palette = getPalette(theme);
   const tools = state.entries.filter(entry => entry.kind === 'tool' && entry.call);
   const chosenTool = tools.find(entry => entry.id === selectedTool) ?? tools.at(-1);
   const detailEntry = state.entries.find(entry => entry.id === detail);
@@ -180,22 +181,31 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
     if (text === '/context') {setInput(''); openContext(); return;}
     if (text === '/help') {
       setInput('');
-      notice('Enter 发送；Ctrl+J 换行；输入焦点下 ↑↓ 编辑或浏览输入历史。滚轮 / 触控板在对话区回看；PgUp/PgDn 翻页，Ctrl+P/N 或 Ctrl+↑/↓ 逐行。Ctrl+R 切换阅读 / 输入焦点，阅读时 ↑↓ 滚动、空格下一页，Esc 回输入。Ctrl+Home/End 到首尾，End 恢复跟随最新；终端支持时按住 Shift 拖选文字。Tab 选择工具，Ctrl+O 查看全文。Ctrl+K 或 /context 查看上下文分区，←/→ 回放本轮快照，l 跟随最新，Esc 返回。Ctrl+C 取消当前操作，空闲时退出；Ctrl+Q 退出。审批时 y 单次、s 精确规则、p 工作区、n 拒绝，以面板选项为准。\n/resume 显式续做已保存任务；/permissions 查看授权，/permissions reset 撤销；/cost 会话花费；/tools 可用工具；/diff 工作区差异；/mcp 服务状态；/session 会话路径；/theme system|light|dark 主题。');
+      notice('Enter 发送；Ctrl+J 换行；输入焦点下 ↑↓ 编辑或浏览输入历史。滚轮 / 触控板在对话区回看；PgUp/PgDn 翻页，Ctrl+P/N 或 Ctrl+↑/↓ 逐行。Ctrl+R 切换阅读 / 输入焦点，阅读时 ↑↓ 滚动、空格下一页，Esc 回输入。Ctrl+Home/End 到首尾，End 恢复跟随最新；终端支持时按住 Shift 拖选文字。Tab 选择工具，Ctrl+O 查看全文。Ctrl+K 或 /context 查看上下文分区，←/→ 回放本轮快照，l 跟随最新，Esc 返回。Ctrl+C 取消当前操作，空闲时退出；Ctrl+Q 退出。审批时 y 单次、s 精确规则、p 工作区、n 拒绝，以面板选项为准。\n/resume 显式续做已保存任务；/permissions 查看授权，/permissions reset 撤销；/cost 会话花费；/tools 可用工具；/diff 工作区差异；/mcp 服务状态；/skills 技能目录，refresh 重扫，activate NAME 激活，unload NAME 卸载；/session 会话路径；/theme system|light|dark 主题。');
       return;
     }
     if (text.startsWith('/theme')) {
       setInput('');
       const choice = text.split(/\s+/)[1];
       if (choice === 'system' || choice === 'light' || choice === 'dark') {setTheme(choice); notice(`主题已切换：${choice}`);}
-      else notice(`当前主题：${theme}。用法：/theme system|light|dark`);
+      else notice(`当前主题：${theme}；终端颜色：${['无色', '16 色', '256 色', '真彩色'][terminalColorLevel()]}。用法：/theme system|light|dark`);
       return;
     }
     if (text === '/session') {setInput(''); notice(`会话：${state.sessionId || '待连接'}\n${state.sessionPath || '后端尚未提供会话路径。'}`); return;}
-    const command = backendCommands[text];
+    const parts = text.split(/\s+/);
+    const skillCommand = parts[0] === '/skill' || parts[0] === '/skills';
+    let skillArgs: SkillsCommandArgs | undefined;
+    if (skillCommand) {
+      const action = parts[1] ?? 'list';
+      if ((action === 'list' || action === 'refresh') && parts.length <= 2) skillArgs = {action};
+      else if ((action === 'activate' || action === 'unload') && parts.length === 3) skillArgs = {action, name: parts[2]!};
+      else {setInput(''); notice('用法：/skills；/skills refresh；/skills activate NAME；/skills unload NAME'); return;}
+    }
+    const command = skillCommand ? 'skills' : backendCommands[text];
     if (command) {
       if (state.phase !== 'idle' || activeRun.current) return;
       try {
-        const id = client.command(command);
+        const id = client.command(command, skillArgs);
         activeRun.current = id;
         dispatch({type: 'begin_command', id, command});
         setInput(''); setFeedback(''); setScroll({follow: true, top: 0});

@@ -7,8 +7,22 @@ export interface ToolCall {
 }
 
 export type ApprovalDecision = 'once' | 'session' | 'workspace' | 'deny';
-export const BACKEND_COMMANDS = ['resume', 'permissions', 'permissions_reset', 'cost', 'tools', 'diff', 'mcp'] as const;
+export type SessionPurpose = 'user' | 'test';
+export const BACKEND_COMMANDS = ['resume', 'permissions', 'permissions_reset', 'cost', 'tools', 'diff', 'mcp', 'skills'] as const;
 export type BackendCommand = typeof BACKEND_COMMANDS[number];
+export type SkillsCommandArgs = {action?: 'list' | 'refresh' | 'activate' | 'unload'; name?: string};
+
+export function validateSkillsArgs(value: unknown): asserts value is SkillsCommandArgs {
+  if (!record(value) || Object.keys(value).some(key => key !== 'action' && key !== 'name')) {
+    throw new Error('skills 参数只允许 action 与 name');
+  }
+  const action = value.action ?? 'list';
+  if ((value.action !== undefined && typeof value.action !== 'string') ||
+      !['list', 'refresh', 'activate', 'unload'].includes(String(action))) throw new Error('skills 操作参数无效');
+  if (action === 'activate' || action === 'unload') {
+    if (typeof value.name !== 'string' || !value.name.trim()) throw new Error('skills 激活或卸载必须指定技能名称');
+  } else if ('name' in value) throw new Error('skills 列表与重扫不接受名称参数');
+}
 
 export interface PersistedMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -69,7 +83,7 @@ export interface ContextSnapshot {
   ts: number;
   step: number;
   attempt: number;
-  phase: 'request' | 'before_compaction' | 'after_compaction';
+  phase: 'loaded' | 'request' | 'before_compaction' | 'after_compaction';
   reason: string;
   estimated: true;
   count_method: 'heuristic_cjk_v1';
@@ -93,7 +107,7 @@ type Envelope<T extends string, P = Record<never, never>> = {
 } & P;
 
 export type ServerEvent =
-  | Envelope<'ready', {workspace: string; model: string; session_id: string; capabilities: string[]; provider?: string; session_path?: string; resumed?: boolean}>
+  | Envelope<'ready', {workspace: string; model: string; session_id: string; capabilities: string[]; provider?: string; session_path?: string; session_purpose?: SessionPurpose; resumed?: boolean}>
   | Envelope<'history_message', {message: PersistedMessage}>
   | Envelope<'notice', {message: string}>
   | Envelope<'command_result', {command: BackendCommand; text: string}>
@@ -113,7 +127,8 @@ export type ServerEvent =
 
 export type ClientRequest = (
   | Envelope<'run', {text: string}>
-  | Envelope<'command', {command: BackendCommand}>
+  | Envelope<'command', {command: Exclude<BackendCommand, 'skills'>}>
+  | Envelope<'command', {command: 'skills'; args?: SkillsCommandArgs}>
   | Envelope<'cancel', {target: string}>
   | Envelope<'approval', {approval_id: string; decision: ApprovalDecision}>
   | Envelope<'shutdown'>
@@ -174,12 +189,13 @@ function contextSnapshot(value: unknown): value is ContextSnapshot {
       !['snapshot_id', 'request_id', 'run_id'].every(key => typeof value[key] === 'string' && (value[key] as string).length > 0) ||
       typeof value.model !== 'string' || typeof value.reason !== 'string' ||
       typeof value.ts !== 'number' || !Number.isFinite(value.ts) || value.ts < 0 ||
-      !['request', 'before_compaction', 'after_compaction'].includes(String(value.phase)) ||
+      !['loaded', 'request', 'before_compaction', 'after_compaction'].includes(String(value.phase)) ||
       !['step', 'attempt', 'context_window', 'input_capacity', 'total_tokens', 'remaining_tokens'].every(key => safeInteger(value[key])) ||
       !contextCounts(value.sections) || !contextCounts(value.section_deltas, true) || !safeInteger(value.delta_tokens, true) ||
       !record(value.caps) || !Object.values(value.caps).every(cap => safeInteger(cap)) ||
       !record(value.reserves) || !safeInteger(value.reserves.output) || !safeInteger(value.reserves.scratch) ||
       typeof value.over_budget !== 'boolean' || !Array.isArray(value.blocks)) return false;
+  if (value.phase === 'loaded' && (value.step !== 0 || value.attempt !== 0 || value.reason !== 'session_loaded')) return false;
   const sections = value.sections;
   const total = CONTEXT_SECTIONS.reduce((sum, section) => sum + sections[section], 0);
   if (!Number.isSafeInteger(total) || total !== value.total_tokens ||
@@ -220,6 +236,7 @@ export function parseServerEvent(line: string): ServerEvent {
         Array.isArray(value.capabilities) && value.capabilities.every(item => typeof item === 'string') &&
         (value.provider === undefined || typeof value.provider === 'string') &&
         (value.session_path === undefined || typeof value.session_path === 'string') &&
+        (value.session_purpose === undefined || value.session_purpose === 'user' || value.session_purpose === 'test') &&
         (value.resumed === undefined || typeof value.resumed === 'boolean');
       break;
     case 'history_message': valid = value.id === null && message(value.message); break;
@@ -228,13 +245,16 @@ export function parseServerEvent(line: string): ServerEvent {
       valid = validId(value.id) && BACKEND_COMMANDS.includes(value.command as BackendCommand) && typeof value.text === 'string';
       break;
     case 'metrics':
-      valid = validId(value.id) &&
+      valid = (validId(value.id) || (value.id === null && value.used_tokens === 0 &&
+        value.cost_usd === 0 && value.context_tokens !== null)) &&
         ['used_tokens', 'limit_tokens', 'context_window', 'done', 'planned'].every(key =>
           typeof value[key] === 'number' && Number.isSafeInteger(value[key]) && (value[key] as number) >= 0) &&
         (value.context_tokens === null || (typeof value.context_tokens === 'number' && Number.isSafeInteger(value.context_tokens) && value.context_tokens >= 0)) &&
         typeof value.estimated === 'boolean' && typeof value.cost_usd === 'number' && Number.isFinite(value.cost_usd) && value.cost_usd >= 0;
       break;
-    case 'context_snapshot': valid = validId(value.id) && contextSnapshot(value.snapshot); break;
+    case 'context_snapshot':
+      valid = contextSnapshot(value.snapshot) && (value.snapshot.phase === 'loaded' ? value.id === null : validId(value.id));
+      break;
     case 'diagnostic': valid = value.id === null && typeof value.message === 'string'; break;
     case 'status':
       valid = ['starting', 'idle', 'running', 'waiting_approval', 'stopping'].includes(String(value.phase)) &&
@@ -264,13 +284,18 @@ export function parseServerEvent(line: string): ServerEvent {
   return value as ServerEvent;
 }
 
-const booleanArgs = new Set(['--fake', '--chat-only', '--continue']);
-const valueArgs = new Set(['--workspace', '--provider', '--model', '--base-url', '--max-steps']);
+const booleanArgs = new Set(['--fake', '--chat-only', '--continue', '--list-sessions', '--test-session']);
+const valueArgs = new Set(['--workspace', '--provider', '--model', '--base-url', '--max-steps', '--session']);
 
 export function validateClientArgs(args: readonly string[]): string[] {
   const checked: string[] = [];
+  const sessionModes = new Set<string>();
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!;
+    if (['--continue', '--session', '--list-sessions'].includes(arg)) {
+      sessionModes.add(arg);
+      if (sessionModes.size > 1) throw new Error('--continue、--session、--list-sessions 不能同时使用');
+    }
     if (booleanArgs.has(arg)) {
       checked.push(arg);
       continue;

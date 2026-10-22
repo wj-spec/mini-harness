@@ -114,6 +114,9 @@ def build_context_snapshot(
                     kind = "tool_result"
                     source = call_sources.get(message.tool_call_id) or message.tool_call_id or message.name or "tool"
             add(section, kind, kind, source, message.content)
+        if message.reasoning_content:
+            add(section, "reasoning", "reasoning", message.name or message.role,
+                message.reasoning_content)
         for call in message.tool_calls:
             serialized = call.name + json.dumps(call.args, ensure_ascii=False, sort_keys=True)
             add(section, "tool_call", call.name, _call_source(call), serialized)

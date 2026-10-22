@@ -3,7 +3,12 @@ import {execFileSync} from 'node:child_process';
 import {test} from 'node:test';
 import {stripVTControlCharacters} from 'node:util';
 import stringWidth from 'string-width';
-import {fitText, markdownLines, visibleText} from '../src/markdown.js';
+import {fitText, markdownLines, visibleText, wrapSpans} from '../src/markdown.js';
+
+test('wrapping preserves context color boundaries across equal text formatting', () => {
+  const lines = wrapSpans([{text: '━━', contextSection: 'system'}, {text: '━━━', contextSection: 'tools'}], 3);
+  assert.deepEqual(lines, [[{text: '━━', contextSection: 'system'}, {text: '━', contextSection: 'tools'}], [{text: '━━', contextSection: 'tools'}]]);
+});
 
 test('renders headings, lists, emphasis and fenced source as readable terminal lines', () => {
   const lines = markdownLines('# Result\n- **fixed** `state`\n```ts\nconst answer = 42;\n```', 50);

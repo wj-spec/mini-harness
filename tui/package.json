@@ -12,6 +12,7 @@
     "test": "npm run build && node --test dist/tests/*.test.js"
   },
   "dependencies": {
+    "chalk": "6.0.1",
     "ink": "8.0.0",
     "react": "19.3.1",
     "string-width": "8.3.0"

@@ -1,3 +1,14 @@
+import type {ContextSnapshot} from '../src/protocol.js';
+
+export function loadedContextSnapshot(): ContextSnapshot {
+  const base = contextSnapshot();
+  return {...base, snapshot_id: 'loaded-snapshot-1', request_id: 'loaded-request-1', run_id: 'loaded-session-1',
+    phase: 'loaded', step: 0, attempt: 0, reason: 'session_loaded',
+    sections: {...base.sections, history: 0}, total_tokens: 50, remaining_tokens: 850,
+    delta_tokens: 50, section_deltas: {...base.section_deltas, history: 0},
+    blocks: base.blocks.filter(block => block.section !== 'history')};
+}
+
 export function contextSnapshot() {
   return {
     schema_version: 1 as const, snapshot_id: 'snapshot-1', request_id: 'request-1', run_id: 'agent-run-1', model: 'fake',

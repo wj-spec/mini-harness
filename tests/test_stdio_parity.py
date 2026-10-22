@@ -15,6 +15,7 @@ from app.providers.fake import FakeProvider
 from app.session import SessionStore
 from app.stdio import MAX_FRAME_BYTES, serve
 from app.tools import ToolRegistry, ToolSpec
+from core.context import ContextBuilder
 from core.models import Message, Response, ToolCall
 from core.state import TaskState
 
@@ -58,7 +59,7 @@ def make_agent(root, script=(), history=None, state=None):
                  approval=ApprovalGate(), history=history, state=state)
 
 
-def test_restored_checkpoint_is_displayed_without_automatic_run(tmp_path):
+def test_restored_transcript_keeps_originals_while_model_resumes_from_checkpoint(tmp_path):
     async def scenario():
         session = SessionStore.new(tmp_path, "fake")
         goal = Message("user", "实现接口")
@@ -74,7 +75,8 @@ def test_restored_checkpoint_is_displayed_without_automatic_run(tmp_path):
         assert (await c.until("ready"))["resumed"] is True
         await c.until("status")
         restored = [event["message"] for event in c.events if event["type"] == "history_message"]
-        assert [m["content"] for m in restored] == [goal.content, summary.content]
+        assert [m["content"] for m in restored] == [goal.content, "很早的原文"]
+        assert agent.history == [goal, summary]
         assert not agent.provider.seen
         notices = "\n".join(e["message"] for e in c.events if e["type"] == "notice")
         assert all(word in notices for word in ("实现接口", "调研", "实现", "token_budget", "/resume"))
@@ -111,8 +113,10 @@ def test_restore_unknown_tool_never_replays_without_explicit_resume(tmp_path):
 def test_large_restored_message_is_explicitly_shortened_only_for_display(tmp_path):
     async def scenario():
         original = Message("user", "汉" * MAX_FRAME_BYTES)
+        session = SessionStore.new(tmp_path, "fake")
+        session.append_message(original)
         agent = make_agent(tmp_path, history=[original])
-        c = Connection(agent, tmp_path, resumed=True)
+        c = Connection(agent, tmp_path, session, resumed=True)
         await c.until("status")
         assert not any(e["type"] == "error" for e in c.events)
         assert any(e["type"] == "notice" and "截断" in e["message"] for e in c.events)
@@ -203,6 +207,178 @@ def test_server_commands_use_registry_and_persisted_session_cost(tmp_path):
             assert event["command"] == command and expected in event["text"]
         assert not agent.provider.seen
         await c.close()
+
+    asyncio.run(scenario())
+
+
+def test_skill_commands_delegate_without_starting_model_or_saving_messages(tmp_path):
+    async def scenario():
+        agent = make_agent(tmp_path)
+        calls = []
+
+        def manage(action="list", name=None):
+            calls.append((action, name))
+            return f"skills {action}: {name or 'catalog'}"
+
+        agent.manage_skills = manage
+        c = Connection(agent, tmp_path)
+        try:
+            for index, args in enumerate((None, {"action": "refresh"},
+                                          {"action": "activate", "name": "release"},
+                                          {"action": "unload", "name": "release"})):
+                payload = {} if args is None else {"args": args}
+                request_id = f"skills-{index}"
+                c.send("command", request_id, command="skills", **payload)
+                result = await c.until("command_result", request_id)
+                assert result["command"] == "skills" and "skills" in result["text"]
+            assert calls == [("list", None), ("refresh", None),
+                             ("activate", "release"), ("unload", "release")]
+            assert not agent.provider.seen and not agent.history
+        finally:
+            await c.close()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("command,args", [
+    ("cost", {}), ("skills", None), ("skills", []),
+    ("skills", {"unknown": "value"}), ("skills", {"action": 1}),
+    ("skills", {"action": "delete"}), ("skills", {"action": "activate"}),
+    ("skills", {"action": "unload", "name": " "}),
+    ("skills", {"action": "activate", "name": 1}),
+    ("skills", {"action": "list", "name": "release"}),
+    ("skills", {"action": "refresh", "name": "release"}),
+])
+def test_skill_command_protocol_rejects_invalid_arguments(tmp_path, command, args):
+    async def scenario():
+        agent = make_agent(tmp_path)
+        c = Connection(agent, tmp_path)
+        try:
+            c.send("command", "bad", command=command, args=args)
+            assert (await c.until("error", "bad"))["code"] == "invalid_request"
+            assert not agent.provider.seen and not agent.history
+        finally:
+            await c.close()
+
+    asyncio.run(scenario())
+
+
+def test_skill_command_unavailable_in_chat_only_mode(tmp_path):
+    async def scenario():
+        agent = make_agent(tmp_path)
+        agent.tools_enabled = False
+        agent.manage_skills = lambda **kwargs: pytest.fail("disabled skills must not be managed")
+        c = Connection(agent, tmp_path)
+        try:
+            c.send("command", "skills", command="skills")
+            assert "不可用" in (await c.until("command_result", "skills"))["text"]
+            assert not agent.provider.seen
+        finally:
+            await c.close()
+
+    asyncio.run(scenario())
+
+
+def test_skill_management_refresh_activation_and_unload_update_model_context(tmp_path):
+    async def scenario():
+        agent = make_agent(tmp_path)
+        skill_file = tmp_path / ".vibe/skills/release/SKILL.md"
+        skill_file.parent.mkdir(parents=True)
+        skill_file.write_text("---\nname: release\ndescription: 发布检查\n---\n\nSKILL_BODY_ONLY_WHEN_ACTIVE\n")
+        c = Connection(agent, tmp_path)
+        try:
+            c.send("command", "discover", command="skills", args={"action": "refresh"})
+            assert "release: 发布检查" in (await c.until("command_result", "discover"))["text"]
+            assert "release: 发布检查" in agent.system
+            assert "SKILL_BODY_ONLY_WHEN_ACTIVE" not in agent.system
+            c.send("command", "activate", command="skills", args={"action": "activate", "name": "release"})
+            await c.until("command_result", "activate")
+            assert "SKILL_BODY_ONLY_WHEN_ACTIVE" in agent.system
+            c.send("command", "unload", command="skills", args={"action": "unload", "name": "release"})
+            await c.until("command_result", "unload")
+            assert "SKILL_BODY_ONLY_WHEN_ACTIVE" not in agent.system
+            assert skill_file.exists() and not agent.provider.seen and not agent.history
+        finally:
+            await c.close()
+
+    asyncio.run(scenario())
+
+
+def test_skill_management_is_rejected_while_an_approval_is_pending(tmp_path):
+    async def scenario():
+        agent = make_agent(tmp_path)
+        agent.manage_skills = lambda **kwargs: pytest.fail("busy skills must not be managed")
+        c = Connection(agent, tmp_path)
+        try:
+            c.send("command", "diff", command="diff")
+            await c.until("approval_request", "diff")
+            c.send("command", "skills", command="skills", args={"action": "refresh"})
+            assert (await c.until("error", "skills"))["code"] == "busy"
+            c.send("cancel", "cancel", target="diff")
+            await c.until("command_result", "diff")
+            assert not agent.provider.seen
+        finally:
+            await c.close()
+
+    asyncio.run(scenario())
+
+
+def test_skill_management_refreshes_loaded_context_before_first_task(tmp_path):
+    async def scenario():
+        skill_file = tmp_path / ".vibe/skills/release/SKILL.md"
+        skill_file.parent.mkdir(parents=True)
+        skill_file.write_text("---\nname: release\ndescription: 发布检查\n---\n\nACTIVE_SKILL_BODY\n")
+        agent = make_agent(tmp_path)
+        agent.context = ContextBuilder(policy=Config().budget_policy())
+        session = SessionStore.new(tmp_path, "fake", purpose="test")
+        c = Connection(agent, tmp_path, session=session)
+        try:
+            await c.until("status")
+            before = next(event["snapshot"] for event in c.events if event["type"] == "context_snapshot")
+            assert not any(block["kind"] == "active_skill" for block in before["blocks"])
+            for action, expected_active in (("activate", True), ("unload", False)):
+                c.send("command", action, command="skills", args={"action": action, "name": "release"})
+                await c.until("command_result", action)
+                snapshot_event = await c.until("context_snapshot")
+                snapshot = snapshot_event["snapshot"]
+                assert snapshot_event["id"] is None and snapshot["phase"] == "loaded"
+                assert any(block["kind"] == "active_skill" for block in snapshot["blocks"]) is expected_active
+                assert snapshot["snapshot_id"] != before["snapshot_id"]
+                before = snapshot
+                await c.until("status")
+            assert not agent.provider.seen and not agent.history and agent.state is None
+            assert session.latest_run() is None and session.load_messages() == []
+            assert all(event["used_tokens"] == 0 for event in c.events if event["type"] == "metrics")
+        finally:
+            await c.close()
+
+    asyncio.run(scenario())
+
+
+def test_skill_management_after_task_keeps_request_replay_and_recorded_usage(tmp_path):
+    async def scenario():
+        skill_file = tmp_path / ".vibe/skills/release/SKILL.md"
+        skill_file.parent.mkdir(parents=True)
+        skill_file.write_text("---\nname: release\ndescription: 发布检查\n---\n\nACTIVE_SKILL_BODY\n")
+        agent = make_agent(tmp_path, [Response(content="done", usage={"total_tokens": 17})])
+        agent.context = ContextBuilder(policy=Config().budget_policy())
+        session = SessionStore.new(tmp_path, "fake", purpose="test")
+        c = Connection(agent, tmp_path, session=session)
+        try:
+            c.send("run", "first", text="检查项目")
+            await c.until("done", "first")
+            await c.until("status")
+            before = len(c.events)
+            history = list(agent.history)
+            cost = session.cost_summary()
+            c.send("command", "activate", command="skills", args={"action": "activate", "name": "release"})
+            await c.until("command_result", "activate")
+            await c.until("status")
+            assert not any(event["type"] in {"context_snapshot", "metrics"} for event in c.events[before:])
+            assert session.cost_summary() == cost and cost["total_tokens"] == 17
+            assert len(agent.provider.seen) == 1 and agent.history == history
+        finally:
+            await c.close()
 
     asyncio.run(scenario())
 

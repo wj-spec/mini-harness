@@ -47,6 +47,7 @@ class Config:
     trust_env: bool = False
     mcp_config: str = ""
     mcp_servers: str = ""
+    skills_config: str = ""
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -96,6 +97,7 @@ class Config:
             trust_env=os.getenv("VIBE_TRUST_ENV", "0").lower() in {"1", "true", "yes"},
             mcp_config=os.getenv("VIBE_MCP_CONFIG", ""),
             mcp_servers=os.getenv("VIBE_MCP_SERVERS", ""),
+            skills_config=os.getenv("VIBE_SKILLS_CONFIG", ""),
         )
 
     def label(self) -> str:

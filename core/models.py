@@ -49,6 +49,7 @@ class Message:
     name: str | None = None  # role == "tool" 时，记录工具名
     tool_call_id: str | None = None  # role == "tool" 时，对应哪次调用
     execution: ExecutionOutcome | None = None  # 运行事实，不发送为模型协议字段
+    reasoning_content: str | None = None  # 模型协议元数据，不作为正文
 
 
 @dataclass
@@ -59,3 +60,4 @@ class Response:
     tool_calls: list[ToolCall] = field(default_factory=list)
     usage: dict | None = None
     finish_reason: str | None = None
+    reasoning_content: str | None = None
