@@ -166,6 +166,7 @@ def test_recall_of_old_skill_body_returns_state_without_instruction_text(tmp_pat
 
 def test_entrypoint_passes_skill_config_to_runtime(tmp_path, monkeypatch):
     from app import __main__ as entrypoint
+    from app import stdio
     import sys
 
     skill_file(tmp_path)
@@ -173,31 +174,25 @@ def test_entrypoint_passes_skill_config_to_runtime(tmp_path, monkeypatch):
     path.write_text(json.dumps({"activate": ["review"]}))
     opened = []
 
-    class CaptureApp:
-        def __init__(self, config, agent, *args, **kwargs):
-            opened.append(agent)
-
-        def run(self):
-            pass
-
     monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(
         workspace=tmp_path, skills_config=str(path)))
-    monkeypatch.setattr(entrypoint, "build_textual_app", CaptureApp)
-    monkeypatch.setattr(sys, "argv", ["vibe", "--fake"])
+    monkeypatch.setattr(stdio, "run_stdio", lambda agent, config, **kwargs: opened.append(agent))
+    monkeypatch.setattr(sys, "argv", ["vibe", "--fake", "--stdio"])
     entrypoint.main()
     assert "PRIVATE_SKILL_STEPS" in opened[0].system
 
 
-def test_invalid_static_config_fails_before_ui(tmp_path, monkeypatch, capsys):
+def test_invalid_static_config_fails_before_backend(tmp_path, monkeypatch, capsys):
     from app import __main__ as entrypoint
+    from app import stdio
     import sys
 
     path = tmp_path / ".vibe" / "skills.json"
     path.parent.mkdir()
     path.write_text('{"paths": "not-a-list"}')
     monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path))
-    monkeypatch.setattr(entrypoint, "build_textual_app", lambda *args, **kwargs: pytest.fail("UI opened"))
-    monkeypatch.setattr(sys, "argv", ["vibe", "--fake"])
+    monkeypatch.setattr(stdio, "run_stdio", lambda *args, **kwargs: pytest.fail("backend started"))
+    monkeypatch.setattr(sys, "argv", ["vibe", "--fake", "--stdio"])
     with pytest.raises(SystemExit) as error:
         entrypoint.main()
     assert error.value.code == 1 and "invalid skills config" in capsys.readouterr().err

@@ -2,11 +2,11 @@
 
 状态：工程实现与自动验证完成；用户复核与真实模型任务待验收。对应 W1–W3 的界面迁移切片 1。
 
-本文记录第一切片当时的范围与协议基线；随后已补 [全屏工作台](ink-workbench.md) 和 [恢复、MCP、权限与可信结果](ink-parity.md)。下文“尚不支持”仅描述第一切片，当前运行方式以 [使用指南](../USAGE.md) 为准。默认入口继续保留 Textual，直到 Ink 的开发与实际体验超越 Textual。
+本文记录第一切片当时的范围与协议基线；随后已补 [全屏工作台](ink-workbench.md) 和 [恢复、MCP、权限与可信结果](ink-parity.md)。下文“尚不支持”仅描述第一切片，当前运行方式以 [使用指南](../USAGE.md) 为准。默认入口继续保留 Textual，直到 Ink 的开发与实际体验超越 Textual（2026-10-23 更新：Textual 已退役，Ink 为唯一界面入口，见[里程碑](../MILESTONES.md)）。
 
 ## 行为
 
-新增 `./run_ink.sh` 启动 Node.js + TypeScript + React/Ink 界面，由 Node 启动 Python `./run_vibe.sh --stdio` 子进程。任务仍由同一个 `app.agent.Agent.run()` 执行，复用模型配置、上下文、预算、原生工具、审批和会话记录。`./run_vibe.sh` 默认仍启动 Textual。
+新增 `./run_ink.sh` 启动 Node.js + TypeScript + React/Ink 界面，由 Node 启动 Python `./run_vibe.sh --stdio` 子进程。任务仍由同一个 `app.agent.Agent.run()` 执行，复用模型配置、上下文、预算、原生工具、审批和会话记录。`./run_vibe.sh` 是 Python 后端与 `--eval` 入口；交互界面使用 `./run_ink.sh`（Textual 已退役）。
 
 本切片支持输入任务、连续流式回复、状态、工具调用与结果、单次批准 / 拒绝、取消和退出。用户明确批准前，写入与命令不能执行；界面断开不等于批准。取消后的副作用仍可能需要核对，不能把取消解释成回滚。命令执行的取消需要终止并回收进程组。
 
@@ -20,6 +20,7 @@
 |---|---|---|
 | `run` | `id`, `text` | 开始一轮任务；同一进程只允许一个活跃运行 |
 | `cancel` | `id`, `target` | 只取消匹配 `target` 的活跃运行 |
+| `steer` | `id`, `target`, `text` | 向匹配 `target` 的活跃运行提交用户纠偏；成功 `ack action=steer`，下一次模型请求前生效 |
 | `approval` | `id`, `approval_id`, `decision` | 只接受当前审批的 `once` 或 `deny` |
 | `shutdown` | `id` | 拒绝待审批动作，取消活跃任务，清理后退出 |
 
@@ -32,13 +33,13 @@
 | `approval_request` | `approval_id`, `call`, `preview` | 后端审批闸等待用户决定 |
 | `approval_resolved` | `approval_id`, `decision` | 审批结束，旧审批不可再次使用 |
 | `done` | `result` | 每个被接受的 `run` 恰好一个终结事件，结果包含实际 Agent 状态 |
-| `ack` | `action` | 已接收取消或审批回复，不代表副作用已撤销 |
+| `ack` | `action` | 已接收取消、审批或纠偏回复，不代表副作用已撤销或纠偏已应用 |
 | `error` | `code`, `message` | 非法请求、并发冲突或执行错误 |
 | `closed` | 无 | 关闭完成；正常主动关闭关联 shutdown 请求 ID |
 
-运行相关事件使用原 `run` 的 ID；`ack` / 请求错误使用对应请求 ID。`call` 包含 `id`、`name`、`args`。`done.result` 使用 `AgentResult` 的字段，状态包含 `done`、`stopped`、`cancelled`、`error`、`truncated`。
+`ready.capabilities` 包含 `steer` 时前端可提示运行中纠偏；纠偏在下一次模型请求前作为 user 消息生效，trace 中记录 `steering_applied`。`/followup` 是前端本地队列，不产生协议帧。运行相关事件使用原 `run` 的 ID；`ack` / 请求错误使用对应请求 ID。`call` 包含 `id`、`name`、`args`。`done.result` 使用 `AgentResult` 的字段，状态包含 `done`、`stopped`、`cancelled`、`error`、`truncated`。
 
-非法 JSON、未知版本、缺少字段、过大输入、重复 ID、运行中重复提交、错误目标取消、迟到或失配的审批均不得产生新动作。读取请求与 Agent 执行并发，等待模型或审批时仍能接收取消。输入 EOF、进程信号与退出请求均触发清理；Node 对异常子进程退出显示错误，清理等待有上限。
+非法 JSON、未知版本、缺少字段、过大输入、重复 ID、运行中重复提交、错误目标取消、错误目标纠偏、迟到或失配的审批均不得产生新动作。读取请求与 Agent 执行并发，等待模型或审批时仍能接收取消。输入 EOF、进程信号与退出请求均触发清理；Node 对异常子进程退出显示错误，清理等待有上限。
 
 ## 验证与学习
 

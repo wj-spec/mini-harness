@@ -3,7 +3,6 @@ import json
 import pytest
 
 from app.context_snapshot_display import snapshot_for_display
-from app.context_view import ContextHistory, context_detail
 from core.context import estimate_tokens, total_tokens
 from core.context_snapshot import build_context_snapshot
 from core.models import Message
@@ -53,9 +52,4 @@ def test_snapshot_view_and_bounded_display_keep_reasoning_totals_without_body():
     for section, tokens in display["sections"].items():
         assert sum(block["tokens"] for block in display["blocks"]
                    if block["section"] == section) == tokens
-    history = ContextHistory()
-    assert history.accept(display)
-    detail = context_detail(history.snapshots, 0).plain
-    assert f"估算输入 {display['total_tokens']:,}" in detail
-    assert secret not in detail
     assert secret not in json.dumps(display)

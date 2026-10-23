@@ -11,15 +11,9 @@ uv sync --extra test
 ```
 
 启动和测试脚本优先使用项目 `.venv`，也可以通过 `PYTHON=/path/to/python3` 指定解释器。
-`core/` 保持标准库边界；FastMCP、HTTP 和 TUI 依赖只用于 `app/`。
+`core/` 保持标准库边界；FastMCP 与 HTTP 依赖只用于 `app/`，界面代码在 `tui/`（Ink）。
 
-### 1) 不联网，先看 TUI
-
-```bash
-./run_vibe.sh --fake
-```
-
-### Ink 工作台（迁移中）
+### 1) 不联网，先看 Ink 工作台
 
 需要 Node.js 22+ 与上述 Python 环境；当前固定 Ink 8 / React 19.3，依赖版本见 `tui/package-lock.json`。
 
@@ -64,18 +58,19 @@ npm --prefix tui test
 | 工具详情 | `Tab` 选本会话已发生工具，`Ctrl+O` 查看完整参数和输出，`Esc` 返回 |
 | 审批 | `y` 单次、`s` 精确规则、`p` 工作区、`n` 拒绝；按后端允许范围显示，粘贴不批准 |
 | 取消 / 退出 | `Ctrl+C` 取消当前任务，空闲时退出；`Ctrl+Q` 或 `/quit` 退出并清理 |
+| 运行中纠偏 / 排队 | 运行中 `Enter` 提交纠偏（下一次模型请求生效）；`/followup <内容>` 排到本轮结束后自动继续 |
 | 续做与权限 | `/resume` 显式续做、`/permissions` 查看、`/permissions reset` 撤销 |
 | 帮助与信息 | `/help`、`/cost` 会话用量、`/tools` 已注册工具、`/mcp` 服务、`/session` 会话路径 |
 | 查看改动 | `/diff` 经审批执行 git diff，全文可翻页 |
 | 查看技能 | `/skills`（或 `/skill`）重新扫描 `.vibe/skills` 并列出摘要，不调用模型 |
 
-运行时允许编辑下一条草稿，结束后再发送；阅读、审批和工具详情聚焦时暂停编辑，滚动不会改写草稿。终端支持时可按住 Shift 拖选文字；没有鼠标事件的终端可以用上述键盘操作。工具结果默认摘要，全文在详情页查看；原始消息和结果仍保存在 `.vibe/sessions/`。取消后需核对已发生的副作用。
+运行中输入框保持可用：`Enter` 提交纠偏，`/followup <内容>` 排队后续消息；阅读、审批和工具详情聚焦时暂停编辑，滚动不会改写草稿。终端支持时可按住 Shift 拖选文字；没有鼠标事件的终端可以用上述键盘操作。工具结果默认摘要，全文在详情页查看；原始消息和结果仍保存在 `.vibe/sessions/`。取消后需核对已发生的副作用。
 
 状态与消息按块展示：等待模型、回复、调用工具、审批、暂停和错误分别标注；宽屏右侧显示当前任务、工具记录和真实预算，窄屏使用紧凑状态条。命令失败、超时、取消、未知结果显示实际状态，长工具名不会遮住结果。界面与验证见 [历史阅读与状态分区](specs/ink-reading-state.md)。
 
 Ink 的 `--continue` 只选择最近有对话的用户会话，普通列表和按 ID 打开也排除已标记的测试会话。`--fake`、`--provider fake` 或配置 `VIBE_PROVIDER=fake` 自动使用测试范围；真实模型烟测用 `--test-session` 明确标记。两个范围各自列出、继续和按 ID 打开，测试模式也只加载测试会话；界面标题显示“测试会话”。历史区从原始消息日志恢复，压缩前的正文和工具记录仍可回看；模型续做读取压缩上下文，两者独立。恢复后不会自动调用模型或重放工具；`/resume` 才开启新一轮预算。已有 `VIBE_MCP_*` 配置与本进程权限管理继续可用，MCP 初始化期间也能取消，服务启动与工具调用分别审批。新命令结果显示真实退出码、超时或取消，旧记录没有执行元数据时显示未记录；零退出本身不证明需求验收通过。
 
-默认入口继续保留 Textual，直到 Ink 的开发与实际体验超越 Textual。运行中纠偏、会话选择器与真实模型联合任务仍待后续验收，eval 继续使用 `./run_vibe.sh --eval`。当前补齐范围见 [迁移规格](specs/ink-parity.md)。
+默认入口为 Ink；Textual 已于 2026-10-23 退役（见 [里程碑](MILESTONES.md)）。运行中纠偏与后续消息已接通确定性回归，见 [运行中纠偏](specs/run-time-correction.md)；会话选择器与真实模型联合任务仍待后续验收，eval 继续使用 `./run_vibe.sh --eval`。
 
 ### 2) 真模型（OpenAI-compatible）
 
@@ -83,13 +78,13 @@ Ink 的 `--continue` 只选择最近有对话的用户会话，普通列表和�
 export VIBE_API_KEY=sk-...
 export VIBE_BASE_URL=https://api.deepseek.com/v1
 export VIBE_MODEL=deepseek-chat
-./run_vibe.sh --workspace /path/to/your/repo
+./run_ink.sh --workspace /path/to/your/repo
 ```
 
 只验证模型，不挂工具：
 
 ```bash
-./run_vibe.sh --chat-only
+./run_ink.sh --chat-only
 ```
 
 > provider 默认 `trust_env=False`，不自动读取代理环境变量。远程 API 需要代理时设 `VIBE_TRUST_ENV=1`。
@@ -100,14 +95,14 @@ Ollama 也可以走同一入口：
 VIBE_BASE_URL=http://localhost:11434/v1 \
 VIBE_API_KEY=ollama \
 VIBE_MODEL=qwen2.5-coder:7b \
-./run_vibe.sh --workspace /path/to/your/repo
+./run_ink.sh --workspace /path/to/your/repo
 ```
 
 ### 3) 会话 / 成本 / eval
 
 ```bash
 # 打开 workspace 最新 session；明确暂停的任务输入 /resume 继续
-./run_vibe.sh --workspace /path/to/repo --continue
+./run_ink.sh --workspace /path/to/repo --continue
 
 # 先离线验证预算，再逐步运行内部真实任务
 ./run_eval.sh check-budget
@@ -115,11 +110,12 @@ VIBE_MODEL=qwen2.5-coder:7b \
 # 首题通过后再用 --eval-limit 3
 ```
 
-TUI 里：
+工作台里：
 
 - `/cost`：本轮输入/输出 tokens，以及本 session 的 tokens / cost / tools；
-- `/context`：查看估算分区、内容块来源和本轮快照；Textual 可按 `Ctrl+O`，Ink 可按 `Ctrl+K`，运行中也能打开；
+- `/context`：查看估算分区、内容块来源和本轮快照；按 `Ctrl+K` 打开，运行中也能查看；
 - `/resume`：明确继续暂停任务，开启一轮新预算；
+- `/followup <内容>`：运行中排队为后续消息，本轮结束后自动继续；空闲时等同直接发送；
 - `/permissions`：查看当前工作区授权；`/permissions reset` 撤销本进程授权；
 - 写文件或执行命令会弹审批：`y/a` once、`s` session、`n/d` deny。
 
@@ -155,7 +151,7 @@ history 实际额度 = 窗口 − 输出预留 − 安全余量 − 实际 syste
 
 新会话打开后即显示基础上下文的估算占用和四区分布，无须先发送消息。`/context` 可查看已装载的基础指令、项目规则、技能目录和工具定义；界面标记“尚未请求模型”，累计模型消耗为 0。MCP 初始化结束后会按实际注册的工具刷新。恢复会话则统计当前装载的任务状态与工作历史；首次发送任务后切换到本轮请求统计。
 
-`/context` 展示当前占用条、四区用量与额度、输出和安全预留、逐步骤变化及块来源。`←/→` 切换快照，`↑/↓` 或滚轮翻阅，`Esc` 返回；Ink 的 `l` 恢复跟随最新。界面最多保留本轮最近 100 张快照，新任务或 `/resume` 开启新一轮；Textual 重开会话时也能查看上轮已有记录。
+`/context` 展示当前占用条、四区用量与额度、输出和安全预留、逐步骤变化及块来源。`←/→` 切换快照，`↑/↓` 或滚轮翻阅，`Esc` 返回；`l` 恢复跟随最新。界面最多保留本轮最近 100 张快照，新任务或 `/resume` 开启新一轮；重开会话时也能查看上轮已有记录。
 
 分区用连续彩色细线堆积展示：青色 system、紫色 memory、琥珀色 tools、绿色 history，灰色为剩余输入容量。标签和数值随线条显示，当前为 0 的分区不占线段。容量条保持真实比例；新会话占用很小时，另用标明“已用构成”的放大条看清分区。紧凑状态同样保留实际用量/容量，输出与安全预留单列。
 
@@ -181,7 +177,7 @@ history 实际额度 = 窗口 − 输出预留 − 安全余量 − 实际 syste
 - **成本与恢复**：自动压缩使用本地确定性摘要，继续执行时保留工具；真正接近任务总预算才调用一次模型收尾。压缩结果追加到会话日志，重启及 `/resume` 使用该工作上下文；原始消息日志保留。
 - **窗口容量压缩**：常规请求超 history 容量时，原有 `LLMSummarizer` 仍可注入（`VIBE_SUMMARY_MODEL` 可指定摘要模型，失败退回本地摘要）。这条旧路径的摘要请求尚未纳入 run 用量；80% 主动压缩不走它。
 - **TaskState**：harness 记录目标、计划、文件变化与 `command_results`（命令、用途、状态、退出码和输出），作为 `task_state` system 消息注入；不进 stable prefix hash。`tests_run` 兼容旧记录，仅新显式标记验证的命令会追加，不能单凭命令名作为通过证明。
-- **TUI**：状态栏显示 `todo done/total`。
+- **工作台**：状态栏显示 `todo done/total`。
 
 ## 写 + 审批
 
@@ -208,7 +204,7 @@ history 实际额度 = 窗口 − 输出预留 − 安全余量 − 实际 syste
 
 ## 免费 Web 搜索
 
-安装依赖后，Textual 和 Ink 入口都默认向模型提供内置 `web_search`；`--chat-only` 仍不挂工具。使用 [DDGS 9.16.0](https://pypi.org/project/ddgs/9.16.0/)，无需注册或配置搜索 API Key。模型本身仍按原来的配置运行。
+安装依赖后，Ink 入口默认向模型提供内置 `web_search`；`--chat-only` 仍不挂工具。使用 [DDGS 9.16.0](https://pypi.org/project/ddgs/9.16.0/)，无需注册或配置搜索 API Key。模型本身仍按原来的配置运行。
 
 例如直接输入：“搜索 Python 官方文档中 asyncio.TaskGroup 的用法，给我来源链接。”模型可调用：
 
@@ -217,7 +213,7 @@ history 实际额度 = 窗口 − 输出预留 − 安全余量 − 实际 syste
 ```
 
 - `query` 必填，1–500 字符；`max_results` 默认 5，最多 10；`region` 默认 `us-en`，中文可用 `cn-zh`；`timelimit` 可省略，或用 `d/w/m/y` 限制最近一天/周/月/年，过滤效果取决于上游引擎。
-- 调用使用 `risk=network`，先由 `ApprovalGate` 展示搜索词并审批。Textual 与 Ink 都支持单次或同参数精确规则；工作区写入/命令授权不覆盖搜索。
+- 调用使用 `risk=network`，先由 `ApprovalGate` 展示搜索词并审批。Ink 支持单次或同参数精确规则；工作区写入/命令授权不覆盖搜索。
 - DDGS 使用 `backend=auto` 聚合搜索，查询可能发往多个第三方搜索引擎。预览会展示完整查询，请勿放入凭据或私密代码。网络需要代理时，可使用库支持的 `DDGS_PROXY=http://127.0.0.1:7890`，与模型的 `VIBE_TRUST_ENV` 分开。
 - 返回有界的 JSON：`query/source/notice/count/results`，每项包含 `title/url/snippet`。这只是搜索摘要，不能视为已读取和核实网页全文；外部内容按不可信资料处理，回答应附来源链接。
 - 单请求超时 5 秒，整次检索最多 20 秒；取消或超时会终止并回收搜索进程。限流、网络错误和后端无结果异常如实回灌，不自动重试，也不以空列表伪装失败。后端正常返回空列表时显式显示 `count=0`。
@@ -226,7 +222,7 @@ DDGS 是第三方网页检索库，并非搜索引擎提供的稳定 API；验�
 
 ## MCP 外部工具
 
-`app/mcp.py` 使用 [FastMCP 4.1.1 Client](https://gofastmcp.com/clients/client) 接入 stdio MCP 服务，由库负责版本协商、消息分发和工具结果解析。TUI 准备好后先审批服务启动，再发现工具并交给 Agent；连接、调用和关闭都在同一事件循环中运行。
+`app/mcp.py` 使用 [FastMCP 4.1.1 Client](https://gofastmcp.com/clients/client) 接入 stdio MCP 服务，由库负责版本协商、消息分发和工具结果解析。工作台准备好后先审批服务启动，再发现工具并交给 Agent；连接、调用和关闭都在同一事件循环中运行。
 
 ```jsonc
 // .vibe/mcp.json
@@ -245,12 +241,12 @@ DDGS 是第三方网页检索库，并非搜索引擎提供的稳定 API；验�
 ```
 
 ```bash
-VIBE_MCP_CONFIG=/path/to/mcp.json ./run_vibe.sh   # 文件优先
-VIBE_MCP_SERVERS='{"fs":{"command":"npx","args":["-y","@modelcontextprotocol/server-filesystem","."]}}' ./run_vibe.sh
+VIBE_MCP_CONFIG=/path/to/mcp.json ./run_ink.sh   # 文件优先
+VIBE_MCP_SERVERS='{"fs":{"command":"npx","args":["-y","@modelcontextprotocol/server-filesystem","."]}}' ./run_ink.sh
 ```
 
 - 支持原有 `servers`、标准 `mcpServers` 外层和直接的 server 字典；目前开放 stdio 配置。
-- 配置错误直接报错退出；单个服务被拒绝或启动失败会在 TUI 提示，其余服务照常加载。`--chat-only` 不启动服务。
+- 配置错误直接报错退出；单个服务被拒绝或启动失败会在工作台提示，其余服务照常加载。`--chat-only` 不启动服务。
 - 启动命令以 `mcp_start` 经过 `ApprovalGate` 并审计；预览显示命令、cwd 和环境变量名，环境变量值使用摘要区分授权。子进程仅继承 SDK 的基础环境及配置中的 `env`，需要的凭据请显式配置。
 - 远端工具默认 `risk=exec`，每次调用单独审批；`s` 授权本会话同工具同参数，`p` 不覆盖 MCP 启动或工具。启动获批不代表工具调用获批。
 - 工具名通常为 `mcp_<server>_<tool>`；非法字符、下划线造成的边界歧义、超过 64 字符或命名碰撞时添加固定来源摘要。其他服务被拒绝或启动失败也不会改变这个映射。
@@ -264,9 +260,9 @@ VIBE_MCP_SERVERS='{"fs":{"command":"npx","args":["-y","@modelcontextprotocol/ser
 - 新对话创建 `.vibe/sessions/<id>/`：`events.jsonl`、`state.json`、`meta.json`、`audit.jsonl`；`--continue` / `--session ID` 恢复已有会话。
 - `meta.json` 的 `purpose` 保存 `user` / `test`。普通模式只访问用户范围；`--fake`、fake provider 或 `--test-session` 只访问测试范围。列表显示用途，测试模式的标题有明确标识。
 - 旧会话缺少 `purpose` 时兼容用户范围；只给来源已确认的旧烟测记录补测试标记，保留原始消息。损坏或未知标记的元数据不会被当成正常会话加载。
-- Agent 保留 history，TUI 多轮对话会将已有上下文带给模型。
+- Agent 保留 history，工作台多轮对话会将已有上下文带给模型。
 - `--continue` 按有效消息事件时间选择当前工作区、当前用途范围内最近有对话的 session，跳过空会话，新增附件或仅打开会话不会影响排序。`--list-sessions` 只读列出用途、完整日志的消息数与标题；`--session ID` 精确打开同一范围内的指定会话，与 `--continue` 互斥。
-- 模型读取最近有效压缩快照与后续消息；Ink 阅读区读取完整原始消息日志，旧正文和工具结果可回看，过大的单条消息会明确标注显示截断。Ink 所有续做都等 `/resume` 或新指令；Textual 对明确停止的 run 等待 `/resume`，没有终态记录的中断轮次保留原自动恢复流程。
+- 模型读取最近有效压缩快照与后续消息；Ink 阅读区读取完整原始消息日志，旧正文和工具结果可回看，过大的单条消息会明确标注显示截断。Ink 所有续做都等 `/resume` 或新指令；对没有终态记录的中断轮次，启动恢复只展示进度，不会自动重放。
 - 崩溃后如果 `assistant(tool_calls)` 没有对应 `tool` 结果，恢复时补一条 `ERROR interrupted: tool result unknown after crash`，并记 `recovered_tool` 事件——**不假装成功**。
 - 事件日志 append-only；`state.json` 是 TaskState 投影；审批审计和 session 放在同一目录。
 - 自动化烟测使用临时工作区，并在调用 `SessionStore.new(..., purpose="test")` 时明确用途；工具仍按所选工作区和审批规则执行。eval 的运行记录位于 `.vibe/evals/`。
@@ -274,15 +270,15 @@ VIBE_MCP_SERVERS='{"fs":{"command":"npx","args":["-y","@modelcontextprotocol/ser
 试崩溃恢复：
 
 ```bash
-./run_vibe.sh --workspace /tmp/demo-repo
+./run_ink.sh --workspace /tmp/demo-repo
 # 跑到一半 kill -9
-./run_vibe.sh --workspace /tmp/demo-repo --continue
+./run_ink.sh --workspace /tmp/demo-repo --continue
 ```
 
 ## Trace / 成本 / Eval
 
 - 每次 run 写 `session/trace.jsonl`：`run_start`、`llm_start`、`llm_end`、`budget_update`、`run_end` 等；停止记录包含原因、预算及已进入执行流程的工具数，预算阻止的工具不计入已执行数量。
-- TUI 输入 `/cost`：显示本轮输入/输出，以及本 session 的 runs、tokens、cost、tool calls、最后状态；不会发给模型。
+- 工作台输入 `/cost`：显示本轮输入/输出，以及本 session 的 runs、tokens、cost、tool calls、最后状态；不会发给模型。
 - 价格按 token 计：`VIBE_INPUT_PRICE_PER_1M`、`VIBE_OUTPUT_PRICE_PER_1M`（默认 0）；0 表示未配置价格，不能据此认定模型调用免费。
 - 优先使用 provider 的 `stream_options.include_usage`；不支持可设 `VIBE_STREAM_USAGE=0`，此时按请求与输出估算 token 并明确标注，预算保护仍生效。
 - `./run_vibe.sh --eval` 跑 10 个内部任务，经过 `ApprovalGate` 自动审批，每个任务独立 workspace，输出：
@@ -339,7 +335,7 @@ token 上限累计每轮 prompt 与 completion，重复历史也计入；首轮�
 
 - 最多 12k 字符，超出截断；
 - 作为 `[PROJECT INSTRUCTIONS]` 追加进 system prompt；
-- TUI 启动日志显示 `AGENTS.md loaded`；
+- 工作台启动日志显示 `AGENTS.md loaded`；
 - 示例：`examples/demo-repo/AGENTS.md`。
 
 ## Skill（可复用操作手册）
@@ -369,7 +365,7 @@ Agent 从常驻目录判断哪些技能与当前工作有关，调用 `load_skil
 
 工具历史只保存激活/卸载回执，防止正文留在历史里持续占用上下文。手动命令是查看和控制入口，正常流程由 Agent 按任务决定加载与卸载，无需用户逐项操作。
 
-Textual 与 Ink 都支持以下管理命令，不调用模型：
+工作台支持以下管理命令，不调用模型：
 
 | 命令 | 行为 |
 |---|---|
@@ -392,7 +388,7 @@ Textual 与 Ink 都支持以下管理命令，不调用模型：
 
 扫描只在标准技能根及显式注册范围内进行；支持已知技能根之间的链接，拒绝跳到其他目录的符号链接。`VIBE_SKILLS_HOME` 可将本机目录基准改为指定目录，便于便携运行及隔离测试，不修改系统 `HOME`。
 
-可用 `VIBE_SKILLS_CONFIG=examples/skills.json ./run_vibe.sh`（或 `./run_ink.sh`）选用另一份配置。可提交的技能放仓库 `skills/`，配置可参考 [examples/skills.json](../examples/skills.json)；本地技能与配置仍可放忽略提交的 `.vibe/`。
+可用 `VIBE_SKILLS_CONFIG=examples/skills.json ./run_ink.sh` 选用另一份配置。可提交的技能放仓库 `skills/`，配置可参考 [examples/skills.json](../examples/skills.json)；本地技能与配置仍可放忽略提交的 `.vibe/`。
 
 重启和 `--continue` 会重新构建常驻目录；临时正文不会因历史回执恢复。`/resume` 继续任务时，Agent 根据当前目录重新加载需要的技能。旧配置的 `activate` 仅兼容为启动时临时预装，不代表常驻正文；这类正文同样在首轮结束时清理，推荐配置仅保留注册来源。
 
@@ -402,6 +398,8 @@ Textual 与 Ink 都支持以下管理命令，不调用模型：
 
 ## 运行控制
 
+- 运行中纠偏：任务未结束时提交普通文本（Ink 的 `Enter`）会作为 user 消息，在下一模型请求前注入；不打断当前请求或工具，审批与预算照常生效。
+- 后续消息：`/followup <内容>` 在当前轮结束后按 FIFO 自动作为下一轮任务继续；队列是界面本地状态，退出后不恢复。
 - LLM 流超时 + 瞬时错误重试：429/5xx/网络错误，指数退避；无输出才重试。
 - `finish_reason=length` 且无工具调用：自动注入 continuation，最多 `max_continuations` 次。
 - 无进展检测：比较实际返回证据，区分新结果、重复结果、连续失败和仅更新计划。默认连续 2 次停滞先提示换方法，再连续 2 次停滞才停止工具，进行一次无工具收尾并保存 `no_progress` 原因。新有效结果会解除纠偏阶段；相同参数但结果变化可以继续。
@@ -409,14 +407,14 @@ Textual 与 Ink 都支持以下管理命令，不调用模型：
 - 只读工具 timeout 重试；写/执行不重试。
 - 写前新鲜度：读过之后文件被改，`edit_file/write_file` 拒绝，要求 re-read。
 - vibe prompt：先读后改、优先 `edit_file`、改完跑测试、不谎报测试通过。
-- TUI `/diff`：看当前 git diff，不发给模型。
+- 工作台 `/diff`：看当前 git diff，不发给模型。
 
 可调：`VIBE_LLM_TIMEOUT`、`VIBE_LLM_RETRIES`、`VIBE_LLM_RETRY_BACKOFF`、`VIBE_MAX_CONTINUATIONS`、`VIBE_MAX_NO_PROGRESS`、`VIBE_MAX_RUN_TOKENS`、`VIBE_COMPACT_INTERVAL_TOKENS`、`VIBE_MAX_RUN_COST_USD`、`VIBE_TOOL_RETRIES`。
 
 ## 调试
 
 ```bash
-VIBE_DEBUG=1 ./run_vibe.sh --workspace /path/to/repo
+VIBE_DEBUG=1 ./run_ink.sh --workspace /path/to/repo
 # 日志：.vibe/debug/provider.jsonl
 ```
 

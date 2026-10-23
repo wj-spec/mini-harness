@@ -9,4 +9,4 @@ echo "demo repo: $TMP"
 echo "试试：修一下 calc.py，让 python3 test_calc.py 通过"
 echo
 cd "$ROOT"
-exec ./run_vibe.sh --workspace "$TMP"
+exec ./run_ink.sh --workspace "$TMP"

@@ -20,7 +20,7 @@ from core.models import Message
 from core.summarize import summarize_messages
 
 assert "fix bug" in summarize_messages([Message("user", "fix bug")])
-assert not {{"app", "httpx", "textual"}}.intersection(sys.modules)
+assert not {{"app", "httpx", "rich"}}.intersection(sys.modules)
 """
     result = subprocess.run(
         [sys.executable, "-I", "-S", "-c", script],

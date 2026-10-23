@@ -5,7 +5,7 @@
 | 维度 | vibe（本项目） | opencode | Codex CLI |
 |---|---|---|---|
 | 定位 | 学习用最小 TUI harness | 开源终端 coding agent | OpenAI 官方终端 agent |
-| 入口 | Textual TUI | TUI / CLI | CLI / TUI |
+| 入口 | Ink TUI | TUI / CLI | CLI / TUI |
 | provider | 任意 OpenAI-compatible | 多 provider | OpenAI / 兼容端点 |
 | 上下文 | 1M 窗口，S/M/T/H/R 分区 + recall + LLM 摘要 | 会话与自动压缩（公开能力） | 自动压缩 / 长任务 |
 | 工具 | read / grep / list / write / edit / bash / recall | 文件、搜索、shell、LSP、MCP 等 | shell、apply_patch、搜索、MCP 等 |

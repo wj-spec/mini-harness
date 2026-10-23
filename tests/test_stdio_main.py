@@ -10,7 +10,7 @@ from app import __main__ as entrypoint
 from app.config import Config
 
 
-def test_stdio_entry_reuses_agent_without_opening_textual(tmp_path, monkeypatch):
+def test_stdio_entry_reuses_agent_without_opening_ui(tmp_path, monkeypatch):
     import app.stdio
 
     calls = []
@@ -51,33 +51,28 @@ def test_stdio_loads_mcp_configuration_for_backend_lifecycle(tmp_path, monkeypat
     assert not opened[0]["mcp"].clients
 
 
-def test_default_entry_remains_textual(tmp_path, monkeypatch):
+def test_default_entry_points_to_ink(tmp_path, monkeypatch, capsys):
     import app.stdio
 
-    opened = []
-
-    class App:
-        def run(self):
-            opened.append("Textual")
-
     monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path))
-    monkeypatch.setattr(entrypoint, "build_textual_app", lambda *args, **kwargs: App())
-    monkeypatch.setattr(app.stdio, "run_stdio", lambda *args, **kwargs: pytest.fail("default switched to Ink"))
+    monkeypatch.setattr(app.stdio, "run_stdio", lambda *args, **kwargs: pytest.fail("backend started without --stdio"))
     monkeypatch.setattr(sys, "argv", ["vibe", "--fake"])
-    entrypoint.main()
-    assert opened == ["Textual"]
+    with pytest.raises(SystemExit) as error:
+        entrypoint.main()
+    assert error.value.code == 2
+    assert "./run_ink.sh" in capsys.readouterr().err
 
 
-def test_stdio_process_does_not_import_textual(tmp_path):
+def test_stdio_process_does_not_import_ui_modules(tmp_path):
     project = Path(__file__).resolve().parents[1]
     script = '''
 import importlib.abc
 import sys
-class RejectTextual(importlib.abc.MetaPathFinder):
+class RejectUI(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
-        if fullname == "textual" or fullname.startswith("textual."):
-            raise RuntimeError("stdio imported Textual")
-sys.meta_path.insert(0, RejectTextual())
+        if fullname in {"app.tui", "app.context_view"} or fullname.startswith(("app.tui.", "app.context_view.")):
+            raise RuntimeError("stdio imported a retired UI module")
+sys.meta_path.insert(0, RejectUI())
 from app.__main__ import main
 main()
 '''

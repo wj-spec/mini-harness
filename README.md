@@ -6,17 +6,15 @@
 
 ## 当前能力
 
-支持读取、搜索和修改工作区文件，运行命令、联网检索，并通过 stdio MCP 接入外部工具。模型侧支持 OpenAI-compatible 流式接口；本地 fake 模式可用于不联网地检查交互与协议。默认入口是 Textual，可选的 React/Ink 工作台通过本地 JSON Lines 连接同一个 Python Agent。
+支持读取、搜索和修改工作区文件，运行命令、联网检索，并通过 stdio MCP 接入外部工具。模型侧支持 OpenAI-compatible 流式接口；本地 fake 模式可用于不联网地检查交互与协议。界面入口是 React/Ink 工作台，通过本地 JSON Lines 连接 Python Agent；Textual 入口已于 2026-10-23 退役。
 
 ## 架构
 
 ```mermaid
 flowchart LR
-    user["用户"] --> textual["Textual TUI（默认）"]
-    user --> ink["React / Ink TUI（可选）"]
+    user["用户"] --> ink["React / Ink TUI"]
     ink -- "JSON Lines" --> stdio["Python stdio 适配"]
-    textual --> agent["Agent.run() · 单 Agent loop"]
-    stdio --> agent
+    stdio --> agent["Agent.run() · 单 Agent loop"]
     agent <--> provider["Provider · OpenAI-compatible / fake"]
     agent --> core["core/ · 消息、上下文、预算、任务状态"]
     agent -- "只读工具" --> tools["ToolRegistry"]
@@ -27,7 +25,7 @@ flowchart LR
     session --> local[".vibe/ 会话与运行记录"]
 ```
 
-[`core/`](core/) 只依赖 Python 标准库，负责可复用的消息、预算、上下文与任务状态；模型接入、工具和执行流程在 [`app/`](app/)。Textual 与 Ink 共用 [`Agent.run()`](app/agent.py)，界面更换不会产生第二套执行逻辑。
+[`core/`](core/) 只依赖 Python 标准库，负责可复用的消息、预算、上下文与任务状态；模型接入、工具和执行流程在 [`app/`](app/)。Ink 通过 stdio 后端调用同一个 [`Agent.run()`](app/agent.py)，界面更换不会产生第二套执行逻辑。
 
 ## 核心设计
 
@@ -37,19 +35,15 @@ flowchart LR
 
 ## 快速体验
 
-需要 Python 3.11+ 和 `uv`。以下命令启动无需模型 API 的界面演示：
+需要 Python 3.11+、`uv` 和 Node.js 22+。以下命令启动无需模型 API 的界面演示：
 
 ```bash
 uv sync --extra test
-./run_vibe.sh --fake
-```
-
-配置 `VIBE_API_KEY`、`VIBE_BASE_URL`、`VIBE_MODEL` 后，可以用 `./scripts/demo.sh` 在临时示例仓库里体验真实编码任务。Ink 入口需要 Node.js 22+：
-
-```bash
 npm --prefix tui ci
 ./run_ink.sh --fake
 ```
+
+配置 `VIBE_API_KEY`、`VIBE_BASE_URL`、`VIBE_MODEL` 后，可以用 `./scripts/demo.sh` 在临时示例仓库里体验真实编码任务。
 
 安装、模型配置与操作方式见[使用指南](docs/USAGE.md)；演示步骤见[三分钟 Demo](docs/DEMO.md)。fake 模式用于确定性接线检查，不代表真实模型的任务完成效果。
 

@@ -1,12 +1,12 @@
 # 文件规划
 
-> 目标：`core/` 是可复用的 Agent harness；`app/` 是第一个 consumer（TUI coding agent）；`tests/` 镜像模块；`docs/` 放协议和 spec；`archive/` 放历史草稿，不被 import。
+> 目标：`core/` 是可复用的 Agent harness；`app/` 是第一个 consumer（coding agent 后端）；`tests/` 镜像模块；`docs/` 放协议和 spec；`archive/` 放历史草稿，不被 import。
 
 ## 目录
 
 ```
 mini-harness/
-  core/                 # 可复用 harness，不依赖 TUI
+  core/                 # 可复用 harness，不依赖界面
     __init__.py
     models.py           # Message / ToolCall / Response
     budget.py           # BudgetPolicy：S/M/T/H/R 分区
@@ -14,7 +14,7 @@ mini-harness/
     state.py            # TaskState：harness 侧任务进度
     summarize.py        # 确定性摘要，只依赖标准库
 
-  app/                  # TUI product
+  app/                  # Python 后端：模型、工具、审批、会话、eval
     __main__.py         # vibe 入口
     config.py           # env / workspace / 预算
     events.py           # TextDelta / ToolCallsReady / Error
@@ -35,10 +35,9 @@ mini-harness/
     summarize.py        # LLM 摘要 HTTP 适配器 + 确定性回退
     eval.py             # 10 任务 eval、check、报告、regression delta
     agent.py            # 唯一运行 loop：流式 + 工具执行 + context 接入
-    tui.py              # Textual 界面
     stdio.py            # Ink JSONL：恢复、审批、MCP、命令、取消、会话记录
 
-  tui/                  # Node.js + TypeScript + React/Ink 新入口
+  tui/                  # Node.js + TypeScript + React/Ink 工作台（唯一界面入口）
     src/
       cli.tsx           # 参数、渲染、进程信号与清理
       backend.ts        # Python 子进程、帧校验与关闭
@@ -62,7 +61,7 @@ mini-harness/
   evals/                # tasks.json（10 个任务）
   examples/demo-repo/   # 3 分钟 demo 仓库
   examples/skills.json  # 可提交的静态技能配置示例
-  scripts/demo.sh       # 复制 demo 并启动 TUI
+  scripts/demo.sh       # 复制 demo 并启动 Ink 工作台
   AGENTS.md             # 项目规则（自举）
 
   tests/                # 镜像模块
@@ -83,7 +82,6 @@ mini-harness/
     test_skill_discovery.py
     test_skill_lifecycle.py
     test_policy.py
-    test_tui.py
     test_provider.py
 
   docs/
@@ -105,7 +103,8 @@ mini-harness/
   README.md
   pyproject.toml
   run_vibe.sh
-  run_ink.sh            # 编译并启动 Ink，默认入口仍是 run_vibe.sh
+  run_ink.sh            # 编译并启动 Ink（唯一交互入口）
+  run_vibe.sh           # Python 入口：--stdio 后端、--eval、会话列表
   run_tests.sh
   .gitignore
 ```
@@ -118,9 +117,9 @@ tests ─> core + app
 core ──> 只依赖 stdlib
 ```
 
-**硬规则**：`core/` 不能 import `app/`，也不能 import `textual` / `httpx`。core 一旦沾上 TUI，就不能复用到别的项目。
+**硬规则**：`core/` 只依赖标准库，不能 import `app/`、`httpx`、`rich`。core 一旦沾上界面，就不能复用到别的项目。
 
-Textual、stdio 后端与 eval 都调用 `app.agent.Agent.run()`。Ink 通过本地 JSONL 与 stdio 后端交互，工具执行和审批决定仍由 Python 持有。循环测试放在 `tests/test_agent.py` 等 Python 回归中，界面与传输测试另见 `tui/tests/`。
+stdio 后端与 eval 都调用 `app.agent.Agent.run()`。Ink 通过本地 JSONL 与 stdio 后端交互，工具执行和审批决定仍由 Python 持有；Textual 界面已于 2026-10-23 退役。循环测试放在 `tests/test_agent.py` 等 Python 回归中，界面与传输测试另见 `tui/tests/`。
 `app.summarize.LLMSummarizer` 通过现有 `summarizer` 参数注入 `ContextBuilder`，`core/` 不负责网络请求。
 
 ## 新文件放哪
@@ -139,7 +138,7 @@ Textual、stdio 后端与 eval 都调用 `app.agent.Agent.run()`。Ink 通过本
 ## 规则
 
 1. **一个文件一个职责**。不要建空占位文件；要用时再建。
-2. **core 不 import app**。如果 core 需要 TUI 的东西，说明分层错了。
+2. **core 不 import app**。如果 core 需要界面的东西，说明分层错了。
 3. **每个新模块配测试**：成功路径 + 一个失败路径。
 4. **移动/新增文件后**，更新 `README.md` 和本文件。
 5. **运行时产物**放 `.vibe/`（offload / backups / sessions），已 gitignore。

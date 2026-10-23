@@ -25,7 +25,7 @@ def configure(tmp_path, monkeypatch):
 @pytest.mark.parametrize("flags", [["--fake"], ["--provider", "fake"], ["--test-session"]])
 def test_test_modes_label_new_sessions(tmp_path, monkeypatch, flags):
     opened = configure(tmp_path, monkeypatch)
-    monkeypatch.setattr(sys, "argv", ["vibe", *flags])
+    monkeypatch.setattr(sys, "argv", ["vibe", *flags, "--stdio"])
 
     entrypoint.main()
 
@@ -34,7 +34,7 @@ def test_test_modes_label_new_sessions(tmp_path, monkeypatch, flags):
 
 def test_normal_mode_labels_new_user_session(tmp_path, monkeypatch):
     opened = configure(tmp_path, monkeypatch)
-    monkeypatch.setattr(sys, "argv", ["vibe"])
+    monkeypatch.setattr(sys, "argv", ["vibe", "--stdio"])
     entrypoint.main()
     assert json.loads(opened[0].meta_path.read_text())["purpose"] == "user"
 
@@ -45,7 +45,7 @@ def test_normal_continue_ignores_newer_marked_test(tmp_path, monkeypatch):
     smoke = SessionStore.new(tmp_path, "m", purpose="test")
     smoke.append_message(Message("user", "验证"))
     opened = configure(tmp_path, monkeypatch)
-    monkeypatch.setattr(sys, "argv", ["vibe", "--continue"])
+    monkeypatch.setattr(sys, "argv", ["vibe", "--continue", "--stdio"])
     entrypoint.main()
     assert opened[0].id == previous.id
 
@@ -57,7 +57,7 @@ def test_explicit_session_id_cannot_cross_purpose(tmp_path, monkeypatch, flags):
     session.append_message(Message("user", "不能跨范围加载"))
     configure(tmp_path, monkeypatch)
     monkeypatch.setattr(entrypoint, "build_provider", lambda *a, **k: pytest.fail("provider initialized"))
-    monkeypatch.setattr(sys, "argv", ["vibe", *flags, "--session", session.id])
+    monkeypatch.setattr(sys, "argv", ["vibe", *flags, "--session", session.id, "--stdio"])
     before = {path.name: path.read_bytes() for path in session.root.iterdir() if path.is_file()}
     with pytest.raises(SystemExit) as error:
         entrypoint.main()
@@ -71,7 +71,7 @@ def test_test_mode_continues_only_test_session(tmp_path, monkeypatch):
     normal = SessionStore.new(tmp_path, "m")
     normal.append_message(Message("user", "较新的正常工作"))
     opened = configure(tmp_path, monkeypatch)
-    monkeypatch.setattr(sys, "argv", ["vibe", "--test-session", "--continue"])
+    monkeypatch.setattr(sys, "argv", ["vibe", "--test-session", "--continue", "--stdio"])
     entrypoint.main()
     assert opened[0].id == smoke.id
 
@@ -123,13 +123,3 @@ def test_direct_fake_stdio_creation_also_marks_test_session(tmp_path):
         assert SessionStore.open_existing(tmp_path, events[0]["session_id"], purpose="test") is not None
 
     asyncio.run(scenario())
-
-
-@pytest.mark.parametrize("purpose", ["user", "test"])
-def test_textual_title_marks_test_session(tmp_path, purpose):
-    from app.tui import VibeApp
-
-    session = SessionStore.new(tmp_path, "m", purpose=purpose)
-    agent = Agent(FakeProvider(["unused"]), ToolRegistry(tmp_path))
-    app = VibeApp(Config(workspace=tmp_path), agent, session=session)
-    assert ("测试会话" in app.title) is (purpose == "test")

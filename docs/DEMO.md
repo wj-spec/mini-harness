@@ -12,7 +12,7 @@
 ./scripts/demo.sh
 ```
 
-它会复制 `examples/demo-repo` 到临时目录并启动 TUI。
+它会复制 `examples/demo-repo` 到临时目录并启动 Ink 工作台。
 
 看启动日志：
 
@@ -69,7 +69,7 @@ VIBE_INPUT_PRICE_PER_1M=0.27 VIBE_OUTPUT_PRICE_PER_1M=1.10 ./scripts/demo.sh
 退出后：
 
 ```bash
-./run_vibe.sh --workspace <demo-repo> --continue
+./run_ink.sh --workspace <demo-repo> --continue
 ```
 
 将 `<demo-repo>` 替换为启动时输出的临时工作区路径。明确停止或取消的任务先展示保存进度，输入 `/resume` 才开启新一轮预算；缺少终态记录的中断任务沿恢复流程处理。恢复后先核对实际文件和执行结果。

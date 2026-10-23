@@ -21,12 +21,6 @@ from core.state import TaskState
 from core.summarize import summarize_messages
 
 
-def build_textual_app(*args, **kwargs):
-    from app.tui import VibeApp
-
-    return VibeApp(*args, **kwargs)
-
-
 def build_provider(config: Config, fake: bool, debug_path=None):
     if fake or config.provider == "fake":
         return FakeProvider(
@@ -80,6 +74,13 @@ def main() -> None:
         parser.error("--list-sessions cannot be combined with --stdio or --eval")
     if args.eval_limit is not None and args.eval_limit < 1:
         parser.error("--eval-limit must be positive")
+    if not args.stdio and not args.eval and not args.list_sessions:
+        print(
+            "Textual 入口已退役。交互界面请运行 ./run_ink.sh（例如 ./run_ink.sh --fake）；"
+            "后端与 eval 分别使用 --stdio / --eval。",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
     config = Config.from_env()
     if args.provider:
         config.provider = args.provider
@@ -218,12 +219,11 @@ def _run(config, session, tools, approval, provider, context, state, history, ar
         pricing=pricing,
         project_instructions=instructions,
     )
-    if args.stdio:
-        from app.stdio import run_stdio
+    if not args.stdio:
+        raise SystemExit(2)  # main() 已拦截；保留防御，避免误走交互入口。
+    from app.stdio import run_stdio
 
-        run_stdio(agent, config, session=session, resumed=args.continue_session or args.session is not None, mcp=mcp)
-    else:
-        build_textual_app(config, agent, session=session, resumed=args.continue_session or args.session is not None, mcp=mcp).run()
+    run_stdio(agent, config, session=session, resumed=args.continue_session or args.session is not None, mcp=mcp)
 
 
 if __name__ == "__main__":
