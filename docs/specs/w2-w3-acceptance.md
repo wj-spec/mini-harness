@@ -99,6 +99,15 @@ rm -rf .vibe/w2w3/workspace/.vibe/sessions   # 仅在需要全新会话时
 
 ## W3：隔天继续同一个任务
 
+### 执行记录（2026-10-23）
+
+- 读中断 + 恢复：`w3-interrupt-read-20261023-200446.json`、`w3-resume-20261023-200623.json`；`/resume` 先核对未知命令，再重跑测试。
+- 外部改动：`w3-external-20261023-200844.json`、`w3-external-resume-20261023-201015.json`；识别 `# external change` 后保留并修复。
+- 新旧任务：`w3-newtask-20261023-200751.json`；新会话目标为 README，无旧目标。
+- 正常完成与恢复：`w3-normal-20261023-201057.json`、`w3-normal-resume-20261023-201210.json`；总结目标、改动、验证与未提交项。
+- 待跑：`w3-compaction`（低压缩阈值长任务总结）。
+
+
 ### 推荐：逐步引导脚本（每条独立取证；按顺序执行）
 
 ```bash
