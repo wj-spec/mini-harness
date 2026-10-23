@@ -9,13 +9,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WORKSPACE = ROOT / ".vibe" / "w2w3" / "workspace"
 
-SLOW_TEST = '''"""演示用的长测试：先等 45 秒，再检查 calc.add。"""
+SLOW_TEST = '''"""演示用的慢测试：先等 20 秒（默认 30 秒工具超时内），再检查 calc.add。"""
 import time
 
 import calc
 
 print("slow integration test starting", flush=True)
-for _ in range(45):
+for _ in range(20):
     time.sleep(1)
 print("slow integration test checking", flush=True)
 assert calc.add(2, 3) == 5, "add is broken"
@@ -28,6 +28,18 @@ def main() -> None:
         shutil.rmtree(WORKSPACE)
     shutil.copytree(ROOT / "examples" / "demo-repo", WORKSPACE, ignore=shutil.ignore_patterns(".vibe"))
     (WORKSPACE / "slow_test.py").write_text(SLOW_TEST, encoding="utf-8")
+    (WORKSPACE / "slow_command.py").write_text(
+        '''"""演示用的长命令：用于验证命令运行中的停止边界。"""
+import time
+
+print("slow command running", flush=True)
+for _ in range(120):
+    time.sleep(1)
+print("slow command done", flush=True)
+''',
+        encoding="utf-8",
+    )
+    (WORKSPACE / ".gitignore").write_text(".vibe/\n", encoding="utf-8")
     subprocess.run(["git", "init", "-q"], cwd=WORKSPACE, check=True)
     subprocess.run(["git", "add", "-A"], cwd=WORKSPACE, check=True)
     subprocess.run(

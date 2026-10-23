@@ -45,7 +45,7 @@ Ink：
 
 - 运行中 Composer 保持可编辑可提交；Enter 发 `steer` 帧，成功提示以对应 `ack` 为准，同请求 id 的 `error` 用 notice 报失败，不把控制请求错误标成整轮“运行异常”。命令执行中（`activeCommand` 非 `resume`）不发纠偏、不排队，提示结束后再发送。
 - `/followup` 为前端本地路由：本轮正常结束（`done` 且非 `cancelled`）后按 FIFO 自动 `run`；取消时清空队列并提示丢弃数量，不把“停止”改写成“继续”；自动续跑不清空用户正在编辑的草稿；`closed` 或退出时清空队列。
-- 纠偏被后端消费时，stdio 发送 `notice`（“已应用纠偏：…”），Ink 与 Textual 都能实时看到；`cancelled` / `stopped` 的机器状态串不再作为 Agent 回复写进 transcript，只保留已流出的正文；`/help`、Tab 补全与 CLI 帮助共用同一份命令清单。
+- 纠偏被后端消费时，stdio 发送 `notice`（“已应用纠偏：…”），Ink 与 Textual 都能实时看到；该 `notice` 的 `id` 必须为 `null`（Ink 协议要求，否则会以协议错误断连）；`cancelled` / `stopped` 的机器状态串不再作为 Agent 回复写进 transcript，只保留已流出的正文；`/help`、Tab 补全与 CLI 帮助共用同一份命令清单。
 - 只实现前端队列，不在后端保存；断线或退出后队列丢失，不做自动重放。
 
 ## 边界与未做

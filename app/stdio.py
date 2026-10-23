@@ -377,7 +377,8 @@ class _Connection:
         def persist_message(message):
             self.session.append_message(message)
             if message.name == "steering":
-                self.send("notice", request_id, message=f"已应用纠偏：{message.content}")
+                # Ink 协议要求 notice 的 id 为 null；带 run id 会被判为协议错误并断连。
+                self.send("notice", None, message=f"已应用纠偏：{message.content}")
 
         try:
             publish_metrics()

@@ -9,7 +9,7 @@ cd /Users/endless/Desktop/self_project/mini-harness
 .venv/bin/python3 scripts/w2w3_setup.py
 ```
 
-生成 `.vibe/w2w3/workspace`：`examples/demo-repo` 副本（`calc.py` 的 `add` 故意写错，`test_calc.py` 失败）+ 长测试 `slow_test.py`（约 45 秒）+ 独立 git 仓库。每次重置：
+生成 `.vibe/w2w3/workspace`：`examples/demo-repo` 副本（`calc.py` 的 `add` 故意写错，`test_calc.py` 失败）+ 慢测试 `slow_test.py`（约 20 秒，在默认 30 秒工具超时内失败）+ 长命令 `slow_command.py`（120 秒，用于命令停止边界）+ 独立 git 仓库。每次重置：
 
 ```bash
 git -C .vibe/w2w3/workspace checkout -- .
@@ -29,7 +29,7 @@ rm -rf .vibe/w2w3/workspace/.vibe/sessions   # 仅在需要全新会话时
 .venv/bin/python3 scripts/w2w3_evidence.py --label w2-steer
 ```
 
-取证内容包括：git head/status/diff、文件哈希、`slow_test.py` 残留进程、最近 `run_end`（状态/步数/用量）、`steering_applied`、`command_result`（命令/状态/退出码）、审批记录、未知/未执行工具消息。只读采集，不修改会话。
+取证内容包括：git head/status/diff、文件哈希、`slow_test.py` / `slow_command.py` 残留进程、最近 `run_end`（状态/步数/用量）、`steering_applied`、`command_result`（命令/状态/退出码）、审批记录、未知/未执行工具消息。只读采集，不修改会话。
 
 ## W2：掌控运行过程
 
@@ -41,7 +41,7 @@ rm -rf .vibe/w2w3/workspace/.vibe/sessions   # 仅在需要全新会话时
    先运行 python3 slow_test.py 看它如何失败，再修 calc.py 的 add。要求保持 add(a, b) 公开签名不变，不要改 test_calc.py。
    ```
 
-2. 等到 `slow_test.py` 正在运行（终端显示工具执行约 30 秒时），在输入框输入并回车：
+2. 等到 `slow_test.py` 正在运行（约 5–10 秒后，测试还在 sleep），在输入框输入并回车：
 
    ```text
    补充约束：只改 calc.py 的内部实现；修完用中文说明根因。不要修改任何测试文件。
@@ -60,7 +60,7 @@ rm -rf .vibe/w2w3/workspace/.vibe/sessions   # 仅在需要全新会话时
 |---|---|---|
 | 模型等待 | 新会话，发送“读取项目并解释 calc.py 的问题，先不要修改”；<1 秒内按 `Ctrl+C` | 状态从“正在停止”到“已取消”；没有工具执行、文件哈希不变 |
 | 审批等待 | 新会话，发送“修复 calc.py 的 add 并运行测试”；出现编辑审批时直接 `Ctrl+C`（不要按 y/s/p） | 任务取消；`calc.py` 哈希不变；审批审计无 allow |
-| 命令运行 | 新会话，发送“运行 python3 slow_test.py 并报告结果”；允许执行；约 3 秒后 `Ctrl+C` | 任务取消；`pgrep -f slow_test.py` 无残留；`test_calc.py` 仍失败；取消后不再有新的模型/工具请求 |
+| 命令运行 | 新会话，发送“运行 python3 slow_command.py 并报告结果”；允许执行；约 3 秒后 `Ctrl+C` | 任务取消；`pgrep -f slow_command.py` 无残留；`test_calc.py` 仍失败；取消后不再有新的模型/工具请求 |
 
 **停止后核对**：已有写入是否保留、命令是完成/终止/未知、界面不把“取消”写成“撤销”。用 `git -C .vibe/w2w3/workspace diff` 与证据 JSON 核对。
 

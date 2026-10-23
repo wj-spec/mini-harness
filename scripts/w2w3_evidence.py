@@ -43,8 +43,11 @@ def git(args: list[str]) -> str:
 
 
 def running_processes() -> list[str]:
-    result = subprocess.run(["pgrep", "-fl", "slow_test.py"], capture_output=True, text=True)
-    return [line for line in result.stdout.splitlines() if line.strip()]
+    lines: list[str] = []
+    for pattern in ("slow_test.py", "slow_command.py"):
+        result = subprocess.run(["pgrep", "-fl", pattern], capture_output=True, text=True)
+        lines.extend(line for line in result.stdout.splitlines() if line.strip())
+    return lines
 
 
 def main() -> None:
@@ -67,7 +70,7 @@ def main() -> None:
             "status": git(["status", "--porcelain"]),
             "diff": git(["diff"])[:8000],
         },
-        "files": {name: file_hash(WORKSPACE / name) for name in ("calc.py", "test_calc.py", "slow_test.py")},
+        "files": {name: file_hash(WORKSPACE / name) for name in ("calc.py", "test_calc.py", "slow_test.py", "slow_command.py")},
         "slow_test_processes": running_processes(),
         "sessions": [path.name for path in sessions],
     }
@@ -95,7 +98,7 @@ def main() -> None:
     path.write_text(json.dumps(evidence, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"证据已保存：{path}")
     print(f"会话：{evidence['session']} | run_end 状态：{[event.get('status') for event in evidence.get('run_ends', [])]}")
-    print(f"slow_test 残留进程：{evidence['slow_test_processes'] or '无'}")
+    print(f"慢命令残留进程：{evidence['slow_test_processes'] or '无'}")
     print(f"工作区改动：{evidence['git']['status'] or '无'}")
 
 

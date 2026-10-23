@@ -141,6 +141,8 @@
 
 **用户场景**：任务执行到一半时，你改变范围或要求停止，后续行为采用你的最新要求，并清楚展示已经发生的变化。
 
+**真实验收发现 1（2026-10-23）**：W2-A 纠偏提交后，stdio 把“已应用纠偏”的 `notice` 带上了 run id，而 Ink 协议要求 `notice.id === null`，触发 `protocol_error: 后端消息字段无效：notice`，Ink 断开连接、run 被取消（trace：`steering_applied` 后 `run_end status=cancelled`）。已改为 `send("notice", None, ...)` 并在 parity 测试断言 notice id 为 `None`；证据 `.vibe/w2w3/evidence/w2-bug-notice-20261023-171449.json`。W2-A 需在修复后重跑，恰好证明真实验收能抓到自动测试没覆盖的跨端协议不一致。
+
 **真实验收（2026-10-23）**：环境、三种停止边界与纠偏步骤见 [W2/W3 真实验收](specs/w2-w3-acceptance.md)；用 `.venv/bin/python3 scripts/w2w3_setup.py` 准备副本，`scripts/w2w3_evidence.py` 采集会话、审批、命令与残留进程证据。执行后按证据勾选。
 
 **验收**：

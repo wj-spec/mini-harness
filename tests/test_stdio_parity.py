@@ -846,10 +846,9 @@ def test_steer_frame_queues_for_the_active_run_and_is_persisted(tmp_path):
             and message.content == "保留公开接口"
             for message in session.load_messages()
         )
-        assert any(
-            event["type"] == "notice" and "已应用纠偏：保留公开接口" in event["message"]
-            for event in c.events
-        )
+        notices = [event for event in c.events if event["type"] == "notice"]
+        applied = [event for event in notices if "已应用纠偏：保留公开接口" in event["message"]]
+        assert applied and all(event["id"] is None for event in applied)
         await c.close()
 
     asyncio.run(scenario())
