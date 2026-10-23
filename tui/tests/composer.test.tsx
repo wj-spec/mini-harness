@@ -133,9 +133,16 @@ test('Tab completes local commands and unrelated global keys do not insert text'
   assert.equal(values.at(-1), '/tools');
 });
 
+test('new local commands are discoverable through completion', async () => {
+  const {key, values} = await mount();
+  await key('/ski');
+  await key('\t');
+  assert.equal(values.at(-1), '/skills');
+});
+
 test('context inspection is discoverable through local command completion', async () => {
   const {key, values, submitted} = await mount();
-  await key('/cont');
+  await key('/conte');
   await key('\t');
   assert.equal(values.at(-1), '/context');
   assert.deepEqual(submitted, []);

@@ -191,9 +191,14 @@ export function reduceView(state: ViewState, action: Action): ViewState {
     case 'done': {
       let next = state;
       const text = event.result.text;
-      if (!state.segment) next = stream(next, text);
-      else if (text.startsWith(state.segment)) next = stream(next, text.slice(state.segment.length));
-      else if (text && text !== state.segment) next = stream(flush(next), text);
+      // done/error/truncated 的 text 是给用户的正文；cancelled/stopped 的
+      // text 常是机器状态串（"cancelled"、"stopped: max_steps"），只保留已流出的部分。
+      const finalAnswer = event.result.status === 'done' || event.result.status === 'error' || event.result.status === 'truncated';
+      if (finalAnswer) {
+        if (!state.segment) next = stream(next, text);
+        else if (text.startsWith(state.segment)) next = stream(next, text.slice(state.segment.length));
+        else if (text && text !== state.segment) next = stream(flush(next), text);
+      }
       next = flush(next);
       return {...next, entries: next.entries.map(entry => entry.pending && entry.runId === state.activeId ?
         {...entry, pending: false, uncertain: true, output: '此调用没有确认结果；请先核对实际文件与进程状态。'} : entry),

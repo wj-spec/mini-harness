@@ -9,7 +9,7 @@ import test from 'node:test';
 const cli = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../src/cli.js');
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 
-test('help works without a TTY and documents parity features while retaining Textual default', () => {
+test('help works without a TTY and documents commands and the Ink entry', () => {
   const result = spawnSync(process.execPath, [cli, '--help'], {encoding: 'utf8', timeout: 10000});
   assert.equal(result.status, 0);
   assert.match(result.stdout, /--fake/);
@@ -17,7 +17,7 @@ test('help works without a TTY and documents parity features while retaining Tex
   assert.match(result.stdout, /--fake[^\n]*测试会话/);
   assert.match(result.stdout, /普通[^\n]*测试会话/);
   assert.match(result.stdout, /MCP/);
-  for(const feature of ['工作台','Ctrl+J','PageUp','Ctrl+O','Ctrl+K','/context','/theme','/help','/cost','--continue','--session','--list-sessions','/resume','/permissions reset','/diff','/mcp','Textual','超越'])assert.ok(result.stdout.includes(feature),feature);
+  for(const feature of ['工作台','Ctrl+J','PageUp','Ctrl+O','Ctrl+K','/context','/theme','/help','/cost','--continue','--session','--list-sessions','/resume','/permissions reset','/diff','/mcp','/skills','/session','/followup','./run_ink.sh','./run_vibe.sh --eval'])assert.ok(result.stdout.includes(feature),feature);
   assert.equal(result.stderr, '');
 });
 

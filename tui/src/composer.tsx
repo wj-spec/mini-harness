@@ -1,6 +1,7 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {Box, Text, measureElement, useCursor, useInput, usePaste, type DOMElement} from 'ink';
 import {clipCells, editText, graphemes, lineBoundary, moveVertical, wrapEditor} from './editor.js';
+import {COMMAND_COMPLETIONS} from './protocol.js';
 
 type ComposerProps = {
   value: string;
@@ -20,7 +21,7 @@ type ComposerProps = {
   onCommand?: (command: string) => void;
 };
 
-const commands = ['/help', '/resume', '/context', '/cost', '/tools', '/diff', '/permissions', '/permissions reset', '/mcp', '/session', '/theme', '/followup', '/quit'];
+const commands: readonly string[] = COMMAND_COMPLETIONS;
 
 export function Composer({value, onChange, onSubmit, history, disabled = false, focused = true, placeholder = '输入任务，开始一次编码', columns, maxRows = 3, accentColor, warningColor, foregroundColor, secondaryColor, disabledHint}: ComposerProps) {
   const [cursor, setCursorState] = useState(() => graphemes(value).length);

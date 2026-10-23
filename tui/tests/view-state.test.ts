@@ -240,6 +240,22 @@ test('tracks model response and pending tools without equating returned tools wi
   assert.equal(state.lastStopReason, null);
 });
 
+test('cancelled and stopped runs keep partial output but do not print machine status as an answer', () => {
+  let cancelled = reduceView(initialState, {type: 'begin', id: 'run-1', text: 'work'});
+  cancelled = reduceView(cancelled, {type: 'event', event: event('text_delta', {delta: '部分输出'})});
+  cancelled = reduceView(cancelled, {type: 'event', event: event('done', {result: {...result, text: 'cancelled', status: 'cancelled'}})});
+  assert.deepEqual(cancelled.entries.map(entry => entry.text), ['work', '部分输出']);
+  assert.equal(cancelled.lastStatus, 'cancelled');
+
+  let stopped = reduceView(initialState, {type: 'begin', id: 'run-1', text: 'work'});
+  stopped = reduceView(stopped, {type: 'event', event: event('done', {result: {...result, text: 'stopped: max_steps', status: 'stopped'}})});
+  assert.deepEqual(stopped.entries.map(entry => entry.text), ['work']);
+
+  let finished = reduceView(initialState, {type: 'begin', id: 'run-1', text: 'work'});
+  finished = reduceView(finished, {type: 'event', event: event('done', {result})});
+  assert.deepEqual(finished.entries.map(entry => entry.text), ['work', result.text]);
+});
+
 test('information commands do not pretend to wait for a model and keep the last task outcome', () => {
   let state = reduceView(initialState, {type: 'begin', id: 'run-1', text: 'work'});
   state = reduceView(state, {type: 'event', event: event('done', {result: {...result, status: 'error', stop_reason: 'provider_error'}})});

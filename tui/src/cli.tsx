@@ -50,11 +50,13 @@ Ctrl+C 取消任务或 MCP 初始化，空闲时退出；Ctrl+Q 退出。
   /permissions reset            清除当前进程授权规则
   /diff                         查看实际 Git 改动（执行前审批）
   /mcp                          查看 MCP 服务与工具状态
+  /skills [refresh|activate NAME|unload NAME]  技能目录与生命周期
+  /session                      查看当前会话路径
+  /followup TEXT                运行中排队为后续消息，结束后自动继续
   /theme system|light|dark       切换主题
-  /quit                         退出工作台
+  /quit 或 /exit                 退出工作台
 
-默认 ./run_vibe.sh 继续使用 Textual，直到 Ink 的完成度与体验超越 Textual。
-eval 继续使用 ./run_vibe.sh --eval。
+交互入口为 ./run_ink.sh；Python 后端使用 ./run_vibe.sh --stdio，eval 使用 ./run_vibe.sh --eval。
 `;
 
 async function main() {
