@@ -148,7 +148,7 @@
 - 审批等待：session `20261023-174443-226686` / run `29a8b19c`，编辑审批面板出现时 Ctrl+C：审计 `edit_file → deny`，待执行调用写成 `ERROR cancelled: not executed`，`run_end=cancelled`，`calc.py` 哈希不变；
 - 命令运行：session `20261023-174518-680007` / run `9d767e8c`，`python3 slow_command.py` 已启动后取消：`command_result status=cancelled, exit_code=-9`，任务记录注明 `ERROR cancelled: process group reaped`，无残留进程、工作区无改动。
 
-证据：`.vibe/w2w3/evidence/w2-stop-model-20261023-174414.json`、`w2-stop-approval-20261023-174458.json`、`w2-stop-command-20261023-174610.json`。超时进程回收与取消后已写修改保留已另行验证；界面“正在停止/已取消”的可见性待用户确认后勾选 W2 第 2 条。
+证据：`.vibe/w2w3/evidence/w2-stop-model-20261023-174414.json`、`w2-stop-approval-20261023-174458.json`、`w2-stop-command-20261023-174610.json`。超时进程回收与取消后已写修改保留已另行验证。用户实测取消时只看到“已取消”，状态栏的“正在停止”被快速覆盖；已改为在 transcript 中显式记录三阶段：Ctrl+C 立即写“停止请求已发送，等待后端确认…”→ 后端 ack 写“后端已确认停止请求，等待收尾…”→ done 写“已取消：已发生的修改仍需核对”。Ink 回归 214 项通过（唯一失败为沙箱 PTY 环境项），待用户在真实会话确认三阶段可见后勾选 W2 第 2 条。
 
 **W2 超时进程回收（2026-10-23）**：session `20261023-181022-745418` / run `3c3815e2`，按默认 30 秒超时运行 `python3 slow_command.py`：`command_result status=timed_out, exit_code=-9`，任务记录注明 `ERROR timeout after 30.0s ... process group reaped`；无残留进程，工作区无改动。未把外层等待结束当成命令正常结束。证据 `.vibe/w2w3/evidence/w2-stop-timeout-20261023-181452.json`。
 

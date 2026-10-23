@@ -141,6 +141,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
         controlRequests.current.delete(event.id!);
         if (event.type === 'ack') {
           if (kind === 'steer') dispatch({type: 'notice', text: '纠偏已提交，将在下一次模型请求生效'});
+          else dispatch({type: 'notice', text: '后端已确认停止请求，等待收尾…'});
         } else if (kind === 'steer') {
           dispatch({type: 'notice', text: `纠偏未送达：${event.code}: ${event.message}`});
           setFeedback(`纠偏未送达：${event.message}`);
@@ -161,6 +162,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       if (event.result.status === 'cancelled') {
         const dropped = followups.current.length;
         followups.current = [];
+        dispatch({type: 'notice', text: '已取消：已发生的修改仍需核对'});
         if (dropped) dispatch({type: 'notice', text: `已取消，${dropped} 条排队消息已丢弃`});
       } else {
         startQueuedFollowup();
@@ -246,6 +248,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
           const id = client.cancel(activeRun.current);
           controlRequests.current.set(id, 'cancel');
           dispatch({type: 'cancel'});
+          dispatch({type: 'notice', text: '停止请求已发送，等待后端确认…'});
         } catch (error) {reportError(`取消请求未送达：${String(error)}`);}
       } else if (!state.activeId) shutdown();
       return;

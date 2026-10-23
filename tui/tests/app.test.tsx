@@ -851,3 +851,17 @@ test('mouse drag selects text and copies it on release', async () => {
   assert.deepEqual(copies, ['hello']);
   assert.match(lastFrame() ?? '', /已复制所选文本：5 字符（pbcopy）/);
 });
+
+test('shows the stopping request and cancelled stages', async () => {
+  const {client, stdin, lastFrame} = await mount();
+  await enter(stdin, 'first task');
+  stdin.write('\u0003');
+  await pause(20);
+  assert.match(lastFrame() ?? '', /停止请求已发送，等待后端确认/);
+  client.emit({type: 'ack', id: 'cancel-1', action: 'cancel'});
+  await pause(20);
+  assert.match(lastFrame() ?? '', /后端已确认停止请求，等待收尾/);
+  client.emit(completed('run-1', 'cancelled'));
+  await pause(20);
+  assert.match(lastFrame() ?? '', /已取消：已发生的修改仍需核对/);
+});
