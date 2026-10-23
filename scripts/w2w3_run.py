@@ -134,15 +134,16 @@ PARTS = {
         "label": "w3-compaction",
         "workspace": "w3-compaction",
         "reset": True,
-        "env": {"VIBE_COMPACT_INTERVAL_TOKENS": "8000"},
-        "prompt": "依次读取 README.md、AGENTS.md、calc.py、test_calc.py、slow_test.py、slow_command.py，总结项目结构与 calc.py 的 bug；不要修改文件。",
+        "env": {"VIBE_COMPACT_INTERVAL_TOKENS": "6000", "VIBE_CONTEXT_WINDOW": "24000", "VIBE_KEEP_RECENT_GROUPS": "2"},
+        "prompt": "分段读取 big_notes.md 的全部内容并总结其主题与结构；不要修改任何文件。",
         "steps": [
             "把提示词粘贴到 Ink 输入框并回车。",
-            "等待它逐个读取文件并给出总结（会触发上下文压缩）。",
+            "等待它分段读取 big_notes.md 并给出总结（会触发真正的上下文压缩）。",
             "再发送：现在说明这个任务的原目标、关键约束、已完成内容和未完成项；不要修改文件。",
             "看到总结后按 Ctrl+Q 退出。",
         ],
-        "expect": "trace 出现 history_compacted；压缩后仍能说明原目标、约束与未完成项。",
+        "expect": "trace 出现实压缩（before>after 或 summary_layers/offloaded 非空）；压缩后仍能说明原目标、约束与未完成项。",
+        "big_notes": True,
     },
     "w3-normal": {
         "label": "w3-normal",
@@ -192,6 +193,13 @@ def main() -> int:
         prepare(workspace)
     elif not workspace.is_dir():
         raise SystemExit(f"工作区不存在：{workspace}；请先运行前置引导（例如 w3-interrupt-read）")
+    if part.get("big_notes"):
+        lines: list[str] = []
+        for index in range(1, 1201):
+            lines.append(f"## 段落 {index}")
+            lines.append("这是用于上下文压缩验收的模拟项目笔记，重复内容用于让上下文增长到需要压缩。")
+        (workspace / "big_notes.md").write_text("\n".join(lines), encoding="utf-8")
+        print(f"已生成压缩验收素材：{workspace / 'big_notes.md'}（1200 段）")
     print("=" * 64)
     print(f"验收：{args.part}")
     print(f"隔离工作区：{workspace}")
