@@ -22,13 +22,13 @@ from w2w3_setup import prepare  # noqa: E402
 PARTS = {
     "model": {
         "label": "w2-stop-model",
-        "prompt": "用至少 1500 字详细解释 ReAct 循环，不要调用任何工具。",
+        "prompt": "用至少 5000 字详细解释 ReAct 循环，不要调用任何工具；逐节展开，不要提前收尾。",
         "steps": [
             "把提示词粘贴到 Ink 输入框并回车。",
-            "等待 1–2 秒，看到文字开始流式输出后立刻按 Ctrl+C。",
+            "看到第一段文字开始流式输出后立刻（1–2 秒内）按 Ctrl+C，不要等它写完。",
             "确认底部从“正在停止”变为“已取消”，然后按 Ctrl+Q 退出 Ink。",
         ],
-        "expect": "取消发生在模型流式输出期间；run 没有工具调用，工作区无改动。",
+        "expect": "取消发生在模型流式输出期间（run_end 早于或打断 llm_end）；没有工具调用，工作区无改动。",
     },
     "approval": {
         "label": "w2-stop-approval",
