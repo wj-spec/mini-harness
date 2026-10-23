@@ -6,7 +6,7 @@ import {cleanup, render} from 'ink-testing-library';
 import {App} from '../src/app.js';
 import type {BackendClient} from '../src/backend.js';
 import type {ServerEvent} from '../src/protocol.js';
-import {initialState} from '../src/view-state.js';
+import {initialState, type ViewState} from '../src/view-state.js';
 import stringWidth from 'string-width';
 import {contextSnapshot, loadedContextSnapshot} from './context-fixture.js';
 
@@ -38,9 +38,9 @@ class MockClient {
 
 afterEach(cleanup);
 
-async function mount() {
+async function mount(copyText?: (text: string) => string | null, initialState?: ViewState) {
   const client = new MockClient();
-  const view = render(<App client={client as unknown as BackendClient}/>);
+  const view = render(<App client={client as unknown as BackendClient} copyText={copyText} initialState={initialState}/>);
   await pause(20);
   client.emit({type: 'ready', workspace: '/tmp/repo', model: 'fake', session_id: 'test', capabilities: []});
   client.emit({type: 'status', phase: 'idle'});
@@ -787,4 +787,53 @@ test('footer shows one outcome label for finished, cancelled and stopped runs', 
   const stoppedFrame = lastFrame() ?? '';
   assert.match(stoppedFrame, /token_budget/);
   assert.doesNotMatch(stoppedFrame, /已停止 · 已停止/);
+});
+
+test('Ctrl+Y copies the latest assistant reply', async () => {
+  const copies: string[] = [];
+  const {client, stdin, lastFrame} = await mount(text => {copies.push(text); return 'pbcopy';});
+  await enter(stdin, 'first task');
+  client.emit({type: 'done', id: 'run-1', result: {text: '最终回答：已修复。', steps: 1, status: 'done', usage: {}, cost_usd: 0, run_id: 'run-1', stop_reason: ''}});
+  await pause(20);
+  stdin.write('\u0019');
+  await pause(25);
+  assert.deepEqual(copies, ['最终回答：已修复。']);
+  assert.match(lastFrame() ?? '', /已复制最近回复：\d+ 字符（pbcopy）/);
+});
+
+test('/copy copies the latest assistant reply too', async () => {
+  const copies: string[] = [];
+  const {client, stdin, lastFrame} = await mount(text => {copies.push(text); return 'osc52';});
+  await enter(stdin, 'first task');
+  client.emit({type: 'done', id: 'run-1', result: {text: '可复制的回答', steps: 1, status: 'done', usage: {}, cost_usd: 0, run_id: 'run-1', stop_reason: ''}});
+  await pause(20);
+  await enter(stdin, '/copy');
+  assert.deepEqual(copies, ['可复制的回答']);
+  assert.match(lastFrame() ?? '', /已复制最近回复/);
+});
+
+test('copy without content explains instead of failing silently', async () => {
+  const copies: string[] = [];
+  const {stdin, lastFrame} = await mount(text => {copies.push(text); return 'pbcopy';});
+  await enter(stdin, '/copy');
+  assert.deepEqual(copies, []);
+  assert.match(lastFrame() ?? '', /没有可复制的 Agent 回复/);
+});
+
+test('copying in a tool detail view includes arguments and output', async () => {
+  const copies: string[] = [];
+  const state: ViewState = {...initialState, phase: 'idle', entries: [
+    {id: 0, kind: 'task', text: 'work'},
+    {id: 1, kind: 'tool', text: '工具 › read_file', call: {id: 't1', name: 'read_file', args: {path: 'a.txt'}}, output: 'hello', ok: true, pending: false},
+  ], nextEntry: 2};
+  const {stdin, lastFrame} = await mount(text => {copies.push(text); return 'pbcopy';}, state);
+  stdin.write('\u000f');
+  await pause(20);
+  stdin.write('\u0019');
+  await pause(25);
+  assert.equal(copies.length, 1);
+  assert.match(copies[0] ?? '', /read_file/);
+  assert.match(copies[0] ?? '', /"path": "a.txt"/);
+  assert.match(copies[0] ?? '', /hello/);
+  assert.match(lastFrame() ?? '', /已复制工具详情/);
 });

@@ -23,6 +23,8 @@
 
 2026-10-20 用户明确把界面开发纳入长期全栈学习。新 TUI 选用 Node.js + TypeScript + React/Ink，保留 Python Agent 后端；默认仍运行 Textual，`run_ink.sh` 为新入口。2026-10-21 用户明确要求：默认入口继续保留 Textual，直到 Ink 的开发与实际体验超越 Textual。功能补齐和测试通过不会自动触发切换。切片服务于 W1–W3 的完成条件，不提升产品里程碑的真实验收状态。
 
+**Ink 复制能力（2026-10-23）**：用户反馈全屏界面里无法复制 Agent 回复。[复制规格](specs/ink-copy.md)：`Ctrl+Y` 或 `/copy`，工具详情打开时复制参数与完整输出、审批打开时复制预览、否则复制最近一条回复；优先本机剪贴板命令（`pbcopy` / `clip` / `wl-copy` / `xclip`），失败回退 OSC 52；单次上限 1 MiB。复制是本地只读操作，不经过审批。自动回归覆盖剪贴板回退与三种复制目标；真实终端里的复制效果待用户验收。
+
 **默认入口切换与 Textual 退役（2026-10-23）**：用户明确 Textual 后续不再使用，Ink 成为唯一界面入口。已删除 `app/tui.py`、`app/context_view.py`、对应测试与 `textual` 依赖；`./run_vibe.sh` 保留为 Python 端 `--stdio` 后端、`--eval` 与会话列表入口，交互界面统一使用 `./run_ink.sh`（Node.js 22+）。这是入口决定，不改变 W1–W3 的其余真实验收条目。
 
 | 切片 | 交付与验收 | 学习重点 | 状态 |

@@ -11,6 +11,7 @@ import {getPalette, type ThemeName} from './theme.js';
 import {terminalColorLevel} from './terminal-colors.js';
 import {useTranscriptMouse} from './use-transcript-scroll.js';
 import {contextLines} from './context-view.js';
+import {copyToClipboard} from './clipboard.js';
 
 type Scroll = {follow: boolean; top: number};
 const backendCommands: Record<string, BackendCommand> = {
@@ -19,14 +20,16 @@ const backendCommands: Record<string, BackendCommand> = {
 };
 const approvalKeys: Record<string, ApprovalDecision> = {y: 'once', s: 'session', p: 'workspace', n: 'deny'};
 
-export function App({client, initialState = emptyState, windowSize, initialTheme = 'system'}: {
+export function App({client, initialState = emptyState, windowSize, initialTheme = 'system', copyText = copyToClipboard}: {
   client: BackendClient; initialState?: ViewState; windowSize?: {columns: number; rows: number}; initialTheme?: ThemeName;
+  copyText?: (text: string) => string | null;
 }) {
   const [state, dispatch] = useReducer(reduceView, initialState);
   const [input, setInput] = useState('');
   const [theme, setTheme] = useState<ThemeName>(initialTheme);
   const [quitting, setQuitting] = useState(false);
   const [feedback, setFeedback] = useState('');
+  const [feedbackTone, setFeedbackTone] = useState<'info' | 'error'>('error');
   const [scroll, setScroll] = useState<Scroll>({follow: true, top: 0});
   const [selectedTool, setSelectedTool] = useState<number | null>(null);
   const [detail, setDetail] = useState<number | null>(null);
@@ -147,7 +150,8 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
   usePaste(() => {}, {isActive: readerFocused});
 
   const notice = (text: string) => {dispatch({type: 'notice', text}); setScroll({follow: true, top: 0});};
-  const reportError = (text: string) => {notice(text); setFeedback(text);};
+  const announce = (text: string) => {notice(text); setFeedback(text); setFeedbackTone('info');};
+  const reportError = (text: string) => {notice(text); setFeedback(text); setFeedbackTone('error');};
   const shutdown = () => {
     if (closing.current) return;
     closing.current = true;
@@ -170,10 +174,29 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
     left: 1, right: readerColumns, enabled: !quitting && rows >= 11 && columns >= 24});
   const openTool = () => {if (chosenTool) {setDetail(chosenTool.id); setOverlayScroll({key: `tool-${chosenTool.id}`, top: 0});}};
   const openContext = () => {setDetail(null); setContextSelection(null); setContextOpen(true); setOverlayScroll({key: 'context', top: 0});};
+  const copyTarget = (): [string, string] | null => {
+    if (detailEntry) {
+      const args = detailEntry.call ? `参数：\n${JSON.stringify(detailEntry.call.args, null, 2)}` : '';
+      const output = detailEntry.output ? `输出：\n${detailEntry.output}` : '';
+      return [[detailEntry.text, args, output].filter(Boolean).join('\n\n'), '工具详情'];
+    }
+    if (state.approval) return [state.approval.preview, '审批预览'];
+    const latest = [...state.entries].reverse().find(entry => entry.kind === 'assistant' && entry.text.trim());
+    return latest ? [latest.text, '最近回复'] : null;
+  };
+  const copyCurrent = () => {
+    const target = copyTarget();
+    if (!target) {announce('没有可复制的 Agent 回复'); return;}
+    const [text, label] = target;
+    const method = copyText(text);
+    if (!method) {announce(`复制失败：${label} ${text.length} 字符，系统剪贴板与 OSC 52 都不可用`); return;}
+    announce(`已复制${label}：${text.length} 字符（${method}）`);
+  };
 
   useInput((keyInput, key) => {
     if (key.eventType === 'release') return;
     if (key.ctrl && keyInput === 'q') {shutdown(); return;}
+    if (key.ctrl && keyInput === 'y') {copyCurrent(); return;}
     if (key.ctrl && keyInput === 'c') {
       if (activeRun.current && state.phase !== 'stopping') {
         try {
@@ -230,9 +253,10 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
     if (!text || quitting) return;
     if (text === '/quit' || text === '/exit') {setInput(''); shutdown(); return;}
     if (text === '/context') {setInput(''); openContext(); return;}
+    if (text === '/copy') {setInput(''); copyCurrent(); return;}
     if (text === '/help') {
       setInput('');
-      notice('Enter 发送（运行中提交纠偏，下一次模型请求生效）；Ctrl+J 换行；输入焦点下 ↑↓ 编辑或浏览输入历史。滚轮 / 触控板在对话区回看；PgUp/PgDn 翻页，Ctrl+P/N 或 Ctrl+↑/↓ 逐行。Ctrl+R 切换阅读 / 输入焦点，阅读时 ↑↓ 滚动、空格下一页，Esc 回输入。Ctrl+Home/End 到首尾，End 恢复跟随最新；终端支持时按住 Shift 拖选文字。Tab 选择工具，Ctrl+O 查看全文。Ctrl+K 或 /context 查看上下文分区，←/→ 回放本轮快照，l 跟随最新，Esc 返回。Ctrl+C 取消当前操作，空闲时退出；Ctrl+Q 退出。审批时 y 单次、s 精确规则、p 工作区、n 拒绝，以面板选项为准。\n/resume 显式续做已保存任务；/permissions 查看授权，/permissions reset 撤销；/cost 会话花费；/tools 可用工具；/diff 工作区差异；/mcp 服务状态；/skills 技能目录，refresh 重扫，activate NAME 激活，unload NAME 卸载；/followup TEXT 排队后续消息，本轮结束后自动继续；/session 会话路径；/theme system|light|dark 主题。');
+      notice('Enter 发送（运行中提交纠偏，下一次模型请求生效）；Ctrl+J 换行；输入焦点下 ↑↓ 编辑或浏览输入历史。滚轮 / 触控板在对话区回看；PgUp/PgDn 翻页，Ctrl+P/N 或 Ctrl+↑/↓ 逐行。Ctrl+R 切换阅读 / 输入焦点，阅读时 ↑↓ 滚动、空格下一页，Esc 回输入。Ctrl+Home/End 到首尾，End 恢复跟随最新；终端支持时按住 Shift 拖选文字。Tab 选择工具，Ctrl+O 查看全文。Ctrl+K 或 /context 查看上下文分区，←/→ 回放本轮快照，l 跟随最新，Esc 返回。Ctrl+Y 或 /copy 复制最近回复、工具详情或审批预览；Ctrl+C 取消当前操作，空闲时退出；Ctrl+Q 退出。审批时 y 单次、s 精确规则、p 工作区、n 拒绝，以面板选项为准。\n/resume 显式续做已保存任务；/permissions 查看授权，/permissions reset 撤销；/cost 会话花费；/tools 可用工具；/diff 工作区差异；/mcp 服务状态；/skills 技能目录，refresh 重扫，activate NAME 激活，unload NAME 卸载；/followup TEXT 排队后续消息，本轮结束后自动继续；/session 会话路径；/theme system|light|dark 主题。');
       return;
     }
     if (text.startsWith('/theme')) {
@@ -334,7 +358,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
     <Box backgroundColor={state.approval ? palette.surfaces.warning : readerFocused ? palette.surface : palette.focus} height={composerRows + 2} width={columns} paddingX={2} paddingY={1} flexShrink={0}>
       <Composer value={input} onChange={setInput} onSubmit={submit} history={history} disabled={composerDisabled} disabledHint={unavailableHint} focused={!readerFocused && !quitting} placeholder={composerPlaceholder} columns={Math.max(1, columns - 4)} maxRows={composerRows} accentColor={palette.accent} warningColor={palette.warning} foregroundColor={palette.foreground} secondaryColor={palette.secondary}/>
     </Box>
-    <Text color={feedback || state.error || state.phase === 'closed' ? palette.error : state.approval ? palette.warning : palette.foreground}>{fitText(feedback || `${phase}${resultReason(state.lastResult) ? ` · ${resultReason(state.lastResult)}` : ''}${metricsText(state) ? `  ·  ${metricsText(state)}` : ''}`, columns)}</Text>
+    <Text color={state.error || state.phase === 'closed' || (feedback && feedbackTone === 'error') ? palette.error : state.approval ? palette.warning : palette.foreground}>{fitText(feedback || `${phase}${resultReason(state.lastResult) ? ` · ${resultReason(state.lastResult)}` : ''}${metricsText(state) ? `  ·  ${metricsText(state)}` : ''}`, columns)}</Text>
     <Text color={palette.secondary}>{fitText(hint, columns)}</Text>
   </Box>;
 }
