@@ -19,7 +19,11 @@ class Pricing:
 
 
 class TraceRecorder:
-    """一次 run 的 span / usage / cost；emit 为空时只聚合不落盘。"""
+    """一次 run 的 span / usage / cost；emit 为空时只聚合不落盘。
+
+    tool_start / approval / tool_end 是后续 Agent 行为 trace 的预留接口，
+    当前 run 循环尚未调用；不要按“无调用方”删除。
+    """
 
     def __init__(
         self,
