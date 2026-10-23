@@ -764,3 +764,27 @@ test('queued follow-ups never start while quitting', async () => {
   assert.deepEqual(client.runs, ['first task']);
   assert.equal(client.shutdowns, 1);
 });
+
+test('footer shows one outcome label for finished, cancelled and stopped runs', async () => {
+  const {client, stdin, lastFrame} = await mount();
+  await enter(stdin, 'first task');
+  client.emit(completed('run-1'));
+  await pause(20);
+  const doneFrame = lastFrame() ?? '';
+  assert.match(doneFrame, /本轮结束/);
+  assert.doesNotMatch(doneFrame, /本轮结束 · 本轮结束/);
+
+  await enter(stdin, 'second task');
+  client.emit(completed('run-2', 'cancelled'));
+  await pause(20);
+  const cancelledFrame = lastFrame() ?? '';
+  assert.match(cancelledFrame, /已取消/);
+  assert.doesNotMatch(cancelledFrame, /已取消 · 已取消/);
+
+  await enter(stdin, 'third task');
+  client.emit({type: 'done', id: 'run-3', result: {text: '', steps: 1, status: 'stopped', usage: {}, cost_usd: 0, run_id: 'run-3', stop_reason: 'token_budget'}});
+  await pause(20);
+  const stoppedFrame = lastFrame() ?? '';
+  assert.match(stoppedFrame, /token_budget/);
+  assert.doesNotMatch(stoppedFrame, /已停止 · 已停止/);
+});
