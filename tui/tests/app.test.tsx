@@ -14,6 +14,7 @@ class MockClient {
   listeners = new Set<(event: ServerEvent) => void>();
   runs: string[] = [];
   cancellations: string[] = [];
+  steers: {target: string; text: string}[] = [];
   approvals: [string, 'once' | 'session' | 'workspace' | 'deny'][] = [];
   commands: string[] = [];
   commandArgs: (Record<string, unknown> | undefined)[] = [];
@@ -25,7 +26,8 @@ class MockClient {
     return () => this.listeners.delete(listener);
   }
   run(text: string) {this.runs.push(text); return `run-${this.runs.length}`;}
-  cancel(id: string) {if (this.sendError) throw new Error('backend disconnected'); this.cancellations.push(id);}
+  cancel(id: string) {if (this.sendError) throw new Error('backend disconnected'); this.cancellations.push(id); return `cancel-${this.cancellations.length}`;}
+  steer(target: string, text: string) {if (this.sendError) throw new Error('backend disconnected'); this.steers.push({target, text}); return `steer-${this.steers.length}`;}
   approve(id: string, decision: 'once' | 'session' | 'workspace' | 'deny') {if (this.sendError) throw new Error('backend disconnected'); this.approvals.push([id, decision]);}
   command(command: string, args?: Record<string, unknown>) {if (this.sendError) throw new Error('backend disconnected'); this.commands.push(command); this.commandArgs.push(args); return `command-${this.commands.length}`;}
   async shutdown() {this.shutdowns += 1;}
@@ -51,6 +53,10 @@ async function enter(stdin: {write(value: string): void}, text: string) {
   await pause(15);
   stdin.write('\r');
   await pause(25);
+}
+
+function completed(id: string, status: 'done' | 'cancelled' = 'done') {
+  return {type: 'done', id, result: {text: '', steps: 1, status, usage: {}, cost_usd: 0, run_id: id, stop_reason: ''}};
 }
 
 for (const [columns, rows] of [[80, 24], [120, 24], [120, 40]]) {
@@ -348,7 +354,8 @@ async function scrollFixture() {
 
 test('mouse wheel scrolls history without touching the draft and batches every wheel tick', async () => {
   const {client, stdin, lastFrame} = await scrollFixture();
-  await enter(stdin, '下一条草稿');
+  stdin.write('下一条草稿');
+  await pause(20);
   assert.match(lastFrame() ?? '', /scroll-line-89/);
   stdin.write('\u001b[<64;10;8M');
   await pause(25);
@@ -483,11 +490,13 @@ test('approval ignores pasted y and keeps full preview pageable at narrow dimens
   assert.deepEqual(client.approvals, [['approval-1', 'deny']]);
 });
 
-test('busy editor keeps a draft for the next task without sending it early', async () => {
+test('busy editor keeps an unsent draft and sends it after the run finishes', async () => {
   const {client, stdin, lastFrame} = await mount();
   await enter(stdin, 'first');
-  await enter(stdin, 'next draft');
+  stdin.write('next draft');
+  await pause(20);
   assert.deepEqual(client.runs, ['first']);
+  assert.deepEqual(client.steers, []);
   assert.match(lastFrame() ?? '', /next draft/);
   client.emit({type: 'done', id: 'run-1', result: {text: 'done', steps: 1, status: 'done', usage: {}, cost_usd: 0, run_id: 'run-1', stop_reason: ''}});
   await pause(25);
@@ -615,4 +624,143 @@ test('repeated Enter in one input batch submits only one run', async () => {
   stdin.write('\r');
   await pause(30);
   assert.deepEqual(client.runs, ['one task']);
+});
+
+test('Enter during a run submits steering to the active run instead of starting another task', async () => {
+  const {client, stdin, lastFrame} = await mount();
+  await enter(stdin, 'first task');
+  await enter(stdin, '请先修复失败的测试');
+  assert.deepEqual(client.steers, [{target: 'run-1', text: '请先修复失败的测试'}]);
+  assert.deepEqual(client.runs, ['first task']);
+  assert.match(lastFrame() ?? '', /纠偏已发送，等待后端确认/);
+  client.emit({type: 'ack', id: 'steer-1', action: 'steer'});
+  await pause(20);
+  assert.match(lastFrame() ?? '', /纠偏已提交，将在下一次模型请求生效/);
+  client.emit(completed('run-1'));
+  await pause(20);
+  assert.deepEqual(client.runs, ['first task']);
+  assert.match(lastFrame() ?? '', /本轮结束/);
+});
+
+test('steering during a backend command is refused instead of sending a command id', async () => {
+  const {client, stdin, lastFrame} = await mount();
+  await enter(stdin, '/diff');
+  assert.deepEqual(client.commands, ['diff']);
+  await enter(stdin, '只改 tests');
+  assert.deepEqual(client.steers, []);
+  assert.match(lastFrame() ?? '', /命令执行中，结束后再发送/);
+  assert.match(lastFrame() ?? '', /只改 tests/);
+});
+
+test('steering failure shows a notice and is not reported as a run error', async () => {
+  const {client, stdin, lastFrame} = await mount();
+  await enter(stdin, 'first task');
+  await enter(stdin, '请先修复失败的测试');
+  client.emit({type: 'error', id: 'steer-1', code: 'run_mismatch', message: 'target is not accepting steering'});
+  await pause(20);
+  assert.match(lastFrame() ?? '', /纠偏未送达：run_mismatch/);
+  assert.doesNotMatch(lastFrame() ?? '', /运行异常/);
+  client.emit(completed('run-1'));
+  await pause(20);
+  assert.match(lastFrame() ?? '', /本轮结束/);
+});
+
+test('late cancel error after the run finished does not mark the run as failed', async () => {
+  const {client, stdin, lastFrame} = await mount();
+  await enter(stdin, 'first task');
+  stdin.write('\u0003');
+  await pause(20);
+  assert.deepEqual(client.cancellations, ['run-1']);
+  client.emit(completed('run-1', 'cancelled'));
+  await pause(20);
+  client.emit({type: 'error', id: 'cancel-1', code: 'run_mismatch', message: 'target is not the active run'});
+  await pause(20);
+  assert.match(lastFrame() ?? '', /停止请求未生效：run_mismatch/);
+  assert.doesNotMatch(lastFrame() ?? '', /运行异常/);
+  assert.match(lastFrame() ?? '', /已取消/);
+});
+
+test('cancelling a run drops queued follow-ups with a visible notice', async () => {
+  const {client, stdin, lastFrame} = await mount();
+  await enter(stdin, 'first task');
+  await enter(stdin, '/followup 迟到的后续');
+  stdin.write('\u0003');
+  await pause(20);
+  client.emit(completed('run-1', 'cancelled'));
+  await pause(20);
+  assert.match(lastFrame() ?? '', /已取消，1 条排队消息已丢弃/);
+  assert.deepEqual(client.runs, ['first task']);
+  await enter(stdin, 'second task');
+  await pause(20);
+  assert.deepEqual(client.runs, ['first task', 'second task']);
+});
+
+test('automatic follow-up start keeps the draft the user is still editing', async () => {
+  const {client, stdin, lastFrame} = await mount();
+  await enter(stdin, 'first task');
+  await enter(stdin, '/followup 下一轮');
+  stdin.write('TODO: 只改 tests');
+  await pause(20);
+  client.emit(completed('run-1'));
+  await pause(25);
+  assert.deepEqual(client.runs, ['first task', '下一轮']);
+  assert.match(lastFrame() ?? '', /TODO: 只改 tests/);
+});
+
+test('/followup during a backend command is refused instead of being queued', async () => {
+  const {client, stdin, lastFrame} = await mount();
+  await enter(stdin, '/diff');
+  assert.deepEqual(client.commands, ['diff']);
+  await enter(stdin, '/followup 迟到的后续');
+  assert.match(lastFrame() ?? '', /命令执行中，结束后再发送/);
+  assert.deepEqual(client.runs, []);
+});
+
+test('/followup queues messages while running and starts them in FIFO order after each done', async () => {
+  const {client, stdin, lastFrame} = await mount();
+  await enter(stdin, 'first task');
+  await enter(stdin, '/followup 第二个任务');
+  await enter(stdin, '/followup 第三个任务');
+  assert.deepEqual(client.runs, ['first task']);
+  assert.match(lastFrame() ?? '', /已排队为后续消息：第二个任务/);
+  assert.match(lastFrame() ?? '', /已排队为后续消息：第三个任务/);
+  client.emit(completed('run-1'));
+  await pause(20);
+  assert.deepEqual(client.runs, ['first task', '第二个任务']);
+  client.emit(completed('run-2'));
+  await pause(20);
+  assert.deepEqual(client.runs, ['first task', '第二个任务', '第三个任务']);
+  client.emit(completed('run-3'));
+  await pause(20);
+  assert.deepEqual(client.runs, ['first task', '第二个任务', '第三个任务']);
+});
+
+test('/followup submits the message directly when the session is idle', async () => {
+  const {client, stdin} = await mount();
+  await enter(stdin, '/followup 空闲时直接执行');
+  assert.deepEqual(client.runs, ['空闲时直接执行']);
+  assert.deepEqual(client.steers, []);
+});
+
+test('queued follow-ups never start after the connection closes', async () => {
+  const {client, stdin} = await mount();
+  await enter(stdin, 'first task');
+  await enter(stdin, '/followup 排队消息');
+  client.emit({type: 'closed'});
+  await pause(20);
+  client.emit(completed('run-1'));
+  await pause(20);
+  assert.deepEqual(client.runs, ['first task']);
+});
+
+test('queued follow-ups never start while quitting', async () => {
+  const {client, stdin} = await mount();
+  await enter(stdin, 'first task');
+  await enter(stdin, '/followup 排队消息');
+  stdin.write('\u0011');
+  await pause(25);
+  client.emit(completed('run-1'));
+  await pause(20);
+  assert.deepEqual(client.runs, ['first task']);
+  assert.equal(client.shutdowns, 1);
 });

@@ -15,6 +15,7 @@ Estimator = Callable[[str], int]
 Summarizer = Callable[[list[Message]], str]
 _HISTORY_SUMMARIES = {"history_summary_l1", "history_summary_l2"}
 _OFFLOAD_REF = re.compile(r"\[offloaded: ([^\]]+)\]")
+_OFFLOAD_ID = re.compile(r"off-[0-9a-f]{8}")
 
 
 def estimate_tokens(text: str) -> int:
@@ -460,13 +461,22 @@ class ContextBuilder:
     def _resolve(self, ref: str, seen: set[str]) -> list[Message]:
         if ref in seen:
             raise ValueError(f"cyclic offload reference: {ref}")
+        if len(seen) >= 256:
+            raise ValueError("too many nested offload references")
         seen = seen | {ref}
         if ref in self._refs:
             messages = self._refs[ref]
         elif self.offload_dir is not None:
-            path = self.offload_dir / f"{ref}.json"
-            if not path.exists():
+            if not _OFFLOAD_ID.fullmatch(ref):
+                raise ValueError("invalid offload reference")
+            root = self.offload_dir.resolve()
+            path = (root / f"{ref}.json").resolve()
+            if path.parent != root:
+                raise ValueError("offload reference outside offload directory")
+            if not path.is_file():
                 raise KeyError(ref)
+            if path.stat().st_size > 2 * 1024 * 1024:
+                raise ValueError("offload exceeds 2 MiB limit")
             raw = json.loads(path.read_text(encoding="utf-8"))
             messages = [self._message_from_dict(d) for d in raw]
         else:

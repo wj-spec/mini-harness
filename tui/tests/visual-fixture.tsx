@@ -79,7 +79,7 @@ export function fixtureState(scenario: string): ViewState {
 }
 
 const client: BackendClient = {
-  subscribe: () => () => {}, start: () => {}, run: () => 'fixture-run', command: () => 'fixture-command', cancel: () => {}, approve: () => {}, shutdown: async () => {},
+  subscribe: () => () => {}, start: () => {}, run: () => 'fixture-run', command: () => 'fixture-command', cancel: () => 'fixture-cancel', steer: () => 'fixture-steer', approve: () => {}, shutdown: async () => {},
 };
 
 export function VisualFixture({scenario = 'welcome', columns = 80, rows = 24, theme = 'system'}: {scenario?: string; columns?: number; rows?: number; theme?: ThemeName}) {

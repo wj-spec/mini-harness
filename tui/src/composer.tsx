@@ -20,7 +20,7 @@ type ComposerProps = {
   onCommand?: (command: string) => void;
 };
 
-const commands = ['/help', '/resume', '/context', '/cost', '/tools', '/diff', '/permissions', '/permissions reset', '/mcp', '/session', '/theme', '/quit'];
+const commands = ['/help', '/resume', '/context', '/cost', '/tools', '/diff', '/permissions', '/permissions reset', '/mcp', '/session', '/theme', '/followup', '/quit'];
 
 export function Composer({value, onChange, onSubmit, history, disabled = false, focused = true, placeholder = '输入任务，开始一次编码', columns, maxRows = 3, accentColor, warningColor, foregroundColor, secondaryColor, disabledHint}: ComposerProps) {
   const [cursor, setCursorState] = useState(() => graphemes(value).length);
@@ -128,7 +128,7 @@ export function Composer({value, onChange, onSubmit, history, disabled = false, 
   let hint = '';
   if (value === '/resume' || value === '/continue') hint = '继续已保存任务 · 开启新一轮预算，先核对进度';
   else if (matches.length) hint = `${matches.join('  ')} · Tab 补全`;
-  else if (focused && disabled) hint = disabledHint ?? '草稿可编辑 · 当前任务结束后可发送';
+  else if (focused && disabled) hint = disabledHint ?? '草稿可编辑 · 当前操作结束后可发送';
   const needsPosition = wrapped.rows.length > height;
   const showHint = height > 1 && Boolean(hint || needsPosition);
   const visibleHeight = height - (showHint ? 1 : 0);

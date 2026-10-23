@@ -38,7 +38,28 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
   const closing = useRef(false);
   const activeRun = useRef(state.activeId);
   const answeredApproval = useRef<string | null>(null);
+  const controlRequests = useRef(new Map<string, 'steer' | 'cancel'>());
+  const followups = useRef<string[]>([]);
+  const latestState = useRef(state);
+  latestState.current = state;
+  const quittingRef = useRef(quitting);
+  quittingRef.current = quitting;
   activeRun.current = state.activeId;
+  const startQueuedFollowup = () => {
+    if (!followups.current.length) return;
+    const current = latestState.current;
+    if (quittingRef.current || current.phase === 'closed') return;
+    const text = followups.current.shift()!;
+    try {
+      const id = client.run(text);
+      activeRun.current = id;
+      dispatch({type: 'begin', id, text});
+      setFeedback(''); setHistory(previous => [...previous, text]); setScroll({follow: true, top: 0});
+    } catch (error) {
+      followups.current.unshift(text);
+      dispatch({type: 'notice', text: `后续消息未能启动：${String(error)}`});
+    }
+  };
   const {exit} = useApp();
   const terminal = useWindowSize();
   const columns = Math.max(1, windowSize?.columns ?? terminal.columns);
@@ -89,13 +110,38 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
   const readerFocused = reading || Boolean(overlayKey);
 
   useEffect(() => client.subscribe(event => {
+    if (event.type === 'ack' || event.type === 'error') {
+      const kind = event.id === null ? undefined : controlRequests.current.get(event.id);
+      if (kind) {
+        controlRequests.current.delete(event.id!);
+        if (event.type === 'ack') {
+          if (kind === 'steer') dispatch({type: 'notice', text: '纠偏已提交，将在下一次模型请求生效'});
+        } else if (kind === 'steer') {
+          dispatch({type: 'notice', text: `纠偏未送达：${event.code}: ${event.message}`});
+          setFeedback(`纠偏未送达：${event.message}`);
+        } else {
+          dispatch({type: 'notice', text: `停止请求未生效：${event.code}: ${event.message}`});
+        }
+        return;
+      }
+    }
     if (event.type === 'approval_request') {setDetail(null); setContextOpen(false); answeredApproval.current = null;}
     if (event.type === 'history_message' && event.message.role === 'user') setHistory(previous => [...previous, event.message.content]);
     if (event.type === 'status' && event.phase === 'starting' && event.id) activeRun.current = event.id;
-    if ((event.type === 'done' || event.type === 'command_result') && event.id === activeRun.current) activeRun.current = null;
+    const finished = (event.type === 'done' || event.type === 'command_result') && event.id === activeRun.current;
+    if (finished) activeRun.current = null;
     if (event.type === 'status' && event.phase === 'idle' && activeRun.current === 'startup') activeRun.current = null;
-    if (event.type === 'closed') activeRun.current = null;
+    if (event.type === 'closed') {activeRun.current = null; followups.current = [];}
     dispatch({type: 'event', event});
+    if (finished && event.type === 'done') {
+      if (event.result.status === 'cancelled') {
+        const dropped = followups.current.length;
+        followups.current = [];
+        if (dropped) dispatch({type: 'notice', text: `已取消，${dropped} 条排队消息已丢弃`});
+      } else {
+        startQueuedFollowup();
+      }
+    }
   }), [client]);
   usePaste(() => {}, {isActive: readerFocused});
 
@@ -104,6 +150,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
   const shutdown = () => {
     if (closing.current) return;
     closing.current = true;
+    followups.current = [];
     setQuitting(true);
     void client.shutdown().then(() => exit()).catch(error => {
       notice(`退出时发生错误：${String(error)}`);
@@ -128,8 +175,11 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
     if (key.ctrl && keyInput === 'q') {shutdown(); return;}
     if (key.ctrl && keyInput === 'c') {
       if (activeRun.current && state.phase !== 'stopping') {
-        try {client.cancel(activeRun.current); dispatch({type: 'cancel'});}
-        catch (error) {reportError(`取消请求未送达：${String(error)}`);}
+        try {
+          const id = client.cancel(activeRun.current);
+          controlRequests.current.set(id, 'cancel');
+          dispatch({type: 'cancel'});
+        } catch (error) {reportError(`取消请求未送达：${String(error)}`);}
       } else if (!state.activeId) shutdown();
       return;
     }
@@ -181,7 +231,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
     if (text === '/context') {setInput(''); openContext(); return;}
     if (text === '/help') {
       setInput('');
-      notice('Enter 发送；Ctrl+J 换行；输入焦点下 ↑↓ 编辑或浏览输入历史。滚轮 / 触控板在对话区回看；PgUp/PgDn 翻页，Ctrl+P/N 或 Ctrl+↑/↓ 逐行。Ctrl+R 切换阅读 / 输入焦点，阅读时 ↑↓ 滚动、空格下一页，Esc 回输入。Ctrl+Home/End 到首尾，End 恢复跟随最新；终端支持时按住 Shift 拖选文字。Tab 选择工具，Ctrl+O 查看全文。Ctrl+K 或 /context 查看上下文分区，←/→ 回放本轮快照，l 跟随最新，Esc 返回。Ctrl+C 取消当前操作，空闲时退出；Ctrl+Q 退出。审批时 y 单次、s 精确规则、p 工作区、n 拒绝，以面板选项为准。\n/resume 显式续做已保存任务；/permissions 查看授权，/permissions reset 撤销；/cost 会话花费；/tools 可用工具；/diff 工作区差异；/mcp 服务状态；/skills 技能目录，refresh 重扫，activate NAME 激活，unload NAME 卸载；/session 会话路径；/theme system|light|dark 主题。');
+      notice('Enter 发送（运行中提交纠偏，下一次模型请求生效）；Ctrl+J 换行；输入焦点下 ↑↓ 编辑或浏览输入历史。滚轮 / 触控板在对话区回看；PgUp/PgDn 翻页，Ctrl+P/N 或 Ctrl+↑/↓ 逐行。Ctrl+R 切换阅读 / 输入焦点，阅读时 ↑↓ 滚动、空格下一页，Esc 回输入。Ctrl+Home/End 到首尾，End 恢复跟随最新；终端支持时按住 Shift 拖选文字。Tab 选择工具，Ctrl+O 查看全文。Ctrl+K 或 /context 查看上下文分区，←/→ 回放本轮快照，l 跟随最新，Esc 返回。Ctrl+C 取消当前操作，空闲时退出；Ctrl+Q 退出。审批时 y 单次、s 精确规则、p 工作区、n 拒绝，以面板选项为准。\n/resume 显式续做已保存任务；/permissions 查看授权，/permissions reset 撤销；/cost 会话花费；/tools 可用工具；/diff 工作区差异；/mcp 服务状态；/skills 技能目录，refresh 重扫，activate NAME 激活，unload NAME 卸载；/followup TEXT 排队后续消息，本轮结束后自动继续；/session 会话路径；/theme system|light|dark 主题。');
       return;
     }
     if (text.startsWith('/theme')) {
@@ -192,6 +242,22 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       return;
     }
     if (text === '/session') {setInput(''); notice(`会话：${state.sessionId || '待连接'}\n${state.sessionPath || '后端尚未提供会话路径。'}`); return;}
+    let followupText: string | null = null;
+    if (text.split(/\s+/, 1)[0] === '/followup') {
+      const rest = text.slice('/followup'.length).trim();
+      if (!rest) {setInput(''); notice('用法：/followup <文本>；运行中排队，本轮结束后自动发送，空闲时直接提交。'); return;}
+      if (state.phase === 'running' && activeRun.current) {
+        if (state.activeCommand && state.activeCommand !== 'resume') {
+          notice('命令执行中，结束后再发送');
+          return;
+        }
+        followups.current.push(rest);
+        setInput('');
+        notice(`已排队为后续消息：${rest}`);
+        return;
+      }
+      followupText = rest;
+    }
     const parts = text.split(/\s+/);
     const skillCommand = parts[0] === '/skill' || parts[0] === '/skills';
     let skillArgs: SkillsCommandArgs | undefined;
@@ -212,13 +278,27 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       } catch (error) {reportError(`操作未送达：${String(error)}`);}
       return;
     }
-    if (text.startsWith('/')) {setInput(''); notice(`未知命令 ${text.split(/\s/)[0]}；输入 /help 查看可用操作。`); return;}
+    if (text.startsWith('/') && followupText === null) {setInput(''); notice(`未知命令 ${text.split(/\s/)[0]}；输入 /help 查看可用操作。`); return;}
+    if (state.phase === 'running' && activeRun.current) {
+      if (state.activeCommand && state.activeCommand !== 'resume') {
+        notice('命令执行中，结束后再发送');
+        return;
+      }
+      try {
+        const id = client.steer(activeRun.current, text);
+        controlRequests.current.set(id, 'steer');
+        setInput('');
+        notice('纠偏已发送，等待后端确认');
+      } catch (error) {reportError(`纠偏未送达：${String(error)}`);}
+      return;
+    }
     if (state.phase !== 'idle' || activeRun.current) return;
+    const task = followupText ?? text;
     try {
-      const id = client.run(text);
+      const id = client.run(task);
       activeRun.current = id;
-      dispatch({type: 'begin', id, text});
-      setInput(''); setFeedback(''); setHistory(previous => [...previous, text]); setScroll({follow: true, top: 0});
+      dispatch({type: 'begin', id, text: task});
+      setInput(''); setFeedback(''); setHistory(previous => [...previous, task]); setScroll({follow: true, top: 0});
     } catch (error) {notice(`未能提交任务：${String(error)}`);}
   };
 
@@ -228,8 +308,12 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
   const paneTitle = state.approval ? `等待审批 · ${position}` : contextOpen ? `上下文分区 · ${position}` : detailEntry ? `工具详情 · ${position}` : `对话 · ${reading ? '阅读焦点 · ' : ''}${scroll.follow || isEmpty ? '跟随最新' : `回看 · 下方 ${maximum-top} 行`} · ${position}`;
   const hint = state.approval ? `${approvalHint} · 滚轮/PgUp/PgDn 翻页 · Ctrl+C 取消` : contextOpen ? '←/→ 选快照 · l 最新 · ↑↓/滚轮 翻阅 · Esc 返回' : detailEntry ? '滚轮/↑↓ 翻阅 · Home/End 首尾 · Esc 返回' :
     reading ? '阅读焦点：↑↓滚动  空格翻页  End最新  Esc输入  Ctrl+Q退出' :
-      columns < 60 ? 'Ctrl+K上下文 · Ctrl+Q退出 · /help' : '滚轮回看  Ctrl+R阅读  Ctrl+K上下文  Ctrl+J换行  Ctrl+Q退出';
-  const busy = state.phase !== 'idle';
+      state.phase === 'running' ? (columns < 60 ? 'Enter 纠偏 · /followup 排队 · Ctrl+C 停止' : 'Enter 提交纠偏  /followup 文本 排队后续  Ctrl+C 停止  Ctrl+Q 退出') :
+        columns < 60 ? 'Ctrl+K上下文 · Ctrl+Q退出 · /help' : '滚轮回看  Ctrl+R阅读  Ctrl+K上下文  Ctrl+J换行  Ctrl+Q退出';
+  const composerDisabled = quitting || state.phase === 'starting' || state.phase === 'stopping' || state.phase === 'waiting_approval' || state.phase === 'closed';
+  const composerPlaceholder = state.approval ? '审批面板已聚焦，请选择授权范围' : contextOpen ? '上下文详情已聚焦，Esc 返回输入' : detailEntry ? '工具详情已聚焦，Esc 返回输入' : reading ? '正在阅读历史，Esc 返回输入' :
+    state.phase === 'closed' ? '可以回看已有记录，退出后重新启动' : state.phase === 'starting' ? '可以先写下任务目标与约束' : state.phase === 'stopping' ? '正在停止 · 收到停止结果后可发送' :
+      state.phase === 'running' ? '运行中：Enter 提交纠偏，/followup 文本排队后续' : '描述任务，或输入 / 查看命令';
   const unavailableHint = state.phase === 'closed' ? '连接已断开 · Ctrl+Q 退出后重启' : state.phase === 'starting' ? '可编辑草稿 · 后端就绪后可发送' :
     state.phase === 'stopping' ? '正在停止 · 收到停止结果后可发送' : undefined;
 
@@ -247,7 +331,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       {sidebar ? <><Box width={1}/><StatusPanel state={state} columns={32} height={paneRows} palette={palette}/></> : null}
     </Box>
     <Box backgroundColor={state.approval ? palette.surfaces.warning : readerFocused ? palette.surface : palette.focus} height={composerRows + 2} width={columns} paddingX={2} paddingY={1} flexShrink={0}>
-      <Composer value={input} onChange={setInput} onSubmit={submit} history={history} disabled={busy || quitting} disabledHint={unavailableHint} focused={!readerFocused && !quitting} placeholder={state.approval ? '审批面板已聚焦，请选择授权范围' : contextOpen ? '上下文详情已聚焦，Esc 返回输入' : detailEntry ? '工具详情已聚焦，Esc 返回输入' : reading ? '正在阅读历史，Esc 返回输入' : state.phase === 'closed' ? '可以回看已有记录，退出后重新启动' : state.phase === 'starting' ? '可以先写下任务目标与约束' : busy ? '编辑下一条任务草稿' : '描述任务，或输入 / 查看命令'} columns={Math.max(1, columns - 4)} maxRows={composerRows} accentColor={palette.accent} warningColor={palette.warning} foregroundColor={palette.foreground} secondaryColor={palette.secondary}/>
+      <Composer value={input} onChange={setInput} onSubmit={submit} history={history} disabled={composerDisabled} disabledHint={unavailableHint} focused={!readerFocused && !quitting} placeholder={composerPlaceholder} columns={Math.max(1, columns - 4)} maxRows={composerRows} accentColor={palette.accent} warningColor={palette.warning} foregroundColor={palette.foreground} secondaryColor={palette.secondary}/>
     </Box>
     <Text color={feedback || state.error || state.phase === 'closed' ? palette.error : state.approval ? palette.warning : palette.foreground}>{fitText(feedback || `${phase}${state.lastResult ? ` · ${state.lastResult}` : ''}${metricsText(state) ? `  ·  ${metricsText(state)}` : ''}`, columns)}</Text>
     <Text color={palette.secondary}>{fitText(hint, columns)}</Text>

@@ -70,7 +70,7 @@ Node 失败项是 `interactive CLI enters and restores the alternate screen`，�
 
 ## 边界与后续
 
-- **未统一 `steps` 口径**：`_call_model` 首次请求前的时间检查报 `step`，第二次报 `step - 1`，这是原实现就存在的不一致。本次保持行为不变、未修改；建议后续单独切片，先加断言再修正。
+- **`steps` 口径已修复（2026-10-22）**：`_call_model` 首次请求前的时间检查改为报已完成步数（`step - 1`），`tests/test_agent.py::test_max_run_seconds_stops` 断言该场景 `steps == 0`；详见 [运行中纠偏与后续消息](run-time-correction.md)。
 - **W2 纠偏**：注入点在 `_prepare_step` 组装请求之前，`run.correction_instruction` 现在是显式状态，可直接扩展为“运行中收到的新指令”。
 - **W3 恢复**：step 级 checkpoint 可落在 `_StepPlan`/`_ModelTurn` 边界，不需要再改主循环形态。
 - **多 Agent**：当前没有第二个消费者，仍按 [roadmap](../roadmap.md) 的取舍，等实际任务需要时再评估。

@@ -103,6 +103,36 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   }finally{await client.shutdown();await f.close();}
 });
 
+test('steer frames carry the active run target and reject invalid payloads before sending', async()=>{
+  const f=await fixture(`import readline from 'node:readline';import {appendFileSync} from 'node:fs';
+console.log(JSON.stringify(${JSON.stringify(ready)}));
+readline.createInterface({input:process.stdin}).on('line',line=>{
+  appendFileSync('requests.jsonl',line+'\\n');const request=JSON.parse(line);
+  if(request.type==='steer')console.log(JSON.stringify({v:1,type:'ack',id:request.id,action:'steer'}));
+  if(request.type==='shutdown'){console.log(JSON.stringify({v:1,type:'closed',id:request.id}));process.exit(0);}
+});`);
+  const client=createBackendClient({repoRoot:f.root,shutdownTimeoutMs:500});const state=observer(client);
+  try{
+    client.start();await state.wait(event=>event.type==='ready');
+    const steerId=client.steer('run-1','优先修复失败的测试');
+    const ack=await state.wait(event=>event.type==='ack'&&event.action==='steer');
+    assert.ok(ack.type==='ack'&&ack.id);
+    assert.equal(ack.id,steerId);
+    assert.throws(()=>client.steer('','x'),/目标/);
+    assert.throws(()=>client.steer('x'.repeat(129),'x'),/目标/);
+    assert.throws(()=>client.steer('run-1','   '),/内容/);
+    await client.shutdown();
+    const requests=(await readFile(path.join(f.root,'requests.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line));
+    assert.deepEqual(requests.map(request=>request.type),['steer','shutdown']);
+    const steer=requests[0];
+    assert.deepEqual(Object.keys(steer).sort(),['id','target','text','type','v']);
+    assert.equal(steer.v,1);
+    assert.equal(steer.id,ack.type==='ack'&&ack.id);
+    assert.equal(steer.target,'run-1');
+    assert.equal(steer.text,'优先修复失败的测试');
+  }finally{await client.shutdown();await f.close();}
+});
+
 test('request frame limit excludes the newline and rejects one extra payload byte', async()=>{
   const f=await fixture(`import readline from 'node:readline';import {writeFileSync} from 'node:fs';
 console.log(JSON.stringify(${JSON.stringify(ready)}));

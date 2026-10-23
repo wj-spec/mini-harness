@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.agent import Agent
+from app.events import StreamDone, TextDelta, ToolCallsReady
 from app.config import Config
 from app.mcp import McpManager
 from app.policy import ApprovalGate
@@ -786,5 +787,82 @@ def test_active_task_failure_does_not_skip_cleanup_or_hide_mcp_close_error(tmp_p
         assert c.events[-1]["type"] == "closed"
         assert any(event["type"] == "error" and "worker finalizer failed" in event["message"] for event in c.events)
         assert any(event["type"] == "notice" and "MCP close failed" in event["message"] for event in c.events)
+
+    asyncio.run(scenario())
+
+
+class _GatedProvider:
+    """第一次请求返回工具调用；之后的请求等待测试放行，便于在运行中插入 steering。"""
+
+    def __init__(self):
+        self.seen = []
+        self.seen_tools = []
+        self.calls = 0
+        self.release = asyncio.Event()
+
+    async def stream(self, messages, tools):
+        self.seen.append(list(messages))
+        self.seen_tools.append(list(tools))
+        self.calls += 1
+        if self.calls == 1:
+            yield ToolCallsReady([ToolCall("list_files", {}, id="c1")])
+            yield StreamDone()
+            return
+        await self.release.wait()
+        yield TextDelta("已按纠偏继续")
+        yield StreamDone()
+
+
+def test_steer_frame_queues_for_the_active_run_and_is_persisted(tmp_path):
+    async def scenario():
+        provider = _GatedProvider()
+        agent = Agent(provider, ToolRegistry(tmp_path), approval=ApprovalGate())
+        session = SessionStore.new(tmp_path, "fake")
+        c = Connection(agent, tmp_path, session)
+        ready = await c.until("ready")
+        assert "steer" in ready["capabilities"]
+        await c.until("status")
+        c.send("run", "r1", text="重构")
+        for _ in range(200):
+            if provider.calls >= 2:
+                break
+            await asyncio.sleep(0.005)
+        assert provider.calls == 2
+        c.send("steer", "s1", target="r1", text="保留公开接口")
+        ack = await c.until("ack", "s1")
+        assert ack["action"] == "steer"
+        provider.release.set()
+        done = await c.until("done", "r1")
+        # 模型收尾前到达的纠偏会再走一步，不被静默丢弃。
+        assert done["result"]["status"] == "done"
+        assert done["result"]["steps"] == 3
+        assert [m.content for m in provider.seen[2] if m.role == "user"] == ["重构", "保留公开接口"]
+        assert any(
+            m.role == "user" and m.name == "steering" and m.content == "保留公开接口"
+            for m in agent.history
+        )
+        assert any(
+            message.role == "user" and message.name == "steering"
+            and message.content == "保留公开接口"
+            for message in session.load_messages()
+        )
+        await c.close()
+
+    asyncio.run(scenario())
+
+
+def test_steer_requires_matching_active_run_and_nonempty_text(tmp_path):
+    async def scenario():
+        agent = make_agent(tmp_path, ["done"])
+        c = Connection(agent, tmp_path)
+        await c.until("ready")
+        await c.until("status")
+        c.send("steer", "s1", target="missing", text="保留公开接口")
+        assert (await c.until("error", "s1"))["code"] == "run_mismatch"
+        c.send("steer", "s2", target="missing", text="   ")
+        assert (await c.until("error", "s2"))["code"] == "invalid_request"
+        c.send("steer", "s3", target="missing")
+        assert (await c.until("error", "s3"))["code"] == "invalid_request"
+        await c.close()
 
     asyncio.run(scenario())

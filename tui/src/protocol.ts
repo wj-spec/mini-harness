@@ -121,7 +121,7 @@ export type ServerEvent =
   | Envelope<'approval_request', {approval_id: string; call: ToolCall; preview: string; decisions?: ApprovalDecision[]}>
   | Envelope<'approval_resolved', {approval_id: string; decision: ApprovalDecision}>
   | Envelope<'done', {result: RunResult}>
-  | Envelope<'ack', {action: 'cancel' | 'approval'}>
+  | Envelope<'ack', {action: 'cancel' | 'approval' | 'steer'}>
   | Envelope<'closed'>
   | Envelope<'error', {code: string; message: string}>;
 
@@ -130,6 +130,7 @@ export type ClientRequest = (
   | Envelope<'command', {command: Exclude<BackendCommand, 'skills'>}>
   | Envelope<'command', {command: 'skills'; args?: SkillsCommandArgs}>
   | Envelope<'cancel', {target: string}>
+  | Envelope<'steer', {target: string; text: string}>
   | Envelope<'approval', {approval_id: string; decision: ApprovalDecision}>
   | Envelope<'shutdown'>
 ) & {id: string};
@@ -276,7 +277,7 @@ export function parseServerEvent(line: string): ServerEvent {
       valid = validId(value.id) && validId(value.approval_id) && approvalDecisions.includes(String(value.decision));
       break;
     case 'done': valid = validId(value.id) && runResult(value.result); break;
-    case 'ack': valid = validId(value.id) && ['cancel', 'approval'].includes(String(value.action)); break;
+    case 'ack': valid = validId(value.id) && ['cancel', 'approval', 'steer'].includes(String(value.action)); break;
     case 'closed': valid = true; break;
     case 'error': valid = typeof value.code === 'string' && typeof value.message === 'string'; break;
   }

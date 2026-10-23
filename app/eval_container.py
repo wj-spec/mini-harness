@@ -8,7 +8,6 @@ import os
 import re
 import tempfile
 import uuid
-from copy import copy
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
@@ -223,45 +222,6 @@ class ContainerToolRegistry(ToolRegistry):
     def _backup(self, target: Path) -> None:
         self._resolve(".vibe/backups")
         super()._backup(target)
-
-    def recall(self, ref: str) -> str:
-        if self.context is None:
-            raise ValueError("recall unavailable: no context attached")
-        safe_context = copy(self.context)
-        safe_context._refs = {}
-        safe_context.offload_dir = None
-
-        def collect(candidate: str):
-            if not isinstance(candidate, str) or not re.fullmatch(r"off-[0-9a-f]{8}", candidate):
-                raise ValueError("invalid offload reference")
-            if candidate in safe_context._refs:
-                return
-            if len(safe_context._refs) >= 256:
-                raise ValueError("too many nested offload references")
-            messages = self.context._refs.get(candidate)
-            if messages is None:
-                if self.context.offload_dir is None:
-                    raise ValueError(f"unknown ref: {candidate}")
-                root = Path(self.context.offload_dir).resolve()
-                file = (root / f"{candidate}.json").resolve()
-                if file.parent != root:
-                    raise ValueError("offload reference outside offload directory")
-                if not file.is_file():
-                    raise ValueError(f"unknown ref: {candidate}")
-                if file.stat().st_size > 2 * 1024 * 1024:
-                    raise ValueError("offload exceeds 2 MiB limit")
-                raw = json.loads(file.read_text(encoding="utf-8"))
-                messages = [self.context._message_from_dict(value) for value in raw]
-            safe_context._refs[candidate] = messages
-            for message in messages:
-                if message.name == "history_archive_ref":
-                    for nested in re.findall(r"\[offloaded: ([^\]]+)\]", message.content):
-                        collect(nested)
-
-        collect(ref)
-        staged = copy(self)
-        staged.context = safe_context
-        return ToolRegistry.recall(staged, ref)
 
     def _atomic_write(self, target: Path, content: str) -> None:
         target.parent.mkdir(parents=True, exist_ok=True)

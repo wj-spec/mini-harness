@@ -8,7 +8,8 @@ export interface BackendClient {
   subscribe(listener: (event: ServerEvent) => void): () => void;
   run(text: string): string;
   command(command: BackendCommand, args?: SkillsCommandArgs): string;
-  cancel(target: string): void;
+  cancel(target: string): string;
+  steer(target: string, text: string): string;
   approve(approvalId: string, decision: ApprovalDecision): void;
   shutdown(): Promise<void>;
   start(): void;
@@ -370,7 +371,16 @@ export function createBackendClient(options: BackendOptions = {}): BackendClient
     },
     cancel(target) {
       if (!target || target.length > 128) throw new Error('取消目标无效');
-      send({v: 1, type: 'cancel', id: randomUUID(), target});
+      const id = randomUUID();
+      send({v: 1, type: 'cancel', id, target});
+      return id;
+    },
+    steer(target, text) {
+      if (!target || target.length > 128) throw new Error('纠偏目标无效');
+      if (!text.trim()) throw new Error('纠偏内容不能为空');
+      const id = randomUUID();
+      send({v: 1, type: 'steer', id, target, text});
+      return id;
     },
     approve(approvalId, decision) {
       if (!approvalId || approvalId.length > 128 || !['once', 'session', 'workspace', 'deny'].includes(decision)) throw new Error('审批响应无效');

@@ -467,6 +467,7 @@ class _Connection:
             kind = request.get("type")
             fields = {
                 "run": {"text"}, "cancel": {"target"},
+                "steer": {"target", "text"},
                 "command": {"command"},
                 "approval": {"approval_id", "decision"}, "shutdown": set(),
             }
@@ -511,6 +512,21 @@ class _Connection:
                     return
                 self.stopping()
                 self.send("ack", request_id, action="cancel")
+            elif kind == "steer":
+                if not isinstance(request["target"], str) or not request["target"]:
+                    raise ValueError("steer target must be a run id")
+                if not isinstance(request["text"], str) or not request["text"].strip():
+                    raise ValueError("steer text must be a nonempty string")
+                if (
+                    self.active_id != request["target"] or self.active is None
+                    or self.active.done() or self.cancel.is_set()
+                ):
+                    self.error(request_id, "run_mismatch", "target is not the active run")
+                    return
+                if not self.agent.steer(request["text"]):
+                    self.error(request_id, "run_mismatch", "target is not accepting steering")
+                    return
+                self.send("ack", request_id, action="steer")
             elif kind == "approval":
                 if (
                     not isinstance(request["approval_id"], str) or not request["approval_id"]
@@ -570,8 +586,8 @@ async def serve(
     frames = (requests if requests is not None else _stdin_frames()).__aiter__()
     reading = None
     stopped = asyncio.create_task(connection.stop.wait())
-    capabilities = ["run", "cancel", "approval_once", "approval_scopes", "session_recording", "metrics",
-                    "history_restore", "commands", "resume"]
+    capabilities = ["run", "cancel", "steer", "approval_once", "approval_scopes", "session_recording",
+                    "metrics", "history_restore", "commands", "resume"]
     if agent.tools_enabled:
         capabilities.append("native_tools")
     provider = (

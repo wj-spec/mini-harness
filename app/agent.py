@@ -5,6 +5,7 @@ import json
 import time
 import re
 import uuid
+from collections import deque
 from dataclasses import dataclass, field
 from itertools import count
 from typing import Callable
@@ -107,6 +108,7 @@ class _RunContext:
     progress: ProgressMonitor | None = None
     progress_stop: str = ""
     correction_instruction: str = ""
+    pending_steering: deque[str] = field(default_factory=deque)
     denied_requests: set[tuple[str, str]] = field(default_factory=set)
     empty_retries: int = 0
     action_required_sent: bool = False
@@ -208,6 +210,7 @@ class Agent:
         self.max_run_cost_usd = max_run_cost_usd
         self.tool_retries = tool_retries
         self.require_tool_use = require_tool_use
+        self._active_steering: deque[str] | None = None
         if system is None:
             if tools_enabled:
                 names = ", ".join(tools.names())
@@ -326,6 +329,14 @@ class Agent:
         self._loaded_snapshot = snapshot
         return snapshot
 
+    def steer(self, text: str) -> bool:
+        """把运行中用户的纠偏排入当前 run；没有运行中的任务时返回 False。"""
+        instruction = text.strip()
+        if not instruction or self._active_steering is None:
+            return False
+        self._active_steering.append(instruction)
+        return True
+
     async def run(
         self,
         task: str | None = None,
@@ -416,9 +427,11 @@ class Agent:
         self._budget_update(run, "running")
         run.progress = ProgressMonitor(self.max_no_progress)
         run.started = time.monotonic()
+        self._active_steering = run.pending_steering
         try:
             return await self._loop(run)
         finally:
+            self._active_steering = None
             self.history = run.raw_history
 
     async def _loop(self, run: _RunContext) -> AgentResult:
@@ -452,6 +465,7 @@ class Agent:
                 run, "stopped: max_steps", self.max_steps, "stopped", "max_steps",
             )
 
+        self._apply_steering(run, step)
         self._sync_skill_context()
         run.messages[0] = Message("system", self.system)
         run.state_message.content = run.state.render()
@@ -586,7 +600,7 @@ class Agent:
                     return self._pause_progress(run, step - 1, "运行时间已到，未发起模型收尾。")
                 if plan.finalizing:
                     return await self._pause_budget(run, step - 1, "运行时间已到，未发起模型收尾。")
-                return self._finish(run, "stopped: max_run_seconds", step, "stopped")
+                return self._finish(run, "stopped: max_run_seconds", step - 1, "stopped")
             request_id = await self._context_snapshot(
                 run, plan.request_messages, plan.tool_specs, "request",
                 "finalizing" if plan.finalizing else "model_call",
@@ -839,6 +853,9 @@ class Agent:
                 ))
                 run.recorder.event("action_required", step=step)
                 return _StepDecision()
+            if run.pending_steering:
+                # 纠偏在模型收尾前到达：再走一步消费它，避免静默丢弃。
+                return _StepDecision()
             return self._finish(run, text, step, "done")
 
         if not self.tools_enabled:
@@ -968,6 +985,13 @@ class Agent:
         run.raw_history.append(message)
         if run.on_message:
             run.on_message(message)
+
+    def _apply_steering(self, run: _RunContext, step: int) -> None:
+        """把排队中的用户纠偏按到达顺序写成真实的 user 消息。"""
+        while run.pending_steering:
+            text = run.pending_steering.popleft()
+            self._record_message(run, Message("user", text, name="steering"))
+            run.recorder.event("steering_applied", step=step, chars=len(text))
 
     def _budget_update(self, run: _RunContext, phase: str) -> None:
         run.recorder.event(

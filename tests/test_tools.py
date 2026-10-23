@@ -1,3 +1,5 @@
+import pytest
+
 from core.context import ContextBuilder
 from core.models import Message, ToolCall
 from core.state import TaskState
@@ -321,3 +323,41 @@ def test_async_tool_cancel_event_stops_pending_operation(tmp_path):
         assert stopped.is_set()
 
     asyncio.run(run())
+
+
+def _recall_registry(tmp_path):
+    workspace = tmp_path / "work"
+    offload = workspace / ".vibe" / "offload"
+    offload.mkdir(parents=True)
+    registry = ToolRegistry(workspace, context=ContextBuilder(offload_dir=offload))
+    return workspace, offload, registry
+
+
+def test_recall_rejects_path_traversal_outside_workspace(tmp_path):
+    workspace, offload, registry = _recall_registry(tmp_path)
+    (tmp_path / "secret.json").write_text('[{"role": "user", "content": "private"}]')
+
+    with pytest.raises(ValueError, match="invalid offload reference"):
+        registry.recall("../../../secret")
+
+    ok, output = registry.execute(ToolCall("recall", {"ref": "../../../secret"}))
+    assert not ok and "invalid" in output and "private" not in output
+
+
+def test_recall_rejects_invalid_reference_format(tmp_path):
+    _, _, registry = _recall_registry(tmp_path)
+    with pytest.raises(ValueError, match="invalid offload reference"):
+        registry.recall("off-ZZZZZZZZ")
+    with pytest.raises(ValueError, match="invalid offload reference"):
+        registry.recall("../off-12345678")
+
+
+def test_recall_still_resolves_saved_offload_file(tmp_path):
+    workspace, offload, registry = _recall_registry(tmp_path)
+    (offload / "off-12345678.json").write_text(
+        '[{"role": "user", "content": "original request"}]', encoding="utf-8",
+    )
+
+    output = registry.recall("off-12345678")
+
+    assert "original request" in output
