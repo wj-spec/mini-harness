@@ -79,13 +79,17 @@ def main() -> None:
         evidence["state"] = json.loads(state_path.read_text(encoding="utf-8")) if state_path.is_file() else None
         trace = json_lines(session / "trace.jsonl")
         evidence["run_ends"] = [event for event in trace if event.get("type") == "run_end"][-5:]
-        evidence["steering"] = [event for event in trace if event.get("event") == "steering_applied"][-5:]
+        evidence["steering"] = [event for event in trace if event.get("type") == "steering_applied"][-5:]
         evidence["commands"] = [
             {key: event.get(key) for key in ("command", "status", "exit_code", "cancelled")}
             for event in trace if event.get("type") == "command_result"
         ][-20:]
         evidence["audit"] = json_lines(session / "audit.jsonl")[-20:]
         messages = json_lines(session / "events.jsonl")
+        evidence["steering_messages"] = [
+            message["message"] for message in messages
+            if isinstance(message.get("message"), dict) and message["message"].get("name") == "steering"
+        ][-5:]
         evidence["pending_tool_messages"] = [
             message for message in messages
             if isinstance(message.get("message"), dict)
@@ -98,7 +102,7 @@ def main() -> None:
     path.write_text(json.dumps(evidence, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"证据已保存：{path}")
     print(f"会话：{evidence['session']} | run_end 状态：{[event.get('status') for event in evidence.get('run_ends', [])]}")
-    print(f"慢命令残留进程：{evidence['slow_test_processes'] or '无'}")
+    print(f"纠偏事件：{len(evidence.get('steering', []))} 个 | 慢命令残留进程：{evidence['slow_test_processes'] or '无'}")
     print(f"工作区改动：{evidence['git']['status'] or '无'}")
 
 

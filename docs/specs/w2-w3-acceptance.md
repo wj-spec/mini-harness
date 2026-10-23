@@ -31,6 +31,16 @@ rm -rf .vibe/w2w3/workspace/.vibe/sessions   # 仅在需要全新会话时
 
 取证内容包括：git head/status/diff、文件哈希、`slow_test.py` / `slow_command.py` 残留进程、最近 `run_end`（状态/步数/用量）、`steering_applied`、`command_result`（命令/状态/退出码）、审批记录、未知/未执行工具消息。只读采集，不修改会话。
 
+## 执行记录
+
+### W2-A 已通过（2026-10-23）
+
+- session `20261023-171648-357460` / run `afe6a47b`；
+- `steering_applied` 在 step 4，纠偏消息已持久化；
+- 8 步、81,933 tokens、11 次工具调用、约 60 秒，`done`；
+- diff 仅 `calc.py`，测试文件哈希不变；审批 5 条 workspace_allow；无残留进程；
+- 证据 `.vibe/w2w3/evidence/w2-steer-verified-20261023-172000.json`。
+
 ## W2：掌控运行过程
 
 ### W2-A 运行中纠偏

@@ -141,13 +141,15 @@
 
 **用户场景**：任务执行到一半时，你改变范围或要求停止，后续行为采用你的最新要求，并清楚展示已经发生的变化。
 
+**W2-A 通过（2026-10-23）**：session `20261023-171648-357460` / run `afe6a47b`。Agent 运行 `slow_test.py` 期间用户提交纠偏“只改 calc.py 的内部实现；修完用中文说明根因；不要修改任何测试文件”。trace 记录 `steering_applied` 在 step 4、43 字符；纠偏作为真实 user 消息持久化；随后模型继续，8 步、81,933 tokens、11 次工具调用、约 60 秒后 `done`。最终 diff 仅 `calc.py`（`a - b` → `a + b`），`test_calc.py`/`slow_test.py`/`slow_command.py` 哈希未变；审批 5 条均为 workspace_allow；无残留进程；最终回复按纠偏要求只改内部实现并说明根因。证据 `.vibe/w2w3/evidence/w2-steer-verified-20261023-172000.json`。W2 其余停止边界与交付核对待执行。
+
 **真实验收发现 1（2026-10-23）**：W2-A 纠偏提交后，stdio 把“已应用纠偏”的 `notice` 带上了 run id，而 Ink 协议要求 `notice.id === null`，触发 `protocol_error: 后端消息字段无效：notice`，Ink 断开连接、run 被取消（trace：`steering_applied` 后 `run_end status=cancelled`）。已改为 `send("notice", None, ...)` 并在 parity 测试断言 notice id 为 `None`；证据 `.vibe/w2w3/evidence/w2-bug-notice-20261023-171449.json`。W2-A 需在修复后重跑，恰好证明真实验收能抓到自动测试没覆盖的跨端协议不一致。
 
 **真实验收（2026-10-23）**：环境、三种停止边界与纠偏步骤见 [W2/W3 真实验收](specs/w2-w3-acceptance.md)；用 `.venv/bin/python3 scripts/w2w3_setup.py` 准备副本，`scripts/w2w3_evidence.py` 采集会话、审批、命令与残留进程证据。执行后按证据勾选。
 
 **验收**：
 
-- [ ] 运行中可以提出一条纠偏，例如“保留公开接口，只改内部实现”；后续模型输入和工具动作采用新约束。
+- [x] 运行中可以提出一条纠偏，例如“保留公开接口，只改内部实现”；后续模型输入和工具动作采用新约束。证据见下方 W2-A 记录。
 - [ ] 发出停止后，在可观测的停止边界不再发起新的模型请求或工具操作；界面区分“正在停止”和“已停止”。
 - [ ] 在模型等待、审批等待、命令运行三种状态下验证停止；已开始的操作能说明完成、终止或结果未知。
 - [ ] 超时后核对进程是否仍在运行及实际文件变化，不能把外层等待结束当作底层命令已经停止。
