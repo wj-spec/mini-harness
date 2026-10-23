@@ -37,8 +37,8 @@ def file_hash(path: Path) -> str | None:
     return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
 
 
-def git(args: list[str]) -> str:
-    result = subprocess.run(["git", *args], cwd=WORKSPACE, capture_output=True, text=True)
+def git(workspace: Path, args: list[str]) -> str:
+    result = subprocess.run(["git", *args], cwd=workspace, capture_output=True, text=True)
     return result.stdout.strip()
 
 
@@ -54,23 +54,27 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--label", required=True, help="证据标签，例如 w2-steer")
     parser.add_argument("--session", help="指定会话 id，默认取最新")
+    parser.add_argument("--workspace", default=str(WORKSPACE), help="验收工作区，默认共享副本")
     args = parser.parse_args()
+    workspace = Path(args.workspace).resolve()
+    if not workspace.is_dir():
+        raise SystemExit(f"工作区不存在：{workspace}")
     stamp = time.strftime("%Y%m%d-%H%M%S")
-    sessions_root = WORKSPACE / ".vibe" / "sessions"
+    sessions_root = workspace / ".vibe" / "sessions"
     sessions = sorted(sessions_root.glob("*")) if sessions_root.is_dir() else []
     session = sessions_root / args.session if args.session else (sessions[-1] if sessions else None)
 
     evidence: dict = {
         "label": args.label,
         "stamp": stamp,
-        "workspace": str(WORKSPACE),
+        "workspace": str(workspace),
         "session": session.name if session else None,
         "git": {
-            "head": git(["rev-parse", "--short", "HEAD"]),
-            "status": git(["status", "--porcelain"]),
-            "diff": git(["diff"])[:8000],
+            "head": git(workspace, ["rev-parse", "--short", "HEAD"]),
+            "status": git(workspace, ["status", "--porcelain"]),
+            "diff": git(workspace, ["diff"])[:8000],
         },
-        "files": {name: file_hash(WORKSPACE / name) for name in ("calc.py", "test_calc.py", "slow_test.py", "slow_command.py")},
+        "files": {name: file_hash(workspace / name) for name in ("calc.py", "test_calc.py", "slow_test.py", "slow_command.py")},
         "slow_test_processes": running_processes(),
         "sessions": [path.name for path in sessions],
     }

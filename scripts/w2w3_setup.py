@@ -23,12 +23,13 @@ print("slow integration test ok", flush=True)
 '''
 
 
-def main() -> None:
-    if WORKSPACE.exists():
-        shutil.rmtree(WORKSPACE)
-    shutil.copytree(ROOT / "examples" / "demo-repo", WORKSPACE, ignore=shutil.ignore_patterns(".vibe"))
-    (WORKSPACE / "slow_test.py").write_text(SLOW_TEST, encoding="utf-8")
-    (WORKSPACE / "slow_command.py").write_text(
+def prepare(workspace: Path) -> Path:
+    """生成一份全新的验收副本（独立 git 仓库，不含旧会话）。"""
+    if workspace.exists():
+        shutil.rmtree(workspace)
+    shutil.copytree(ROOT / "examples" / "demo-repo", workspace, ignore=shutil.ignore_patterns(".vibe"))
+    (workspace / "slow_test.py").write_text(SLOW_TEST, encoding="utf-8")
+    (workspace / "slow_command.py").write_text(
         '''"""演示用的长命令：用于验证命令运行中的停止边界。"""
 import time
 
@@ -39,14 +40,19 @@ print("slow command done", flush=True)
 ''',
         encoding="utf-8",
     )
-    (WORKSPACE / ".gitignore").write_text(".vibe/\n", encoding="utf-8")
-    subprocess.run(["git", "init", "-q"], cwd=WORKSPACE, check=True)
-    subprocess.run(["git", "add", "-A"], cwd=WORKSPACE, check=True)
+    (workspace / ".gitignore").write_text(".vibe/\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=workspace, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=workspace, check=True)
     subprocess.run(
         ["git", "-c", "user.email=w2w3@example.com", "-c", "user.name=rehearsal",
          "commit", "-qm", "W2/W3 rehearsal seed"],
-        cwd=WORKSPACE, check=True,
+        cwd=workspace, check=True,
     )
+    return workspace
+
+
+def main() -> None:
+    prepare(WORKSPACE)
     print(f"工作区已准备：{WORKSPACE}")
     print("初始失败可用：cd <workspace> && python3 test_calc.py   # add(2,3) != 5")
 

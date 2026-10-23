@@ -43,6 +43,18 @@ rm -rf .vibe/w2w3/workspace/.vibe/sessions   # 仅在需要全新会话时
 
 ## W2：掌控运行过程
 
+### 推荐：每个边界用引导脚本（独立工作区，自动取证）
+
+```bash
+.venv/bin/python3 scripts/w2w3_run.py model     # 模型等待取消
+.venv/bin/python3 scripts/w2w3_run.py approval  # 编辑审批等待取消
+.venv/bin/python3 scripts/w2w3_run.py command   # 命令运行中取消
+```
+
+脚本会新建**该边界专用的隔离工作区**（`workspace-model/approval/command`）、打印要发送的提示词与按键步骤，按 Enter 打开 Ink；你按 `Ctrl+Q` 退出后自动调用取证脚本。这样不同边界不会混进同一个会话，也不需要手动 reset。
+
+下面的手动步骤保留，用于复查或特殊情况。
+
 ### W2-A 运行中纠偏
 
 1. 新会话，输入：
