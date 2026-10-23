@@ -57,6 +57,35 @@ def agent_for(tmp_path, script):
     return Agent(FakeProvider(script), ToolRegistry(tmp_path), approval=ApprovalGate())
 
 
+def test_project_background_reloads_before_each_run(tmp_path):
+    profile = tmp_path / ".vibe" / "project-profile.json"
+    profile.parent.mkdir(parents=True)
+
+    def write_background(text):
+        profile.write_text(
+            json.dumps({"version": 1, "entries": [{"text": text, "source": "test"}]}),
+            encoding="utf-8",
+        )
+
+    write_background("背景-A")
+    agent = agent_for(tmp_path, ["one", "two"])
+
+    async def scenario():
+        harness = Harness(agent, Config(workspace=tmp_path))
+        harness.send("run", "r1", text="first")
+        await harness.until("done", "r1")
+        assert "背景-A" in agent.system
+
+        write_background("背景-B")
+        harness.send("run", "r2", text="second")
+        await harness.until("done", "r2")
+        assert "背景-B" in agent.system
+        assert "背景-A" not in agent.system
+        await harness.close()
+
+    asyncio.run(scenario())
+
+
 def test_cancelled_run_records_observed_tool_count(tmp_path, monkeypatch):
     async def fake_run(text, **callbacks):
         callbacks["on_result"](ToolCall("read_file", {"path": "a.txt"}, id="c1"), True, "ok")

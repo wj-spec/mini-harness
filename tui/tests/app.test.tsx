@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import {mkdtemp, readFile, rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import path from 'node:path';
 import {afterEach, test} from 'node:test';
 import {setTimeout as pause} from 'node:timers/promises';
 import React from 'react';
@@ -38,9 +41,9 @@ class MockClient {
 
 afterEach(cleanup);
 
-async function mount(copyText?: (text: string) => string | null, initialState?: ViewState, windowSize?: {columns: number; rows: number}) {
+async function mount(copyText?: (text: string) => string | null, initialState?: ViewState, windowSize?: {columns: number; rows: number}, profilePath?: string) {
   const client = new MockClient();
-  const view = render(<App client={client as unknown as BackendClient} copyText={copyText} initialState={initialState} windowSize={windowSize}/>);
+  const view = render(<App client={client as unknown as BackendClient} copyText={copyText} initialState={initialState} windowSize={windowSize} profilePath={profilePath}/>);
   await pause(20);
   client.emit({type: 'ready', workspace: '/tmp/repo', model: 'fake', session_id: 'test', capabilities: []});
   client.emit({type: 'status', phase: 'idle'});
@@ -864,4 +867,33 @@ test('shows the stopping request and cancelled stages', async () => {
   client.emit(completed('run-1', 'cancelled'));
   await pause(20);
   assert.match(lastFrame() ?? '', /已取消：已发生的修改仍需核对/);
+});
+
+test('manages the project background from the workbench', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'profile-app-'));
+  const file = path.join(directory, '.vibe', 'project-profile.json');
+  try {
+    const {stdin, lastFrame} = await mount(undefined, undefined, {columns: 100, rows: 30}, file);
+    await enter(stdin, '/project');
+    await pause(20);
+    assert.match(lastFrame() ?? '', /项目背景为空/);
+
+    await enter(stdin, '/project add Ink 是唯一界面入口');
+    await pause(20);
+    assert.match(lastFrame() ?? '', /已添加项目背景/);
+    const payload = JSON.parse(await readFile(file, 'utf8')) as {entries: {text: string; source: string}[]};
+    assert.deepEqual(payload.entries.map(entry => entry.text), ['Ink 是唯一界面入口']);
+    assert.equal(payload.entries[0]?.source, 'user');
+
+    await enter(stdin, '/project');
+    await pause(20);
+    assert.match(lastFrame() ?? '', /1\. Ink 是唯一界面入口（来源：user）/);
+
+    await enter(stdin, '/project remove 1');
+    await pause(20);
+    assert.match(lastFrame() ?? '', /已删除项目背景/);
+    assert.deepEqual((JSON.parse(await readFile(file, 'utf8')) as {entries: unknown[]}).entries, []);
+  } finally {
+    await rm(directory, {recursive: true, force: true});
+  }
 });

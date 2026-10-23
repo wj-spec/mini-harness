@@ -13,6 +13,7 @@ import {useTranscriptMouse} from './use-transcript-scroll.js';
 import {contextLines} from './context-view.js';
 import {copyToClipboard} from './clipboard.js';
 import {selectedText, type Selection, type SelectionPoint} from './selection.js';
+import {loadProfile, projectProfilePath, saveProfile} from './project-profile.js';
 
 type Scroll = {follow: boolean; top: number};
 const backendCommands: Record<string, BackendCommand> = {
@@ -21,9 +22,9 @@ const backendCommands: Record<string, BackendCommand> = {
 };
 const approvalKeys: Record<string, ApprovalDecision> = {y: 'once', s: 'session', p: 'workspace', n: 'deny'};
 
-export function App({client, initialState = emptyState, windowSize, initialTheme = 'system', copyText = copyToClipboard}: {
+export function App({client, initialState = emptyState, windowSize, initialTheme = 'system', copyText = copyToClipboard, profilePath}: {
   client: BackendClient; initialState?: ViewState; windowSize?: {columns: number; rows: number}; initialTheme?: ThemeName;
-  copyText?: (text: string) => string | null;
+  copyText?: (text: string) => string | null; profilePath?: string;
 }) {
   const [state, dispatch] = useReducer(reduceView, initialState);
   const [input, setInput] = useState('');
@@ -227,6 +228,35 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
     const latest = [...state.entries].reverse().find(entry => entry.kind === 'assistant' && entry.text.trim());
     return latest ? [latest.text, '最近回复'] : null;
   };
+  const projectFile = () => profilePath ?? (state.workspace ? projectProfilePath(state.workspace) : null);
+  const projectCommand = (argument: string) => {
+    const file = projectFile();
+    if (!file) {announce('尚未连接工作区，无法读取项目背景'); return;}
+    const entries = loadProfile(file);
+    const rest = argument.trim();
+    if (!rest) {
+      if (!entries.length) {announce('项目背景为空。用 /project add <文本> 添加，或直接编辑 .vibe/project-profile.json'); return;}
+      const lines = entries.map((entry, index) => `${index + 1}. ${entry.text}（来源：${entry.source}）`);
+      announce(`项目背景（${entries.length} 条）：\n${lines.join('\n')}`);
+      return;
+    }
+    if (rest.startsWith('add ')) {
+      const text = rest.slice(4).trim();
+      if (!text) {announce('用法：/project add <文本>'); return;}
+      saveProfile(file, [...entries, {text, source: 'user', updated_at: new Date().toISOString()}]);
+      announce(`已添加项目背景（来源 user）：${text}`);
+      return;
+    }
+    if (rest.startsWith('remove ')) {
+      const index = Number(rest.slice(7).trim());
+      if (!Number.isInteger(index) || index < 1 || index > entries.length) {announce(`用法：/project remove <1-${entries.length}>`); return;}
+      const [removed] = entries.splice(index - 1, 1);
+      saveProfile(file, entries);
+      announce(`已删除项目背景：${removed?.text ?? ''}`);
+      return;
+    }
+    announce('用法：/project；/project add <文本>；/project remove <序号>');
+  };
   const copyCurrent = () => {
     const target = copyTarget();
     if (!target) {announce('没有可复制的 Agent 回复'); return;}
@@ -302,9 +332,10 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
     if (text === '/quit' || text === '/exit') {setInput(''); shutdown(); return;}
     if (text === '/context') {setInput(''); openContext(); return;}
     if (text === '/copy') {setInput(''); copyCurrent(); return;}
+    if (text === '/project' || text.startsWith('/project ')) {setInput(''); projectCommand(text.slice('/project'.length)); return;}
     if (text === '/help') {
       setInput('');
-      notice('Enter 发送（运行中提交纠偏，下一次模型请求生效）；Ctrl+J 换行；输入焦点下 ↑↓ 编辑或浏览输入历史。滚轮 / 触控板在对话区回看；PgUp/PgDn 翻页，Ctrl+P/N 或 Ctrl+↑/↓ 逐行。Ctrl+R 切换阅读 / 输入焦点，阅读时 ↑↓ 滚动、空格下一页，Esc 回输入。Ctrl+Home/End 到首尾，End 恢复跟随最新；鼠标在对话区拖选，松开即复制所选文本。Tab 选择工具，Ctrl+O 查看全文。Ctrl+K 或 /context 查看上下文分区，←/→ 回放本轮快照，l 跟随最新，Esc 返回。Ctrl+Y 或 /copy 复制最近回复、工具详情或审批预览；Ctrl+C 取消当前操作，空闲时退出；Ctrl+Q 退出。审批时 y 单次、s 精确规则、p 工作区、n 拒绝，以面板选项为准。\n/resume 显式续做已保存任务；/permissions 查看授权，/permissions reset 撤销；/cost 会话花费；/tools 可用工具；/diff 工作区差异；/mcp 服务状态；/skills 技能目录，refresh 重扫，activate NAME 激活，unload NAME 卸载；/followup TEXT 排队后续消息，本轮结束后自动继续；/session 会话路径；/theme system|light|dark 主题。');
+      notice('Enter 发送（运行中提交纠偏，下一次模型请求生效）；Ctrl+J 换行；输入焦点下 ↑↓ 编辑或浏览输入历史。滚轮 / 触控板在对话区回看；PgUp/PgDn 翻页，Ctrl+P/N 或 Ctrl+↑/↓ 逐行。Ctrl+R 切换阅读 / 输入焦点，阅读时 ↑↓ 滚动、空格下一页，Esc 回输入。Ctrl+Home/End 到首尾，End 恢复跟随最新；鼠标在对话区拖选，松开即复制所选文本。Tab 选择工具，Ctrl+O 查看全文。Ctrl+K 或 /context 查看上下文分区，←/→ 回放本轮快照，l 跟随最新，Esc 返回。Ctrl+Y 或 /copy 复制最近回复、工具详情或审批预览；/project 查看项目背景，/project add 文本 添加，/project remove 序号 删除；Ctrl+C 取消当前操作，空闲时退出；Ctrl+Q 退出。审批时 y 单次、s 精确规则、p 工作区、n 拒绝，以面板选项为准。\n/resume 显式续做已保存任务；/permissions 查看授权，/permissions reset 撤销；/cost 会话花费；/tools 可用工具；/diff 工作区差异；/mcp 服务状态；/skills 技能目录，refresh 重扫，activate NAME 激活，unload NAME 卸载；/followup TEXT 排队后续消息，本轮结束后自动继续；/session 会话路径；/theme system|light|dark 主题。');
       return;
     }
     if (text.startsWith('/theme')) {

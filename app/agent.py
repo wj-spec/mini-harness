@@ -21,6 +21,7 @@ from app.tools import ToolRegistry
 from core.context import ContextBuilder, ContextResult, estimate_tokens, total_tokens
 from core.context_snapshot import build_context_snapshot
 from core.state import TaskState
+from app.project_profile import ProjectBackgroundEntry, render_project_background
 from core.summarize import summarize_messages
 
 def parse_text_tool_calls(text: str, prefix: str = "text") -> list[ToolCall]:
@@ -186,6 +187,7 @@ class Agent:
         max_run_cost_usd: float = 0.0,
         tool_retries: int = 1,
         require_tool_use: bool = False,
+        project_background: list[ProjectBackgroundEntry] | None = None,
     ):
         if require_tool_use and not tools_enabled:
             raise ValueError("require_tool_use requires tools_enabled=True")
@@ -198,6 +200,7 @@ class Agent:
         self.state = state
         self.approval = approval
         self.project_instructions = project_instructions
+        self.project_background = list(project_background or [])
         self.history = skill_history_view(list(history or []))
         self.pricing = pricing or Pricing()
         self.llm_timeout = llm_timeout
@@ -266,8 +269,27 @@ class Agent:
                                       "source": "AGENTS.md", "content": project_part})
             system += project_part
         self.system = system
+        self._sync_project_background()
         self._sync_skill_context()
         self._loaded_snapshot: dict | None = None
+
+    def set_project_background(self, entries: list[ProjectBackgroundEntry]) -> None:
+        """替换当前项目背景；stdio 在每次 run 前调用，使 profile 改动下一次任务生效。"""
+        self.project_background = list(entries)
+        self._sync_project_background()
+        self._sync_skill_context()
+
+    def _sync_project_background(self) -> None:
+        self.system_parts = [
+            part for part in self.system_parts if part["kind"] != "project_background"
+        ]
+        block = render_project_background(self.project_background)
+        if block:
+            self.system_parts.append({
+                "kind": "project_background", "label": "项目背景",
+                "source": ".vibe/project-profile.json", "content": block,
+            })
+        self.system = "".join(part["content"] for part in self.system_parts)
 
     def _sync_skill_context(self) -> None:
         self.system_parts = [part for part in self.system_parts

@@ -13,6 +13,7 @@ from dataclasses import asdict, replace
 
 from app.agent import Agent, AgentResult
 from app.config import Config
+from app.project_profile import load_project_background
 from app.context_snapshot_display import snapshot_for_display
 from app.mcp import McpManager
 from app.policy import ApprovalDecision, ApprovalGate
@@ -381,6 +382,8 @@ class _Connection:
                 self.send("notice", None, message=f"已应用纠偏：{message.content}")
 
         try:
+            # 每次任务前重新读取，profile 的增删在下一次 run 生效。
+            self.agent.set_project_background(load_project_background(self.config.workspace))
             publish_metrics()
             result = await self.agent.run(
                 text,

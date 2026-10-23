@@ -118,6 +118,7 @@ VIBE_MODEL=qwen2.5-coder:7b \
 - `/resume`：明确继续暂停任务，开启一轮新预算；
 - `/followup <内容>`：运行中排队为后续消息，本轮结束后自动继续；空闲时等同直接发送；
 - `/copy`：复制当前可见内容（工具详情优先，其次审批预览，否则最近一条 Agent 回复）；拖选后的文本也会在松开时自动复制；
+- `/project`：查看当前项目的背景条目与来源；`/project add <文本>` 添加，`/project remove <序号>` 删除；
 - `/permissions`：查看当前工作区授权；`/permissions reset` 撤销本进程授权；
 - 写文件或执行命令会弹审批：`y/a` once、`s` session、`n/d` deny。
 
@@ -140,6 +141,18 @@ python3 scripts/bench_local.py --tasks recall-guard --timeout 600
 ```
 
 任务与评分见 [本地编码基准](specs/local-coding-benchmark.md)；报告写入 `.vibe/bench-local/<时间戳>/summary.json`，每个任务另有 `report.json` 与 Agent 输出日志。
+
+## 项目背景（W4）
+
+新任务默认读取当前工作区的 `.vibe/project-profile.json`，把用户维护的项目摘要作为 `[PROJECT BACKGROUND]` 注入（逐条带来源，最多 4000 字符）。每次任务前重新读取，因此 `/project add`、`/project remove` 或直接编辑文件后，下一次任务立即使用新内容。换工作区不会串用；损坏的文件按空背景处理，不阻塞任务。
+
+```bash
+/project                                  # 查看条目与来源
+/project add 只改 calc.py，不改测试       # 来源记为 user
+/project remove 2                         # 删除第 2 条
+```
+
+profile 是摘要和来源指针，不替代 `AGENTS.md` 与项目文档；与文件冲突时以文件为准。
 
 ## 上下文预算（默认配置 1M）
 
