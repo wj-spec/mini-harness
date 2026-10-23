@@ -315,6 +315,8 @@ class _Connection:
         started = time.monotonic()
 
         def tool_result(call, ok, output):
+            nonlocal observed_tools
+            observed_tools += 1
             execution = executions.pop(id(call), None)
             self.send("tool_result", request_id, call=asdict(call), ok=ok, output=output,
                       **({"execution": execution} if execution is not None else {}))
@@ -351,7 +353,9 @@ class _Connection:
                 )
                 publish_metrics()
             elif event["type"] == "tool_end":
-                observed_tools += 1
+                # TraceRecorder 的生命周期钩子是后续行为 trace 的预留接口；
+                # 工具计数以 on_result 回调为准，这里不再重复累加。
+                pass
             elif event["type"] == "run_end":
                 if "total_tokens" in event:
                     metrics["used_tokens"] = event["total_tokens"]
@@ -370,6 +374,11 @@ class _Connection:
             metrics.update(done=len(state.done), planned=len(state.plan))
             publish_metrics()
 
+        def persist_message(message):
+            self.session.append_message(message)
+            if message.name == "steering":
+                self.send("notice", request_id, message=f"已应用纠偏：{message.content}")
+
         try:
             publish_metrics()
             result = await self.agent.run(
@@ -380,7 +389,7 @@ class _Connection:
                 on_execution=lambda call, execution: executions.__setitem__(id(call), execution),
                 on_context=record_context,
                 on_state=record_state,
-                on_message=self.session.append_message,
+                on_message=persist_message,
                 on_history=self.session.save_context,
                 trace=record_trace,
                 cancel=self.cancel,

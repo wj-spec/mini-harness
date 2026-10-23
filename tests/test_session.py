@@ -227,3 +227,28 @@ def test_latest_run_handles_missing_and_legacy_trace(tmp_path):
     legacy_stop = {"type": "run_end", "status": "stopped", "total_tokens": 208401}
     session.append_trace(legacy_stop)
     assert session.latest_run() == legacy_stop
+
+
+def test_save_state_replaces_atomically_and_leaves_no_temp_file(tmp_path):
+    session = SessionStore.new(tmp_path, "m")
+    state = TaskState(goal="修复", open=["验证"])
+    session.save_state(state)
+
+    assert session.load_state() == state
+    assert not session.state_path.with_name("state.json.tmp").exists()
+
+
+def test_save_state_keeps_previous_file_when_replace_fails(tmp_path, monkeypatch):
+    session = SessionStore.new(tmp_path, "m")
+    session.save_state(TaskState(goal="旧目标"))
+    before = session.state_path.read_bytes()
+
+    def broken_replace(source, destination):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("app.session.os.replace", broken_replace)
+    with pytest.raises(OSError):
+        session.save_state(TaskState(goal="新目标"))
+
+    assert session.state_path.read_bytes() == before
+    assert not session.state_path.with_name("state.json.tmp").exists()

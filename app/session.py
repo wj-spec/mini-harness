@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
 import unicodedata
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator, Literal
 
-from core.models import Message, ToolCall, parse_execution_outcome
+from core.models import Message, message_from_dict
 from core.state import TaskState
 
 
@@ -17,52 +18,6 @@ SessionPurpose = Literal["user", "test"]
 def _validate_purpose(purpose: SessionPurpose) -> None:
     if purpose not in ("user", "test"):
         raise ValueError("session purpose must be 'user' or 'test'")
-
-
-def _message_from_dict(d: dict) -> Message:
-    if not isinstance(d, dict) or d.get("role") not in ("system", "user", "assistant", "tool"):
-        raise ValueError("invalid message role")
-    if not isinstance(d.get("content", ""), str):
-        raise ValueError("invalid message content")
-    for field in ("name", "tool_call_id", "finish_reason", "reasoning_content"):
-        if d.get(field) is not None and not isinstance(d[field], str):
-            raise ValueError(f"invalid message {field}")
-    if d.get("usage") is not None and not isinstance(d["usage"], dict):
-        raise ValueError("invalid message usage")
-    execution = parse_execution_outcome(d.get("execution"))
-    if execution is not None and d["role"] != "tool":
-        raise ValueError("only tool messages can carry execution outcomes")
-    raw_calls = d.get("tool_calls", [])
-    if not isinstance(raw_calls, list):
-        raise ValueError("invalid tool calls")
-    for call in raw_calls:
-        if (
-            not isinstance(call, dict)
-            or not isinstance(call.get("name"), str)
-            or not call["name"]
-            or not isinstance(call.get("args", {}), dict)
-            or (call.get("id") is not None and not isinstance(call["id"], str))
-        ):
-            raise ValueError("invalid tool call")
-    calls = [
-        ToolCall(
-            id=c.get("id"),
-            name=c["name"],
-            args=c.get("args", {}),
-        )
-        for c in raw_calls
-    ]
-    return Message(
-        role=d["role"],
-        content=d.get("content", ""),
-        tool_calls=calls,
-        usage=d.get("usage"),
-        finish_reason=d.get("finish_reason"),
-        name=d.get("name"),
-        tool_call_id=d.get("tool_call_id"),
-        execution=execution,
-        reasoning_content=d.get("reasoning_content"),
-    )
 
 
 class SessionStore:
@@ -187,7 +142,7 @@ class SessionStore:
             if event.get("type") != "message":
                 continue
             try:
-                message = _message_from_dict(event.get("message"))
+                message = message_from_dict(event.get("message"))
             except ValueError:
                 continue
             count += 1
@@ -300,7 +255,7 @@ class SessionStore:
             if event.get("type") != "message":
                 continue
             try:
-                message = _message_from_dict(event.get("message"))
+                message = message_from_dict(event.get("message"))
             except ValueError:
                 continue
             messages.append(message)
@@ -312,7 +267,7 @@ class SessionStore:
         if not snapshot:
             return
         for message in snapshot:
-            _message_from_dict(message)
+            message_from_dict(message)
         self.append_event(
             "context_checkpoint", version=1,
             source_message_count=len(self.load_messages()), messages=snapshot,
@@ -325,7 +280,7 @@ class SessionStore:
         for event in self._events():
             if event.get("type") == "message":
                 try:
-                    message = _message_from_dict(event.get("message"))
+                    message = message_from_dict(event.get("message"))
                 except ValueError:
                     continue
                 source_count += 1
@@ -342,7 +297,7 @@ class SessionStore:
             ):
                 continue
             try:
-                restored = [_message_from_dict(message) for message in snapshot]
+                restored = [message_from_dict(message) for message in snapshot]
             except ValueError:
                 continue
             if any(message.role == "system" for message in restored):
@@ -352,10 +307,13 @@ class SessionStore:
 
     def save_state(self, state: TaskState) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
-        self.state_path.write_text(
-            json.dumps(asdict(state), ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        payload = json.dumps(asdict(state), ensure_ascii=False, indent=2)
+        temporary = self.state_path.with_name(self.state_path.name + ".tmp")
+        try:
+            temporary.write_text(payload, encoding="utf-8")
+            os.replace(temporary, self.state_path)
+        finally:
+            temporary.unlink(missing_ok=True)
 
     def load_state(self) -> TaskState | None:
         if not self.state_path.exists():

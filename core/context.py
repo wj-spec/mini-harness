@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 from .budget import BudgetPolicy
-from .models import Message, ToolCall, parse_execution_outcome
+from .models import Message, message_from_dict
 from .summarize import summarize_messages
 
 Estimator = Callable[[str], int]
@@ -478,7 +478,7 @@ class ContextBuilder:
             if path.stat().st_size > 2 * 1024 * 1024:
                 raise ValueError("offload exceeds 2 MiB limit")
             raw = json.loads(path.read_text(encoding="utf-8"))
-            messages = [self._message_from_dict(d) for d in raw]
+            messages = [message_from_dict(d) for d in raw]
         else:
             raise KeyError(ref)
         out: list[Message] = []
@@ -512,24 +512,3 @@ class ContextBuilder:
             return ref, True
         except OSError:
             return ref, False
-
-    @staticmethod
-    def _message_from_dict(d: dict) -> Message:
-        reasoning = d.get("reasoning_content")
-        if reasoning is not None and not isinstance(reasoning, str):
-            raise ValueError("invalid message reasoning_content")
-        execution = parse_execution_outcome(d.get("execution"))
-        if execution is not None and d["role"] != "tool":
-            raise ValueError("only tool messages can carry execution outcomes")
-        calls = [ToolCall(name=c["name"], args=c.get("args", {}), id=c.get("id")) for c in d.get("tool_calls", [])]
-        return Message(
-            role=d["role"],
-            content=d.get("content", ""),
-            tool_calls=calls,
-            usage=d.get("usage"),
-            finish_reason=d.get("finish_reason"),
-            name=d.get("name"),
-            tool_call_id=d.get("tool_call_id"),
-            execution=execution,
-            reasoning_content=reasoning,
-        )

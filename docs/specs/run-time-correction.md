@@ -45,6 +45,7 @@ Ink：
 
 - 运行中 Composer 保持可编辑可提交；Enter 发 `steer` 帧，成功提示以对应 `ack` 为准，同请求 id 的 `error` 用 notice 报失败，不把控制请求错误标成整轮“运行异常”。命令执行中（`activeCommand` 非 `resume`）不发纠偏、不排队，提示结束后再发送。
 - `/followup` 为前端本地路由：本轮正常结束（`done` 且非 `cancelled`）后按 FIFO 自动 `run`；取消时清空队列并提示丢弃数量，不把“停止”改写成“继续”；自动续跑不清空用户正在编辑的草稿；`closed` 或退出时清空队列。
+- 纠偏被后端消费时，stdio 发送 `notice`（“已应用纠偏：…”），Ink 与 Textual 都能实时看到；`cancelled` / `stopped` 的机器状态串不再作为 Agent 回复写进 transcript，只保留已流出的正文；`/help`、Tab 补全与 CLI 帮助共用同一份命令清单。
 - 只实现前端队列，不在后端保存；断线或退出后队列丢失，不做自动重放。
 
 ## 边界与未做
@@ -65,6 +66,8 @@ Ink：
 | stdio 协议测试 | 2 passed（帧、ack、错误目标、持久化） | `tests/test_stdio_parity.py` |
 | Ink 回归（2026-10-23 修复后） | **194 项，193 passed，1 failed**；唯一失败为沙箱无 PTY 的 `interactive CLI enters and restores the alternate screen`（`OSError: out of pty devices`），改动前同样失败 | `.vibe/ink-fixes-tests.log` |
 | Python 回归（2026-10-23 修复后） | **901 passed**（新增 recall 越界校验与 5 条控制流测试） | `.vibe/ink-fixes-python-tests.log` |
+| Python 回归（Textual 退役后清理） | **820 passed**（含取消 run 工具计数、消息反序列化合并与原子写测试） | `.vibe/cleanup2-python-tests.log` |
+| Ink 回归（清理后） | **196 项，195 passed，1 failed**；唯一失败仍是沙箱无 PTY 环境项 | `.vibe/cleanup2-ink-tests.log` |
 | 离线预算分层 `./run_eval.sh check-budget` | **3/3 `[PASS]`**（fake 端到端，含压缩与工具执行） | `.vibe/steering-check-budget.log`、`.vibe/benchmarks/budget-checks/20261022-142815-145639/` |
 
 确定性证据使用 fake provider：覆盖“下一请求才注入”“多条顺序”“收尾竞态再走一步”“会话/协议持久化”“无运行目标拒绝”。真实模型是否按新约束修改、真实终端输入体验另按 W2 验收记录。

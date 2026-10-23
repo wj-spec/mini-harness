@@ -57,6 +57,29 @@ def agent_for(tmp_path, script):
     return Agent(FakeProvider(script), ToolRegistry(tmp_path), approval=ApprovalGate())
 
 
+def test_cancelled_run_records_observed_tool_count(tmp_path, monkeypatch):
+    async def fake_run(text, **callbacks):
+        callbacks["on_result"](ToolCall("read_file", {"path": "a.txt"}, id="c1"), True, "ok")
+        raise asyncio.CancelledError
+
+    agent = agent_for(tmp_path, [])
+    monkeypatch.setattr(agent, "run", fake_run)
+    session = SessionStore.new(tmp_path, "fake", purpose="test")
+
+    async def scenario():
+        harness = Harness(agent, Config(workspace=tmp_path), session=session)
+        harness.send("run", "r1", text="go")
+        done = await harness.until("done", "r1")
+        assert done["result"]["status"] == "cancelled"
+        await harness.close()
+
+    asyncio.run(scenario())
+
+    events = [json.loads(line) for line in session.trace_path.read_text().splitlines()]
+    ending = next(event for event in events if event["type"] == "run_end")
+    assert ending["tool_calls"] == 1
+
+
 def test_stream_read_tool_feedback_and_session_persistence(tmp_path):
     async def scenario():
         (tmp_path / "hello.txt").write_text("hello 编码\n")

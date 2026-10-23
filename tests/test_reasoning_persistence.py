@@ -3,9 +3,9 @@ from dataclasses import asdict
 
 import pytest
 
-from app.session import SessionStore, _message_from_dict
+from app.session import SessionStore
 from core.context import ContextBuilder, message_tokens, total_tokens
-from core.models import Message, Response, ToolCall
+from core.models import Message, Response, ToolCall, message_from_dict
 
 
 def test_reasoning_metadata_is_optional_without_changing_positional_fields():
@@ -38,14 +38,14 @@ def test_session_message_and_checkpoint_preserve_reasoning(tmp_path, reasoning):
     assert payloads[2]["messages"][-1]["reasoning_content"] == reasoning
 
 
-@pytest.mark.parametrize("loader", [_message_from_dict, ContextBuilder._message_from_dict])
+@pytest.mark.parametrize("loader", [message_from_dict])
 def test_legacy_message_without_reasoning_loads_as_none(loader):
     message = loader({"role": "assistant", "content": "legacy"})
 
     assert message.reasoning_content is None
 
 
-@pytest.mark.parametrize("loader", [_message_from_dict, ContextBuilder._message_from_dict])
+@pytest.mark.parametrize("loader", [message_from_dict])
 @pytest.mark.parametrize("reasoning", [1, False, [], {}])
 def test_loading_invalid_reasoning_metadata_is_rejected(loader, reasoning):
     with pytest.raises(ValueError, match="reasoning_content"):
