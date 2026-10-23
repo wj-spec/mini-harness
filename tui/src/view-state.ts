@@ -86,6 +86,11 @@ function resultLabel(status: string, reason: string | null | undefined): string 
   return reason ? `${label} · ${reason}` : label;
 }
 
+/** 结果标签已由状态标签展示，页脚只补「· 原因」部分 */
+export function resultReason(result: string): string {
+  return result.split(' · ').slice(1).join(' · ');
+}
+
 function ongoingActivity(state: ViewState): ViewState['activity'] {
   if (state.activeId === 'startup') return 'initializing';
   if (!state.activeId || (state.activeCommand && state.activeCommand !== 'resume')) return null;

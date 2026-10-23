@@ -2,7 +2,7 @@ import React, {useEffect, useMemo, useReducer, useRef, useState} from 'react';
 import {Box, Text, useApp, useInput, usePaste, useWindowSize} from 'ink';
 import type {BackendClient} from './backend.js';
 import type {ApprovalDecision, BackendCommand, SkillsCommandArgs} from './protocol.js';
-import {initialState as emptyState, reduceView, type ViewState} from './view-state.js';
+import {initialState as emptyState, reduceView, resultReason, type ViewState} from './view-state.js';
 import {Composer} from './composer.js';
 import {fitText, textLines} from './markdown.js';
 import {detailLines, errorLines, liveLines, metricsText, ReadingPane, transcriptLines, welcomeLines} from './workbench.js';
@@ -334,7 +334,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
     <Box backgroundColor={state.approval ? palette.surfaces.warning : readerFocused ? palette.surface : palette.focus} height={composerRows + 2} width={columns} paddingX={2} paddingY={1} flexShrink={0}>
       <Composer value={input} onChange={setInput} onSubmit={submit} history={history} disabled={composerDisabled} disabledHint={unavailableHint} focused={!readerFocused && !quitting} placeholder={composerPlaceholder} columns={Math.max(1, columns - 4)} maxRows={composerRows} accentColor={palette.accent} warningColor={palette.warning} foregroundColor={palette.foreground} secondaryColor={palette.secondary}/>
     </Box>
-    <Text color={feedback || state.error || state.phase === 'closed' ? palette.error : state.approval ? palette.warning : palette.foreground}>{fitText(feedback || `${phase}${state.lastResult ? ` · ${state.lastResult}` : ''}${metricsText(state) ? `  ·  ${metricsText(state)}` : ''}`, columns)}</Text>
+    <Text color={feedback || state.error || state.phase === 'closed' ? palette.error : state.approval ? palette.warning : palette.foreground}>{fitText(feedback || `${phase}${resultReason(state.lastResult) ? ` · ${resultReason(state.lastResult)}` : ''}${metricsText(state) ? `  ·  ${metricsText(state)}` : ''}`, columns)}</Text>
     <Text color={palette.secondary}>{fitText(hint, columns)}</Text>
   </Box>;
 }
