@@ -237,6 +237,11 @@ class Agent:
                     system += " Keep the plan and progress current with update_task."
                 if "recall" in tools.names():
                     system += " If context shows [offloaded: ref], call recall(ref) to read it."
+                system += (
+                    " Ground every claim in tool output: before reporting workspace state "
+                    "(uncommitted changes, file existence, test results) run a command and quote what it showed; "
+                    "if something was not run or is unknown, say so."
+                )
             else:
                 system = (
                     "You are a coding agent in chat-only mode. No tools are available. "

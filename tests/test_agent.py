@@ -772,3 +772,5 @@ def test_vibe_coding_prompt_rules(tmp_path):
     agent = Agent(FakeProvider([]), ToolRegistry(tmp_path))
     assert "Read a file before editing it" in agent.system
     assert "never claim a test passed" in agent.system
+    assert "Ground every claim in tool output" in agent.system
+    assert "quote what it showed" in agent.system
