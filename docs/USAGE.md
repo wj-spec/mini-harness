@@ -131,6 +131,16 @@ VIBE_MODEL=qwen2.5-coder:7b \
 
 `run_tests.sh` / `run_vibe.sh` 默认使用项目 `.venv` 中的依赖，不依赖全局 `pytest`；显式指定其他 Python 时保留 `.pylibs` 兼容路径。
 
+### 5) 本地编码基准
+
+```bash
+python3 scripts/bench_local.py --prepare   # 只注入 bug、确认初始失败，不需要 API key
+python3 scripts/bench_local.py             # 真实模型跑全部任务，沿用当前 VIBE_* 配置
+python3 scripts/bench_local.py --tasks recall-guard --timeout 600
+```
+
+任务与评分见 [本地编码基准](specs/local-coding-benchmark.md)；报告写入 `.vibe/bench-local/<时间戳>/summary.json`，每个任务另有 `report.json` 与 Agent 输出日志。
+
 ## 上下文预算（默认配置 1M）
 
 默认分配覆盖全部窗口，history 可以使用其他输入分区空闲的额度。窗口是容量上限，每次请求仍只发送当前需要的上下文。
