@@ -17,7 +17,6 @@ export interface BackendClient {
 
 export interface BackendOptions {
   repoRoot?: string;
-  python?: string;
   args?: readonly string[];
   shutdownTimeoutMs?: number;
   killTimeoutMs?: number;

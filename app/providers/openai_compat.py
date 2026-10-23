@@ -12,6 +12,12 @@ from core.models import Message, ToolCall
 from app.events import ReasoningDelta, StreamDone, StreamError, TextDelta, ToolCallsReady
 
 
+def chat_completions_url(base_url: str) -> str:
+    """OpenAI 兼容端点的完整 URL；已带 /chat/completions 的地址原样使用。"""
+    url = base_url.rstrip("/")
+    return url if url.endswith("/chat/completions") else url + "/chat/completions"
+
+
 def _to_openai(message: Message, *, include_reasoning: bool = False) -> dict:
     data: dict = {"role": message.role, "content": message.content or ""}
     if message.role == "assistant":
@@ -70,11 +76,6 @@ class OpenAICompatProvider:
             or urlparse(self.base_url).hostname == "api.deepseek.com"
         )
 
-    def _url(self) -> str:
-        if self.base_url.endswith("/chat/completions"):
-            return self.base_url
-        return self.base_url + "/chat/completions"
-
     def _debug(self, event: dict) -> None:
         if self.debug_path is None:
             return
@@ -112,7 +113,9 @@ class OpenAICompatProvider:
                 transport=self.transport,
                 trust_env=self.trust_env,
             ) as client:
-                async with client.stream("POST", self._url(), headers=headers, json=payload) as response:
+                async with client.stream(
+                    "POST", chat_completions_url(self.base_url), headers=headers, json=payload,
+                ) as response:
                     if response.status_code >= 400:
                         body = (await response.aread()).decode("utf-8", "replace")
                         retryable = response.status_code in {408, 409, 429, 500, 502, 503, 504}

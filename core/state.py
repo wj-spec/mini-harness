@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .models import ExecutionOutcome, Message
+from .models import ExecutionOutcome
 
 
 def _clip(text: str, limit: int = 200) -> str:
@@ -53,9 +53,6 @@ class TaskState:
             return "; ".join(f"{_clip(item['command'], 120)} [{item['status']}, "
                              f"exit={item.get('exit_code')}]" for item in self.command_results[-5:])
         return "; ".join(f"{_clip(command, 120)} [unverified]" for command in self.tests_run[-3:]) or "无"
-
-    def to_message(self) -> Message:
-        return Message("system", self.render(), name="task_state")
 
     def update(
         self,

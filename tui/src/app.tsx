@@ -24,7 +24,6 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
 }) {
   const [state, dispatch] = useReducer(reduceView, initialState);
   const [input, setInput] = useState('');
-  const [history, setHistory] = useState<string[]>(() => initialState.entries.filter(entry => entry.kind === 'task').map(entry => entry.text));
   const [theme, setTheme] = useState<ThemeName>(initialTheme);
   const [quitting, setQuitting] = useState(false);
   const [feedback, setFeedback] = useState('');
@@ -54,12 +53,13 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       const id = client.run(text);
       activeRun.current = id;
       dispatch({type: 'begin', id, text});
-      setFeedback(''); setHistory(previous => [...previous, text]); setScroll({follow: true, top: 0});
+      setFeedback(''); setScroll({follow: true, top: 0});
     } catch (error) {
       followups.current.unshift(text);
       dispatch({type: 'notice', text: `后续消息未能启动：${String(error)}`});
     }
   };
+  const history = useMemo(() => state.entries.filter(entry => entry.kind === 'task').map(entry => entry.text), [state.entries]);
   const {exit} = useApp();
   const terminal = useWindowSize();
   const columns = Math.max(1, windowSize?.columns ?? terminal.columns);
@@ -78,11 +78,13 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
   const bodyRows = Math.max(1, paneRows - 3);
   const bodyColumns = Math.max(1, readerColumns - 5);
   const decisions = state.approval?.decisions ?? ['once', 'deny'];
-  const fullApprovalHint = [decisions.includes('once') ? 'y 允许一次' : '', decisions.includes('session') ? 's 精确规则' : '',
-    decisions.includes('workspace') ? 'p 工作区' : '', decisions.includes('deny') ? 'n 拒绝' : ''].filter(Boolean).join(' / ');
+  const approvalLabels: Record<string, [string, string]> = {
+    once: ['y 允许一次', 'y一次'], session: ['s 精确规则', 's规则'],
+    workspace: ['p 工作区', 'p工作区'], deny: ['n 拒绝', 'n拒绝'],
+  };
+  const fullApprovalHint = decisions.map(decision => approvalLabels[decision]?.[0]).filter(Boolean).join(' / ');
   const approvalHint = fitText(fullApprovalHint, columns) === fullApprovalHint ? fullApprovalHint :
-    [decisions.includes('once') ? 'y一次' : '', decisions.includes('session') ? 's规则' : '',
-      decisions.includes('workspace') ? 'p工作区' : '', decisions.includes('deny') ? 'n拒绝' : ''].filter(Boolean).join(' ');
+    decisions.map(decision => approvalLabels[decision]?.[1]).filter(Boolean).join(' ');
   const isEmpty = !state.entries.length && !state.live && !state.error;
   const completedLines = useMemo(() => transcriptLines({...state, live: '', error: null}, bodyColumns, chosenTool?.id ?? null), [state.entries, bodyColumns, chosenTool?.id]);
   const transcript = useMemo(() => [
@@ -126,7 +128,6 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       }
     }
     if (event.type === 'approval_request') {setDetail(null); setContextOpen(false); answeredApproval.current = null;}
-    if (event.type === 'history_message' && event.message.role === 'user') setHistory(previous => [...previous, event.message.content]);
     if (event.type === 'status' && event.phase === 'starting' && event.id) activeRun.current = event.id;
     const finished = (event.type === 'done' || event.type === 'command_result') && event.id === activeRun.current;
     if (finished) activeRun.current = null;
@@ -298,7 +299,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       const id = client.run(task);
       activeRun.current = id;
       dispatch({type: 'begin', id, text: task});
-      setInput(''); setFeedback(''); setHistory(previous => [...previous, task]); setScroll({follow: true, top: 0});
+      setInput(''); setFeedback(''); setScroll({follow: true, top: 0});
     } catch (error) {notice(`未能提交任务：${String(error)}`);}
   };
 

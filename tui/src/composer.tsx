@@ -18,7 +18,6 @@ type ComposerProps = {
   foregroundColor?: string;
   secondaryColor?: string;
   disabledHint?: string;
-  onCommand?: (command: string) => void;
 };
 
 const commands: readonly string[] = COMMAND_COMPLETIONS;

@@ -96,11 +96,6 @@ export function transcriptLines(state: ViewState, columns: number, selectedTool:
     }
     lines.push(...entryLines.map(line => ({...line, entryId: entry.id})));
   }
-  if (state.live) {
-    if (lines.length) lines.push({spans: [{text: ''}]});
-    lines.push(...liveLines(state.live, columns));
-  }
-  if (state.error) lines.push(...errorLines(state.error, columns));
   return lines;
 }
 

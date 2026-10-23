@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import httpx
 
+from app.providers.openai_compat import chat_completions_url
 from core.models import Message
 from core.summarize import summarize_messages
 
@@ -55,11 +56,6 @@ class LLMSummarizer:
         self.transport = transport
         self.last_error: str | None = None
 
-    def _url(self) -> str:
-        if self.base_url.endswith("/chat/completions"):
-            return self.base_url
-        return self.base_url + "/chat/completions"
-
     def __call__(self, messages: list[Message]) -> str:
         payload = {
             "model": self.model,
@@ -80,7 +76,9 @@ class LLMSummarizer:
                 transport=self.transport,
                 trust_env=self.trust_env,
             ) as client:
-                response = client.post(self._url(), headers=headers, json=payload)
+                response = client.post(
+                    chat_completions_url(self.base_url), headers=headers, json=payload,
+                )
                 response.raise_for_status()
                 data = response.json()
                 text = data["choices"][0]["message"]["content"]

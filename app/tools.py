@@ -612,9 +612,6 @@ class ToolRegistry:
     def skills(self) -> list[Skill]:
         return self.skill_manager.available
 
-    def skill_index(self) -> dict[str, Skill]:
-        return {skill.name: skill for skill in self.skills}
-
     def list_skills(self) -> str:
         self.skill_manager.refresh()
         return self.skill_manager.format_status()
