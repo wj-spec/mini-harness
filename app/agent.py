@@ -22,6 +22,7 @@ from core.context import ContextBuilder, ContextResult, estimate_tokens, total_t
 from core.context_snapshot import build_context_snapshot
 from core.state import TaskState
 from app.project_profile import ProjectBackgroundEntry, render_project_background
+from app.user_profile import UserPreference, render_user_background
 from core.summarize import summarize_messages
 
 def parse_text_tool_calls(text: str, prefix: str = "text") -> list[ToolCall]:
@@ -188,6 +189,7 @@ class Agent:
         tool_retries: int = 1,
         require_tool_use: bool = False,
         project_background: list[ProjectBackgroundEntry] | None = None,
+        user_background: list[UserPreference] | None = None,
     ):
         if require_tool_use and not tools_enabled:
             raise ValueError("require_tool_use requires tools_enabled=True")
@@ -201,6 +203,7 @@ class Agent:
         self.approval = approval
         self.project_instructions = project_instructions
         self.project_background = list(project_background or [])
+        self.user_background = list(user_background or [])
         self.history = skill_history_view(list(history or []))
         self.pricing = pricing or Pricing()
         self.llm_timeout = llm_timeout
@@ -269,6 +272,7 @@ class Agent:
                                       "source": "AGENTS.md", "content": project_part})
             system += project_part
         self.system = system
+        self._sync_user_background()
         self._sync_project_background()
         self._sync_skill_context()
         self._loaded_snapshot: dict | None = None
@@ -278,6 +282,23 @@ class Agent:
         self.project_background = list(entries)
         self._sync_project_background()
         self._sync_skill_context()
+
+    def set_user_background(self, entries: list[UserPreference]) -> None:
+        """替换用户偏好；仅用户会话注入，stdio 每次 run 前调用。"""
+        self.user_background = list(entries)
+        self._sync_user_background()
+
+    def _sync_user_background(self) -> None:
+        self.system_parts = [
+            part for part in self.system_parts if part["kind"] != "user_background"
+        ]
+        block = render_user_background(self.user_background)
+        if block:
+            self.system_parts.append({
+                "kind": "user_background", "label": "用户偏好",
+                "source": "~/.vibe/user-profile.json", "content": block,
+            })
+        self.system = "".join(part["content"] for part in self.system_parts)
 
     def _sync_project_background(self) -> None:
         self.system_parts = [

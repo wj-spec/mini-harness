@@ -14,6 +14,7 @@ import {contextLines} from './context-view.js';
 import {copyToClipboard} from './clipboard.js';
 import {selectedText, type Selection, type SelectionPoint} from './selection.js';
 import {loadProfile, projectProfilePath, saveProfile} from './project-profile.js';
+import {loadUserProfile, saveUserProfile, userProfileFile, type UserPreference} from './user-profile.js';
 
 type Scroll = {follow: boolean; top: number};
 const backendCommands: Record<string, BackendCommand> = {
@@ -22,9 +23,9 @@ const backendCommands: Record<string, BackendCommand> = {
 };
 const approvalKeys: Record<string, ApprovalDecision> = {y: 'once', s: 'session', p: 'workspace', n: 'deny'};
 
-export function App({client, initialState = emptyState, windowSize, initialTheme = 'system', copyText = copyToClipboard, profilePath}: {
+export function App({client, initialState = emptyState, windowSize, initialTheme = 'system', copyText = copyToClipboard, profilePath, userProfilePath}: {
   client: BackendClient; initialState?: ViewState; windowSize?: {columns: number; rows: number}; initialTheme?: ThemeName;
-  copyText?: (text: string) => string | null; profilePath?: string;
+  copyText?: (text: string) => string | null; profilePath?: string; userProfilePath?: string;
 }) {
   const [state, dispatch] = useReducer(reduceView, initialState);
   const [input, setInput] = useState('');
@@ -270,6 +271,51 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
     }
     announce('用法：/project；/project add <文本>；/project remove <序号>；/project source <序号> <来源>');
   };
+  const aboutFile = () => userProfilePath ?? userProfileFile();
+  const aboutCommand = (argument: string) => {
+    const file = aboutFile();
+    const profile = loadUserProfile(file);
+    const rest = argument.trim();
+    if (!rest) {
+      const stateText = profile.enabled ? '已启用' : '已停用';
+      if (!profile.entries.length) {announce(`关于你（${stateText}）：暂无条目。用 /about add <文本> 添加，/about propose <文本> 记录待确认观察`); return;}
+      const lines = profile.entries.map((entry, index) =>
+        `${index + 1}. [${entry.status === 'confirmed' ? '已确认' : '待确认'}] ${entry.text}（来源：${entry.source}）`);
+      announce(`关于你（${stateText}，${profile.entries.length} 条）：\n${lines.join('\n')}`);
+      return;
+    }
+    if (rest === 'on' || rest === 'off') {
+      saveUserProfile(file, {...profile, enabled: rest === 'on'});
+      announce(`个人偏好已${rest === 'on' ? '启用' : '停用'}；新任务${rest === 'on' ? '会' : '不会'}注入`);
+      return;
+    }
+    if (rest.startsWith('add ') || rest.startsWith('propose ')) {
+      const proposed = rest.startsWith('propose ');
+      const text = rest.slice(proposed ? 8 : 4).trim();
+      if (!text) {announce(`用法：/about ${proposed ? 'propose' : 'add'} <文本>`); return;}
+      const entry: UserPreference = {text, source: proposed ? 'observation' : 'user', status: proposed ? 'proposed' : 'confirmed', updated_at: new Date().toISOString()};
+      saveUserProfile(file, {...profile, entries: [...profile.entries, entry]});
+      announce(`${proposed ? '已记录待确认观察' : '已添加已确认偏好'}：${text}`);
+      return;
+    }
+    if (rest.startsWith('confirm ')) {
+      const index = Number(rest.slice(8).trim());
+      if (!Number.isInteger(index) || index < 1 || index > profile.entries.length) {announce(`用法：/about confirm <1-${profile.entries.length}>`); return;}
+      const entries = profile.entries.map((entry, position) => position === index - 1 ? {...entry, status: 'confirmed' as const} : entry);
+      saveUserProfile(file, {...profile, entries});
+      announce(`已确认第 ${index} 条偏好，将在下一次任务生效`);
+      return;
+    }
+    if (rest.startsWith('remove ')) {
+      const index = Number(rest.slice(7).trim());
+      if (!Number.isInteger(index) || index < 1 || index > profile.entries.length) {announce(`用法：/about remove <1-${profile.entries.length}>`); return;}
+      const removed = profile.entries[index - 1];
+      saveUserProfile(file, {...profile, entries: profile.entries.filter((_, position) => position !== index - 1)});
+      announce(`已删除偏好：${removed?.text ?? ''}`);
+      return;
+    }
+    announce('用法：/about；/about add <文本>；/about propose <文本>；/about confirm <序号>；/about remove <序号>；/about on|off');
+  };
   const copyCurrent = () => {
     const target = copyTarget();
     if (!target) {announce('没有可复制的 Agent 回复'); return;}
@@ -346,9 +392,10 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
     if (text === '/context') {setInput(''); openContext(); return;}
     if (text === '/copy') {setInput(''); copyCurrent(); return;}
     if (text === '/project' || text.startsWith('/project ')) {setInput(''); projectCommand(text.slice('/project'.length)); return;}
+    if (text === '/about' || text.startsWith('/about ')) {setInput(''); aboutCommand(text.slice('/about'.length)); return;}
     if (text === '/help') {
       setInput('');
-      notice('Enter 发送（运行中提交纠偏，下一次模型请求生效）；Ctrl+J 换行；输入焦点下 ↑↓ 编辑或浏览输入历史。滚轮 / 触控板在对话区回看；PgUp/PgDn 翻页，Ctrl+P/N 或 Ctrl+↑/↓ 逐行。Ctrl+R 切换阅读 / 输入焦点，阅读时 ↑↓ 滚动、空格下一页，Esc 回输入。Ctrl+Home/End 到首尾，End 恢复跟随最新；鼠标在对话区拖选，松开即复制所选文本。Tab 选择工具，Ctrl+O 查看全文。Ctrl+K 或 /context 查看上下文分区，←/→ 回放本轮快照，l 跟随最新，Esc 返回。Ctrl+Y 或 /copy 复制最近回复、工具详情或审批预览；/project 查看项目背景，/project add 文本 添加，/project remove 序号 删除，/project source 序号 来源 改来源；Ctrl+C 取消当前操作，空闲时退出；Ctrl+Q 退出。审批时 y 单次、s 精确规则、p 工作区、n 拒绝，以面板选项为准。\n/resume 显式续做已保存任务；/permissions 查看授权，/permissions reset 撤销；/cost 会话花费；/tools 可用工具；/diff 工作区差异；/mcp 服务状态；/skills 技能目录，refresh 重扫，activate NAME 激活，unload NAME 卸载；/followup TEXT 排队后续消息，本轮结束后自动继续；/session 会话路径；/theme system|light|dark 主题。');
+      notice('Enter 发送（运行中提交纠偏，下一次模型请求生效）；Ctrl+J 换行；输入焦点下 ↑↓ 编辑或浏览输入历史。滚轮 / 触控板在对话区回看；PgUp/PgDn 翻页，Ctrl+P/N 或 Ctrl+↑/↓ 逐行。Ctrl+R 切换阅读 / 输入焦点，阅读时 ↑↓ 滚动、空格下一页，Esc 回输入。Ctrl+Home/End 到首尾，End 恢复跟随最新；鼠标在对话区拖选，松开即复制所选文本。Tab 选择工具，Ctrl+O 查看全文。Ctrl+K 或 /context 查看上下文分区，←/→ 回放本轮快照，l 跟随最新，Esc 返回。Ctrl+Y 或 /copy 复制最近回复、工具详情或审批预览；/project 查看项目背景（add/remove/source）；/about 查看个人偏好（add/propose/confirm/remove/on/off）；Ctrl+C 取消当前操作，空闲时退出；Ctrl+Q 退出。审批时 y 单次、s 精确规则、p 工作区、n 拒绝，以面板选项为准。\n/resume 显式续做已保存任务；/permissions 查看授权，/permissions reset 撤销；/cost 会话花费；/tools 可用工具；/diff 工作区差异；/mcp 服务状态；/skills 技能目录，refresh 重扫，activate NAME 激活，unload NAME 卸载；/followup TEXT 排队后续消息，本轮结束后自动继续；/session 会话路径；/theme system|light|dark 主题。');
       return;
     }
     if (text.startsWith('/theme')) {

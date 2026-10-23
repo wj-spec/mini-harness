@@ -17,7 +17,7 @@ test('help works without a TTY and documents commands and the Ink entry', () => 
   assert.match(result.stdout, /--fake[^\n]*测试会话/);
   assert.match(result.stdout, /普通[^\n]*测试会话/);
   assert.match(result.stdout, /MCP/);
-  for(const feature of ['工作台','Ctrl+J','PageUp','Ctrl+O','Ctrl+K','/context','/theme','/help','/cost','--continue','--session','--list-sessions','/resume','/permissions reset','/diff','/mcp','/skills','/session','/followup','/copy','/project','Ctrl+Y','./run_ink.sh','./run_vibe.sh --eval'])assert.ok(result.stdout.includes(feature),feature);
+  for(const feature of ['工作台','Ctrl+J','PageUp','Ctrl+O','Ctrl+K','/context','/theme','/help','/cost','--continue','--session','--list-sessions','/resume','/permissions reset','/diff','/mcp','/skills','/session','/followup','/copy','/project','/about','Ctrl+Y','./run_ink.sh','./run_vibe.sh --eval'])assert.ok(result.stdout.includes(feature),feature);
   assert.equal(result.stderr, '');
 });
 

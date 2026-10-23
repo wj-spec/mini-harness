@@ -14,6 +14,7 @@ from dataclasses import asdict, replace
 from app.agent import Agent, AgentResult
 from app.config import Config
 from app.project_profile import load_project_background
+from app.user_profile import load_user_profile
 from app.context_snapshot_display import snapshot_for_display
 from app.mcp import McpManager
 from app.policy import ApprovalDecision, ApprovalGate
@@ -384,6 +385,13 @@ class _Connection:
         try:
             # 每次任务前重新读取，profile 的增删在下一次 run 生效。
             self.agent.set_project_background(load_project_background(self.config.workspace))
+            user_profile = load_user_profile()
+            # 测试/基准会话不注入个人偏好，避免污染对照与泄露用户画像。
+            user_entries = (
+                [entry for entry in user_profile.entries if entry.status == "confirmed"]
+                if user_profile.enabled and self.session.purpose == "user" else []
+            )
+            self.agent.set_user_background(user_entries)
             publish_metrics()
             result = await self.agent.run(
                 text,

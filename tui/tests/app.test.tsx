@@ -41,9 +41,9 @@ class MockClient {
 
 afterEach(cleanup);
 
-async function mount(copyText?: (text: string) => string | null, initialState?: ViewState, windowSize?: {columns: number; rows: number}, profilePath?: string) {
+async function mount(copyText?: (text: string) => string | null, initialState?: ViewState, windowSize?: {columns: number; rows: number}, profilePath?: string, userProfilePath?: string) {
   const client = new MockClient();
-  const view = render(<App client={client as unknown as BackendClient} copyText={copyText} initialState={initialState} windowSize={windowSize} profilePath={profilePath}/>);
+  const view = render(<App client={client as unknown as BackendClient} copyText={copyText} initialState={initialState} windowSize={windowSize} profilePath={profilePath} userProfilePath={userProfilePath}/>);
   await pause(20);
   client.emit({type: 'ready', workspace: '/tmp/repo', model: 'fake', session_id: 'test', capabilities: []});
   client.emit({type: 'status', phase: 'idle'});
@@ -912,6 +912,50 @@ test('manages the project background from the workbench', async () => {
     await pause(20);
     assert.match(lastFrame() ?? '', /已删除项目背景/);
     assert.deepEqual((JSON.parse(await readFile(file, 'utf8')) as {entries: unknown[]}).entries, []);
+  } finally {
+    await rm(directory, {recursive: true, force: true});
+  }
+});
+
+test('manages user preferences from the workbench', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'user-profile-app-'));
+  const file = path.join(directory, 'user-profile.json');
+  type StoredProfile = {enabled: boolean; entries: {text: string; status: string; source: string}[]};
+  const stored = async () => JSON.parse(await readFile(file, 'utf8')) as unknown as StoredProfile;
+  try {
+    const {stdin, lastFrame} = await mount(undefined, undefined, {columns: 100, rows: 30}, undefined, file);
+    await enter(stdin, '/about');
+    await pause(20);
+    assert.match(lastFrame() ?? '', /暂无条目/);
+
+    await enter(stdin, '/about add 回答先给结论');
+    await pause(20);
+    await enter(stdin, '/about propose 可能偏好简短回复');
+    await pause(20);
+    let payload = await stored();
+    assert.equal(payload.entries.length, 2);
+    assert.deepEqual(payload.entries.map(entry => entry.status), ['confirmed', 'proposed']);
+
+    await enter(stdin, '/about');
+    await pause(20);
+    assert.match(lastFrame() ?? '', /1\. \[已确认\] 回答先给结论/);
+    assert.match(lastFrame() ?? '', /2\. \[待确认\] 可能偏好简短回复/);
+
+    await enter(stdin, '/about confirm 2');
+    await pause(20);
+    payload = await stored();
+    assert.equal(payload.entries[1]?.status, 'confirmed');
+
+    await enter(stdin, '/about off');
+    await pause(20);
+    assert.match(lastFrame() ?? '', /个人偏好已停用/);
+    payload = await stored();
+    assert.equal(payload.enabled, false);
+
+    await enter(stdin, '/about remove 1');
+    await pause(20);
+    payload = await stored();
+    assert.equal(payload.entries.length, 1);
   } finally {
     await rm(directory, {recursive: true, force: true});
   }

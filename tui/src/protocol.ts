@@ -10,7 +10,7 @@ export type ApprovalDecision = 'once' | 'session' | 'workspace' | 'deny';
 export type SessionPurpose = 'user' | 'test';
 export const BACKEND_COMMANDS = ['resume', 'permissions', 'permissions_reset', 'cost', 'tools', 'diff', 'mcp', 'skills'] as const;
 export const COMMAND_COMPLETIONS = ['/help', '/resume', '/context', '/continue', '/cost', '/tools', '/diff', '/permissions',
-  '/permissions reset', '/mcp', '/skills', '/session', '/theme', '/followup', '/copy', '/project', '/quit', '/exit'] as const;
+  '/permissions reset', '/mcp', '/skills', '/session', '/theme', '/followup', '/copy', '/project', '/about', '/quit', '/exit'] as const;
 export type BackendCommand = typeof BACKEND_COMMANDS[number];
 export type SkillsCommandArgs = {action?: 'list' | 'refresh' | 'activate' | 'unload'; name?: string};
 

@@ -113,7 +113,7 @@ def approval_decision(event: dict) -> str:
 
 
 def run_agent(workspace: Path, prompt: str, timeout: float, log_path: Path, fake: bool = False) -> dict:
-    command = [str(ROOT / "run_vibe.sh"), "--stdio", "--workspace", str(workspace)]
+    command = [str(ROOT / "run_vibe.sh"), "--stdio", "--workspace", str(workspace), "--test-session"]
     if fake:
         command.append("--fake")
     process = subprocess.Popen(
