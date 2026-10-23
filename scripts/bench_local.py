@@ -20,6 +20,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import tempfile
 import time
 from pathlib import Path
 
@@ -44,7 +45,8 @@ def build_workspace(destination: Path) -> None:
     with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
         tar.extractall(destination)  # 信任本仓库自己的 git archive；兼容 Python < 3.12
     # 基准自身不能出现在工作区，否则 Agent 可以直接读隐藏测试或评分逻辑。
-    for relative in ("benchmarks", "scripts/bench_local.py", "docs/specs/local-coding-benchmark.md", "docs/MILESTONES.md"):
+    for relative in ("benchmarks", "scripts/bench_local.py", "docs/specs/local-coding-benchmark.md",
+                     "docs/MILESTONES.md", "tests/test_bench_local.py"):
         target = destination / relative
         if target.is_dir():
             shutil.rmtree(target)
@@ -56,6 +58,14 @@ def build_workspace(destination: Path) -> None:
     ):
         if target.exists() and not link.exists():
             link.symlink_to(target)
+    # 独立 git 仓库：Agent 的 git status/diff 指向副本本身，不会跑到外层仓库。
+    subprocess.run(["git", "init", "-q"], cwd=destination, check=True, timeout=60)
+    subprocess.run(["git", "add", "-A"], cwd=destination, check=True, timeout=120)
+    subprocess.run(
+        ["git", "-c", "user.email=bench@example.com", "-c", "user.name=benchmark",
+         "commit", "-qm", "benchmark seed"],
+        cwd=destination, check=True, timeout=120,
+    )
 
 
 def file_hashes(workspace: Path) -> dict[str, str]:
@@ -204,12 +214,14 @@ def latest_run_end(workspace: Path, run_id: str | None) -> dict | None:
     return None
 
 
-def run_task(task: str, prepare: bool, timeout: float, stamp: str, fake: bool = False) -> dict:
+def run_task(task: str, prepare: bool, timeout: float, stamp: str, fake: bool = False, clean: bool = False) -> dict:
     task_dir = TASKS_DIR / task
     workdir = RUN_ROOT / stamp / task
     if workdir.exists():
         shutil.rmtree(workdir)
-    workspace = workdir / "workspace"
+    workdir.mkdir(parents=True)
+    # 工作区放在仓库外，避免父级 .git 让 Agent 的 git 命令看到外层仓库。
+    workspace = Path(tempfile.mkdtemp(prefix=f"bench-{stamp}-{task}-"))
     build_workspace(workspace)
     prompt = (task_dir / "task.md").read_text(encoding="utf-8")
     leaked = [path for path in ("benchmarks", "scripts/bench_local.py") if (workspace / path).exists()]
@@ -264,6 +276,8 @@ def run_task(task: str, prepare: bool, timeout: float, stamp: str, fake: bool = 
         report["reason"] = run["error"]
     report["failure_class"] = failure_class(report)
     (workdir / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    if clean:
+        shutil.rmtree(workspace, ignore_errors=True)
     return report
 
 
@@ -273,6 +287,7 @@ def main() -> int:
     parser.add_argument("--prepare", action="store_true", help="只注入 bug 并确认初始失败，不调用模型")
     parser.add_argument("--timeout", type=float, default=900, help="单个任务的 Agent 超时秒数")
     parser.add_argument("--fake", action="store_true", help="用 fake provider 验证跑分链路（必然不通过）")
+    parser.add_argument("--clean", action="store_true", help="跑完删除临时工作区（默认保留供复查）")
     args = parser.parse_args()
     selected = [item.strip() for item in args.tasks.split(",")] if args.tasks else task_ids()
     unknown = [task for task in selected if task not in task_ids()]
@@ -286,7 +301,7 @@ def main() -> int:
     reports = []
     for task in selected:
         print(f"[{task}] 准备 workspace...", flush=True)
-        report = run_task(task, args.prepare, args.timeout, stamp, args.fake)
+        report = run_task(task, args.prepare, args.timeout, stamp, args.fake, args.clean)
         reports.append(report)
         if args.prepare:
             marker = "RED" if report.get("red_expected") else "UNEXPECTED PASS"

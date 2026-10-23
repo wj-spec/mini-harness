@@ -18,9 +18,9 @@ SWE-bench 首题只能证明评测接入可用，内部 eval 只是文件操作�
 
 ## 跑分流程
 
-1. `git archive HEAD` 复制仓库到 `.vibe/bench-local/<stamp>/<task>/workspace`，链接 `.venv` 与 `tui/node_modules`。
+1. `git archive HEAD` 复制仓库到系统临时目录（不在仓库内，避免父级 `.git` 让 Agent 看到外层仓库），`git init` 并提交初始副本，链接 `.venv` 与 `tui/node_modules`；报告仍写在 `.vibe/bench-local/<stamp>/`。
 2. 执行 `setup.py` 注入 bug，`red.sh` 确认初始失败。
-3. 通过 `./run_vibe.sh --stdio` 启动真实 Agent 循环，自动批准 workspace/session 权限（基准环境），记录 steps、tokens、工具调用、审批与最终回复。工作区会剔除 `benchmarks/`、`scripts/bench_local.py`、基准规格与 `MILESTONES.md`，防止 Agent 直接读到隐藏测试或任务提示；runner 在报告里记录 `workspace_clean` 与 `hidden_leak_attempts`。
+3. 通过 `./run_vibe.sh --stdio` 启动真实 Agent 循环，自动批准 workspace/session 权限（基准环境），记录 steps、tokens、工具调用、审批与最终回复。工作区会剔除 `benchmarks/`、`scripts/bench_local.py`、基准规格、`MILESTONES.md` 与 `tests/test_bench_local.py`，防止 Agent 直接读到隐藏测试或任务提示；runner 在报告里记录 `workspace_clean` 与 `hidden_leak_attempts`。
 4. 修改前后文件哈希对比，列出改动文件与测试文件改动。
 5. 执行 `check.sh` 评分；`report.json` 保存全部证据，`summary.json` 汇总。
 
@@ -40,6 +40,8 @@ SWE-bench 首题只能证明评测接入可用，内部 eval 只是文件操作�
 | `recall-guard` | 失败 | 18 | 323,430 | 23 | 70s | `core/context.py`（只加了格式校验） |
 
 总计 59 步、约 1.04M tokens、73 次工具调用、约 3.4 分钟；自动批准 workspace 权限各 1 次，未修改测试文件，两份通过的最终报告与证据一致。`recall-guard` 的失败分类为 `incomplete_fix`：Agent 让可见测试通过，但没有处理任务所要求的“读不到工作区外”的符号链接绕过；隐藏测试正确判负。基线之后补充了“根因与安全边界”系统提示规则（见 W1 记录），作为第一个 A/B 改动，重跑前不改变结果口径。
+
+**第三轮环境问题（2026-10-23，`20261023-115821`）**：隔离后 `workspace_clean=true`、无隐藏泄漏，结果 3/3（88 步、约 1.62M tokens）。但报告显示副本仍嵌在外层仓库的 `.vibe/` 下：`tool-count` Agent 在外层仓库路径执行测试与反证，验证对象不是副本；同时被剔除的 `scripts/bench_local.py` 让副本里的 `tests/test_bench_local.py` 变红，干扰全量测试判断。该轮只作为能力信号（2/3 → 3/3），环境与成本口径由第四轮重测；runner 已改为仓库外独立临时目录 + 独立 git 仓库，并补剔除对应测试。
 
 **污染与隔离（2026-10-23）**：首轮基线时工作区仍包含基准自身文件，`recall-guard` Agent 未读取隐藏测试（日志核对）；第二轮（`20261023-114623`）的 Agent 在副本里发现并直接运行了 `benchmarks/local/recall-guard/hidden/test_bench_recall.py`，随后给出 3/3，这轮不能作为 A/B 证据。runner 已改为从工作区剔除基准夹具、评分脚本、基准规格与 MILESTONES，报告新增 `workspace_clean` / `hidden_leak_attempts`；第三轮在隔离后的工作区重跑，才是根因规则的干净对照。
 
