@@ -41,6 +41,29 @@ PARTS = {
         ],
         "expect": "审批审计出现 edit_file deny；calc.py 哈希与初始一致。",
     },
+    "timeout": {
+        "label": "w2-stop-timeout",
+        "prompt": "运行 python3 slow_command.py，使用默认 30 秒超时，不要加大 timeout，也不要手动取消；等它超时后报告结果。",
+        "steps": [
+            "把提示词粘贴到 Ink 输入框并回车。",
+            "在 bash 审批面板按 y 允许一次。",
+            "不要按 Ctrl+C；等待约 35 秒，直到工具显示超时/进程被回收。",
+            "确认结果说明超时而不是正常完成，然后按 Ctrl+Q 退出 Ink。",
+        ],
+        "expect": "审计允许 bash；command_result 为 timed_out、退出状态来自进程组回收；无 slow_command.py 残留、工作区无改动。",
+    },
+    "afterwrite": {
+        "label": "w2-cancel-after-write",
+        "prompt": "修复 calc.py 的 add 并运行测试。",
+        "steps": [
+            "把提示词粘贴到 Ink 输入框并回车。",
+            "允许编辑审批（p 工作区或 y 一次）。",
+            "等 bash 审批出现时按 Ctrl+C 取消，不要允许执行测试。",
+            "取消后不要退出，再发送：检查当前工作区，报告已发生的改动；不要撤销、重写或提交。",
+            "看到它报告 calc.py 已修改后，按 Ctrl+Q 退出 Ink。",
+        ],
+        "expect": "第一次 run 为 cancelled 但 calc.py 已修改；第二次任务能报告该改动；取消不等于撤销。",
+    },
     "command": {
         "label": "w2-stop-command",
         "prompt": "运行 python3 slow_command.py 并报告结果。",

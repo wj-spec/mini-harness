@@ -41,6 +41,13 @@ rm -rf .vibe/w2w3/workspace/.vibe/sessions   # 仅在需要全新会话时
 - diff 仅 `calc.py`，测试文件哈希不变；审批 5 条 workspace_allow；无残留进程；
 - 证据 `.vibe/w2w3/evidence/w2-steer-verified-20261023-172000.json`。
 
+### W2-B 三种停止边界已通过（2026-10-23）
+
+- 模型流式中断：`w2-stop-model-20261023-174414.json`（`finish_reason=null`、正文截断、0 工具）；
+- 编辑审批取消：`w2-stop-approval-20261023-174458.json`（审计 deny、`not executed`、文件不变）；
+- 命令运行取消：`w2-stop-command-20261023-174610.json`（`exit_code=-9`、进程组回收、无残留）。
+- 待补：界面“正在停止/已停止”确认；超时进程回收；取消后已写修改保留。
+
 ## W2：掌控运行过程
 
 ### 推荐：每个边界用引导脚本（独立工作区，自动取证）
