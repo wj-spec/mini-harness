@@ -1,6 +1,6 @@
 # W1 切片：编码 Agent 评测
 
-状态：内部回归与 SWE-bench Lite 开发集接入已实现。2026-10-21 已补齐协议、预算继承和操作任务结束约束；内部真实模型已完成创建、编辑、读取复制，独立评分 3/3。下一步进入公开仓库首题；真实代码修复与官方评分仍待验收，W1 保持未验收。
+状态：内部回归与 SWE-bench Lite 开发集接入已实现。2026-10-21 已补齐协议、预算继承和操作任务结束约束；内部真实模型已完成创建、编辑、读取复制，独立评分 3/3。2026-10-21 22:45 公开仓库首题 `pylint-dev__astroid-1196` 官方评分 **resolved 1/1**，2026-10-23 已用 `doctor` 核对继承预算。固定前三题与整体环境验收未完成，W1 保持未验收。
 
 ## 检查与评测入口
 
@@ -176,6 +176,8 @@ Agent 导出的 Git diff 写成官方格式 `predictions.jsonl`：`instance_id`�
 - 结束约束修复后完整 Python 回归 **889 项通过**，无失败或跳过；记录：`.vibe/action-completion-tests.xml` 与 `.vibe/action-completion-tests.log`。预算分层 CLI 再次 **3/3 通过**，报告 `.vibe/benchmarks/budget-checks/20261021-140140-838346/report.json`。
 - 内部真实首题重跑 **1/1 通过**：`.vibe/evals/model/20261021-142446-747494/`，模型 `deepseek-flash`，协议 `internal-v3`。3 步约 3.48 秒，输入 4042 + 输出 299 = 4341 tokens；直接调用 `write_file` 后执行 bash 核对，均有 `ApprovalGate` 审计，验证命令真实退出 0。独立 `file_equals` 通过，另核对 `hello.txt` 精确为 11 字节 `hello world`；没有触发 `action_required`。这是文件操作首题通过，尚不等于代码修复或公开仓库任务验收。
 - 内部真实前三题 **3/3 通过**：`.vibe/evals/model/20261021-143720-292084/`，模型 `deepseek-flash`，协议 `internal-v3`。`create_file` 用 8100 tokens，`edit_file` 用 5339，`read_copy` 用 7234；合计 20673 tokens、14 步、约 17.25 秒。实际字节分别核对为 `hello world`、`hi\n`，以及 `secret.txt` 与 `answer.txt` 同为 `42\n`。写入、编辑、命令均有审批记录，执行的内容核对与复制比较命令均退出 0；三题均正常结束，无纠偏、预算暂停或运行错误。此次覆盖基础文件操作，不代替代码修复或公开仓库评分。
+- **公开仓库首题通过（2026-10-21 22:45）**：`.vibe/benchmarks/swebench-lite-dev/model/20261021-224536-308814/`，模型 `deepseek-flash`，公开协议 v2，官方 `swebench==4.1.0` 评分 **resolved 1/1**（无空补丁、无错误）。Agent 24 步、323,577 tokens（输入 312,967、输出 10,610）、约 149 秒，正常 `done`；trace 保留 28 条命令执行记录，`model.patch` 与官方评分目录一并保留。此前两轮空补丁与 HTTP 400 记录不回写。
+- **预算继承核对（2026-10-23）**：`./run_eval.sh doctor` 输出 `.vibe/w0/doctor.json`，确认每题继承 `max_run_tokens=1,000,000`、`max_steps=0`、`max_run_seconds=600`、`compact_interval_tokens=200,000`；对比旧入口写死的 50 步 / 100,000 tokens，两轮旧失败分别停在 95,917 与 100,711 tokens。本次核对环境没有 API key 与 Docker（`api_key_configured=false`、`docker_ready=false`），因此没有重跑首题，旧报告保持原始记录。
 - 固定前三题及清单 10 题没有整体完成环境验收。
 
 ## 后续验收
@@ -183,7 +185,7 @@ Agent 导出的 Git diff 写成官方格式 `predictions.jsonl`：`instance_id`�
 - [x] 完成离线预算层级检查，保留逐层证据。
 - [x] 真实模型通过内部首题，保留实际配置、写入与验证结果。
 - [x] 扩大到内部 3 题，核对创建、编辑和读取复制的闭环。
-- [ ] 用 `doctor` 核对继承的本机预算，保持模型与首题不变运行 `./run_eval.sh run --limit 1`，记录相对旧入口默认值的变化，并完成实际修复与独立评分。
+- [x] 用 `doctor` 核对继承的本机预算，保持模型与首题不变运行 `./run_eval.sh run --limit 1`，记录相对旧入口默认值的变化，并完成实际修复与独立评分。证据见上方首题记录与 2026-10-23 doctor 输出。
 - [ ] 逐题完成固定前三题的参考补丁自检，再显式用 `--limit 3` 扩大评测，单独记录镜像环境故障。
 - [ ] 在相同协议下比较 harness 改动前后成功率、耗时、用量与失败原因。
 
