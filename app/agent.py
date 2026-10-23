@@ -600,7 +600,9 @@ class Agent:
                     return self._pause_progress(run, step - 1, "运行时间已到，未发起模型收尾。")
                 if plan.finalizing:
                     return await self._pause_budget(run, step - 1, "运行时间已到，未发起模型收尾。")
-                return self._finish(run, "stopped: max_run_seconds", step - 1, "stopped")
+                return self._finish(
+                    run, "stopped: max_run_seconds", step - 1, "stopped", "max_run_seconds",
+                )
             request_id = await self._context_snapshot(
                 run, plan.request_messages, plan.tool_specs, "request",
                 "finalizing" if plan.finalizing else "model_call",
@@ -613,7 +615,9 @@ class Agent:
                     return self._pause_progress(run, step - 1, "运行时间已到，未发起模型收尾。")
                 if plan.finalizing:
                     return await self._pause_budget(run, step - 1, "运行时间已到，未发起模型收尾。")
-                return self._finish(run, "stopped: max_run_seconds", step - 1, "stopped")
+                return self._finish(
+                    run, "stopped: max_run_seconds", step - 1, "stopped", "max_run_seconds",
+                )
             timeout = min(self.llm_timeout, remaining) if self.llm_timeout > 0 else remaining
 
             capture = await self._stream_once(run, step, plan, request_id, timeout)
@@ -628,7 +632,9 @@ class Agent:
                     return self._finish(run, "cancelled", step - 1, "cancelled")
                 if capture.error:
                     return self._finish(run, f"error: {capture.error}", step - 1, "error")
-                return self._finish(run, "stopped: max_run_seconds", step - 1, "stopped")
+                return self._finish(
+                    run, "stopped: max_run_seconds", step - 1, "stopped", "max_run_seconds",
+                )
 
             usage = capture.usage
             estimated_usage = not usage or not any(
@@ -873,7 +879,9 @@ class Agent:
                 return self._cancel_pending(run, step, calls[call_index:])
             if self._active_seconds(run) > self.max_run_seconds:
                 self._skip_tools(run, calls[call_index:], "max_run_seconds")
-                return self._finish(run, "stopped: max_run_seconds", step, "stopped")
+                return self._finish(
+                    run, "stopped: max_run_seconds", step, "stopped", "max_run_seconds",
+                )
             run.tool_calls += 1
             if run.on_tool:
                 run.on_tool(call)

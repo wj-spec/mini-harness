@@ -495,6 +495,7 @@ def test_max_run_seconds_stops(tmp_path):
     agent = Agent(provider, ToolRegistry(tmp_path), max_run_seconds=-1)
     result = run(agent.run("q"))
     assert result.status == "stopped"
+    assert result.stop_reason == "max_run_seconds"
     assert "max_run_seconds" in result.text
     # 请求没有发出，报的是已完成步数，不把当前步算进去。
     assert result.steps == 0
