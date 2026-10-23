@@ -16,4 +16,4 @@ python3 scripts/bench_local.py --prepare   # 只校验夹具，不需要 API key
 python3 scripts/bench_local.py             # 真实模型跑全部任务
 ```
 
-新增任务时保证：初始 RED、修复后 check 通过、失败原因能归入「没复现 / 找错文件 / 改测试 / 没验证 / 报告不实」之一。
+新增任务时保证：初始 RED、修复后 check 通过。`report.json` 的 `failure_class` 自动区分 `no_change`、`edited_tests`、`agent_error`、`run_<status>` 与 `incomplete_fix`；人工再按需要归档为「没复现 / 找错文件 / 改测试 / 没验证 / 报告不实」。

@@ -26,7 +26,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 TASKS_DIR = ROOT / "benchmarks" / "local"
 RUN_ROOT = ROOT / ".vibe" / "bench-local"
-IGNORED_DIRS = {".git", ".venv", ".pylibs", "node_modules", "dist", ".vibe", "__pycache__"}
+IGNORED_DIRS = {
+    ".git", ".venv", ".pylibs", "node_modules", "dist", ".vibe", "__pycache__",
+    ".pytest_cache", ".mypy_cache", ".ruff_cache",
+}
 
 
 def task_ids() -> list[str]:
@@ -164,6 +167,20 @@ def run_agent(workspace: Path, prompt: str, timeout: float, log_path: Path, fake
     }
 
 
+def failure_class(report: dict) -> str | None:
+    if report.get("passed"):
+        return None
+    if report.get("agent_error"):
+        return "agent_error"
+    if not report.get("changed_files"):
+        return "no_change"
+    if report.get("test_edits"):
+        return "edited_tests"
+    if report.get("agent_status") != "done":
+        return f"run_{report.get('agent_status')}"
+    return "incomplete_fix"
+
+
 def latest_run_end(workspace: Path, run_id: str | None) -> dict | None:
     sessions = workspace / ".vibe" / "sessions"
     if not sessions.is_dir():
@@ -234,6 +251,7 @@ def run_task(task: str, prepare: bool, timeout: float, stamp: str, fake: bool = 
     })
     if run["error"]:
         report["reason"] = run["error"]
+    report["failure_class"] = failure_class(report)
     (workdir / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     return report
 
@@ -268,7 +286,8 @@ def main() -> int:
             print(
                 f"[{task}] {status} status={report.get('agent_status')} steps={report.get('agent_steps')} "
                 f"tokens={tokens} tool_calls={report.get('tool_calls')} "
-                f"changed={len(report.get('changed_files', []))} check_rc={report.get('check', {}).get('exit_code')}",
+                f"changed={len(report.get('changed_files', []))} check_rc={report.get('check', {}).get('exit_code')} "
+                f"class={report.get('failure_class')}",
                 flush=True,
             )
     summary = {

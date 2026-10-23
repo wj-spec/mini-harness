@@ -774,3 +774,5 @@ def test_vibe_coding_prompt_rules(tmp_path):
     assert "never claim a test passed" in agent.system
     assert "Ground every claim in tool output" in agent.system
     assert "quote what it showed" in agent.system
+    assert "Fix the root cause" in agent.system
+    assert "symlinks, relative paths and malformed values" in agent.system

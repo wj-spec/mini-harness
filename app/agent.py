@@ -241,6 +241,11 @@ class Agent:
                     " Ground every claim in tool output: before reporting workspace state "
                     "(uncommitted changes, file existence, test results) run a command and quote what it showed; "
                     "if something was not run or is unknown, say so."
+                    " Fix the root cause: passing the current tests is necessary but not sufficient; do not stop "
+                    "at the visible assertion if the underlying invariant is still unguarded. When a task guards "
+                    "a security boundary (paths, permissions, untrusted input), also check bypasses such as "
+                    "symlinks, relative paths and malformed values at the point where untrusted data reaches "
+                    "the filesystem."
                 )
             else:
                 system = (
