@@ -24,6 +24,14 @@ def test_workspace_excludes_benchmark_fixtures(tmp_path):
         assert not (workspace / relative).exists(), relative
 
 
+def test_outside_workspace_commands_are_flagged(tmp_path):
+    bench = _bench_module()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    commands = ["pwd", "npm test", "cd /Users/endless/Desktop/self_project/mini-harness && npm test"]
+    assert bench.outside_workspace_commands(workspace, commands) == [commands[-1]]
+
+
 def test_failure_class_distinguishes_incomplete_fixes():
     bench = _bench_module()
     assert bench.failure_class({"passed": True}) is None

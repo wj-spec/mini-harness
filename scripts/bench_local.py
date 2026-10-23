@@ -15,6 +15,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import select
 import shutil
 import subprocess
@@ -193,9 +194,42 @@ def failure_class(report: dict) -> str | None:
         return "no_change"
     if report.get("test_edits"):
         return "edited_tests"
+    if report.get("outside_workspace_commands") and not report.get("changed_files"):
+        return "wrong_directory"
     if report.get("agent_status") != "done":
         return f"run_{report.get('agent_status')}"
     return "incomplete_fix"
+
+
+def trace_commands(workspace: Path, run_id: str | None) -> list[str]:
+    sessions = workspace / ".vibe" / "sessions"
+    if not sessions.is_dir():
+        return []
+    commands: list[str] = []
+    for path in sorted(sessions.glob("*/trace.jsonl"), key=lambda item: item.stat().st_mtime):
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if event.get("type") == "command_result" and (run_id is None or event.get("run_id") == run_id):
+                commands.append(str(event.get("command", "")))
+    return commands
+
+
+def outside_workspace_commands(workspace: Path, commands: list[str]) -> list[str]:
+    prefix = str(workspace.resolve())
+    suspicious: list[str] = []
+    for command in commands:
+        for match in re.findall(r"/[^\s\"'`;|&()]+", command):
+            if match.startswith(("/Users/", "/home/")) and not match.startswith(prefix):
+                suspicious.append(command[:200])
+                break
+    return suspicious
 
 
 def latest_run_end(workspace: Path, run_id: str | None) -> dict | None:
@@ -224,6 +258,12 @@ def run_task(task: str, prepare: bool, timeout: float, stamp: str, fake: bool = 
     workspace = Path(tempfile.mkdtemp(prefix=f"bench-{stamp}-{task}-"))
     build_workspace(workspace)
     prompt = (task_dir / "task.md").read_text(encoding="utf-8")
+    prompt += (
+        "\n\n## 工作区\n"
+        f"- 唯一工作目录（仓库副本）：`{workspace}`\n"
+        "- 所有读写与命令都在该目录内执行；不要访问或修改该目录之外的其它仓库或文件。\n"
+        "- 完成后报告实际改动文件、运行过的命令与退出码。\n"
+    )
     leaked = [path for path in ("benchmarks", "scripts/bench_local.py") if (workspace / path).exists()]
     report: dict = {"task": task, "workspace": str(workspace), "prompt": prompt,
                     "workspace_clean": not leaked, "leaked_paths": leaked}
@@ -253,6 +293,8 @@ def run_task(task: str, prepare: bool, timeout: float, stamp: str, fake: bool = 
     result = run["result"] or {}
     run_id = result.get("run_id")
     trace = latest_run_end(workspace, run_id) or {}
+    commands = trace_commands(workspace, run_id)
+    outside = outside_workspace_commands(workspace, commands)
     check = run_script(task_dir / "check.sh", workspace, task_dir)
 
     report.update({
@@ -266,6 +308,8 @@ def run_task(task: str, prepare: bool, timeout: float, stamp: str, fake: bool = 
         "trace_duration_ms": trace.get("duration_ms"),
         "approvals": run["approvals"],
         "changed_files": changed,
+        "command_count": len(commands),
+        "outside_workspace_commands": outside,
         "test_edits": [path for path in changed if path.startswith(("tests/", "tui/tests/"))],
         "check": {"exit_code": check.returncode, "output": (check.stdout + check.stderr)[-6000:]},
         "hidden_leak_attempts": [line for line in (workdir / "agent.log").read_text(encoding="utf-8", errors="replace").splitlines()
