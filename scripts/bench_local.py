@@ -43,6 +43,13 @@ def build_workspace(destination: Path) -> None:
     ).stdout
     with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
         tar.extractall(destination)  # 信任本仓库自己的 git archive；兼容 Python < 3.12
+    # 基准自身不能出现在工作区，否则 Agent 可以直接读隐藏测试或评分逻辑。
+    for relative in ("benchmarks", "scripts/bench_local.py", "docs/specs/local-coding-benchmark.md", "docs/MILESTONES.md"):
+        target = destination / relative
+        if target.is_dir():
+            shutil.rmtree(target)
+        elif target.exists():
+            target.unlink()
     for link, target in (
         (destination / ".venv", ROOT / ".venv"),
         (destination / "tui" / "node_modules", ROOT / "tui" / "node_modules"),
@@ -205,7 +212,9 @@ def run_task(task: str, prepare: bool, timeout: float, stamp: str, fake: bool = 
     workspace = workdir / "workspace"
     build_workspace(workspace)
     prompt = (task_dir / "task.md").read_text(encoding="utf-8")
-    report: dict = {"task": task, "workspace": str(workspace), "prompt": prompt}
+    leaked = [path for path in ("benchmarks", "scripts/bench_local.py") if (workspace / path).exists()]
+    report: dict = {"task": task, "workspace": str(workspace), "prompt": prompt,
+                    "workspace_clean": not leaked, "leaked_paths": leaked}
 
     setup = subprocess.run(
         [sys.executable, str(task_dir / "setup.py")], cwd=workspace,
@@ -247,6 +256,8 @@ def run_task(task: str, prepare: bool, timeout: float, stamp: str, fake: bool = 
         "changed_files": changed,
         "test_edits": [path for path in changed if path.startswith(("tests/", "tui/tests/"))],
         "check": {"exit_code": check.returncode, "output": (check.stdout + check.stderr)[-6000:]},
+        "hidden_leak_attempts": [line for line in (workdir / "agent.log").read_text(encoding="utf-8", errors="replace").splitlines()
+                                 if "benchmarks/local" in line][:5],
         "passed": check.returncode == 0,
     })
     if run["error"]:
