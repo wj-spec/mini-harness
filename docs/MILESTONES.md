@@ -148,7 +148,11 @@
 - 审批等待：session `20261023-174443-226686` / run `29a8b19c`，编辑审批面板出现时 Ctrl+C：审计 `edit_file → deny`，待执行调用写成 `ERROR cancelled: not executed`，`run_end=cancelled`，`calc.py` 哈希不变；
 - 命令运行：session `20261023-174518-680007` / run `9d767e8c`，`python3 slow_command.py` 已启动后取消：`command_result status=cancelled, exit_code=-9`，任务记录注明 `ERROR cancelled: process group reaped`，无残留进程、工作区无改动。
 
-证据：`.vibe/w2w3/evidence/w2-stop-model-20261023-174414.json`、`w2-stop-approval-20261023-174458.json`、`w2-stop-command-20261023-174610.json`。界面“正在停止/已取消”的可见性待用户确认；超时进程回收与取消后已写修改保留两项仍待补测。
+证据：`.vibe/w2w3/evidence/w2-stop-model-20261023-174414.json`、`w2-stop-approval-20261023-174458.json`、`w2-stop-command-20261023-174610.json`。超时进程回收与取消后已写修改保留已另行验证；界面“正在停止/已取消”的可见性待用户确认后勾选 W2 第 2 条。
+
+**W2 超时进程回收（2026-10-23）**：session `20261023-181022-745418` / run `3c3815e2`，按默认 30 秒超时运行 `python3 slow_command.py`：`command_result status=timed_out, exit_code=-9`，任务记录注明 `ERROR timeout after 30.0s ... process group reaped`；无残留进程，工作区无改动。未把外层等待结束当成命令正常结束。证据 `.vibe/w2w3/evidence/w2-stop-timeout-20261023-181452.json`。
+
+**W2 取消后已写修改（2026-10-23）**：session `20261023-181558-527201`。run `a128b127`：编辑 `calc.py` 已被允许并实际写入（`edited calc.py (1 replacement)`），随后在 `python3 test_calc.py` 的 bash 审批处 Ctrl+C，取消结果写成 `ERROR cancelled: not executed`，`run_end=cancelled`；接着 run `3a6dea4e` 接受“检查当前工作区，报告已发生的改动；不要撤销、重写或提交”，如实报告仅 `calc.py` 未提交修改、未撤销。最终 git status `M calc.py`、文件哈希为修复后版本。证据 `.vibe/w2w3/evidence/w2-cancel-after-write-20261023-181924.json`。取消没有被描述为撤销。
 
 **真实验收发现 1（2026-10-23）**：W2-A 纠偏提交后，stdio 把“已应用纠偏”的 `notice` 带上了 run id，而 Ink 协议要求 `notice.id === null`，触发 `protocol_error: 后端消息字段无效：notice`，Ink 断开连接、run 被取消（trace：`steering_applied` 后 `run_end status=cancelled`）。已改为 `send("notice", None, ...)` 并在 parity 测试断言 notice id 为 `None`；证据 `.vibe/w2w3/evidence/w2-bug-notice-20261023-171449.json`。W2-A 需在修复后重跑，恰好证明真实验收能抓到自动测试没覆盖的跨端协议不一致。
 
@@ -159,8 +163,8 @@
 - [x] 运行中可以提出一条纠偏，例如“保留公开接口，只改内部实现”；后续模型输入和工具动作采用新约束。证据见下方 W2-A 记录。
 - [ ] 发出停止后，在可观测的停止边界不再发起新的模型请求或工具操作；界面区分“正在停止”和“已停止”。
 - [x] 在模型等待、审批等待、命令运行三种状态下验证停止；已开始的操作能说明完成、终止或结果未知。证据见下方 W2-B 记录。
-- [ ] 超时后核对进程是否仍在运行及实际文件变化，不能把外层等待结束当作底层命令已经停止。
-- [ ] 停止后的交付能核对已发生的修改；取消不被描述为撤销，已写入的内容仍如实显示。
+- [x] 超时后核对进程是否仍在运行及实际文件变化，不能把外层等待结束当作底层命令已经停止。证据见下方 W2 超时记录。
+- [x] 停止后的交付能核对已发生的修改；取消不被描述为撤销，已写入的内容仍如实显示。证据见下方 W2 取消后写入记录。
 
 **已有基础与缺口**：已有审批、取消事件和预算；TUI 当前运行时禁用输入，尚不能运行中纠偏。停止后的收尾也需实际核验。
 

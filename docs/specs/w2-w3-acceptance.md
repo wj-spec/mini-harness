@@ -46,7 +46,9 @@ rm -rf .vibe/w2w3/workspace/.vibe/sessions   # 仅在需要全新会话时
 - 模型流式中断：`w2-stop-model-20261023-174414.json`（`finish_reason=null`、正文截断、0 工具）；
 - 编辑审批取消：`w2-stop-approval-20261023-174458.json`（审计 deny、`not executed`、文件不变）；
 - 命令运行取消：`w2-stop-command-20261023-174610.json`（`exit_code=-9`、进程组回收、无残留）。
-- 待补：界面“正在停止/已停止”确认；超时进程回收；取消后已写修改保留。
+- 超时进程回收：`w2-stop-timeout-20261023-181452.json`（30s timed_out、exit -9、进程组回收、无残留、文件不变）；
+- 取消后已写修改：`w2-cancel-after-write-20261023-181924.json`（编辑已写入后 bash 审批取消；后续任务如实报告 `M calc.py`，未撤销）；
+- 待确认：界面“正在停止/已停止”的可见性。
 
 ## W2：掌控运行过程
 
