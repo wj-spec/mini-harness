@@ -12,6 +12,7 @@ import {terminalColorLevel} from './terminal-colors.js';
 import {useTranscriptMouse} from './use-transcript-scroll.js';
 import {contextLines} from './context-view.js';
 import {copyToClipboard} from './clipboard.js';
+import {selectedText, type Selection, type SelectionPoint} from './selection.js';
 
 type Scroll = {follow: boolean; top: number};
 const backendCommands: Record<string, BackendCommand> = {
@@ -37,11 +38,13 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
   const [contextSelection, setContextSelection] = useState<string | null>(null);
   const [overlayScroll, setOverlayScroll] = useState({key: '', top: 0});
   const [reading, setReading] = useState(false);
+  const [selection, setSelection] = useState<Selection | null>(null);
   const closing = useRef(false);
   const activeRun = useRef(state.activeId);
   const answeredApproval = useRef<string | null>(null);
   const controlRequests = useRef(new Map<string, 'steer' | 'cancel'>());
   const followups = useRef<string[]>([]);
+  const dragAnchor = useRef<SelectionPoint | null>(null);
   const latestState = useRef(state);
   latestState.current = state;
   const quittingRef = useRef(quitting);
@@ -113,6 +116,23 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
   const viewport = useRef({top, maximum, overlayKey});
   viewport.current = {top, maximum, overlayKey};
   const readerFocused = reading || Boolean(overlayKey);
+  const selectionBody = {
+    top: headerRows + compactRows + 3,
+    bottom: headerRows + compactRows + 2 + bodyRows,
+    left: 3,
+    right: 2 + bodyColumns,
+  };
+  const toSelectionPoint = (row: number, column: number): SelectionPoint => ({
+    line: Math.max(0, Math.min(Math.max(0, lines.length - 1), top + row - selectionBody.top)),
+    cell: Math.max(0, Math.min(bodyColumns, column - selectionBody.left)),
+  });
+  const copySelection = (chosen: Selection) => {
+    const text = selectedText(lines, chosen);
+    if (!text.trim()) {setSelection(null); return;}
+    const method = copyText(text);
+    if (!method) {announce(`复制失败：所选文本 ${text.length} 字符，系统剪贴板与 OSC 52 都不可用`); return;}
+    announce(`已复制所选文本：${text.length} 字符（${method}）`);
+  };
 
   useEffect(() => client.subscribe(event => {
     if (event.type === 'ack' || event.type === 'error') {
@@ -170,8 +190,29 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
     else setScroll({follow: next === current.maximum, top: next});
   };
   const moveReading = (delta: number) => navigate(viewport.current.top + delta);
-  useTranscriptMouse({onScroll: moveReading, top: headerRows + compactRows + 1, bottom: headerRows + compactRows + paneRows,
-    left: 1, right: readerColumns, enabled: !quitting && rows >= 11 && columns >= 24});
+  useTranscriptMouse({
+    onScroll: delta => {setSelection(null); moveReading(delta);},
+    top: headerRows + compactRows + 1, bottom: headerRows + compactRows + paneRows, left: 1, right: readerColumns,
+    body: selectionBody,
+    onDragStart: point => {
+      const start = toSelectionPoint(point.row, point.column);
+      dragAnchor.current = start;
+      setSelection({anchor: start, head: start});
+    },
+    onDragMove: point => {
+      const anchor = dragAnchor.current;
+      if (anchor) setSelection({anchor, head: toSelectionPoint(point.row, point.column)});
+    },
+    onDragEnd: point => {
+      const anchor = dragAnchor.current;
+      dragAnchor.current = null;
+      if (!anchor) return;
+      const chosen = {anchor, head: toSelectionPoint(point.row, point.column)};
+      setSelection(chosen);
+      copySelection(chosen);
+    },
+    enabled: !quitting && rows >= 11 && columns >= 24,
+  });
   const openTool = () => {if (chosenTool) {setDetail(chosenTool.id); setOverlayScroll({key: `tool-${chosenTool.id}`, top: 0});}};
   const openContext = () => {setDetail(null); setContextSelection(null); setContextOpen(true); setOverlayScroll({key: 'context', top: 0});};
   const copyTarget = (): [string, string] | null => {
@@ -192,6 +233,8 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
     if (!method) {announce(`复制失败：${label} ${text.length} 字符，系统剪贴板与 OSC 52 都不可用`); return;}
     announce(`已复制${label}：${text.length} 字符（${method}）`);
   };
+
+  useEffect(() => {setSelection(null); dragAnchor.current = null;}, [overlayKey]);
 
   useInput((keyInput, key) => {
     if (key.eventType === 'release') return;
@@ -215,6 +258,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
     const home = key.home;
     const end = key.end;
     if ((readerFocused || key.ctrl) && (home || end)) {navigate(home ? 0 : viewport.current.maximum); return;}
+    if (key.escape && selection) {setSelection(null); return;}
     if (key.escape && !state.approval && contextOpen) {setContextOpen(false); return;}
     if (key.escape && !state.approval && detailEntry) {setDetail(null); return;}
     if (key.escape && reading && !state.approval) {setReading(false); return;}
@@ -251,12 +295,13 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
   const submit = (value: string) => {
     const text = value.trim();
     if (!text || quitting) return;
+    setSelection(null);
     if (text === '/quit' || text === '/exit') {setInput(''); shutdown(); return;}
     if (text === '/context') {setInput(''); openContext(); return;}
     if (text === '/copy') {setInput(''); copyCurrent(); return;}
     if (text === '/help') {
       setInput('');
-      notice('Enter 发送（运行中提交纠偏，下一次模型请求生效）；Ctrl+J 换行；输入焦点下 ↑↓ 编辑或浏览输入历史。滚轮 / 触控板在对话区回看；PgUp/PgDn 翻页，Ctrl+P/N 或 Ctrl+↑/↓ 逐行。Ctrl+R 切换阅读 / 输入焦点，阅读时 ↑↓ 滚动、空格下一页，Esc 回输入。Ctrl+Home/End 到首尾，End 恢复跟随最新；终端支持时按住 Shift 拖选文字。Tab 选择工具，Ctrl+O 查看全文。Ctrl+K 或 /context 查看上下文分区，←/→ 回放本轮快照，l 跟随最新，Esc 返回。Ctrl+Y 或 /copy 复制最近回复、工具详情或审批预览；Ctrl+C 取消当前操作，空闲时退出；Ctrl+Q 退出。审批时 y 单次、s 精确规则、p 工作区、n 拒绝，以面板选项为准。\n/resume 显式续做已保存任务；/permissions 查看授权，/permissions reset 撤销；/cost 会话花费；/tools 可用工具；/diff 工作区差异；/mcp 服务状态；/skills 技能目录，refresh 重扫，activate NAME 激活，unload NAME 卸载；/followup TEXT 排队后续消息，本轮结束后自动继续；/session 会话路径；/theme system|light|dark 主题。');
+      notice('Enter 发送（运行中提交纠偏，下一次模型请求生效）；Ctrl+J 换行；输入焦点下 ↑↓ 编辑或浏览输入历史。滚轮 / 触控板在对话区回看；PgUp/PgDn 翻页，Ctrl+P/N 或 Ctrl+↑/↓ 逐行。Ctrl+R 切换阅读 / 输入焦点，阅读时 ↑↓ 滚动、空格下一页，Esc 回输入。Ctrl+Home/End 到首尾，End 恢复跟随最新；鼠标在对话区拖选，松开即复制所选文本。Tab 选择工具，Ctrl+O 查看全文。Ctrl+K 或 /context 查看上下文分区，←/→ 回放本轮快照，l 跟随最新，Esc 返回。Ctrl+Y 或 /copy 复制最近回复、工具详情或审批预览；Ctrl+C 取消当前操作，空闲时退出；Ctrl+Q 退出。审批时 y 单次、s 精确规则、p 工作区、n 拒绝，以面板选项为准。\n/resume 显式续做已保存任务；/permissions 查看授权，/permissions reset 撤销；/cost 会话花费；/tools 可用工具；/diff 工作区差异；/mcp 服务状态；/skills 技能目录，refresh 重扫，activate NAME 激活，unload NAME 卸载；/followup TEXT 排队后续消息，本轮结束后自动继续；/session 会话路径；/theme system|light|dark 主题。');
       return;
     }
     if (text.startsWith('/theme')) {
@@ -334,7 +379,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
   const hint = state.approval ? `${approvalHint} · 滚轮/PgUp/PgDn 翻页 · Ctrl+C 取消` : contextOpen ? '←/→ 选快照 · l 最新 · ↑↓/滚轮 翻阅 · Esc 返回' : detailEntry ? '滚轮/↑↓ 翻阅 · Home/End 首尾 · Esc 返回' :
     reading ? '阅读焦点：↑↓滚动  空格翻页  End最新  Esc输入  Ctrl+Q退出' :
       state.phase === 'running' ? (columns < 60 ? 'Enter 纠偏 · /followup 排队 · Ctrl+C 停止' : 'Enter 提交纠偏  /followup 文本 排队后续  Ctrl+C 停止  Ctrl+Q 退出') :
-        columns < 60 ? 'Ctrl+K上下文 · Ctrl+Q退出 · /help' : '滚轮回看  Ctrl+R阅读  Ctrl+K上下文  Ctrl+J换行  Ctrl+Q退出';
+        columns < 60 ? 'Ctrl+K上下文 · Ctrl+Q退出 · /help' : '拖选复制  Ctrl+R阅读  Ctrl+K上下文  Ctrl+Y复制回复  Ctrl+Q退出';
   const composerDisabled = quitting || state.phase === 'starting' || state.phase === 'stopping' || state.phase === 'waiting_approval' || state.phase === 'closed';
   const composerPlaceholder = state.approval ? '审批面板已聚焦，请选择授权范围' : contextOpen ? '上下文详情已聚焦，Esc 返回输入' : detailEntry ? '工具详情已聚焦，Esc 返回输入' : reading ? '正在阅读历史，Esc 返回输入' :
     state.phase === 'closed' ? '可以回看已有记录，退出后重新启动' : state.phase === 'starting' ? '可以先写下任务目标与约束' : state.phase === 'stopping' ? '正在停止 · 收到停止结果后可发送' :
@@ -352,7 +397,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
     <AgentHeader state={state} columns={columns} height={headerRows} palette={palette}/>
     {compactRows ? <StatusPanel state={state} columns={columns} height={compactRows} palette={palette}/> : null}
     <Box flexDirection="row" width={columns} height={paneRows} flexShrink={0}>
-      <ReadingPane title={paneTitle} lines={lines} top={top} height={paneRows} columns={readerColumns} palette={palette} overlay={readerFocused}/>
+      <ReadingPane title={paneTitle} lines={lines} top={top} height={paneRows} columns={readerColumns} palette={palette} overlay={readerFocused} selection={selection}/>
       {sidebar ? <><Box width={1}/><StatusPanel state={state} columns={32} height={paneRows} palette={palette}/></> : null}
     </Box>
     <Box backgroundColor={state.approval ? palette.surfaces.warning : readerFocused ? palette.surface : palette.focus} height={composerRows + 2} width={columns} paddingX={2} paddingY={1} flexShrink={0}>

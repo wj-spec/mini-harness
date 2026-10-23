@@ -31,7 +31,7 @@ const help = `vibe Ink — 个人编码工作台
 --continue 在当前范围内选择最近有对话的会话；查找更早会话用 --list-sessions，再用 --session SESSION_ID 打开。
 恢复会话不会自动续跑；输入 /resume 继续任务。
 Enter 发送任务；Ctrl+J 换行（终端支持时也可用 Shift+Enter）。
-滚轮 / 触控板在对话区滚动；PageUp / PageDown 翻页。
+滚轮 / 触控板在对话区滚动；PageUp / PageDown 翻页；鼠标拖选文本，松开即复制。
 Ctrl+R 切换阅读与输入；阅读时 ↑↓ 滚动，Esc 回输入。
 Ctrl+P / Ctrl+N 逐行；Ctrl+Home / Ctrl+End 到首尾并跟随最新。
 终端支持时，按住 Shift 拖选文字。

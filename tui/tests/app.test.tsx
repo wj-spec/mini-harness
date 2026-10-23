@@ -38,9 +38,9 @@ class MockClient {
 
 afterEach(cleanup);
 
-async function mount(copyText?: (text: string) => string | null, initialState?: ViewState) {
+async function mount(copyText?: (text: string) => string | null, initialState?: ViewState, windowSize?: {columns: number; rows: number}) {
   const client = new MockClient();
-  const view = render(<App client={client as unknown as BackendClient} copyText={copyText} initialState={initialState}/>);
+  const view = render(<App client={client as unknown as BackendClient} copyText={copyText} initialState={initialState} windowSize={windowSize}/>);
   await pause(20);
   client.emit({type: 'ready', workspace: '/tmp/repo', model: 'fake', session_id: 'test', capabilities: []});
   client.emit({type: 'status', phase: 'idle'});
@@ -836,4 +836,18 @@ test('copying in a tool detail view includes arguments and output', async () => 
   assert.match(copies[0] ?? '', /"path": "a.txt"/);
   assert.match(copies[0] ?? '', /hello/);
   assert.match(lastFrame() ?? '', /已复制工具详情/);
+});
+
+test('mouse drag selects text and copies it on release', async () => {
+  const copies: string[] = [];
+  const state: ViewState = {...initialState, phase: 'idle', entries: [{id: 0, kind: 'assistant', text: 'hello world'}], nextEntry: 1};
+  const {stdin, lastFrame} = await mount(text => {copies.push(text); return 'pbcopy';}, state, {columns: 80, rows: 24});
+  stdin.write('\u001b[<0;5;10M');
+  await pause(10);
+  stdin.write('\u001b[<32;10;10M');
+  await pause(10);
+  stdin.write('\u001b[<0;10;10m');
+  await pause(25);
+  assert.deepEqual(copies, ['hello']);
+  assert.match(lastFrame() ?? '', /已复制所选文本：5 字符（pbcopy）/);
 });

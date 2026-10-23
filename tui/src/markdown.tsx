@@ -2,6 +2,7 @@ import React from 'react';
 import {Text} from 'ink';
 import stringWidth from 'string-width';
 import type {ContextColor, Palette, SemanticTone, SurfaceName} from './theme.js';
+import {splitCells, type SelectionCells} from './selection.js';
 
 export type Span = {text: string; bold?: boolean; code?: boolean; contextSection?: ContextColor};
 export type ReadingLine = {spans: Span[]; kind?: 'heading' | 'code' | 'label' | 'tool' | 'error' | 'notice'; tone?: SemanticTone; contextSection?: ContextColor; surface?: SurfaceName; selected?: boolean; entryId?: number};
@@ -82,19 +83,30 @@ export function markdownLines(markdown: string, columns: number): ReadingLine[] 
   return lines;
 }
 
-export function ReadingText({line, palette, columns}: {line: ReadingLine; palette: Palette; columns?: number}) {
+export function ReadingText({line, palette, columns, select}: {line: ReadingLine; palette: Palette; columns?: number; select?: SelectionCells}) {
   const color = line.contextSection ? palette.contextColors[line.contextSection] : line.tone ? palette[line.tone] : line.kind === 'error' ? palette.error : line.kind === 'notice' ? palette.warning :
     line.kind === 'heading' || line.kind === 'label' || line.selected ? palette.accent : palette.foreground;
   const width = line.spans.reduce((total, span) => total + stringWidth(span.text), 0);
   const padding = Math.max(0, (columns ?? Math.max(1, width)) - width);
   const surface = line.kind === 'code' ? 'code' : line.surface;
   return <Text color={color} backgroundColor={surface ? palette.surfaces[surface] : palette.background} bold={line.kind === 'heading' || line.kind === 'label' || line.selected}>
-    <ReadingSpans spans={line.spans} palette={palette}/>
+    <ReadingSpans spans={line.spans} palette={palette} select={select}/>
     {' '.repeat(padding)}
   </Text>;
 }
 
-export function ReadingSpans({spans, palette}: {spans: readonly Span[]; palette: Palette}) {
-  return <>{spans.map((span, index) => <Text key={index} bold={span.bold}
-    color={span.contextSection ? palette.contextColors[span.contextSection] : span.code ? palette.accent : undefined}>{span.text}</Text>)}</>;
+export function ReadingSpans({spans, palette, select}: {spans: readonly Span[]; palette: Palette; select?: SelectionCells}) {
+  let cell = 0;
+  return <>{spans.map((span, index) => {
+    const width = stringWidth(span.text);
+    const spanStart = cell;
+    cell += width;
+    const bold = span.bold;
+    const color = span.contextSection ? palette.contextColors[span.contextSection] : span.code ? palette.accent : undefined;
+    if (!select || spanStart >= select.end || spanStart + width <= select.start) {
+      return <Text key={index} bold={bold} color={color}>{span.text}</Text>;
+    }
+    const {before, middle, after} = splitCells(span.text, select.start - spanStart, select.end - spanStart);
+    return <Text key={index} bold={bold} color={color}>{before}{middle ? <Text inverse>{middle}</Text> : null}{after}</Text>;
+  })}</>;
 }

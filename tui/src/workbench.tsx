@@ -4,6 +4,7 @@ import stringWidth from 'string-width';
 import type {Entry, ViewState} from './view-state.js';
 import {fitText, markdownLines, ReadingText, textLines, type ReadingLine} from './markdown.js';
 import type {Palette, SemanticTone} from './theme.js';
+import {selectionCells, type Selection} from './selection.js';
 
 export function toolState(entry: Entry): string {
   if (entry.uncertain) return '结果未知';
@@ -129,8 +130,8 @@ export function detailLines(entry: Entry, columns: number): ReadingLine[] {
   ];
 }
 
-export function ReadingPane({title, lines, top, height, columns, palette, overlay = false, scrollbar = true}: {
-  title: string; lines: ReadingLine[]; top: number; height: number; columns: number; palette: Palette; overlay?: boolean; scrollbar?: boolean;
+export function ReadingPane({title, lines, top, height, columns, palette, overlay = false, scrollbar = true, selection = null}: {
+  title: string; lines: ReadingLine[]; top: number; height: number; columns: number; palette: Palette; overlay?: boolean; scrollbar?: boolean; selection?: Selection | null;
 }) {
   const bodyRows = Math.max(1, height - 3);
   const bodyColumns = Math.max(1, columns - 4 - Number(scrollbar));
@@ -142,7 +143,7 @@ export function ReadingPane({title, lines, top, height, columns, palette, overla
     <Text color={overlay ? palette.accent : palette.secondary} bold={overlay}>{fitText(title, columns - 4)}</Text>
     <Box flexDirection="row" height={bodyRows} flexShrink={0} overflow="hidden">
       <Box flexDirection="column" width={bodyColumns} height={bodyRows} flexShrink={0} overflow="hidden">
-        {lines.slice(clampedTop, clampedTop + bodyRows).map((line, index) => <ReadingText key={`${clampedTop + index}`} line={line} palette={palette} columns={bodyColumns}/>)}
+        {lines.slice(clampedTop, clampedTop + bodyRows).map((line, index) => <ReadingText key={`${clampedTop + index}`} line={line} palette={palette} columns={bodyColumns} select={selectionCells(selection, clampedTop + index) ?? undefined}/>)}
       </Box>
       {scrollbar ? <Box flexDirection="column" width={1} height={bodyRows} flexShrink={0}>
         {Array.from({length: bodyRows}, (_, index) => <Text key={index} color={index >= thumbTop && index < thumbTop + thumbSize ? palette.accent : palette.secondary}>{lines.length > bodyRows ? index >= thumbTop && index < thumbTop + thumbSize ? '┃' : ' ' : ' '}</Text>)}
