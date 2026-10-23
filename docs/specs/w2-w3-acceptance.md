@@ -105,7 +105,7 @@ rm -rf .vibe/w2w3/workspace/.vibe/sessions   # 仅在需要全新会话时
 - 外部改动：`w3-external-20261023-200844.json`、`w3-external-resume-20261023-201015.json`；识别 `# external change` 后保留并修复。
 - 新旧任务：`w3-newtask-20261023-200751.json`；新会话目标为 README，无旧目标。
 - 正常完成与恢复：`w3-normal-20261023-201057.json`、`w3-normal-resume-20261023-201210.json`；总结目标、改动、验证与未提交项。
-- 待跑：`w3-compaction`（低压缩阈值长任务总结）。
+- 上下文压缩：`w3-compaction-20261023-204314.json`；11 次 `history_compacted`，`summary_layers=2`、offload 非空，压缩后总结准确；W3 六项全部通过。
 
 
 ### 推荐：逐步引导脚本（每条独立取证；按顺序执行）
