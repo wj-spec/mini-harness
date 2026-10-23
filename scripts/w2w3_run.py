@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 import time
@@ -129,6 +130,20 @@ PARTS = {
         "expect": "恢复前文件已被外部改变；Agent 先重新读取或确认差异，不拿过期内容直接写。",
         "next": "w3-normal",
     },
+    "w3-compaction": {
+        "label": "w3-compaction",
+        "workspace": "w3-compaction",
+        "reset": True,
+        "env": {"VIBE_COMPACT_INTERVAL_TOKENS": "8000"},
+        "prompt": "依次读取 README.md、AGENTS.md、calc.py、test_calc.py、slow_test.py、slow_command.py，总结项目结构与 calc.py 的 bug；不要修改文件。",
+        "steps": [
+            "把提示词粘贴到 Ink 输入框并回车。",
+            "等待它逐个读取文件并给出总结（会触发上下文压缩）。",
+            "再发送：现在说明这个任务的原目标、关键约束、已完成内容和未完成项；不要修改文件。",
+            "看到总结后按 Ctrl+Q 退出。",
+        ],
+        "expect": "trace 出现 history_compacted；压缩后仍能说明原目标、约束与未完成项。",
+    },
     "w3-normal": {
         "label": "w3-normal",
         "workspace": "w3-normal",
@@ -201,7 +216,8 @@ def main() -> int:
     command = ["./run_ink.sh", "--workspace", str(workspace)]
     if part.get("continue"):
         command.append("--continue")
-    result = subprocess.run(command, cwd=ROOT)
+    environment = {**os.environ, **part.get("env", {})}
+    result = subprocess.run(command, cwd=ROOT, env=environment)
     if part.get("external_change"):
         calc = workspace / "calc.py"
         if calc.is_file():

@@ -109,6 +109,7 @@ rm -rf .vibe/w2w3/workspace/.vibe/sessions   # 仅在需要全新会话时
 .venv/bin/python3 scripts/w2w3_run.py w3-external-resume   # 恢复时先核对差异
 .venv/bin/python3 scripts/w2w3_run.py w3-normal            # 第三次真实任务：正常修复
 .venv/bin/python3 scripts/w2w3_run.py w3-normal-resume     # 正常退出后恢复核对
+.venv/bin/python3 scripts/w2w3_run.py w3-compaction        # 低压缩阈值下的长任务总结
 ```
 
 每条结束后自动取证；`w3-external` 会在 Ink 退出后向 `calc.py` 追加 `# external change`，模拟恢复前的外部改动。三次真实任务记录：读中断→恢复续做、外部改动→恢复核对、正常完成→恢复核对。

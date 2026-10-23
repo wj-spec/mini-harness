@@ -84,6 +84,10 @@ def main() -> None:
         trace = json_lines(session / "trace.jsonl")
         evidence["run_ends"] = [event for event in trace if event.get("type") == "run_end"][-5:]
         evidence["steering"] = [event for event in trace if event.get("type") == "steering_applied"][-5:]
+        evidence["compactions"] = [
+            {key: event.get(key) for key in ("reason", "before_tokens", "after_tokens", "summary_layers", "offloaded")}
+            for event in trace if event.get("type") == "history_compacted"
+        ][-5:]
         evidence["commands"] = [
             {key: event.get(key) for key in ("command", "status", "exit_code", "cancelled")}
             for event in trace if event.get("type") == "command_result"
