@@ -43,7 +43,17 @@ SWE-bench 首题只能证明评测接入可用，内部 eval 只是文件操作�
 
 **第三轮环境问题（2026-10-23，`20261023-115821`）**：隔离后 `workspace_clean=true`、无隐藏泄漏，结果 3/3（88 步、约 1.62M tokens）。但报告显示副本仍嵌在外层仓库的 `.vibe/` 下：`tool-count` Agent 在外层仓库路径执行测试与反证，验证对象不是副本；同时被剔除的 `scripts/bench_local.py` 让副本里的 `tests/test_bench_local.py` 变红，干扰全量测试判断。该轮只作为能力信号（2/3 → 3/3），环境与成本口径由第四轮重测；runner 已改为仓库外独立临时目录 + 独立 git 仓库，并补剔除对应测试。
 
-**第四轮（2026-10-23，`20261023-125926`）**：工作区已隔离为仓库外独立 git 仓库。`recall-guard`（39 步、约 756k tokens）与 `tool-count`（13 步、约 199k tokens）均在副本内完成并通过，`outside_workspace_commands` 为空；`footer-outcome` 的 Agent 却从临时目录 `cd` 到 `/Users/.../mini-harness` 外层仓库，把外层已修复的代码当成工作区，判为 `wrong_directory`（seed 实际已在副本生效）。因此在任务提示中加入唯一工作区绝对路径与越界检测，footer 单独重跑；其余两题可作为第四轮的干净结果。
+**第四轮（2026-10-23）**：工作区已隔离为仓库外独立 git 仓库。`recall-guard`（39 步、约 756k tokens）与 `tool-count`（13 步、约 199k tokens）均在副本内完成并通过，`outside_workspace_commands` 为空；`footer-outcome` 的 Agent 却从临时目录 `cd` 到 `/Users/.../mini-harness` 外层仓库，把外层已修复的代码当成工作区，判为 `wrong_directory`（seed 实际已在副本生效）。因此在任务提示中加入唯一工作区绝对路径与越界检测，footer 单独重跑；其余两题可作为第四轮的干净结果。
+
+### A/B 结论（诚实规则 vs + 根因/安全边界规则）
+
+| 口径 | 通过 | 步数 | tokens | 工具调用 | 耗时 |
+|---|---:|---:|---:|---:|---:|
+| v1 基线（只有诚实规则） | 2/3 | 59 | 1,035,440 | 73 | 205s |
+| v4 干净（+ 根因/安全边界） | **3/3** | 62 | 1,141,757 | 77 | 294s |
+| 变化 | +1 | +5% | +10% | +5% | +44% |
+
+干净结果：`recall-guard` 39 步/756k tokens（补上符号链接防护）、`tool-count` 13 步/199k（比基线 17 步/286k 更低）、`footer-outcome` 10 步/187k（基线 24 步/426k 更低）。能力提升成立，代价是 `recall-guard` 型安全任务验证更充分、耗时上升；其余两题反而更省。注意当前 3 题都是“恢复已知修复”，且提示规则针对这批任务调过，存在过拟合风险；下一步需要未见过的任务族（开放式功能/跨文件改动）再验证泛化。
 
 **污染与隔离（2026-10-23）**：首轮基线时工作区仍包含基准自身文件，`recall-guard` Agent 未读取隐藏测试（日志核对）；第二轮（`20261023-114623`）的 Agent 在副本里发现并直接运行了 `benchmarks/local/recall-guard/hidden/test_bench_recall.py`，随后给出 3/3，这轮不能作为 A/B 证据。runner 已改为从工作区剔除基准夹具、评分脚本、基准规格与 MILESTONES，报告新增 `workspace_clean` / `hidden_leak_attempts`；第三轮在隔离后的工作区重跑，才是根因规则的干净对照。
 

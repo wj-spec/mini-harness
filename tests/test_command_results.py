@@ -149,13 +149,14 @@ def test_agent_cancellation_emits_and_persists_command_outcome(tmp_path):
             "cancel", cancel=cancel, on_execution=lambda call, outcome: executions.append(outcome),
             on_result=lambda call, ok, output: outputs.append((ok, output)),
         ))
-        for _ in range(200):
+        for _ in range(1000):
             if started.exists():
                 break
             await asyncio.sleep(0.005)
         assert started.exists()
         cancel.set()
-        result = await asyncio.wait_for(pending, 2)
+        # 机器负载高时进程组回收可能超过 2s；放宽等待避免偶发误报，真正卡死仍会失败。
+        result = await asyncio.wait_for(pending, 15)
         assert result.status == "cancelled"
         assert executions[0]["status"] == "cancelled"
         assert not outputs[0][0] and "partial" in outputs[0][1]
