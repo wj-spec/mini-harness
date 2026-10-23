@@ -64,6 +64,94 @@ PARTS = {
         ],
         "expect": "第一次 run 为 cancelled 但 calc.py 已修改；第二次任务能报告该改动；取消不等于撤销。",
     },
+    "w3-interrupt-read": {
+        "label": "w3-interrupt-read",
+        "workspace": "w3",
+        "reset": True,
+        "prompt": "先读取 calc.py 和 test_calc.py，解释 add 的问题；读完后先停下，不要修改任何文件。",
+        "steps": [
+            "把提示词粘贴到 Ink 输入框并回车。",
+            "看到 read_file 的返回、但还没给出最终解释时按 Ctrl+C。",
+            "Ctrl+Q 退出 Ink。",
+        ],
+        "expect": "在读取工具附近中断；没有写入；会话已保存，供下一步恢复。",
+        "next": "w3-resume",
+    },
+    "w3-resume": {
+        "label": "w3-resume",
+        "workspace": "w3",
+        "reset": False,
+        "continue": True,
+        "steps": [
+            "打开后先发送：先核对当前状态，说明上次做到哪里、哪些工具结果未知；不要修改文件。",
+            "看到核对结果后输入 /resume 继续任务；允许编辑与测试审批，等待验证完成。",
+            "确认能看到原目标、未知结果与最终验证后，Ctrl+Q 退出。",
+        ],
+        "expect": "恢复后能说明原目标、未知结果；/resume 继续完成修复并实际运行测试。",
+        "next": "w3-newtask",
+    },
+    "w3-newtask": {
+        "label": "w3-newtask",
+        "workspace": "w3",
+        "reset": False,
+        "continue": False,
+        "prompt": "解释 README 的用途，不要修改任何文件。",
+        "steps": [
+            "新会话发送提示词，等待回答。",
+            "确认没有沿用旧目标和旧完成标记，然后 Ctrl+Q 退出。",
+        ],
+        "expect": "新会话只处理新任务，不自动续做旧任务。",
+        "next": "w3-external",
+    },
+    "w3-external": {
+        "label": "w3-external",
+        "workspace": "w3-external",
+        "reset": True,
+        "prompt": "先读取 calc.py，解释 add 的问题，先不要修改。",
+        "steps": [
+            "把提示词粘贴到 Ink 输入框并回车。",
+            "在读取过程中按 Ctrl+C 中断，然后 Ctrl+Q 退出。",
+        ],
+        "expect": "中断后脚本会模拟外部修改 calc.py，并提示下一步恢复。",
+        "external_change": True,
+        "next": "w3-external-resume",
+    },
+    "w3-external-resume": {
+        "label": "w3-external-resume",
+        "workspace": "w3-external",
+        "reset": False,
+        "continue": True,
+        "steps": [
+            "打开后发送：继续上次任务；先检查 calc.py 与上次结果是否有外部变化，再决定是否继续修复。",
+            "确认它重新读取/确认了差异后，允许必要审批完成任务。",
+            "Ctrl+Q 退出。",
+        ],
+        "expect": "恢复前文件已被外部改变；Agent 先重新读取或确认差异，不拿过期内容直接写。",
+        "next": "w3-normal",
+    },
+    "w3-normal": {
+        "label": "w3-normal",
+        "workspace": "w3-normal",
+        "reset": True,
+        "prompt": "修复 calc.py 的 add 并运行测试。",
+        "steps": [
+            "发送提示词；允许编辑与测试审批。",
+            "等待验证命令退出 0、任务正常结束，然后 Ctrl+Q 退出。",
+        ],
+        "expect": "正常完成一次修复，作为第三次真实小任务。",
+        "next": "w3-normal-resume",
+    },
+    "w3-normal-resume": {
+        "label": "w3-normal-resume",
+        "workspace": "w3-normal",
+        "reset": False,
+        "continue": True,
+        "steps": [
+            "打开后发送：总结上次的改动、验证结果与未完成项；不要修改文件。",
+            "确认能给出目标、改动、验证结果和下一步，然后 Ctrl+Q 退出。",
+        ],
+        "expect": "正常退出后恢复，能看到上次目标、改动与验证结果。",
+    },
     "command": {
         "label": "w2-stop-command",
         "prompt": "运行 python3 slow_command.py 并报告结果。",
@@ -84,19 +172,24 @@ def main() -> int:
     parser.add_argument("--prepare-only", action="store_true", help="只准备隔离工作区，不打开 Ink（本地自检用）")
     args = parser.parse_args()
     part = PARTS[args.part]
-    workspace = ROOT / ".vibe" / "w2w3" / f"workspace-{args.part}"
-    prepare(workspace)
+    workspace = ROOT / ".vibe" / "w2w3" / ("workspace-" + part.get("workspace", args.part))
+    if part.get("reset", True):
+        prepare(workspace)
+    elif not workspace.is_dir():
+        raise SystemExit(f"工作区不存在：{workspace}；请先运行前置引导（例如 w3-interrupt-read）")
     print("=" * 64)
-    print(f"W2 验收：{args.part}")
+    print(f"验收：{args.part}")
     print(f"隔离工作区：{workspace}")
-    print(f"\n请发送这段提示词：\n\n    {part['prompt']}\n")
+    if part.get("prompt"):
+        print(f"\n请发送这段提示词：\n\n    {part['prompt']}\n")
     print("操作步骤：")
     for index, step in enumerate(part["steps"], 1):
         print(f"  {index}. {step}")
     print(f"\n预期：{part['expect']}")
     print("=" * 64)
     if args.prepare_only:
-        print(f"工作区已准备：{workspace}（--prepare-only，不打开 Ink）")
+        state = "已准备" if part.get("reset", True) else "使用已有工作区"
+        print(f"{state}：{workspace}（--prepare-only，不打开 Ink）")
         return 0
     try:
         input("\n准备好后按 Enter 打开 Ink；完成操作并 Ctrl+Q 退出后会自动取证：")
@@ -105,7 +198,15 @@ def main() -> int:
         print(f"  ./run_ink.sh --workspace {workspace}", file=sys.stderr)
         print(f"  .venv/bin/python3 scripts/w2w3_evidence.py --label {part['label']} --workspace {workspace}", file=sys.stderr)
         return 2
-    result = subprocess.run(["./run_ink.sh", "--workspace", str(workspace)], cwd=ROOT)
+    command = ["./run_ink.sh", "--workspace", str(workspace)]
+    if part.get("continue"):
+        command.append("--continue")
+    result = subprocess.run(command, cwd=ROOT)
+    if part.get("external_change"):
+        calc = workspace / "calc.py"
+        if calc.is_file():
+            calc.write_text(calc.read_text(encoding="utf-8").rstrip("\n") + "\n# external change\n", encoding="utf-8")
+            print(f"已在工作区外修改 {calc}（追加 # external change），用于下一步恢复核对。")
     print(f"\nInk 已退出（exit={result.returncode}），等待 1 秒后自动取证……")
     time.sleep(1)
     subprocess.run([
@@ -113,6 +214,8 @@ def main() -> int:
         "--label", part["label"], "--workspace", str(workspace),
     ], cwd=ROOT)
     print("\n请把上面的证据 JSON 路径发回；如果结果不符合预期，把界面最后几行也一并贴出来。")
+    if part.get("next"):
+        print(f"下一步：.venv/bin/python3 scripts/w2w3_run.py {part['next']}")
     return 0
 
 

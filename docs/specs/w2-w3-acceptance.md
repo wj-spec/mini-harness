@@ -48,7 +48,7 @@ rm -rf .vibe/w2w3/workspace/.vibe/sessions   # 仅在需要全新会话时
 - 命令运行取消：`w2-stop-command-20261023-174610.json`（`exit_code=-9`、进程组回收、无残留）。
 - 超时进程回收：`w2-stop-timeout-20261023-181452.json`（30s timed_out、exit -9、进程组回收、无残留、文件不变）；
 - 取消后已写修改：`w2-cancel-after-write-20261023-181924.json`（编辑已写入后 bash 审批取消；后续任务如实报告 `M calc.py`，未撤销）；
-- 取消阶段可见性：用户反馈只看到“已取消”；已增加三阶段 notice（停止请求已发送 → 后端已确认 → 已取消仍需核对），待真实会话确认。
+- 取消阶段可见性：用户反馈只看到“已取消”；已增加三阶段 notice 并在真实会话确认可见（截图 `.vibe/w2w3/evidence/w2-approval-notices.png`），W2 五项通过。
 
 ## W2：掌控运行过程
 
@@ -98,6 +98,22 @@ rm -rf .vibe/w2w3/workspace/.vibe/sessions   # 仅在需要全新会话时
 **验收项**：可观测边界停止不发起新请求/工具；区分正在停止与已停止；三种状态都验证；超时后核对进程与文件；停止交付能核对已发生修改。
 
 ## W3：隔天继续同一个任务
+
+### 推荐：逐步引导脚本（每条独立取证；按顺序执行）
+
+```bash
+.venv/bin/python3 scripts/w2w3_run.py w3-interrupt-read    # 读工具附近中断
+.venv/bin/python3 scripts/w2w3_run.py w3-resume            # --continue 恢复：先核对再 /resume
+.venv/bin/python3 scripts/w2w3_run.py w3-newtask           # 新任务不沿用旧目标
+.venv/bin/python3 scripts/w2w3_run.py w3-external          # 读中断后脚本外部修改 calc.py
+.venv/bin/python3 scripts/w2w3_run.py w3-external-resume   # 恢复时先核对差异
+.venv/bin/python3 scripts/w2w3_run.py w3-normal            # 第三次真实任务：正常修复
+.venv/bin/python3 scripts/w2w3_run.py w3-normal-resume     # 正常退出后恢复核对
+```
+
+每条结束后自动取证；`w3-external` 会在 Ink 退出后向 `calc.py` 追加 `# external change`，模拟恢复前的外部改动。三次真实任务记录：读中断→恢复续做、外部改动→恢复核对、正常完成→恢复核对。
+
+下面的手动步骤保留用于复查。
 
 ### W3-1 三个中断点（同一工作区，可分别用新会话）
 
