@@ -29,6 +29,22 @@ def test_loads_valid_entries_and_ignores_invalid_ones(tmp_path):
     assert entries == [ProjectBackgroundEntry("Ink 是唯一界面入口", "AGENTS.md")]
 
 
+def test_blank_source_falls_back_to_user(tmp_path):
+    _write_profile(tmp_path, [
+        {"text": "空白来源", "source": "   "},
+        {"text": "制表符来源", "source": "\t\n"},
+        {"text": "空来源", "source": ""},
+        {"text": "缺省来源"},
+    ])
+    entries = load_project_background(tmp_path)
+    assert entries == [
+        ProjectBackgroundEntry("空白来源", "user"),
+        ProjectBackgroundEntry("制表符来源", "user"),
+        ProjectBackgroundEntry("空来源", "user"),
+        ProjectBackgroundEntry("缺省来源", "user"),
+    ]
+
+
 def test_missing_or_broken_profile_is_empty(tmp_path):
     assert load_project_background(tmp_path) == []
     path = profile_path(tmp_path)

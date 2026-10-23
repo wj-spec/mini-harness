@@ -885,9 +885,28 @@ test('manages the project background from the workbench', async () => {
     assert.deepEqual(payload.entries.map(entry => entry.text), ['Ink 是唯一界面入口']);
     assert.equal(payload.entries[0]?.source, 'user');
 
+    await enter(stdin, '/project source 1 AGENTS.md 与 roadmap.md');
+    await pause(20);
+    const spaced = JSON.parse(await readFile(file, 'utf8')) as {entries: {source: string}[]};
+    assert.equal(spaced.entries[0]?.source, 'AGENTS.md 与 roadmap.md');
+
+    await enter(stdin, '/project source 1 docs/roadmap.md');
+    await pause(20);
+    assert.match(lastFrame() ?? '', /已更新项目背景来源：docs\/roadmap\.md/);
+    const sourced = JSON.parse(await readFile(file, 'utf8')) as {entries: {source: string}[]};
+    assert.equal(sourced.entries[0]?.source, 'docs/roadmap.md');
+
+    await enter(stdin, '/project source 9 docs/roadmap.md');
+    await pause(20);
+    assert.match(lastFrame() ?? '', /用法：\/project source <1-1> <来源>/);
+
+    await enter(stdin, '/project source 1');
+    await pause(20);
+    assert.match(lastFrame() ?? '', /用法：\/project source <1-1> <来源>/);
+
     await enter(stdin, '/project');
     await pause(20);
-    assert.match(lastFrame() ?? '', /1\. Ink 是唯一界面入口（来源：user）/);
+    assert.match(lastFrame() ?? '', /1\. Ink 是唯一界面入口（来源：docs\/roadmap\.md）/);
 
     await enter(stdin, '/project remove 1');
     await pause(20);

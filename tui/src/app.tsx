@@ -255,7 +255,20 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       announce(`已删除项目背景：${removed?.text ?? ''}`);
       return;
     }
-    announce('用法：/project；/project add <文本>；/project remove <序号>');
+    if (rest.startsWith('source ')) {
+      const parsed = /^(\S+)\s+(\S[\s\S]*)$/.exec(rest.slice('source '.length).trim());
+      const index = Number(parsed?.[1]);
+      const source = parsed?.[2].trim() ?? '';
+      if (!parsed || !Number.isInteger(index) || index < 1 || index > entries.length || !source) {
+        announce(`用法：/project source <1-${entries.length}> <来源>`);
+        return;
+      }
+      entries[index - 1] = {...entries[index - 1]!, source, updated_at: new Date().toISOString()};
+      saveProfile(file, entries);
+      announce(`已更新项目背景来源：${source}`);
+      return;
+    }
+    announce('用法：/project；/project add <文本>；/project remove <序号>；/project source <序号> <来源>');
   };
   const copyCurrent = () => {
     const target = copyTarget();
@@ -335,7 +348,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
     if (text === '/project' || text.startsWith('/project ')) {setInput(''); projectCommand(text.slice('/project'.length)); return;}
     if (text === '/help') {
       setInput('');
-      notice('Enter 发送（运行中提交纠偏，下一次模型请求生效）；Ctrl+J 换行；输入焦点下 ↑↓ 编辑或浏览输入历史。滚轮 / 触控板在对话区回看；PgUp/PgDn 翻页，Ctrl+P/N 或 Ctrl+↑/↓ 逐行。Ctrl+R 切换阅读 / 输入焦点，阅读时 ↑↓ 滚动、空格下一页，Esc 回输入。Ctrl+Home/End 到首尾，End 恢复跟随最新；鼠标在对话区拖选，松开即复制所选文本。Tab 选择工具，Ctrl+O 查看全文。Ctrl+K 或 /context 查看上下文分区，←/→ 回放本轮快照，l 跟随最新，Esc 返回。Ctrl+Y 或 /copy 复制最近回复、工具详情或审批预览；/project 查看项目背景，/project add 文本 添加，/project remove 序号 删除；Ctrl+C 取消当前操作，空闲时退出；Ctrl+Q 退出。审批时 y 单次、s 精确规则、p 工作区、n 拒绝，以面板选项为准。\n/resume 显式续做已保存任务；/permissions 查看授权，/permissions reset 撤销；/cost 会话花费；/tools 可用工具；/diff 工作区差异；/mcp 服务状态；/skills 技能目录，refresh 重扫，activate NAME 激活，unload NAME 卸载；/followup TEXT 排队后续消息，本轮结束后自动继续；/session 会话路径；/theme system|light|dark 主题。');
+      notice('Enter 发送（运行中提交纠偏，下一次模型请求生效）；Ctrl+J 换行；输入焦点下 ↑↓ 编辑或浏览输入历史。滚轮 / 触控板在对话区回看；PgUp/PgDn 翻页，Ctrl+P/N 或 Ctrl+↑/↓ 逐行。Ctrl+R 切换阅读 / 输入焦点，阅读时 ↑↓ 滚动、空格下一页，Esc 回输入。Ctrl+Home/End 到首尾，End 恢复跟随最新；鼠标在对话区拖选，松开即复制所选文本。Tab 选择工具，Ctrl+O 查看全文。Ctrl+K 或 /context 查看上下文分区，←/→ 回放本轮快照，l 跟随最新，Esc 返回。Ctrl+Y 或 /copy 复制最近回复、工具详情或审批预览；/project 查看项目背景，/project add 文本 添加，/project remove 序号 删除，/project source 序号 来源 改来源；Ctrl+C 取消当前操作，空闲时退出；Ctrl+Q 退出。审批时 y 单次、s 精确规则、p 工作区、n 拒绝，以面板选项为准。\n/resume 显式续做已保存任务；/permissions 查看授权，/permissions reset 撤销；/cost 会话花费；/tools 可用工具；/diff 工作区差异；/mcp 服务状态；/skills 技能目录，refresh 重扫，activate NAME 激活，unload NAME 卸载；/followup TEXT 排队后续消息，本轮结束后自动继续；/session 会话路径；/theme system|light|dark 主题。');
       return;
     }
     if (text.startsWith('/theme')) {
