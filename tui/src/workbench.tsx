@@ -103,21 +103,25 @@ export function transcriptLines(state: ViewState, columns: number, selectedTool:
 }
 
 export function welcomeLines(columns: number): ReadingLine[] {
+  const bar = (text: string) => `▌ ${text}`;
   return [
-    ...textLines('开始一个真实编码任务', columns, 'heading'),
-    ...textLines('描述目标、项目范围与完成条件。工具动作会按权限审批。', columns),
+    ...textLines(bar('开始一个真实编码任务'), columns, 'heading'),
+    ...textLines('   描述目标、项目范围与完成条件。工具动作会按权限审批。', columns),
     {spans: [{text: ''}]},
-    ...textLines('可以从这里开始', columns, 'label'),
-    ...textLines('• 读 README，解释这个项目的入口和运行流程', columns),
-    ...textLines('• 定位一个可复现的小 bug，先说明判断，再修改和验证', columns),
-    ...textLines('• 检查当前改动，列出风险与尚未验证的部分', columns),
+    ...textLines(bar('可以从这里开始'), columns, 'label'),
+    ...textLines('   • 读 README，解释这个项目的入口和运行流程', columns),
+    ...textLines('   • 定位一个可复现的小 bug，先说明判断，再修改和验证', columns),
+    ...textLines('   • 检查当前改动，列出风险与尚未验证的部分', columns),
     {spans: [{text: ''}]},
-    ...textLines('Enter 发送 · Ctrl+J 换行 · ↑↓ 浏览输入历史', columns),
-    ...textLines('滚轮 / PgUp / PgDn 回看 · Ctrl+R 阅读模式', columns),
-    ...textLines('阅读模式 ↑↓ 滚动 · Esc 回输入 · Ctrl+O 工具详情', columns),
-    ...textLines('/help 操作帮助 · /theme system|light|dark 主题', columns),
-    ...textLines('/resume 续做 · /permissions 权限 · /mcp 服务状态', columns),
-    ...textLines('/context 或 Ctrl+K 上下文分区与本轮回放', columns),
+    ...textLines(bar('快捷键'), columns, 'label'),
+    ...textLines('   Enter 发送 · Ctrl+J 换行 · ↑↓ 浏览输入历史', columns),
+    ...textLines('   滚轮 / PgUp / PgDn 回看 · Ctrl+R 阅读模式', columns),
+    ...textLines('   阅读模式 ↑↓ 滚动 · Esc 回输入 · Ctrl+O 工具详情', columns),
+    {spans: [{text: ''}]},
+    ...textLines(bar('命令'), columns, 'label'),
+    ...textLines('   /help 操作帮助 · /theme system|light|dark 主题', columns),
+    ...textLines('   /resume 续做 · /permissions 权限 · /mcp 服务状态', columns),
+    ...textLines('   /context 或 Ctrl+K 上下文分区与本轮回放', columns),
   ];
 }
 

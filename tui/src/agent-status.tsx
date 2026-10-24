@@ -48,11 +48,14 @@ function useSpinner(active: boolean): string {
   return active ? SPINNER_FRAMES[frame]! : '';
 }
 
-export function budgetBar(used: number, limit: number, width = 12): string {
+export function budgetBar(used: number, limit: number, width = 12, frame = 0): string {
   if (!limit) return '未设总上限';
   const ratio = used / limit;
   const filled = Math.max(0, Math.min(width, Math.round(ratio * width)));
-  return `[${'█'.repeat(filled)}${'░'.repeat(width - filled)}] ${Math.floor(ratio * 100)}%`;
+  const chars: string[] = [];
+  for (let i = 0; i < width; i++) chars.push(i < filled ? '█' : '░');
+  if (frame > 0 && filled > 1) chars[frame % (filled - 1)] = '▓';
+  return `[${chars.join('')}] ${Math.floor(ratio * 100)}%`;
 }
 
 export function AgentHeader({state, columns, height = 3, palette}: {
@@ -61,7 +64,7 @@ export function AgentHeader({state, columns, height = 3, palette}: {
   const status = agentStatus(state);
   const spinning = state.phase === 'running' || state.phase === 'starting' || state.phase === 'stopping';
   const spinner = useSpinner(spinning);
-  const statusText = spinning ? ` ${spinner} ${status.label} ` : ` ${status.label} `;
+  const statusText = spinning ? `◀ ${spinner} ${status.label} ▶` : `◀ ${status.label} ▶`;
   const showStatus = columns >= 50;
   const statusWidth = showStatus ? Math.min(stringWidth(statusText), Math.max(14, columns - 24)) : 0;
   const titleWidth = Math.max(1, columns - (showStatus ? statusWidth + 1 : 0));
@@ -92,7 +95,7 @@ function occupancyStatusLines(snapshot: ContextSnapshot, columns: number): Statu
   ];
 }
 
-function statusLines(state: ViewState, columns: number, contextFirst = false): StatusLine[] {
+function statusLines(state: ViewState, columns: number, contextFirst = false, frame = 0): StatusLine[] {
   const status = agentStatus(state);
   const task = state.entries.findLast(entry => entry.kind === 'task');
   const tools = state.entries.filter(entry => entry.kind === 'tool');
@@ -137,7 +140,7 @@ function statusLines(state: ViewState, columns: number, contextFirst = false): S
   if (!metrics && !snapshot) return [...lines, {text: '尚无用量记录'}];
   if (metrics) {
     lines.push({text: `任务 Tokens ${metrics.estimated ? '≈' : ''}${compactNumber(metrics.used_tokens)}/${metrics.limit_tokens ? compactNumber(metrics.limit_tokens) : '不限'}`});
-    lines.push({text: budgetBar(metrics.used_tokens, metrics.limit_tokens, Math.min(12, Math.max(2, columns - 10))),
+    lines.push({text: budgetBar(metrics.used_tokens, metrics.limit_tokens, Math.min(12, Math.max(2, columns - 10)), frame),
       tone: metrics.limit_tokens && metrics.used_tokens / metrics.limit_tokens >= 0.8 ? 'warning' : undefined});
   }
   if (snapshot && !contextFirst) lines.push(...context);
@@ -147,9 +150,19 @@ function statusLines(state: ViewState, columns: number, contextFirst = false): S
   return lines;
 }
 
+function useFrame(): number {
+  const [frame, setFrame] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setFrame(current => current + 1), 180);
+    return () => clearInterval(timer);
+  }, []);
+  return frame;
+}
+
 export function StatusPanel({state, columns, height, palette}: {
   state: ViewState; columns: number; height: number; palette: Palette;
 }) {
+  const frame = useFrame();
   const available = Math.max(1, columns - 4);
   const status = agentStatus(state);
   const task = state.entries.findLast(entry => entry.kind === 'task');
@@ -164,7 +177,7 @@ export function StatusPanel({state, columns, height, palette}: {
       {...richStatusLine([{text: `上下文估算 ${compactNumber(snapshot.total_tokens)}/${compactNumber(snapshot.input_capacity)} 输入${inputPercentage(snapshot)} · `}, ...contextSummarySpans(snapshot)]), tone: snapshot.over_budget ? 'warning' as const : undefined},
       richStatusLine(contextLine(snapshot, available, compactComposition, compactComposition ? '已用构成 ' : compactInputPrefix).spans),
     ] : []),
-  ] : statusLines(state, available, height < 24 && snapshot !== undefined);
+  ] : statusLines(state, available, height < 24 && snapshot !== undefined, frame);
   const statusBackground = status.tone === 'warning' || status.tone === 'error' ? palette.surfaces[status.tone] : palette.raised;
   return <Box width={columns} height={height} backgroundColor={palette.surface} flexShrink={0} flexDirection="column" paddingX={2} paddingY={compactContext ? 0 : 1} overflow="hidden">
     {lines.slice(0, Math.max(0, height - (compactContext ? 0 : 2))).map((line, index) => {
