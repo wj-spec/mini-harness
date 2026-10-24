@@ -5,6 +5,67 @@ from dataclasses import dataclass, field
 from .models import ExecutionOutcome
 
 
+_ACTION_MARKERS = (
+    "创建", "新建", "修改", "删除", "修复", "实现", "添加", "重构", "安装", "替换",
+    "更新", "迁移", "调试", "改写", "写一个", "写个", "补一个", "改成", "落地",
+    "fix", "add", "create", "implement", "change", "update", "remove", "delete",
+    "refactor", "install", "write", "migrate", "debug", "build", "apply",
+)
+_QUESTION_MARKERS = (
+    "如何", "怎么", "为什么", "什么是", "吗", "？", "?", "explain", "how ", "what ",
+    "why ", "which ", "是否", "多少", "几个",
+)
+
+
+def classify_task(goal: str) -> str:
+    """启发式区分动作任务与问答任务，只影响交付核对的呈现，不参与执行决策。"""
+    text = goal.strip().lower()
+    if not text:
+        return "qa"
+    if any(marker in text for marker in _QUESTION_MARKERS):
+        return "qa"
+    return "action" if any(marker in text for marker in _ACTION_MARKERS) else "qa"
+
+
+def delivery_receipt(
+    state: "TaskState",
+    *,
+    status: str,
+    steps: int = 0,
+    usage: dict | None = None,
+    cost_usd: float = 0.0,
+    tool_calls: int = 0,
+    denied: bool = False,
+    task_kind: str = "qa",
+) -> str:
+    """harness 生成的交付核对：运行结束与任务验收分开呈现，不代替人工核对。"""
+    tokens = (usage or {}).get("total_tokens", 0)
+    verified = [item for item in state.command_results if item.get("verification")]
+    checks = "; ".join(
+        f"{_clip(item['command'], 80)} [{item['status']}, exit={item.get('exit_code')}]"
+        for item in verified[-3:]
+    ) or "未运行验证命令"
+    changed = ", ".join(state.files_changed[:8]) or "无（未记录文件修改）"
+    unverified: list[str] = []
+    if state.files_changed and not verified:
+        unverified.append("本轮改动均未经验证")
+    if status != "done":
+        unverified.append(f"运行以 {status} 结束，已发生改动仍需核对")
+    if task_kind == "action" and tool_calls == 0:
+        blocker = "审批拒绝（决定已尊重，未重试）" if denied else "模型未执行操作"
+        unverified.append(f"动作任务没有已执行的操作：{blocker}")
+    if verified and state.files_changed:
+        unverified.append("改动与验证的对应关系需人工核对")
+    acceptance = "有验证证据，请核对后确认" if verified and status == "done" else "未确认，请核对以下证据"
+    return "\n".join([
+        "[运行结束] " + f"status={status} steps={steps} tokens={tokens} cost=${cost_usd:.4f}",
+        "[任务验收] " + acceptance,
+        "本轮改动（工具记录）：" + changed,
+        "实际验证（含退出码）：" + checks,
+        "未验证项：" + ("; ".join(unverified) or "无"),
+    ])
+
+
 def _clip(text: str, limit: int = 200) -> str:
     text = " ".join(text.split())
     return text if len(text) <= limit else text[:limit] + "…"

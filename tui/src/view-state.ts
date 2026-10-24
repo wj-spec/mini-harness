@@ -205,6 +205,7 @@ export function reduceView(state: ViewState, action: Action): ViewState {
         else if (text && text !== state.segment) next = stream(flush(next), text);
       }
       next = flush(next);
+      if (event.result.receipt) next = append(next, 'notice', event.result.receipt);
       return {...next, entries: next.entries.map(entry => entry.pending && entry.runId === state.activeId ?
         {...entry, pending: false, uncertain: true, output: '此调用没有确认结果；请先核对实际文件与进程状态。'} : entry),
         live: '', segment: '', activeId: null, activeCommand: null, activity: null, approval: null, phase: 'idle',

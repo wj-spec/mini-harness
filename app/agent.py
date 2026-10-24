@@ -20,7 +20,7 @@ from app.trace import Pricing, TraceRecorder
 from app.tools import ToolRegistry
 from core.context import ContextBuilder, ContextResult, estimate_tokens, total_tokens
 from core.context_snapshot import build_context_snapshot
-from core.state import TaskState
+from core.state import TaskState, classify_task, delivery_receipt
 from app.project_profile import ProjectBackgroundEntry, render_project_background
 from app.user_profile import UserPreference, render_user_background
 from core.summarize import summarize_messages
@@ -97,6 +97,7 @@ class AgentResult:
     run_id: str = ""
     stop_reason: str = ""
     error: str | None = None
+    receipt: str = ""
 
 
 @dataclass
@@ -1064,15 +1065,27 @@ class Agent:
     ) -> AgentResult:
         run.recorder.tool_calls = run.tool_calls
         run.recorder.end(status, steps, stop_reason, self.max_run_tokens)
+        usage = run.recorder.usage()
+        receipt = delivery_receipt(
+            run.state,
+            status=status,
+            steps=steps,
+            usage=usage,
+            cost_usd=run.recorder.cost_usd,
+            tool_calls=run.tool_calls,
+            denied=bool(run.denied_requests),
+            task_kind=classify_task(run.state.goal),
+        )
         return AgentResult(
             text,
             steps,
             status,
-            run.recorder.usage(),
+            usage,
             run.recorder.cost_usd,
             run.recorder.run_id,
             stop_reason,
             run.model_error,
+            receipt=receipt,
         )
 
     def _record_message(self, run: _RunContext, message: Message) -> None:

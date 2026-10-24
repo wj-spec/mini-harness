@@ -53,6 +53,7 @@ export interface CommandExecution {
 }
 
 export interface RunResult {
+  receipt?: string;
   text: string;
   steps: number;
   status: 'done' | 'stopped' | 'cancelled' | 'error' | 'truncated';

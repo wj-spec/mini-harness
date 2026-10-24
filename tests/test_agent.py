@@ -883,3 +883,27 @@ def test_resume_repairs_unpaired_tool_calls(tmp_path):
     assert repaired and "not_executed" in repaired[0].content
     result = run(agent.run("next"))
     assert result.status == "done"
+
+
+def test_result_carries_delivery_receipt(tmp_path):
+    provider = FakeProvider(["hi"])
+    agent = Agent(provider, ToolRegistry(tmp_path))
+    result = run(agent.run("创建 result.txt"))
+    assert result.receipt.startswith("[运行结束]")
+    assert "[任务验收]" in result.receipt
+    assert "动作任务没有已执行的操作" in result.receipt
+
+
+def test_receipt_records_verified_command_exit_codes(tmp_path):
+    async def allow(call, preview):
+        return ApprovalDecision(True, "workspace")
+
+    provider = FakeProvider([
+        Response(tool_calls=[ToolCall("bash", {"command": "true", "verification": True}, id="b1")]),
+        "done",
+    ])
+    agent = Agent(provider, ToolRegistry(tmp_path), approval=ApprovalGate(allow))
+    result = run(agent.run("运行验证"))
+    assert "实际验证（含退出码）：true [succeeded, exit=0]" in result.receipt
+    assert "[任务验收] 有验证证据" in result.receipt
+

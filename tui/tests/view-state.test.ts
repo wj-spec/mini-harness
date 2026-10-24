@@ -8,6 +8,17 @@ const call = {id: 'read-1', name: 'read_file', args: {path: 'hello.py'}};
 const result = {text: '# 结果\n已读取。', status: 'done' as const, steps: 2, usage: {}, cost_usd: 0, run_id: 'internal', stop_reason: ''};
 const event = (type: string, fields: Record<string, unknown> = {}) => ({v: 1, type, id: 'run-1', ...fields}) as ServerEvent;
 
+test('done surfaces the harness delivery receipt as a separate notice', () => {
+  let state = reduceView(initialState, {type: 'begin', id: 'run-1', text: 'work'});
+  const receipt = '[运行结束] status=done steps=1 tokens=10 cost=$0.0000\n[任务验收] 未确认，请核对以下证据';
+  state = reduceView(state, {type: 'event', event: event('done', {result: {...result, receipt}})});
+  const notices = state.entries.filter(entry => entry.kind === 'notice');
+  assert.ok(notices.some(entry => entry.text.includes('[运行结束]') && entry.text.includes('[任务验收]')));
+  let plain = reduceView(initialState, {type: 'begin', id: 'run-1', text: 'work'});
+  plain = reduceView(plain, {type: 'event', event: event('done', {result})});
+  assert.equal(plain.entries.filter(entry => entry.kind === 'notice').length, 0);
+});
+
 test('session purpose follows ready metadata and defaults older backends to ordinary use', () => {
   const fields = {id: null, workspace: '/repo', model: 'm', session_id: 's', capabilities: []};
   const testSession = reduceView(initialState, {type: 'event', event: event('ready', {...fields, session_purpose: 'test'})});
