@@ -14,9 +14,9 @@ export type Palette = {
 };
 
 const light: Palette = {
-  background: '#FFFFFF', foreground: '#263449', secondary: '#526174',
-  surface: '#F4F6F8', raised: '#E9EEF3', focus: '#E0EAF5',
-  accent: '#174F91', border: '#CBD5E1', success: '#25663F', warning: '#835019', error: '#A42635',
+  background: '#FAFBFC', foreground: '#1F2D3D', secondary: '#4E5F72',
+  surface: '#EEF2F6', raised: '#E2E9F0', focus: '#D5E4F2',
+  accent: '#1558A8', border: '#BCC9D8', success: '#1F6B3A', warning: '#7A4A14', error: '#9C2233',
   contextColors: {system: '#00718C', memory: '#85389C', tools: '#805500', history: '#1D7041', remaining: '#94A3B8'},
   surfaces: {
     task: '#E7EDF4', agent: '#FFFFFF', tool: '#F0F3F6', notice: '#EDF3FA',
@@ -24,9 +24,9 @@ const light: Palette = {
   },
 };
 const dark: Palette = {
-  background: '#101820', foreground: '#E2E8F0', secondary: '#B8C6D6',
-  surface: '#19232F', raised: '#253444', focus: '#264965',
-  accent: '#95D6F5', border: '#405267', success: '#8AD8A3', warning: '#F5CB7A', error: '#FFABB4',
+  background: '#0D1219', foreground: '#E8EDF4', secondary: '#B4C3D4',
+  surface: '#16202C', raised: '#223242', focus: '#1E3A52',
+  accent: '#7DD3FC', border: '#33465C', success: '#6EE7A0', warning: '#F5C86B', error: '#FF9CA8',
   contextColors: {system: '#6DD9F3', memory: '#D5A0FF', tools: '#F2C56B', history: '#83D19E', remaining: '#627286'},
   surfaces: {
     task: '#253444', agent: '#101820', tool: '#17212D', notice: '#182B3C',

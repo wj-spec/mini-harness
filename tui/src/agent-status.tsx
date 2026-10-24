@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {useEffect, useState} from 'react';
 import {Box, Text} from 'ink';
 import stringWidth from 'string-width';
 import type {ViewState} from './view-state.js';
@@ -36,6 +36,18 @@ export function agentStatus(state: ViewState): AgentStatus {
   return {label: '就绪', detail: state.resumed ? '历史已恢复；发送任务或 /resume' : '输入任务开始工作', tone: 'success'};
 }
 
+const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+function useSpinner(active: boolean): string {
+  const [frame, setFrame] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    const timer = setInterval(() => setFrame(current => (current + 1) % SPINNER_FRAMES.length), 100);
+    return () => clearInterval(timer);
+  }, [active]);
+  return active ? SPINNER_FRAMES[frame]! : '';
+}
+
 export function budgetBar(used: number, limit: number, width = 12): string {
   if (!limit) return '未设总上限';
   const ratio = used / limit;
@@ -47,7 +59,9 @@ export function AgentHeader({state, columns, height = 3, palette}: {
   state: ViewState; columns: number; height?: number; palette: Palette;
 }) {
   const status = agentStatus(state);
-  const statusText = ` ${status.label} `;
+  const spinning = state.phase === 'running' || state.phase === 'starting' || state.phase === 'stopping';
+  const spinner = useSpinner(spinning);
+  const statusText = spinning ? ` ${spinner} ${status.label} ` : ` ${status.label} `;
   const showStatus = columns >= 50;
   const statusWidth = showStatus ? Math.min(stringWidth(statusText), Math.max(14, columns - 24)) : 0;
   const titleWidth = Math.max(1, columns - (showStatus ? statusWidth + 1 : 0));

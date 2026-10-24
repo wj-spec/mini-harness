@@ -2,7 +2,7 @@ import React from 'react';
 import {Box, Text} from 'ink';
 import stringWidth from 'string-width';
 import type {Entry, ViewState} from './view-state.js';
-import {fitText, markdownLines, ReadingText, textLines, type ReadingLine} from './markdown.js';
+import {fitText, markdownLines, ReadingText, textLines, type ReadingLine, type Span} from './markdown.js';
 import type {Palette, SemanticTone} from './theme.js';
 import {selectionCells, type Selection} from './selection.js';
 
@@ -34,8 +34,10 @@ function cardLines(title: string, body: ReadingLine[], columns: number, tone?: S
     const size = spans.reduce((total, span) => total + stringWidth(span.text), 0);
     return [{text: ' '.repeat(padding)}, ...spans, {text: ' '.repeat(Math.max(0, width - padding - size))}];
   };
+  const bar = tone === 'error' ? '▌' : tone === 'warning' ? '▌' : tone === 'accent' ? '▌' : '▌';
+  const titleSpans: Span[] = [{text: bar, bold: true}, {text: ` ${fitText(`${selected ? '› ' : ''}${title}`, Math.max(1, width - padding * 2 - 2))}`, bold: true}];
   return [
-    {spans: fill([{text: fitText(`${selected ? '› ' : ''}${title}`, Math.max(1, width - padding * 2)), bold: true}]),
+    {spans: fill(titleSpans),
       kind: tone === 'error' ? 'error' : 'label', tone, selected, surface},
     ...body.map(line => ({...line, surface: line.surface ?? surface, spans: fill(line.spans)})),
   ];
