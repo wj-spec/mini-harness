@@ -11,6 +11,16 @@ export type SessionPurpose = 'user' | 'test';
 export const BACKEND_COMMANDS = ['resume', 'permissions', 'permissions_reset', 'cost', 'tools', 'diff', 'mcp', 'skills'] as const;
 export const COMMAND_COMPLETIONS = ['/help', '/resume', '/context', '/continue', '/cost', '/tools', '/diff', '/permissions',
   '/permissions reset', '/mcp', '/skills', '/session', '/theme', '/followup', '/copy', '/project', '/about', '/quit', '/exit'] as const;
+export const COMMAND_DESCRIPTIONS: Record<string, string> = {
+  '/help': '查看操作帮助', '/resume': '继续已保存的任务', '/context': '查看上下文与预算', '/continue': '同 /resume，继续任务',
+  '/cost': '查看本轮与会话成本', '/tools': '查看工具调用统计', '/diff': '查看工作区改动', '/permissions': '查看审批规则',
+  '/permissions reset': '恢复默认审批规则', '/mcp': '查看 MCP 服务', '/skills': '查看与切换技能', '/session': '查看会话路径',
+  '/theme': '切换主题', '/followup': '排队后续任务', '/copy': '复制最近回复', '/project': '管理项目背景',
+  '/about': '管理个人偏好', '/quit': '退出', '/exit': '退出',
+};
+export function commandMatches(value: string): string[] {
+  return value.startsWith('/') && !value.includes('\n') ? COMMAND_COMPLETIONS.filter(command => command.startsWith(value)) : [];
+}
 export type BackendCommand = typeof BACKEND_COMMANDS[number];
 export type SkillsCommandArgs = {action?: 'list' | 'refresh' | 'activate' | 'unload'; name?: string};
 

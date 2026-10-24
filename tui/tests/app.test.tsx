@@ -521,6 +521,25 @@ test('theme stays local and cost displays backend session accounting', async () 
   assert.deepEqual(client.runs, ['next task']);
 });
 
+test('slash opens a scrollable command menu without overflowing the frame', async () => {
+  const {stdin, lastFrame} = await mount(undefined, undefined, {columns: 80, rows: 24});
+  stdin.write('/');
+  await pause(25);
+  let frame = lastFrame() ?? '';
+  assert.match(frame, /› \/help/);
+  assert.match(frame, /查看操作帮助/);
+  assert.match(frame, /↑↓ 选择 · Tab 填充 · 1\/19/);
+  assert.ok(frame.split('\n').length <= 24);
+  for (const line of frame.split('\n')) assert.ok(stringWidth(line) <= 80, line);
+  stdin.write('\u001b[B');
+  await pause(15);
+  assert.match(lastFrame() ?? '', /2\/19/);
+  stdin.write('\t');
+  await pause(15);
+  frame = lastFrame() ?? '';
+  assert.match(frame, /\/resume {2,}继续已保存的任务/);
+});
+
 test('skills lifecycle commands use backend management and display results without running a task', async () => {
   const {client, stdin, lastFrame} = await mount();
   const commands = ['/skill', '/skills refresh', '/skills activate release', '/skill unload release'];

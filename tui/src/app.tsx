@@ -1,6 +1,8 @@
 import React, {useEffect, useMemo, useReducer, useRef, useState} from 'react';
+import {CommandMenu} from './command-menu.js';
 import {Box, Text, useApp, useInput, usePaste, useWindowSize} from 'ink';
 import type {BackendClient} from './backend.js';
+import {commandMatches} from './protocol.js';
 import type {ApprovalDecision, BackendCommand, SkillsCommandArgs} from './protocol.js';
 import {initialState as emptyState, reduceView, resultReason, type ViewState} from './view-state.js';
 import {Composer} from './composer.js';
@@ -29,6 +31,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
 }) {
   const [state, dispatch] = useReducer(reduceView, initialState);
   const [input, setInput] = useState('');
+  const [menuIndex, setMenuIndex] = useState(0);
   const [theme, setTheme] = useState<ThemeName>(initialTheme);
   const [quitting, setQuitting] = useState(false);
   const [feedback, setFeedback] = useState('');
@@ -82,7 +85,11 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
   const sidebar = columns >= 118 && rows >= 24;
   const readerColumns = sidebar ? columns - 33 : columns;
   const compactRows = !sidebar && rows >= 24 && !overlayKey ? 3 : 0;
-  const paneRows = Math.max(4, rows - headerRows - compactRows - composerRows - 4);
+  const menuMatches = !reading && !overlayKey && !quitting ? commandMatches(input) : [];
+  const paneBase = rows - headerRows - compactRows - composerRows - 4;
+  const menuRows = rows >= 18 ? Math.min(menuMatches.length, 5, Math.max(0, paneBase - 4)) : 0;
+  const paneRows = Math.max(4, paneBase - menuRows);
+  const menuPosition = Math.min(menuIndex, Math.max(0, menuMatches.length - 1));
   const bodyRows = Math.max(1, paneRows - 3);
   const bodyColumns = Math.max(1, readerColumns - 5);
   const decisions = state.approval?.decisions ?? ['once', 'deny'];
@@ -504,8 +511,15 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       {sidebar ? <><Box width={1}/><StatusPanel state={state} columns={32} height={paneRows} palette={palette}/></> : null}
     </Box>
     <Box backgroundColor={state.approval ? palette.surfaces.warning : readerFocused ? palette.surface : palette.focus} height={composerRows + 2} width={columns} paddingX={2} paddingY={1} flexShrink={0}>
-      <Composer value={input} onChange={setInput} onSubmit={submit} history={history} disabled={composerDisabled} disabledHint={unavailableHint} focused={!readerFocused && !quitting} placeholder={composerPlaceholder} columns={Math.max(1, columns - 4)} maxRows={composerRows} accentColor={palette.accent} warningColor={palette.warning} foregroundColor={palette.foreground} secondaryColor={palette.secondary}/>
+      <Composer value={input} onChange={text => {setMenuIndex(0); setInput(text);}} onSubmit={submit} history={history} disabled={composerDisabled} disabledHint={unavailableHint} focused={!readerFocused && !quitting} placeholder={composerPlaceholder} columns={Math.max(1, columns - 4)} maxRows={composerRows} accentColor={palette.accent} warningColor={palette.warning} foregroundColor={palette.foreground} secondaryColor={palette.secondary}
+        menu={menuRows ? {
+          count: menuMatches.length,
+          index: menuPosition,
+          onMove: delta => setMenuIndex(position => (position + delta + menuMatches.length) % menuMatches.length),
+          onAccept: () => {const next = menuMatches[menuPosition]; setMenuIndex(0); setInput(next);},
+        } : undefined}/>
     </Box>
+    {menuRows ? <CommandMenu matches={menuMatches} index={menuPosition} rows={menuRows} columns={columns} accentColor={palette.accent} foregroundColor={palette.foreground} secondaryColor={palette.secondary} surfaceColor={palette.surface}/> : null}
     <Text color={state.error || state.phase === 'closed' || (feedback && feedbackTone === 'error') ? palette.error : state.approval ? palette.warning : palette.foreground}>{fitText(feedback || `${phase}${resultReason(state.lastResult) ? ` · ${resultReason(state.lastResult)}` : ''}${metricsText(state) ? `  ·  ${metricsText(state)}` : ''}`, columns)}</Text>
     <Text color={palette.secondary}>{fitText(hint, columns)}</Text>
   </Box>;

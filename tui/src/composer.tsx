@@ -18,11 +18,12 @@ type ComposerProps = {
   foregroundColor?: string;
   secondaryColor?: string;
   disabledHint?: string;
+  menu?: {count: number; index: number; onMove: (delta: number) => void; onAccept: () => void};
 };
 
 const commands: readonly string[] = COMMAND_COMPLETIONS;
 
-export function Composer({value, onChange, onSubmit, history, disabled = false, focused = true, placeholder = '输入任务，开始一次编码', columns, maxRows = 3, accentColor, warningColor, foregroundColor, secondaryColor, disabledHint}: ComposerProps) {
+export function Composer({value, onChange, onSubmit, history, disabled = false, focused = true, placeholder = '输入任务，开始一次编码', columns, maxRows = 3, accentColor, warningColor, foregroundColor, secondaryColor, disabledHint, menu}: ComposerProps) {
   const [cursor, setCursorState] = useState(() => graphemes(value).length);
   const draft = useRef({value, cursor});
   const [, renderSubmission] = useState(0);
@@ -96,6 +97,7 @@ export function Composer({value, onChange, onSubmit, history, disabled = false, 
     }
     if (input === '\n') {insert('\n'); return;}
     if (key.tab) {
+      if (menu) {menu.onAccept(); return;}
       if (value.startsWith('/') && !value.includes('\n')) {
         const matches = commands.filter(command => command.startsWith(value));
         const completion = matches.length === 1 ? matches[0] : matches[0] && matches.every(command => command === matches[0] || command.startsWith(matches[0] + ' ')) ? matches[0] : undefined;
@@ -109,6 +111,7 @@ export function Composer({value, onChange, onSubmit, history, disabled = false, 
     if (key.end) {setCursor(lineBoundary(value, cursor, 'end')); return;}
     if (key.upArrow || key.downArrow) {
       const direction = key.upArrow ? -1 : 1;
+      if (menu) {menu.onMove(direction); return;}
       const atBoundary = direction === -1 ? lineBoundary(value, cursor, 'start') === 0 : lineBoundary(value, cursor, 'end') === graphemes(value).length;
       if (atBoundary) browseHistory(direction);
       else setCursor(moveVertical(value, cursor, direction));
@@ -127,7 +130,7 @@ export function Composer({value, onChange, onSubmit, history, disabled = false, 
   const matches = value.startsWith('/') && !value.includes('\n') ? commands.filter(command => command.startsWith(value)) : [];
   let hint = '';
   if (value === '/resume' || value === '/continue') hint = '继续已保存任务 · 开启新一轮预算，先核对进度';
-  else if (matches.length) hint = `${matches.join('  ')} · Tab 补全`;
+  else if (matches.length) hint = menu ? `↑↓ 选择 · Tab 填充 · ${menu.index + 1}/${menu.count}` : `${matches.join('  ')} · Tab 补全`;
   else if (focused && disabled) hint = disabledHint ?? '草稿可编辑 · 当前操作结束后可发送';
   const needsPosition = wrapped.rows.length > height;
   const showHint = height > 1 && Boolean(hint || needsPosition);
