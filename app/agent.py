@@ -231,6 +231,8 @@ class Agent:
         self.project_background = list(project_background or [])
         self.user_background = list(user_background or [])
         self.history = self._adopt_history(history)
+        if self.history:
+            self.tools.mark_restored()
         self.pricing = pricing or Pricing()
         self.llm_timeout = llm_timeout
         self.llm_retries = llm_retries
@@ -1096,10 +1098,12 @@ class Agent:
             run.on_message(message)
 
     def _apply_steering(self, run: _RunContext, step: int) -> None:
-        """把排队中的用户纠偏按到达顺序写成真实的 user 消息。"""
+        """把排队中的用户纠偏按到达顺序写成真实的 user 消息并入约束台账。"""
         while run.pending_steering:
             text = run.pending_steering.popleft()
             self._record_message(run, Message("user", text, name="steering"))
+            run.state.add_constraint(text, source="steering")
+            run.state_message.content = run.state.render()
             run.recorder.event("steering_applied", step=step, chars=len(text))
 
     def _budget_update(self, run: _RunContext, phase: str) -> None:

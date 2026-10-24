@@ -95,6 +95,7 @@ class ToolRegistry:
         self.context = context
         self.state = state
         self._read_hashes: dict[Path, str] = {}
+        self._restore_guard = False
         self.skill_manager = SkillManager(self.root, config_path=skills_config)
         self._tools: dict[str, ToolSpec] = {
             "web_search": ToolSpec(
@@ -397,8 +398,15 @@ class ToolRegistry:
     def _hash(text: str) -> str:
         return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
+    def mark_restored(self) -> None:
+        """重开会话：首次修改已有文件前必须先重新读取。"""
+        self._restore_guard = True
+
     def _assert_fresh(self, target: Path, content: str) -> None:
         previous = self._read_hashes.get(target)
+        if previous is None and self._restore_guard:
+            rel = target.relative_to(self.root)
+            raise ValueError(f"restored session: re-read before editing: {rel}")
         if previous is not None and self._hash(content) != previous:
             rel = target.relative_to(self.root)
             raise ValueError(f"file changed since last read: {rel}; re-read before editing")

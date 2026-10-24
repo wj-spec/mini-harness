@@ -156,6 +156,42 @@ def test_write_via_out_of_workspace_symlink_is_rejected(tmp_path):
     assert outside.read_text() == "keep\n"
 
 
+def test_restored_session_requires_reread_before_editing(tmp_path):
+    (tmp_path / "a.txt").write_text("old\n")
+    registry = ToolRegistry(tmp_path)
+    registry.mark_restored()
+    ok, output = registry.execute(ToolCall("edit_file", {"path": "a.txt", "old": "old", "new": "new"}))
+    assert ok is False
+    assert "restored session: re-read before editing" in output
+    ok, output = registry.execute(ToolCall("write_file", {"path": "a.txt", "content": "new\n"}))
+    assert ok is False
+    assert "re-read before editing" in output
+    registry.read_file("a.txt")
+    ok, _ = registry.execute(ToolCall("edit_file", {"path": "a.txt", "old": "old", "new": "new"}))
+    assert ok is True
+    assert (tmp_path / "a.txt").read_text() == "new\n"
+
+
+def test_restored_session_allows_new_and_own_written_files(tmp_path):
+    registry = ToolRegistry(tmp_path)
+    registry.mark_restored()
+    ok, _ = registry.execute(ToolCall("write_file", {"path": "fresh.txt", "content": "one\n"}))
+    assert ok is True
+    ok, _ = registry.execute(ToolCall("edit_file", {"path": "fresh.txt", "old": "one", "new": "two"}))
+    assert ok is True
+
+
+def test_external_change_after_restore_read_is_rejected(tmp_path):
+    (tmp_path / "a.txt").write_text("old\n")
+    registry = ToolRegistry(tmp_path)
+    registry.mark_restored()
+    registry.read_file("a.txt")
+    (tmp_path / "a.txt").write_text("external\n")
+    ok, output = registry.execute(ToolCall("edit_file", {"path": "a.txt", "old": "external", "new": "new"}))
+    assert ok is False
+    assert "file changed since last read" in output
+
+
 def test_recall_tool(tmp_path):
     builder = ContextBuilder(
         max_tokens=40, reserve_output=5, keep_recent_groups=1,

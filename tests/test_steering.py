@@ -102,3 +102,27 @@ def test_steering_message_enters_history_for_following_turns(tmp_path):
     steering = [m for m in agent.history if m.role == "user" and m.name == "steering"]
     assert [m.content for m in steering] == ["只改内部实现"]
     assert _user_texts(provider.seen[2]) == ["q", "只改内部实现", "继续"]
+
+
+def test_corrections_enter_constraint_ledger_with_source_and_order(tmp_path):
+    provider = FakeProvider([
+        Response(tool_calls=[ToolCall("list_files", {}, id="c1")]),
+        Response(tool_calls=[ToolCall("list_files", {}, id="c2")]),
+        Response(content="收到"),
+    ])
+    agent = Agent(provider, ToolRegistry(tmp_path))
+    queued = iter(["保留公开接口", "同时保持兼容"])
+
+    def on_tool(call):
+        agent.steer(next(queued))
+
+    result = run(agent.run("重构一下", on_tool=on_tool))
+    assert result.status == "done"
+    rendered = agent.state.render()
+    assert "Constraints (by time; later entries override earlier ones on conflict):" in rendered
+    assert "1. (steering) 保留公开接口" in rendered
+    assert "2. (steering) 同时保持兼容" in rendered
+    # 约束随 task_state 系统消息重注入，历史压缩不会丢失。
+    assert any(m.role == "system" and "保留公开接口" in m.content and "同时保持兼容" in m.content
+               for m in provider.seen[-1])
+

@@ -83,6 +83,7 @@ class TaskState:
     tests_run: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     command_results: list[dict] = field(default_factory=list)
+    constraints: list[dict] = field(default_factory=list)
 
     def render(self) -> str:
         lines = ["[TASK STATE]", f"Goal: {_clip(self.goal, 300)}"]
@@ -107,7 +108,18 @@ class TaskState:
             lines.append("Command results: " + " | ".join(results))
         if self.notes:
             lines.append("Notes: " + " | ".join(_clip(x, 160) for x in self.notes[-3:]))
+        if self.constraints:
+            lines.append("Constraints (by time; later entries override earlier ones on conflict):")
+            for item in self.constraints:
+                lines.append(f"  {item['seq']}. ({item['source']}) {_clip(item['text'], 300)}")
         return "\n".join(lines)
+
+    def add_constraint(self, text: str, source: str) -> str:
+        """记录当前有效约束；保留来源与先后顺序，新的覆盖旧的。"""
+        cleaned = " ".join(str(text).split())
+        if cleaned and (not self.constraints or self.constraints[-1]["text"] != cleaned):
+            self.constraints.append({"text": cleaned, "source": source, "seq": len(self.constraints) + 1})
+        return self.render()
 
     def command_summary(self) -> str:
         if self.command_results:
