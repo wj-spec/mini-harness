@@ -55,6 +55,17 @@ _TRANSIENT_TOOL_PREFIXES = (
 )
 
 
+def _tool_status(ok: bool, output: str) -> str:
+    """把工具结果映射为 trace 终态。"""
+    if ok:
+        return "succeeded"
+    lowered = output.lower()
+    for marker, status in (("denied", "denied"), ("cancelled", "cancelled"), ("timeout", "timeout")):
+        if marker in lowered:
+            return status
+    return "failed"
+
+
 def _is_transient_tool_error(output: str) -> bool:
     return output.startswith(_TRANSIENT_TOOL_PREFIXES)
 
@@ -978,6 +989,7 @@ class Agent:
                 run.on_tool(call)
 
             risk = self.tools.risk(call.name)
+            run.recorder.tool_start(call, step=step)
             key = (call.name, json.dumps(call.args, sort_keys=True, ensure_ascii=False,
                                         separators=(",", ":")))
             if risk != "read":
@@ -999,6 +1011,7 @@ class Agent:
                         else:
                             if decision is None or (run.cancel is not None and run.cancel.is_set()):
                                 return self._cancel_pending(run, step, calls[call_index:])
+                            run.recorder.approval(call, decision.allowed, decision.scope, step=step)
                             if not decision.allowed:
                                 ok, output = False, "ERROR denied_by_user"
                                 run.denied_requests.add(key)
@@ -1017,6 +1030,11 @@ class Agent:
                 )
                 if run.on_execution:
                     run.on_execution(call, dict(execution))
+            run.recorder.tool_end(
+                call, ok, risk, step=step,
+                status=(execution or {}).get("status") or _tool_status(ok, str(output)),
+                error=None if ok else str(output)[:200],
+            )
             if run.on_result:
                 run.on_result(call, ok, output)
             run.state.observe_tool(call.name, call.args, ok, output, execution=execution)
@@ -1415,4 +1433,6 @@ class Agent:
                 "tool", "ERROR cancelled: not executed", name=call.name,
                 tool_call_id=call.id,
             ))
+            run.recorder.event("tool_not_executed", tool=call.name,
+                               tool_call_id=call.id, reason="cancelled", step=step)
         return self._finish(run, "cancelled", step, "cancelled")

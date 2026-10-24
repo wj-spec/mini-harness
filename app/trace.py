@@ -99,24 +99,55 @@ class TraceRecorder:
             usage_estimated=estimated,
         )
 
-    def tool_start(self, call) -> None:
+    def tool_start(self, call, step: int | None = None) -> None:
         self._tool_started[id(call)] = time.monotonic()
-        self.event("tool_start", tool=call.name, args=call.args)
+        self.event("tool_start", tool=call.name, args=call.args,
+                   tool_call_id=call.id, step=step)
 
-    def approval(self, call, allowed: bool, scope: str) -> None:
-        self.event("approval", tool=call.name, allowed=allowed, scope=scope)
+    def approval(self, call, allowed: bool, scope: str, step: int | None = None) -> None:
+        self.event("approval", tool=call.name, allowed=allowed, scope=scope,
+                   tool_call_id=call.id, step=step)
 
-    def tool_end(self, call, ok: bool, risk: str) -> None:
+    def tool_end(self, call, ok: bool, risk: str, step: int | None = None,
+                 status: str | None = None, error: str | None = None) -> None:
         self.tool_calls += 1
         started = self._tool_started.pop(id(call), None)
         duration = (time.monotonic() - started) * 1000 if started is not None else 0.0
+        payload: dict = {}
+        if error:
+            payload["error"] = str(error)[:300]
         self.event(
             "tool_end",
             tool=call.name,
             ok=ok,
             risk=risk,
             duration_ms=round(duration, 1),
+            tool_call_id=call.id,
+            step=step,
+            status=status or ("succeeded" if ok else "failed"),
+            **payload,
         )
+
+    @staticmethod
+    def anomaly(events: list[dict]) -> dict | None:
+        """从本地 trace 记录定位首个异常工具事件（终态失败、未执行或缺失终态）。"""
+        started: dict[str, dict] = {}
+        for event in events:
+            kind = event.get("type")
+            call_id = str(event.get("tool_call_id") or "")
+            if kind == "tool_start" and call_id:
+                started.setdefault(call_id, event)
+                continue
+            if kind in {"tool_end", "tool_not_executed"} and call_id:
+                started.pop(call_id, None)
+            if kind == "tool_not_executed":
+                return event
+            if kind == "tool_end" and (not event.get("ok") or event.get("status") not in (None, "succeeded")):
+                return event
+        for call_id, event in started.items():
+            return {"type": "missing_tool_end", "tool_call_id": call_id,
+                    "tool": event.get("tool"), "step": event.get("step")}
+        return None
 
     def end(
         self, status: str, steps: int, stop_reason: str = "", limit_tokens: int = 0,
