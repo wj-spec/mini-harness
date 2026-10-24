@@ -185,6 +185,57 @@ def run_agent(workspace: Path, prompt: str, timeout: float, log_path: Path, fake
     }
 
 
+def protocol_validity(report: dict) -> tuple[bool, list[str]]:
+    """按评测协议判定有效性；取消、越界、改动测试等证据保留在 report 中。"""
+    reasons = []
+    if report.get("agent_status") == "cancelled":
+        reasons.append("cancelled")
+    if report.get("agent_error"):
+        reasons.append("agent_error")
+    if report.get("test_edits"):
+        reasons.append("edited_tests")
+    if report.get("hidden_leak_attempts"):
+        reasons.append("hidden_leak_attempt")
+    if report.get("outside_workspace_commands"):
+        reasons.append("outside_workspace_commands")
+    if not report.get("workspace_clean", True):
+        reasons.append("workspace_contaminated")
+    return (not reasons, reasons)
+
+
+def result_categories(report: dict) -> dict:
+    """三类结果分开记录：产物正确、运行完成、可比较性（含改前失败验证）。"""
+    precheck_failed = report.get("red", {}).get("exit_code", 0) != 0
+    artifact_correct = report.get("check", {}).get("exit_code", 1) == 0
+    run_complete = report.get("agent_status") == "done" and not report.get("agent_error")
+    valid, reasons = protocol_validity(report)
+    return {
+        "artifact_correct": artifact_correct,
+        "run_complete": run_complete,
+        "precheck_failed": precheck_failed,
+        "verified_fix": artifact_correct and precheck_failed,
+        "valid": valid,
+        "invalid_reasons": reasons,
+        "comparable": valid and precheck_failed,
+    }
+
+
+def run_config(fake: bool) -> dict:
+    """固定模型、预算与版本的记录；比较结果前先核对三者一致。"""
+    try:
+        version = subprocess.run(
+            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, timeout=10,
+        ).stdout.strip() or "unknown"
+    except (OSError, subprocess.SubprocessError):
+        version = "unknown"
+    return {
+        "model": os.environ.get("VIBE_MODEL", "fake" if fake else "unset"),
+        "budget": os.environ.get("VIBE_MAX_RUN_TOKENS") or os.environ.get("VIBE_MAX_TOKENS") or "local-config",
+        "version": version,
+        "fake": fake,
+    }
+
+
 def failure_class(report: dict) -> str | None:
     if report.get("passed"):
         return None
@@ -248,9 +299,9 @@ def latest_run_end(workspace: Path, run_id: str | None) -> dict | None:
     return None
 
 
-def run_task(task: str, prepare: bool, timeout: float, stamp: str, fake: bool = False, clean: bool = False) -> dict:
+def run_task(task: str, prepare: bool, timeout: float, stamp: str, fake: bool = False, clean: bool = False, attempt: int = 1) -> dict:
     task_dir = TASKS_DIR / task
-    workdir = RUN_ROOT / stamp / task
+    workdir = RUN_ROOT / stamp / (task if attempt == 1 else f"{task}__r{attempt}")
     if workdir.exists():
         shutil.rmtree(workdir)
     workdir.mkdir(parents=True)
@@ -265,8 +316,11 @@ def run_task(task: str, prepare: bool, timeout: float, stamp: str, fake: bool = 
         "- 完成后报告实际改动文件、运行过的命令与退出码。\n"
     )
     leaked = [path for path in ("benchmarks", "scripts/bench_local.py") if (workspace / path).exists()]
-    report: dict = {"task": task, "workspace": str(workspace), "prompt": prompt,
-                    "workspace_clean": not leaked, "leaked_paths": leaked}
+    meta_path = task_dir / "meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
+    report: dict = {"task": task, "attempt": attempt, "workspace": str(workspace), "prompt": prompt,
+                    "workspace_clean": not leaked, "leaked_paths": leaked,
+                    "held_out": bool(meta.get("held_out")), "config": run_config(fake)}
 
     setup = subprocess.run(
         [sys.executable, str(task_dir / "setup.py")], cwd=workspace,
@@ -318,6 +372,7 @@ def run_task(task: str, prepare: bool, timeout: float, stamp: str, fake: bool = 
     })
     if run["error"]:
         report["reason"] = run["error"]
+    report.update(result_categories(report))
     report["failure_class"] = failure_class(report)
     (workdir / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     if clean:
@@ -332,6 +387,7 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=900, help="单个任务的 Agent 超时秒数")
     parser.add_argument("--fake", action="store_true", help="用 fake provider 验证跑分链路（必然不通过）")
     parser.add_argument("--clean", action="store_true", help="跑完删除临时工作区（默认保留供复查）")
+    parser.add_argument("--runs", type=int, default=1, help="每题重复次数；多次运行才能谈可比较性")
     args = parser.parse_args()
     selected = [item.strip() for item in args.tasks.split(",")] if args.tasks else task_ids()
     unknown = [task for task in selected if task not in task_ids()]
@@ -344,22 +400,27 @@ def main() -> int:
     stamp = time.strftime("%Y%m%d-%H%M%S")
     reports = []
     for task in selected:
-        print(f"[{task}] 准备 workspace...", flush=True)
-        report = run_task(task, args.prepare, args.timeout, stamp, args.fake, args.clean)
-        reports.append(report)
+        for attempt in range(1, max(1, args.runs) + 1):
+            label = task if args.runs == 1 else f"{task}#{attempt}"
+            print(f"[{label}] 准备 workspace...", flush=True)
+            report = run_task(task, args.prepare, args.timeout, stamp, args.fake, args.clean, attempt=attempt)
+            reports.append(report)
         if args.prepare:
             marker = "RED" if report.get("red_expected") else "UNEXPECTED PASS"
-            print(f"[{task}] {marker}（setup rc={report['setup']['exit_code']}，red rc={report['red']['exit_code']}）", flush=True)
+            print(f"[{label}] {marker}（setup rc={report['setup']['exit_code']}，red rc={report['red']['exit_code']}）", flush=True)
         else:
             status = "PASS" if report.get("passed") else "FAIL"
             tokens = report.get("agent_tokens", {}).get("total_tokens")
             print(
-                f"[{task}] {status} status={report.get('agent_status')} steps={report.get('agent_steps')} "
-                f"tokens={tokens} tool_calls={report.get('tool_calls')} "
+                f"[{label}] {status} artifact={report.get('artifact_correct')} complete={report.get('run_complete')} "
+                f"comparable={report.get('comparable')} status={report.get('agent_status')} "
+                f"steps={report.get('agent_steps')} tokens={tokens} tool_calls={report.get('tool_calls')} "
                 f"changed={len(report.get('changed_files', []))} check_rc={report.get('check', {}).get('exit_code')} "
                 f"class={report.get('failure_class')}",
                 flush=True,
             )
+    configs = {json.dumps(report.get("config"), sort_keys=True) for report in reports if report.get("config")}
+    held_out = [report for report in reports if report.get("held_out")]
     summary = {
         "stamp": stamp,
         "prepare": args.prepare,
@@ -367,6 +428,13 @@ def main() -> int:
         "tasks": reports,
         "passed": sum(1 for report in reports if report.get("passed")),
         "total": len(reports),
+        "artifact_correct": sum(1 for report in reports if report.get("artifact_correct")),
+        "run_complete": sum(1 for report in reports if report.get("run_complete")),
+        "comparable": sum(1 for report in reports if report.get("comparable")),
+        "valid": sum(1 for report in reports if report.get("valid")),
+        "config_frozen": len(configs) <= 1,
+        "held_out_total": len(held_out),
+        "held_out_passed": sum(1 for report in held_out if report.get("passed")),
     }
     summary_path = RUN_ROOT / stamp / "summary.json"
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
