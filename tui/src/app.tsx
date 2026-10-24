@@ -473,13 +473,22 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
   const hint = state.approval ? `${approvalHint} · 滚轮/PgUp/PgDn 翻页 · Ctrl+C 取消` : contextOpen ? '←/→ 选快照 · l 最新 · ↑↓/滚轮 翻阅 · Esc 返回' : detailEntry ? '滚轮/↑↓ 翻阅 · Home/End 首尾 · Esc 返回' :
     reading ? '阅读焦点：↑↓滚动  空格翻页  End最新  Esc输入  Ctrl+Q退出' :
       state.phase === 'running' ? (columns < 60 ? 'Enter 纠偏 · /followup 排队 · Ctrl+C 停止' : 'Enter 提交纠偏  /followup 文本 排队后续  Ctrl+C 停止  Ctrl+Q 退出') :
+        state.lastStatus === 'done' ? (columns < 60 ? '任务完成 · /diff 核对 · /resume 续做' : '任务完成  /diff 核对改动  /resume 续做  /copy 复制回复  Ctrl+Q 退出') :
+        state.lastStatus === 'cancelled' ? (columns < 60 ? '已取消 · 核对修改 · /resume 续做' : '已取消  核对已发生的修改  /resume 续做  /copy 复制回复  Ctrl+Q 退出') :
+        state.lastStatus === 'error' ? (columns < 60 ? '运行失败 · /resume 重试' : '运行失败  查看错误与工具记录  /resume 重试  Ctrl+Q 退出') :
+        state.lastStatus === 'stopped' ? (columns < 60 ? '任务已暂停 · /resume 续做' : '任务已暂停  /resume 续做  /context 查看进度  Ctrl+Q 退出') :
         columns < 60 ? 'Ctrl+K上下文 · Ctrl+Q退出 · /help' : '拖选复制  Ctrl+R阅读  Ctrl+K上下文  Ctrl+Y复制回复  Ctrl+Q退出';
   const composerDisabled = quitting || state.phase === 'starting' || state.phase === 'stopping' || state.phase === 'waiting_approval' || state.phase === 'closed';
   const composerPlaceholder = state.approval ? '审批面板已聚焦，请选择授权范围' : contextOpen ? '上下文详情已聚焦，Esc 返回输入' : detailEntry ? '工具详情已聚焦，Esc 返回输入' : reading ? '正在阅读历史，Esc 返回输入' :
     state.phase === 'closed' ? '可以回看已有记录，退出后重新启动' : state.phase === 'starting' ? '可以先写下任务目标与约束' : state.phase === 'stopping' ? '正在停止 · 收到停止结果后可发送' :
-      state.phase === 'running' ? '运行中：Enter 提交纠偏，/followup 文本排队后续' : '描述任务，或输入 / 查看命令';
+      state.phase === 'running' ? '运行中：Enter 提交纠偏，/followup 文本排队后续' :
+        state.lastStatus === 'done' ? '任务完成 · 输入新任务，或 /resume 续做' :
+        state.lastStatus === 'cancelled' ? '已取消 · 核对修改后输入新任务，或 /resume 续做' :
+        state.lastStatus === 'error' ? '运行失败 · 输入新任务，或 /resume 重试' :
+        state.lastStatus === 'stopped' ? '任务已暂停 · 输入新任务，或 /resume 续做' : '描述任务，或输入 / 查看命令';
   const unavailableHint = state.phase === 'closed' ? '连接已断开 · Ctrl+Q 退出后重启' : state.phase === 'starting' ? '可编辑草稿 · 后端就绪后可发送' :
     state.phase === 'stopping' ? '正在停止 · 收到停止结果后可发送' : undefined;
+  // PM/UX: 完成/错误/暂停/取消后给出下一步引导，减少用户困惑。
 
   if (rows < 11 || columns < 24) return <Box width={columns} height={rows} backgroundColor={palette.background} flexDirection="column" overflow="hidden">
     <Text color={palette.foreground} bold>{fitText('mini-harness', columns)}</Text>
