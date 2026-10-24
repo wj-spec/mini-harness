@@ -64,6 +64,29 @@ ToolCallback = Callable[[ToolCall], None]
 ResultCallback = Callable[[ToolCall, bool, str], None]
 
 
+def ensure_tool_pairing(messages: list[Message]) -> list[Message]:
+    """补齐消息配对：assistant 的每个 tool_call 必须有对应 tool 结果。
+
+    恢复崩溃或截断遗留的会话时，缺失结果的调用补一条未执行说明，
+    保证后续请求不会出现无响应的 tool_call。
+    """
+    answered = {m.tool_call_id for m in messages if m.role == "tool"}
+    repaired: list[Message] = []
+    for message in messages:
+        repaired.append(message)
+        if message.role != "assistant" or not message.tool_calls:
+            continue
+        for call in message.tool_calls:
+            if call.id and call.id not in answered:
+                repaired.append(Message(
+                    "tool",
+                    "ERROR not_executed: session restored without a recorded result; "
+                    "verify side effects before assuming state",
+                    name=call.name, tool_call_id=call.id,
+                ))
+    return repaired
+
+
 @dataclass
 class AgentResult:
     text: str
@@ -135,6 +158,7 @@ class _ModelTurn:
 
     text: str = ""
     calls: list[ToolCall] = field(default_factory=list)
+    incomplete: list[ToolCall] = field(default_factory=list)
     error: str | None = None
     finish_reason: str | None = None
     reasoning_content: str | None = None
@@ -147,6 +171,7 @@ class _StreamCapture:
 
     text_parts: list[str] = field(default_factory=list)
     calls: list[ToolCall] = field(default_factory=list)
+    incomplete: list[ToolCall] = field(default_factory=list)
     error: str | None = None
     error_retryable: bool = False
     finish_reason: str | None = None
@@ -204,7 +229,7 @@ class Agent:
         self.project_instructions = project_instructions
         self.project_background = list(project_background or [])
         self.user_background = list(user_background or [])
-        self.history = skill_history_view(list(history or []))
+        self.history = self._adopt_history(history)
         self.pricing = pricing or Pricing()
         self.llm_timeout = llm_timeout
         self.llm_retries = llm_retries
@@ -382,6 +407,10 @@ class Agent:
         self._loaded_snapshot = snapshot
         return snapshot
 
+    def _adopt_history(self, history: list[Message] | None) -> list[Message]:
+        """恢复历史时补齐工具调用配对：每个 tool_call 都要有结果或未执行说明。"""
+        return ensure_tool_pairing(skill_history_view(list(history or [])))
+
     def steer(self, text: str) -> bool:
         """把运行中用户的纠偏排入当前 run；没有运行中的任务时返回 False。"""
         instruction = text.strip()
@@ -485,7 +514,7 @@ class Agent:
             return await self._loop(run)
         finally:
             self._active_steering = None
-            self.history = run.raw_history
+            self.history = ensure_tool_pairing(run.raw_history)
 
     async def _loop(self, run: _RunContext) -> AgentResult:
         """单 Agent 主循环：准备请求 → 模型回复 → 判断 → 执行工具。"""
@@ -745,6 +774,7 @@ class Agent:
         return _ModelTurn(
             text="".join(capture.text_parts),
             calls=capture.calls,
+            incomplete=capture.incomplete,
             error=capture.error,
             finish_reason=capture.finish_reason,
             reasoning_content=capture.reasoning_content,
@@ -780,6 +810,7 @@ class Agent:
                         capture.reasoning_content = (capture.reasoning_content or "") + event.text
                     elif isinstance(event, ToolCallsReady):
                         capture.calls = event.calls
+                        capture.incomplete = list(getattr(event, "incomplete", None) or [])
                     elif isinstance(event, StreamError):
                         capture.error = event.message
                         capture.error_retryable = bool(getattr(event, "retryable", False))
@@ -852,14 +883,16 @@ class Agent:
                 calls = text_calls
                 text = strip_text_tool_calls(text)
 
-        for index, call in enumerate(calls):
+        for index, call in enumerate(calls + turn.incomplete):
             if not call.id:
                 call.id = f"step{step}_call{index}"
         assistant_message = Message(
-            "assistant", text, calls, reasoning_content=turn.reasoning_content,
+            "assistant", text, calls + turn.incomplete, reasoning_content=turn.reasoning_content,
         )
-        if text or calls or not turn.stream_cancelled:
+        if text or calls or turn.incomplete or not turn.stream_cancelled:
             self._record_message(run, assistant_message)
+        if turn.incomplete:
+            self._skip_tools(run, turn.incomplete, "incomplete_stream")
 
         if turn.stream_cancelled:
             return self._cancel_pending(run, step, calls)
@@ -870,8 +903,9 @@ class Agent:
         if cost_exhausted:
             return await self._pause_budget(run, step, text, calls, reason="cost_budget")
 
-        if turn.finish_reason == "length":
+        if turn.finish_reason in ("length", "truncated"):
             if calls:
+                self._skip_tools(run, calls, turn.finish_reason)
                 return self._finish(
                     run, "error: truncated tool call; not executed", step, "truncated",
                 )
@@ -889,7 +923,7 @@ class Agent:
                 if run.on_message:
                     run.on_message(continuation)
                 return _StepDecision()
-            return self._finish(run, text or "truncated: max tokens", step, "truncated")
+            return self._finish(run, text or "truncated: incomplete response", step, "truncated")
 
         if not calls:
             if not text.strip():
@@ -918,6 +952,7 @@ class Agent:
             return self._finish(run, text, step, "done")
 
         if not self.tools_enabled:
+            self._skip_tools(run, calls, "chat_only_mode")
             return self._finish(
                 run, "error: model requested tools, but chat-only mode is on", step, "error",
             )

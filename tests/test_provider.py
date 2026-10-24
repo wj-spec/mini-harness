@@ -8,6 +8,30 @@ from app.events import TextDelta, ToolCallsReady
 from app.providers.openai_compat import OpenAICompatProvider, _to_openai
 
 
+def sse(chunks, done=True):
+    body = "".join("data: " + json.dumps(c) + "\n\n" for c in chunks)
+    return body + ("data: [DONE]\n\n" if done else "")
+
+
+def _collect(provider, messages=None):
+    async def go():
+        events = []
+        async for event in provider.stream(messages or [Message("user", "hi")], []):
+            events.append(event)
+        return events
+    return asyncio.run(go())
+
+
+def _tool_call_chunk(index, call_id, name, arguments):
+    return {"choices": [{"delta": {"tool_calls": [
+        {"index": index, "id": call_id, "function": {"name": name, "arguments": arguments}},
+    ]}}]}
+
+
+def _handler(body):
+    return lambda request: httpx.Response(200, content=body)
+
+
 def test_to_openai_keeps_tool_call_id():
     message = Message("tool", "ok", name="read_file", tool_call_id="c1")
     data = _to_openai(message)
@@ -89,3 +113,48 @@ def test_stream_captures_usage():
     from app.events import StreamDone
     done = [e for e in events if isinstance(e, StreamDone)][0]
     assert done.usage == {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+
+
+def test_incomplete_tool_calls_are_not_executable():
+    body = sse([
+        _tool_call_chunk(0, "c1", "read_file", '{"path": "a.txt"}'),
+        _tool_call_chunk(1, "c2", "write_file", '{"path": "b.txt", "cont'),
+        {"choices": [{"delta": {}, "finish_reason": "tool_calls"}]},
+    ])
+    provider = OpenAICompatProvider("m", "k", "http://example/v1", transport=httpx.MockTransport(_handler(body)))
+    events = _collect(provider)
+    ready = [e for e in events if isinstance(e, ToolCallsReady)][0]
+    assert [c.id for c in ready.calls] == ["c1"]
+    assert [c.id for c in ready.incomplete] == ["c2"]
+    assert ready.incomplete[0].name == "write_file"
+
+
+def test_stream_without_done_or_finish_reason_is_truncated():
+    body = sse([
+        {"choices": [{"delta": {"content": "partial"}}]},
+        _tool_call_chunk(0, "c1", "read_file", '{"path": "a.txt"}'),
+    ], done=False)
+    provider = OpenAICompatProvider("m", "k", "http://example/v1", transport=httpx.MockTransport(_handler(body)))
+    events = _collect(provider)
+    ready = [e for e in events if isinstance(e, ToolCallsReady)][0]
+    assert ready.calls == []
+    assert [c.id for c in ready.incomplete] == ["c1"]
+    done = [e for e in events if hasattr(e, "finish_reason") and not isinstance(e, ToolCallsReady)][-1]
+    assert done.finish_reason == "truncated"
+
+
+def test_empty_arguments_only_completes_with_tool_calls_finish():
+    body = sse([
+        _tool_call_chunk(0, "c1", "list_files", ""),
+        {"choices": [{"delta": {}, "finish_reason": "tool_calls"}]},
+    ])
+    provider = OpenAICompatProvider("m", "k", "http://example/v1", transport=httpx.MockTransport(_handler(body)))
+    ready = [e for e in _collect(provider) if isinstance(e, ToolCallsReady)][0]
+    assert [c.args for c in ready.calls] == [{}]
+    assert ready.incomplete == []
+
+    body2 = sse([_tool_call_chunk(0, "c1", "list_files", "")], done=False)
+    provider2 = OpenAICompatProvider("m", "k", "http://example/v1", transport=httpx.MockTransport(_handler(body2)))
+    ready2 = [e for e in _collect(provider2) if isinstance(e, ToolCallsReady)][0]
+    assert ready2.calls == []
+    assert [c.id for c in ready2.incomplete] == ["c1"]

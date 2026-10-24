@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from core.models import ToolCall
 
@@ -18,6 +18,7 @@ class ReasoningDelta:
 @dataclass
 class ToolCallsReady:
     calls: list[ToolCall]
+    incomplete: list[ToolCall] = field(default_factory=list)
 
 
 @dataclass

@@ -776,3 +776,110 @@ def test_vibe_coding_prompt_rules(tmp_path):
     assert "quote what it showed" in agent.system
     assert "Fix the root cause" in agent.system
     assert "symlinks, relative paths and malformed values" in agent.system
+
+
+def test_truncated_run_pairs_tool_calls_in_history(tmp_path):
+    class TruncatedProvider:
+        seen = []
+
+        async def stream(self, messages, tools):
+            self.seen.append(list(messages))
+            yield ToolCallsReady([ToolCall("probe", {}, id="c1")])
+            yield StreamDone(finish_reason="length")
+
+    registry = ToolRegistry(tmp_path)
+    registry.register(ToolSpec("probe", "probe tool", {"type": "object", "properties": {}}, lambda: "x"))
+    agent = Agent(TruncatedProvider(), registry)
+    result = run(agent.run("q"))
+    assert result.status == "truncated"
+    tools = [m for m in agent.history if m.role == "tool" and m.tool_call_id == "c1"]
+    assert tools and "not_executed" in tools[0].content
+    assistant = [m for m in agent.history if m.role == "assistant" and m.tool_calls]
+    assert assistant and assistant[-1].tool_calls[0].id == "c1"
+
+
+def test_stream_truncated_finish_never_executes_calls(tmp_path):
+    called = []
+
+    class CutProvider:
+        async def stream(self, messages, tools):
+            yield ToolCallsReady([ToolCall("probe", {"_raw": "cut"}, id="c1")])
+            yield StreamDone(finish_reason="truncated")
+
+    registry = ToolRegistry(tmp_path)
+    registry.register(ToolSpec("probe", "probe tool", {"type": "object", "properties": {}}, lambda: called.append(1) or "x"))
+    agent = Agent(CutProvider(), registry)
+    result = run(agent.run("q"))
+    assert result.status == "truncated"
+    assert called == []
+    assert any(m.role == "tool" and m.tool_call_id == "c1" for m in agent.history)
+
+
+def test_incomplete_stream_call_is_recorded_but_not_executed(tmp_path):
+    called = []
+
+    class SplitProvider:
+        async def stream(self, messages, tools):
+            yield TextDelta("说明")
+            yield ToolCallsReady([], incomplete=[ToolCall("probe", {"_raw": "{cut"}, id="c1")])
+            yield StreamDone(finish_reason="tool_calls")
+
+    registry = ToolRegistry(tmp_path)
+    registry.register(ToolSpec("probe", "probe tool", {"type": "object", "properties": {}}, lambda: called.append(1) or "x"))
+    agent = Agent(SplitProvider(), registry)
+    result = run(agent.run("q"))
+    assert called == []
+    tool = [m for m in agent.history if m.role == "tool" and m.tool_call_id == "c1"]
+    assert tool and "incomplete_stream" in tool[0].content
+    assistant = [m for m in agent.history if m.role == "assistant" and m.tool_calls]
+    assert assistant and assistant[-1].tool_calls[0].id == "c1"
+    assert result.status == "done"
+
+
+def test_second_run_request_is_pair_complete_after_truncation(tmp_path):
+    class TruncatedProvider:
+        seen = []
+
+        async def stream(self, messages, tools):
+            self.seen.append(list(messages))
+            if len(self.seen) == 1:
+                yield ToolCallsReady([ToolCall("probe", {}, id="c1")])
+                yield StreamDone(finish_reason="length")
+            else:
+                yield StreamDone(usage={})
+                yield TextDelta("ok")
+
+    class AfterProvider(TruncatedProvider):
+        pass
+
+    registry = ToolRegistry(tmp_path)
+    registry.register(ToolSpec("probe", "probe tool", {"type": "object", "properties": {}}, lambda: "x"))
+    provider = AfterProvider()
+    agent = Agent(provider, registry)
+    run(agent.run("q"))
+    result = run(agent.run("next"))
+    assert result.status == "done"
+    for messages in provider.seen:
+        answered = {m.tool_call_id for m in messages if m.role == "tool"}
+        for message in messages:
+            if message.role == "assistant" and message.tool_calls:
+                for call in message.tool_calls:
+                    assert call.id in answered, f"unpaired {call.id}"
+
+
+def test_resume_repairs_unpaired_tool_calls(tmp_path):
+    history = [
+        Message("user", "q"),
+        Message("assistant", "先探测", [ToolCall("probe", {}, id="c9")]),
+    ]
+
+    class OkProvider:
+        async def stream(self, messages, tools):
+            yield StreamDone(usage={})
+            yield TextDelta("ok")
+
+    agent = Agent(OkProvider(), ToolRegistry(tmp_path), history=history)
+    repaired = [m for m in agent.history if m.role == "tool" and m.tool_call_id == "c9"]
+    assert repaired and "not_executed" in repaired[0].content
+    result = run(agent.run("next"))
+    assert result.status == "done"

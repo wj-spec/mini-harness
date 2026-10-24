@@ -104,6 +104,7 @@ class OpenAICompatProvider:
         self._debug({"type": "request", "model": self.model, "tools": len(tools), "messages": len(messages)})
         calls: dict[int, dict] = {}
         finish_reason: str | None = None
+        done_seen = False
         usage: dict | None = None
         reasoning_parts: list[str] = []
         reasoning_seen = False
@@ -130,6 +131,7 @@ class OpenAICompatProvider:
                             continue
                         data = line[5:].strip()
                         if data == "[DONE]":
+                            done_seen = True
                             break
                         try:
                             chunk = json.loads(data)
@@ -168,26 +170,37 @@ class OpenAICompatProvider:
             yield StreamError(f"{type(exc).__name__}: {exc}", retryable=True)
             return
 
-        if calls:
-            parsed: list[ToolCall] = []
-            for index in sorted(calls):
-                slot = calls[index]
+        # 流终止判定：[DONE] 或明确的 finish_reason 才算完整收尾。
+        stream_complete = done_seen or finish_reason is not None
+        complete: list[ToolCall] = []
+        incomplete: list[ToolCall] = []
+        for index in sorted(calls):
+            slot = calls[index]
+            raw = slot["arguments"]
+            name = slot["name"].strip()
+            args: dict | None = None
+            if raw:
                 try:
-                    args = json.loads(slot["arguments"] or "{}")
+                    parsed_args = json.loads(raw)
                 except json.JSONDecodeError:
-                    args = {"_raw": slot["arguments"]}
-                parsed.append(
-                    ToolCall(
-                        name=slot["name"],
-                        args=args,
-                        id=slot["id"] or f"call_{self._call_seq}_{index}",
-                    )
-                )
-            yield ToolCallsReady(parsed)
+                    parsed_args = None
+                if isinstance(parsed_args, dict):
+                    args = parsed_args
+            elif finish_reason == "tool_calls":
+                args = {}
+            call_id = slot["id"] or f"call_{self._call_seq}_{index}"
+            # 不完整接收的工具调用绝不进入可执行列表。
+            if name and args is not None and stream_complete:
+                complete.append(ToolCall(name=name, args=args, id=call_id))
+            else:
+                incomplete.append(ToolCall(name=name or "unknown", args={"_raw": raw}, id=call_id))
+        if complete or incomplete:
+            yield ToolCallsReady(complete, incomplete=incomplete)
 
-        self._debug({"type": "calls", "count": len(calls), "finish_reason": finish_reason})
+        self._debug({"type": "calls", "count": len(complete), "incomplete": len(incomplete),
+                     "finish_reason": finish_reason, "stream_complete": stream_complete})
         self._call_seq += 1
         yield StreamDone(
-            finish_reason=finish_reason, usage=usage,
+            finish_reason=finish_reason if stream_complete else "truncated", usage=usage,
             reasoning_content="".join(reasoning_parts) if reasoning_seen else None,
         )
