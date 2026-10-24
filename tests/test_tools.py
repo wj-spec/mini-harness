@@ -67,6 +67,95 @@ def test_grep_path_escape(tmp_path):
     assert "outside workspace" in output
 
 
+def test_grep_option_style_pattern_is_treated_as_pattern(tmp_path):
+    (tmp_path / "a.txt").write_text("--files\n-n\n")
+    ok, output = ToolRegistry(tmp_path).execute(ToolCall("grep", {"pattern": "--files"}))
+    assert ok is True
+    assert "a.txt:1:--files" in output
+
+
+def test_grep_option_style_pattern_is_treated_as_pattern_without_rg(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.tools.shutil.which", lambda _: None)
+    (tmp_path / "a.txt").write_text("--files\n-n\n")
+    ok, output = ToolRegistry(tmp_path).execute(ToolCall("grep", {"pattern": "-n"}))
+    assert ok is True
+    assert "a.txt:2:-n" in output
+
+
+def test_grep_path_starting_with_dash_is_searched(tmp_path):
+    (tmp_path / "-evil").mkdir()
+    (tmp_path / "-evil" / "a.txt").write_text("needle\n")
+    ok, output = ToolRegistry(tmp_path).execute(ToolCall("grep", {"pattern": "needle", "path": "-evil"}))
+    assert ok is True
+    assert "-evil/a.txt" in output
+
+
+def test_grep_skips_out_of_workspace_symlink(tmp_path):
+    outside = tmp_path.parent / "outside-secret.txt"
+    outside.write_text("root:x:0:0\n")
+    (tmp_path / "link.txt").symlink_to(outside)
+    for rg_available in (True, False):
+        if not rg_available:
+            import app.tools as tools_module
+            original = tools_module.shutil.which
+            tools_module.shutil.which = lambda _: None
+        try:
+            ok, output = ToolRegistry(tmp_path).execute(ToolCall("grep", {"pattern": "root:x"}))
+        finally:
+            if not rg_available:
+                tools_module.shutil.which = original
+        assert ok is True
+        assert "root:x" not in output, f"rg_available={rg_available} leaked symlink content"
+
+
+def test_grep_invalid_regex_is_error_not_no_match(tmp_path):
+    (tmp_path / "a.txt").write_text("x\n")
+    for rg_available in (True, False):
+        import app.tools as tools_module
+        original = tools_module.shutil.which
+        if not rg_available:
+            tools_module.shutil.which = lambda _: None
+        try:
+            ok, output = ToolRegistry(tmp_path).execute(ToolCall("grep", {"pattern": "["}))
+        finally:
+            tools_module.shutil.which = original
+        assert ok is False, f"rg_available={rg_available}"
+        assert output != "(no matches)"
+        assert "invalid regex" in output
+
+
+def test_atomic_write_ignores_preplanted_temp_symlink(tmp_path):
+    outside = tmp_path.parent / "outside-keep.txt"
+    outside.write_text("keep\n")
+    (tmp_path / "f.txt.tmp").symlink_to(outside)
+    registry = ToolRegistry(tmp_path)
+    ok, output = registry.execute(ToolCall("write_file", {"path": "f.txt", "content": "new\n"}))
+    assert ok is True
+    assert (tmp_path / "f.txt").read_text() == "new\n"
+    assert outside.read_text() == "keep\n"
+    assert (tmp_path / "f.txt.tmp").is_symlink()
+
+
+def test_atomic_write_leaves_no_temp_files(tmp_path):
+    registry = ToolRegistry(tmp_path)
+    ok, _ = registry.execute(ToolCall("write_file", {"path": "f.txt", "content": "one\n"}))
+    assert ok is True
+    ok, _ = registry.execute(ToolCall("write_file", {"path": "f.txt", "content": "two\n"}))
+    assert ok is True
+    assert sorted(p.name for p in tmp_path.iterdir()) == [".vibe", "f.txt"]
+    assert not [p for p in tmp_path.iterdir() if p.name.endswith(".tmp")]
+
+
+def test_write_via_out_of_workspace_symlink_is_rejected(tmp_path):
+    outside = tmp_path.parent / "outside-target.txt"
+    outside.write_text("keep\n")
+    (tmp_path / "link.txt").symlink_to(outside)
+    ok, output = ToolRegistry(tmp_path).execute(ToolCall("write_file", {"path": "link.txt", "content": "evil\n"}))
+    assert ok is False
+    assert "outside workspace" in output
+    assert outside.read_text() == "keep\n"
+
+
 def test_recall_tool(tmp_path):
     builder = ContextBuilder(
         max_tokens=40, reserve_output=5, keep_recent_groups=1,

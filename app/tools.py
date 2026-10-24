@@ -5,6 +5,7 @@ import hashlib
 import inspect
 import json
 import os
+import tempfile
 import re
 import shutil
 import subprocess
@@ -413,9 +414,16 @@ class ToolRegistry:
 
     def _atomic_write(self, target: Path, content: str) -> None:
         target.parent.mkdir(parents=True, exist_ok=True)
-        tmp = target.with_name(target.name + ".tmp")
-        tmp.write_text(content, encoding="utf-8")
-        os.replace(tmp, target)
+        fd, name = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.", suffix=".tmp")
+        tmp = Path(name)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(content)
+            os.chmod(tmp, (target.stat().st_mode & 0o777) if target.exists() else 0o644)
+            os.replace(tmp, target)
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
 
     def recall(self, ref: str) -> str:
         if self.context is None:
@@ -566,13 +574,18 @@ class ToolRegistry:
         if not target.exists():
             raise FileNotFoundError(path)
 
+        try:
+            regex = re.compile(pattern)
+        except re.error as exc:
+            raise ValueError(f"invalid regex: {exc}") from exc
+
         rg = shutil.which("rg")
         if rg:
             rel = target.relative_to(self.root)
             search_path = "." if str(rel) == "." else str(rel)
             try:
                 proc = subprocess.run(
-                    [rg, "-n", "--no-heading", "--color", "never", pattern, search_path],
+                    [rg, "-n", "--no-heading", "--color", "never", "-e", pattern, "--", search_path],
                     cwd=self.root,
                     capture_output=True,
                     text=True,
@@ -580,17 +593,19 @@ class ToolRegistry:
                 )
             except subprocess.TimeoutExpired:
                 return "ERROR timeout: grep exceeded 10s"
+            if proc.returncode not in (0, 1):
+                detail = proc.stderr.strip() or f"exit {proc.returncode}"
+                raise ValueError(f"invalid regex: {detail}")
             lines = proc.stdout.splitlines()[: int(max_results)]
             return "\n".join(line[:300] for line in lines) if lines else "(no matches)"
-
-        try:
-            regex = re.compile(pattern)
-        except re.error as exc:
-            raise ValueError(f"invalid regex: {exc}") from exc
 
         matches: list[str] = []
         for item in sorted(target.rglob("*")):
             if not item.is_file():
+                continue
+            try:
+                item.resolve().relative_to(self.root)
+            except (ValueError, OSError):
                 continue
             rel = item.relative_to(self.root)
             if any(part in IGNORE_DIRS for part in rel.parts):
