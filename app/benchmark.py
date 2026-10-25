@@ -467,7 +467,8 @@ def main(argv: list[str] | None = None) -> int:
                                   "instances": [{k: t[k] for k in ("instance_id", "repo", "base_commit")} for t in tasks]}, ensure_ascii=False, indent=2))
                 return 0
             if args.action == "validate":
-                return asyncio.run(validate_grader(tasks[:1], config, args.root.resolve(), args.docker_host))
+                # 默认只验第一题；--limit 3 可对固定前三题做参考补丁自检。
+                return asyncio.run(validate_grader(tasks, config, args.root.resolve(), args.docker_host))
             report = asyncio.run(run_swebench(tasks, config, args.root, fake=args.fake, docker_host=args.docker_host))
             if not args.skip_grade:
                 report = asyncio.run(grade_run(Path(report["run_dir"]), args.docker_host))
@@ -506,8 +507,14 @@ async def validate_grader(tasks: list[dict], config: Config, root: Path, docker_
                   "results": [{"instance_id": t["instance_id"], "status": "ungraded"} for t in tasks]}
         _save_report(report)
         report = await grade_run(case_root, docker_host)
-        outcomes[kind] = {"resolved": report["resolved"], "total": report["total"], "run_dir": str(case_root),
-                          "runtime_errors": _execution_summary(report)["runtime_errors"]}
+        outcomes[kind] = {
+            "resolved": report["resolved"], "total": report["total"], "run_dir": str(case_root),
+            "runtime_errors": _execution_summary(report)["runtime_errors"],
+            # 逐题记录，参考补丁失败时可归因到具体环境或题目。
+            "results": {row["instance_id"]: row.get("status") for row in report.get("results", [])},
+            "error_ids": [row["instance_id"] for row in report.get("results", [])
+                          if row.get("status") in ("environment_error", "grading_error")],
+        }
     passed = outcomes["empty"]["resolved"] == 0 and outcomes["reference"]["resolved"] == len(tasks)
     _write_json(validation / "validation.json", {"validation_only": True, "passed": passed, "outcomes": outcomes})
     print(json.dumps({"validation_only": True, "passed": passed, "outcomes": outcomes}, ensure_ascii=False, indent=2))

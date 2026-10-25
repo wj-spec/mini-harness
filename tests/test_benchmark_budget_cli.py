@@ -127,3 +127,58 @@ def test_validate_grader_keeps_runtime_failure_distinct_from_failed_reference(tm
     monkeypatch.setattr(benchmark, "grade_run", grade)
     task = {"instance_id": "example__repo-1", "patch": "reference fixture"}
     assert asyncio.run(benchmark.validate_grader([task], Config(), tmp_path, "")) == 2
+
+
+def test_validate_grader_records_each_task_in_the_limit(tmp_path, monkeypatch):
+    from app.config import Config
+    import asyncio
+
+    tasks = [
+        {"instance_id": f"example__repo-{i}", "patch": f"reference-{i}"}
+        for i in range(3)
+    ]
+    calls = []
+
+    async def grade(root, docker_host):
+        validation = root.parent
+        kind = root.name
+        calls.append(kind)
+        resolved = 0 if kind == "empty" else 3
+        return {"run_dir": str(root), "total": 3, "resolved": resolved,
+                "results": [{"instance_id": t["instance_id"], "status": "resolved" if resolved else "unresolved"}
+                            for t in tasks]}
+
+    monkeypatch.setattr(benchmark, "grade_run", grade)
+    assert asyncio.run(benchmark.validate_grader(tasks, Config(), tmp_path, "")) == 0
+    assert calls == ["empty", "reference"]
+    validation = json.loads(next(tmp_path.glob("grader-validation/*/validation.json")).read_text())
+    assert validation["passed"] is True
+    assert validation["outcomes"]["reference"]["results"] == {
+        t["instance_id"]: "resolved" for t in tasks
+    }
+    assert validation["outcomes"]["empty"]["results"] == {
+        t["instance_id"]: "unresolved" for t in tasks
+    }
+
+
+def test_validate_limit_selects_multiple_tasks_from_the_manifest(monkeypatch, capsys):
+    import asyncio
+
+    prepared = []
+    received = {}
+
+    async def prepare(root, manifest):
+        prepared.append((root, manifest))
+        return [{"instance_id": f"example__repo-{i}", "patch": "x", "repo": "r", "base_commit": "c"}
+                for i in range(5)]
+
+    async def validate(tasks, config, root, docker_host):
+        received["tasks"] = [t["instance_id"] for t in tasks]
+        return 0
+
+    monkeypatch.setattr(benchmark, "_prepare", prepare)
+    monkeypatch.setattr(benchmark, "validate_grader", validate)
+    assert benchmark.main(["validate", "--limit", "3"]) == 0
+    assert received["tasks"] == ["example__repo-0", "example__repo-1", "example__repo-2"]
+    assert prepared
+

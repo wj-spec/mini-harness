@@ -109,7 +109,7 @@ Docker daemon 需要运行。若使用 Colima，可按自己的实例指定 sock
 ./run_eval.sh validate --limit 1
 ```
 
-fake 只执行查看工作目录、Git 状态等固定动作，不尝试修复。`--skip-grade` 保留 `ungraded`，退出码为 1，不能据此认定评分失败或修复成功。`validate` 仅选第一题，检查空补丁应为 `0/1`、官方参考补丁应为 `1/1`；参考补丁只经过评分器，不会交给 Agent。
+fake 只执行查看工作目录、Git 状态等固定动作，不尝试修复。`--skip-grade` 保留 `ungraded`，退出码为 1，不能据此认定评分失败或修复成功。`validate` 默认只选第一题，检查空补丁应为 `0/1`、官方参考补丁应为 `1/1`；显式 `--limit 3` 可对固定前三题做参考补丁自检（空补丁应 `0/3`、参考补丁应 `3/3`），逐题状态与 `error_ids` 写入 `validation.json` 便于归因。参考补丁只经过评分器，不会交给 Agent。
 
 使用本机 `VIBE_API_KEY`、`VIBE_MODEL`、`VIBE_BASE_URL` 配置运行真实评测：
 
