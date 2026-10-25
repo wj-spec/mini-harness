@@ -5,6 +5,7 @@ import {SIDEBAR_TITLE} from './host.js';
 import {SidebarApp} from './app.js';
 import {parseSidebarArgs, SIDEBAR_HELP, type SidebarOptions} from './args.js';
 import {removeSidebarLink, watchParentPid, writeSidebarLink} from './lifecycle.js';
+import {removeSidebarSignal} from './signal.js';
 
 function setTitle(title: string): void {
   if (process.stdout.isTTY) process.stdout.write(`\u001b]2;${title}\u0007`);
@@ -59,6 +60,7 @@ async function main() {
     process.off('SIGHUP', onSignal);
     setTitle('');
     if (options.parentPid !== null) removeSidebarLink(options.workspace, process.pid);
+    removeSidebarSignal(options.workspace);
   }
 }
 

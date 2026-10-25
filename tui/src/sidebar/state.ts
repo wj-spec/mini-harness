@@ -99,3 +99,11 @@ export function clampDiffScroll(state: SidebarState, maximum: number): SidebarSt
   if (state.diffScroll <= limit) return state;
   return {...state, diffScroll: limit};
 }
+
+/** 收到 Agent 活动信号时，跟随模式优先选中 Agent 刚改过的文件。 */
+export function focusAgentFile(state: SidebarState, candidates: readonly string[]): SidebarState {
+  if (!state.follow || !candidates.length) return state;
+  const target = candidates.find(path => state.files.some(file => file.path === path));
+  if (!target || target === state.selected) return state;
+  return {...state, selected: target, diffScroll: 0};
+}

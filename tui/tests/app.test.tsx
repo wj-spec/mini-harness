@@ -1068,3 +1068,20 @@ test('/sidebar defaults to split mode while /sidebar quick requests the screen-a
   assert.deepEqual(modes, ['split', 'quick', 'window']);
   assert.deepEqual(totals, [140, 140, 140]);
 });
+
+test('the TUI publishes agent-touched files so the sidebar can refresh and mark them', async () => {
+  const published: {workspace: string; files: string[]}[] = [];
+  const client = new MockClient();
+  const patch = ['diff --git a/src/a.ts b/src/a.ts', '--- a/src/a.ts', '+++ b/src/a.ts', '@@ -1 +1 @@', '-old', '+new'].join('\n');
+  render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}
+    initialState={{...initialState, phase: 'idle', workspace: '/repo', model: 'fake', entries: [
+      {id: 0, kind: 'tool', text: 'edited', call: {id: 'c1', name: 'edit_file', args: {path: 'tui/src/app.tsx'}}, ok: true, output: 'edited', runId: 'run-1'},
+      {id: 1, kind: 'tool', text: 'patched', call: {id: 'c2', name: 'apply_patch', args: {patch}}, ok: true, output: 'applied', runId: 'run-1'},
+    ]}}
+    publishSidebarSignal={(workspace, signal) => {published.push({workspace, files: signal.files});}}/>);
+  await pause(40);
+  const latest = published.at(-1);
+  assert.equal(latest?.workspace, '/repo');
+  assert.ok(latest?.files.includes('tui/src/app.tsx'));
+  assert.ok(latest?.files.includes('src/a.ts'));
+});

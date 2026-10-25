@@ -18,6 +18,8 @@ import {selectedText, type Selection, type SelectionPoint} from './selection.js'
 import {loadProfile, projectProfilePath, saveProfile} from './project-profile.js';
 import {loadUserProfile, saveUserProfile, userProfileFile, type UserPreference} from './user-profile.js';
 import {adjustSidebarSplitForTui, closeSidebarWindowForTui, killSidebarForTui, launchSidebarForTui, runSidebarSetup} from './sidebar/launch.js';
+import {agentTouchedFiles} from './sidebar/agent-activity.js';
+import {writeSidebarSignal, type SidebarSignalInput} from './sidebar/signal.js';
 import type {LaunchResult, SidebarMode, TerminalHost} from './sidebar/host.js';
 import type {SetupResult} from './sidebar/launch.js';
 
@@ -28,11 +30,12 @@ const backendCommands: Record<string, BackendCommand> = {
 };
 const approvalKeys: Record<string, ApprovalDecision> = {y: 'once', s: 'session', p: 'workspace', n: 'deny'};
 
-export function App({client, initialState = emptyState, windowSize, initialTheme = 'system', copyText = copyToClipboard, profilePath, userProfilePath, launchSidebar = launchSidebarForTui, setupSidebar = runSidebarSetup}: {
+export function App({client, initialState = emptyState, windowSize, initialTheme = 'system', copyText = copyToClipboard, profilePath, userProfilePath, launchSidebar = launchSidebarForTui, setupSidebar = runSidebarSetup, publishSidebarSignal = writeSidebarSignal}: {
   client: BackendClient; initialState?: ViewState; windowSize?: {columns: number; rows: number}; initialTheme?: ThemeName;
   copyText?: (text: string) => string | null; profilePath?: string; userProfilePath?: string;
   launchSidebar?: (workspace: string, mode?: SidebarMode, totalColumns?: number) => LaunchResult;
   setupSidebar?: () => SetupResult;
+  publishSidebarSignal?: (workspace: string, input: SidebarSignalInput) => void;
 }) {
   const [state, dispatch] = useReducer(reduceView, initialState);
   const [input, setInput] = useState('');
@@ -185,6 +188,21 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
     }
   }), [client]);
   usePaste(() => {}, {isActive: readerFocused});
+  // 只读信号文件：侧栏据此即时刷新，并标记本轮 Agent 写/改过的文件。
+  const publishedSignal = useRef('');
+  useEffect(() => {
+    if (!state.workspace) return;
+    const last = state.entries.at(-1);
+    const signature = `${state.activeId ?? ''}:${state.entries.length}:${last?.id ?? 0}:${last?.pending ? 1 : 0}:${state.phase}:${state.lastStatus ?? ''}`;
+    if (signature === publishedSignal.current) return;
+    publishedSignal.current = signature;
+    try {
+      publishSidebarSignal(state.workspace, {
+        signature, files: agentTouchedFiles(state.entries),
+        active: state.phase === 'running' || state.phase === 'waiting_approval',
+      });
+    } catch {}
+  }, [state.workspace, state.entries, state.activeId, state.phase, state.lastStatus, publishSidebarSignal]);
 
   const notice = (text: string) => {dispatch({type: 'notice', text}); setScroll({follow: true, top: 0});};
   const announce = (text: string) => {notice(text); setFeedback(text); setFeedbackTone('info');};

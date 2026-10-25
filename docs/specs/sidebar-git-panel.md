@@ -91,10 +91,21 @@ split 不需要 quick terminal 配置，也不经过 `quick-terminal-position` �
 
 ## macOS Terminal 与独立窗口
 
-- **macOS Terminal**：`tell application "Terminal"` 读取 `bounds of window 1`（当前 TUI 窗口），用 `do script ":"` 先创建新窗口并设置 `bounds` 到 `{right, top, right + width*0.3, bottom}`（最小宽度 320，右侧、同高），再用 `do script "<启动命令>" in newWindow` 在窗口内启动侧栏并 `set index of tuiWindow to 1` 把焦点交回 TUI；返回 `started:<window id>`。Terminal 不支持 `make new window`（AppleScript -10000），已用后者替代；若新窗口被开成 TUI 的标签页则返回失败提示。
+- **macOS Terminal**：`do script ":"` 创建新窗口并尝试用 `bounds` 放到右侧、同高，再 `do script "<启动命令>" in newWindow` 启动侧栏。实测自动摆位仍不准确（窗口出现但未靠右），已按用户决定降优先级；当前只保证创建与退出关闭，位置可手动拖。Terminal 不支持 `make new window`（AppleScript -10000）。
 - **Ghostty 独立窗口**：`new window with configuration`，配置 `initial working directory` 与 `initial input`（启动命令 + return），返回 `started:<window id>`；Ghostty sdef 不暴露窗口 bounds，因此只能手动拖到右侧。
 - 工作台把 `{host, windowId}` 记在内存中；退出 TUI 时先 `SIGTERM` 侧栏进程，再按 host 关闭窗口（Terminal `close window id` / Ghostty `close window`）。侧栏内 `q` 正常退出时，Terminal 通常随 shell 结束关闭，Ghostty 窗口随 surface 结束关闭；异常崩溃时窗口可能残留，需要手动关闭。
 - 已有标题匹配的侧栏时返回 `focused` 并前置窗口，不重复创建。
+
+## Agent 活动联动（2026-10-25）
+
+主 TUI 在工具结果/回合状态变化时写一个轻量信号文件（`tmpdir()/mini-harness-sidebar/<sha1(workspace)>.signal.json`，与 lifecycle link 同目录）：
+
+- 内容：`version`（条目数/最后条目/阶段/结果的稳定签名）、`files`（本轮成功的 `write_file` / `edit_file` / `apply_patch` 目标路径）、`active`、`updatedAt`；
+- `apply_patch` 的路径从 diff 头（`diff --git` / `+++ b/`）提取；失败或不确定的调用不标记；
+- 侧栏每 200ms 读取信号：版本变化时立即刷新 Git 状态，标记 `●`，跟随模式自动选中最新 Agent 改动的文件；1s 轮询保留为兜底；
+- 侧栏退出时删除信号文件；TUI 继续运行会在下一次事件重新写入。无需 socket/改后端协议，Agent 与侧栏仍各自只读查询 Git。
+
+回归：`tui/tests/sidebar-signal.test.*`、`sidebar-agent-activity.test.*`、`sidebar-app.test.*`（信号刷新/标记/跟随）、`app.test.*`（TUI 发布 payload）；TUI 全量 300 项、299 通过（唯一失败为沙箱无 PTY 的既有项）。
 
 ## 只读边界与安全
 

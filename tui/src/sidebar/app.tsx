@@ -10,8 +10,9 @@ import {
 } from './git.js';
 import {diffStats, parseDiff, wrapDiffLines, type DiffKind} from './diff.js';
 import {
-  applyWorkspace, initialSidebarState, scrollDiff, selectDelta, selectedFile, toggleFocus, toggleFollow,
+  applyWorkspace, focusAgentFile, initialSidebarState, scrollDiff, selectDelta, selectedFile, toggleFocus, toggleFollow,
 } from './state.js';
+import {readSidebarSignal, type SidebarSignal} from './signal.js';
 
 export type SidebarProps = {
   workspace: string;
@@ -20,6 +21,8 @@ export type SidebarProps = {
   size?: {columns: number; rows: number};
   readStatus?: (workspace: string) => StatusResult;
   readDiff?: (workspace: string, file: ChangedFile, hasHead: boolean) => DiffResult;
+  readSignal?: (workspace: string) => SidebarSignal | null;
+  signalPollMs?: number;
   onQuit?: () => void;
 };
 
@@ -51,10 +54,10 @@ function padTo(text: string, width: number): string {
   return text + ' '.repeat(Math.max(0, width - stringWidth(text)));
 }
 
-function fileRow(file: ChangedFile, columns: number): string {
+function fileRow(file: ChangedFile, columns: number, agent = false): string {
   const letter = statusLetter(file);
   const counts = changeCounts(file);
-  const prefix = `${letter} `;
+  const prefix = `${agent ? '●' : ' '}${letter} `;
   const prefixWidth = stringWidth(prefix);
   const countsWidth = stringWidth(counts);
   const showCounts = countsWidth > 0 && prefixWidth + countsWidth + 8 <= columns;
@@ -64,7 +67,7 @@ function fileRow(file: ChangedFile, columns: number): string {
 }
 
 export function SidebarApp({
-  workspace, theme = 'system', refreshMs = 1000, size, readStatus, readDiff, onQuit,
+  workspace, theme = 'system', refreshMs = 1000, size, readStatus, readDiff, readSignal, signalPollMs = 200, onQuit,
 }: SidebarProps) {
   const terminal = useWindowSize();
   const columns = Math.max(12, size?.columns ?? terminal.columns ?? 80);
@@ -74,6 +77,10 @@ export function SidebarApp({
 
   const [state, setState] = useState(initialSidebarState);
   const [diff, setDiff] = useState<DiffState>({path: null, text: '', error: null});
+  const [agentFiles, setAgentFiles] = useState<ReadonlySet<string>>(() => new Set());
+  const signalVersion = useRef('');
+  const readSignalRef = useRef(readSignal ?? readSidebarSignal);
+  readSignalRef.current = readSignal ?? readSidebarSignal;
 
   const readStatusRef = useRef(readStatus ?? readWorkspaceStatus);
   readStatusRef.current = readStatus ?? readWorkspaceStatus;
@@ -92,6 +99,22 @@ export function SidebarApp({
     const timer = setInterval(refresh, refreshMs);
     return () => clearInterval(timer);
   }, [refresh, refreshMs]);
+
+  // 主 TUI 每次工具结果/回合状态变化都会写信号；侧栏收到新版本立即刷新并标记 Agent 改过的文件。
+  useEffect(() => {
+    if (!signalPollMs) return;
+    const tick = () => {
+      const signal = readSignalRef.current(workspace);
+      if (!signal || signal.version === signalVersion.current) return;
+      signalVersion.current = signal.version;
+      setAgentFiles(new Set(signal.files));
+      refresh();
+      setState(previous => focusAgentFile(previous, signal.files));
+    };
+    tick();
+    const timer = setInterval(tick, signalPollMs);
+    return () => clearInterval(timer);
+  }, [workspace, signalPollMs, refresh]);
 
   useEffect(() => {
     const file = state.files.find(item => item.path === state.selected) ?? null;
@@ -141,7 +164,7 @@ export function SidebarApp({
     }
   });
 
-  const header = `变更 · ${state.branch ?? '未连接 Git'} · ${state.files.length} 个文件 ${state.files.length ? `+${totals.additions} -${totals.deletions}${totals.unknown ? ' ?' : ''}` : ''} · ${state.follow ? '跟随' : '手动'}`;
+  const header = `变更 · ${state.branch ?? '未连接 Git'} · ${state.files.length} 个文件 ${state.files.length ? `+${totals.additions} -${totals.deletions}${totals.unknown ? ' ?' : ''}` : ''} · ${state.follow ? '跟随' : '手动'}${agentFiles.size ? ` · ● Agent ${agentFiles.size}` : ''}`;
   const footer = state.error
     ? state.error
     : `${current ? `${statusLabel(current)} · ${current.path}` : '未选择文件'} · ↑↓ 选择 · Tab ${state.focus === 'list' ? '滚动 diff' : '回到列表'} · f ${state.follow ? '暂停跟随' : '开启跟随'} · r 刷新 · q 退出`;
@@ -152,7 +175,7 @@ export function SidebarApp({
       {state.files.slice(listTop, listTop + listRows).map(file => {
         const selected = file.path === state.selected;
         return <Text key={file.path} color={selected ? palette.foreground : statusColor(file, palette)}
-          backgroundColor={selected ? palette.surfaces.selected : undefined} bold={selected}>{fileRow(file, inner)}</Text>;
+          backgroundColor={selected ? palette.surfaces.selected : undefined} bold={selected}>{fileRow(file, inner, agentFiles.has(file.path))}</Text>;
       })}
     </Box> : null}
     {listRows ? <Text color={palette.secondary}>{fitText(current ? `── ${current.path}${current.originalPath ? ` ← ${current.originalPath}` : ''}  +${stats.additions} -${stats.deletions}  ${wrapped.length ? `${scrolled + 1}-${Math.min(wrapped.length, scrolled + diffRows)}/${wrapped.length}` : ''}` : '── 未选择文件', inner)}</Text> : null}

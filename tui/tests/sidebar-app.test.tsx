@@ -84,3 +84,19 @@ test('diff read errors stay visible and q exits the sidebar', async () => {
   await pause(20);
   assert.equal(quits(), 1);
 });
+
+test('agent activity signal refreshes immediately, follows and marks agent files', async () => {
+  let statusCalls = 0;
+  let signalReads = 0;
+  const signal = {version: 'run-1:3', files: ['new.ts'], active: true, updatedAt: Date.now()};
+  const {lastFrame} = render(<SidebarApp workspace="/repo" theme="dark" refreshMs={0} signalPollMs={15} size={{columns: 60, rows: 18}}
+    readStatus={() => {statusCalls += 1; return status;}}
+    readDiff={() => diff}
+    readSignal={() => (signalReads++ === 0 ? null : signal)}
+    onQuit={() => {}}/>);
+  await pause(120);
+  const frame = lastFrame() ?? '';
+  assert.ok(statusCalls >= 2, `status refreshes: ${statusCalls}`);
+  assert.match(frame, /● Agent 1/u);
+  assert.match(frame, /新增 · new\.ts/u);
+});
