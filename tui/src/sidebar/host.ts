@@ -1,11 +1,13 @@
 import {spawnSync} from 'node:child_process';
+import {existsSync} from 'node:fs';
+import path from 'node:path';
 
 /** Ghostty 1.3+ 的 AppleScript 入口；后续 macOS Terminal 在此扩展。 */
 export const SIDEBAR_TITLE = 'mini-harness sidebar';
 export const SIDEBAR_COMMAND = 'osascript';
 
 export type TerminalHost = 'ghostty' | 'terminal' | 'unknown';
-export type LaunchOutcome = 'started' | 'toggled' | 'opened' | 'unsupported' | 'failed';
+export type LaunchOutcome = 'started' | 'toggled' | 'opened' | 'unsupported' | 'misconfigured' | 'failed';
 export type LaunchResult = {outcome: LaunchOutcome; message: string; command?: string};
 
 export type RunResult = {status: number | null; stdout: string; stderr: string; error?: string};
@@ -19,7 +21,11 @@ export type OpenSidebarOptions = {
   platform?: NodeJS.Platform;
   run?: Runner;
   timeoutMs?: number;
+  /** 测试注入；显式 null 表示跳过 quick terminal 配置预检。 */
+  ghosttyBinary?: string | null;
 };
+
+export type QuickTerminalCheck = {checked: boolean; ok: boolean; position: string | null; binary: string | null};
 
 export function detectHost(env: NodeJS.ProcessEnv = process.env): TerminalHost {
   const program = (env.TERM_PROGRAM ?? '').toLowerCase();
@@ -37,6 +43,37 @@ export function shellQuote(value: string): string {
 export function sidebarCommand(options: {workspace: string; cliPath: string; nodePath?: string}): string {
   const node = options.nodePath ?? 'node';
   return `cd ${shellQuote(options.workspace)} && exec ${shellQuote(node)} ${shellQuote(options.cliPath)} --workspace ${shellQuote(options.workspace)}`;
+}
+
+/** 找到 Ghostty 命令行二进制；找不到时跳过配置预检，保持旧行为。 */
+export function ghosttyBinary(env: NodeJS.ProcessEnv = process.env, exists: (target: string) => boolean = existsSync): string | null {
+  const candidates: string[] = [];
+  if (env.GHOSTTY_BIN_DIR) candidates.push(path.join(env.GHOSTTY_BIN_DIR, 'ghostty'));
+  if (env.GHOSTTY_RESOURCES_DIR) candidates.push(path.resolve(env.GHOSTTY_RESOURCES_DIR, '..', 'MacOS', 'ghostty'));
+  candidates.push('/Applications/Ghostty.app/Contents/MacOS/ghostty');
+  for (const candidate of candidates) if (exists(candidate)) return candidate;
+  return null;
+}
+
+/**
+ * 预检 quick terminal 的实际配置位置。
+ * `ghostty +show-config` 只读当前配置文件；默认 position 是 top，
+ * 若未显式设为 right，侧栏就会停到屏幕顶部而不是右侧。
+ */
+export function checkQuickTerminalPosition(options: {
+  env?: NodeJS.ProcessEnv;
+  run?: Runner;
+  binary?: string | null;
+  exists?: (target: string) => boolean;
+} = {}): QuickTerminalCheck {
+  const binary = options.binary !== undefined ? options.binary : ghosttyBinary(options.env, options.exists);
+  if (!binary) return {checked: false, ok: true, position: null, binary: null};
+  const run = options.run ?? defaultRunner;
+  const result = run(binary, ['+show-config'], {timeoutMs: 3000});
+  if (result.error || result.status !== 0) return {checked: false, ok: true, position: null, binary};
+  const match = /^\s*quick-terminal-position\s*=\s*(\S+)\s*$/mu.exec(result.stdout);
+  const position = match?.[1] ?? 'top';
+  return {checked: true, ok: position === 'right', position, binary};
 }
 
 function appleScriptString(value: string): string {
@@ -117,6 +154,15 @@ export function openSidebar(options: OpenSidebarOptions): LaunchResult {
     return unsupported(`当前终端不支持自动打开侧栏（需要 Ghostty ≥ 1.3）；请手动运行：${command}`, command);
   }
   const run = options.run ?? defaultRunner;
+  const quickTerminal = checkQuickTerminalPosition({env, run, binary: options.ghosttyBinary});
+  if (quickTerminal.checked && !quickTerminal.ok) {
+    const where = quickTerminal.position === 'top' ? '屏幕顶部' : `位置 ${quickTerminal.position ?? '未知'}`;
+    return {
+      outcome: 'misconfigured',
+      command,
+      message: `Ghostty quick terminal 当前在${where}（quick-terminal-position=${quickTerminal.position ?? '未配置，默认 top'}），侧栏不会出现在右侧。输入 /sidebar setup 写入右侧配置，然后完全退出并重启 Ghostty，再按 Ctrl+G。`,
+    };
+  }
   const result = run(SIDEBAR_COMMAND, ['-e', ghosttyScript(command)], {timeoutMs: options.timeoutMs ?? 10_000});
   if (result.error) return {outcome: 'failed', message: `打开侧栏失败：${result.error}`, command};
   if (result.status !== 0) {

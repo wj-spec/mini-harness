@@ -1026,3 +1026,15 @@ test('unsupported sidebar hosts keep the launch reason and manual command visibl
   assert.match(lastFrame() ?? '', /当前终端不支持自动打开侧栏/u);
   assert.match(lastFrame() ?? '', /请手动运行/u);
 });
+
+test('/sidebar setup writes the Ghostty sidebar configuration through the injected command', async () => {
+  let calls = 0;
+  const client = new MockClient();
+  const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}
+    initialState={{...initialState, phase: 'idle'}}
+    setupSidebar={() => {calls += 1; return {ok: true, message: '已写入 Ghostty 配置；请完全重启 Ghostty'};}}/>);
+  await pause(20);
+  await enter(stdin, '/sidebar setup');
+  assert.equal(calls, 1);
+  assert.match(lastFrame() ?? '', /已写入 Ghostty 配置/u);
+});

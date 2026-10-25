@@ -5,7 +5,7 @@ import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import test from 'node:test';
 import {
-  SIDEBAR_TITLE, detectHost, ghosttyScript, openSidebar, shellQuote, sidebarCommand,
+  SIDEBAR_TITLE, checkQuickTerminalPosition, detectHost, ghosttyBinary, ghosttyScript, openSidebar, shellQuote, sidebarCommand,
   type Runner,
 } from '../src/sidebar/host.js';
 import {sidebarCliPath} from '../src/sidebar/launch.js';
@@ -45,7 +45,7 @@ test('Ghostty AppleScript detects an existing sidebar, toggles it and starts a n
 
 test('openSidebar maps Ghostty AppleScript markers to user-facing outcomes', () => {
   const makeRun = (status: number, stdout: string, stderr = ''): Runner => () => ({status, stdout, stderr});
-  const base = {workspace: '/repo', cliPath: '/app/sidebar.js', env: {TERM_PROGRAM: 'ghostty'}, platform: 'darwin' as const};
+  const base = {workspace: '/repo', cliPath: '/app/sidebar.js', env: {TERM_PROGRAM: 'ghostty'}, platform: 'darwin' as const, ghosttyBinary: null};
   for (const [marker, outcome] of [['started', 'started'], ['toggled', 'toggled'], ['opened', 'opened']] as const) {
     const result = openSidebar({...base, run: makeRun(0, `${marker}\n`)});
     assert.equal(result.outcome, outcome);
@@ -55,6 +55,47 @@ test('openSidebar maps Ghostty AppleScript markers to user-facing outcomes', () 
   assert.match(failed.message, /quick terminal/u);
 });
 
+test('quick terminal position is read from Ghostty show-config with top as the default', () => {
+  assert.deepEqual(
+    checkQuickTerminalPosition({binary: '/fake/ghostty', run: () => ({status: 0, stdout: 'quick-terminal-position = right\n', stderr: ''})}),
+    {checked: true, ok: true, position: 'right', binary: '/fake/ghostty'},
+  );
+  assert.equal(checkQuickTerminalPosition({binary: '/fake/ghostty', run: () => ({status: 0, stdout: '', stderr: ''})}).position, 'top');
+  assert.equal(checkQuickTerminalPosition({binary: '/fake/ghostty', run: () => ({status: 1, stdout: '', stderr: 'boom'})}).checked, false);
+  assert.equal(checkQuickTerminalPosition({binary: null}).checked, false);
+  const discovered = ghosttyBinary({GHOSTTY_RESOURCES_DIR: '/App/Ghostty.app/Contents/Resources'}, candidate => candidate.endsWith('Ghostty.app/Contents/MacOS/ghostty'));
+  assert.equal(discovered, '/App/Ghostty.app/Contents/MacOS/ghostty');
+  assert.equal(ghosttyBinary({}, () => false), null);
+});
+
+test('openSidebar refuses a top-positioned quick terminal and points at /sidebar setup', () => {
+  const calls: string[][] = [];
+  const run: Runner = (command, args) => {
+    calls.push([command, ...args]);
+    if (args[0] === '+show-config') return {status: 0, stdout: 'quick-terminal-position = top\n', stderr: ''};
+    return {status: 0, stdout: 'started\n', stderr: ''};
+  };
+  const result = openSidebar({workspace: '/repo', cliPath: '/app/sidebar.js', env: {TERM_PROGRAM: 'ghostty'}, platform: 'darwin',
+    ghosttyBinary: '/fake/ghostty', run});
+  assert.equal(result.outcome, 'misconfigured');
+  assert.equal(calls.length, 1, 'must not open the quick terminal when it would appear at the top');
+  assert.match(result.message, /sidebar setup/u);
+});
+
+test('openSidebar proceeds once quick-terminal-position is right', () => {
+  const calls: string[][] = [];
+  const run: Runner = (command, args) => {
+    calls.push([command, ...args]);
+    if (args[0] === '+show-config') return {status: 0, stdout: 'quick-terminal-position = right\n', stderr: ''};
+    return {status: 0, stdout: 'started\n', stderr: ''};
+  };
+  const result = openSidebar({workspace: '/repo', cliPath: '/app/sidebar.js', env: {TERM_PROGRAM: 'ghostty'}, platform: 'darwin',
+    ghosttyBinary: '/fake/ghostty', run});
+  assert.equal(result.outcome, 'started');
+  assert.ok(calls.some(call => call.includes('+show-config')));
+  assert.ok(calls.some(call => call[0] === 'osascript'));
+});
+
 test('automatic sidebars explain unsupported hosts and macOS automation permissions', () => {
   const unsupportedTerminal = openSidebar({workspace: '/repo', cliPath: '/app/sidebar.js', env: {TERM_PROGRAM: 'Apple_Terminal'}, platform: 'darwin'});
   assert.equal(unsupportedTerminal.outcome, 'unsupported');
@@ -62,7 +103,7 @@ test('automatic sidebars explain unsupported hosts and macOS automation permissi
   assert.match(unsupportedTerminal.message, /请先手动运行/u);
   const otherPlatform = openSidebar({workspace: '/repo', cliPath: '/app/sidebar.js', env: {TERM_PROGRAM: 'ghostty'}, platform: 'linux'});
   assert.equal(otherPlatform.outcome, 'unsupported');
-  const denied = openSidebar({workspace: '/repo', cliPath: '/app/sidebar.js', env: {TERM_PROGRAM: 'ghostty'}, platform: 'darwin',
+  const denied = openSidebar({workspace: '/repo', cliPath: '/app/sidebar.js', env: {TERM_PROGRAM: 'ghostty'}, platform: 'darwin', ghosttyBinary: null,
     run: () => ({status: 1, stdout: '', stderr: 'execution error: Not authorized to send Apple events to Ghostty. (-1743)'})});
   assert.equal(denied.outcome, 'failed');
   assert.match(denied.message, /自动化权限/u);

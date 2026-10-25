@@ -70,6 +70,26 @@ tui/src/sidebar/cli.tsx（独立 TTY / quick terminal 内进程）
 
 这是界面侧只读查询，不是 Agent 工具：不扩大模型的写入/命令权限，`/diff` 与写工具继续走 `ApprovalGate`。若未来把侧栏数据改由后端提供，应保持同样的只读分类与固定参数约束。
 
+## 配置预检（2026-10-25 修正）
+
+用户实际使用发现：首次按 `/sidebar` 后，quick terminal 出现在**屏幕顶部**而不是右侧。原因是 Ghostty 默认 `quick-terminal-position = top`，而本机此前没有 Ghostty 配置文件；工作台当时假设用户已手工配置，直接打开了顶部 quick terminal。
+
+现在 `openSidebar` 在打开前会：
+
+1. 找到 Ghostty 命令行二进制（`GHOSTTY_BIN_DIR`、`GHOSTTY_RESOURCES_DIR`、`/Applications/Ghostty.app/...`）；
+2. 只读执行 `ghostty +show-config`，读取实际生效的 `quick-terminal-position`（未配置按默认 `top` 处理）；
+3. 位置不是 `right` 时返回 `misconfigured`，**不打开** quick terminal，并提示 `输入 /sidebar setup 写入右侧配置，然后完全退出并重启 Ghostty`；
+4. 找不到二进制或 `+show-config` 失败时跳过预检，保持旧行为（不误拦截）。
+
+配套 `scripts/setup-ghostty-sidebar.sh` 与工作台命令 `/sidebar setup`：
+
+- 写到 `${XDG_CONFIG_HOME:-~/.config}/ghostty/config`，只追加带注释的配置块；
+- 已有 `quick-terminal-position` 时不覆盖：`right` 直接通过，其他值提示手动修改；
+- 写入后用 `ghostty +validate-config --config-file=...` 校验（失败只警告，不自动回滚）；
+- `--dry-run` 支持预览；脚本有独立回归测试，不会碰真实用户配置。
+
+`quick-terminal-position` 只在 Ghostty 启动时读取，因此**必须完全退出并重启 Ghostty**；只改配置不重启仍会打开到旧位置。
+
 ## 错误与降级
 
 | 情况 | 行为 |
@@ -79,6 +99,7 @@ tui/src/sidebar/cli.tsx（独立 TTY / quick terminal 内进程）
 | 读取 diff 失败 | 选中区显示错误，列表与轮询继续 |
 | Ghostty < 1.3 / 非 Ghostty | 自动打开返回 `unsupported`，工作台提示手动命令；`./run_sidebar.sh` 仍可用 |
 | macOS Terminal | 明确提示“自动化尚未实现”，避免误导 |
+| quick terminal 位置不是 right | 返回 `misconfigured`，不打开；提示 `/sidebar setup` 并重启 Ghostty |
 | 自动化权限被拒 | 提示到系统设置授予后重试 |
 | quick terminal 已打开但标题不匹配 | 返回 `opened`，提示在 quick terminal 内手动运行启动命令 |
 | 侧栏进程退出 | quick terminal 关闭；再次 `/sidebar` 重新打开并注入启动命令 |
@@ -88,17 +109,19 @@ tui/src/sidebar/cli.tsx（独立 TTY / quick terminal 内进程）
 - `tui/tests/sidebar-git.test.ts`：porcelain v2（分支/ahead/behind、M/A/D/R/?/冲突、中文路径关闭 quotepath）、numstat、无 Git/非 Git、diff 截断、固定参数。
 - `tui/tests/sidebar-diff.test.ts`：unified diff 分类、宽字符换行、空行保留。
 - `tui/tests/sidebar-state.test.ts`：首次选择、跟随变化文件、手动选择保持、文件消失回退、滚动 clamp。
-- `tui/tests/sidebar-host.test.ts`：终端识别、shell 转义、AppleScript 生成、结果标记映射、权限/不支持降级，以及用 `osacompile` 对生成的 AppleScript 做**语法校验**（不执行、不控制 Ghostty）。
+- `tui/tests/sidebar-host.test.ts`：终端识别、shell 转义、AppleScript 生成、结果标记映射、quick terminal 位置预检（top 拒绝 / right 通过 / 读取失败放行）、权限/不支持降级，以及用 `osacompile` 对生成的 AppleScript 做**语法校验**（不执行、不控制 Ghostty）。
+- `tui/tests/sidebar-setup.test.ts`：用临时 `HOME`/`XDG_CONFIG_HOME` 验证配置脚本的 `--dry-run`、幂等写入、拒绝覆盖非 right 配置；不触碰真实用户配置。
 - `tui/tests/sidebar-app.test.tsx`：真实 Ink 组件渲染（分支/列表/diff/跟随/错误/键盘/宽度不溢出）。
-- `tui/tests/app.test.tsx`：`/sidebar` 与 `Ctrl+G` 调用注入的启动器、未连接工作区提示、`unsupported` 提示。
+- `tui/tests/app.test.tsx`：`/sidebar`、`Ctrl+G`、`/sidebar setup` 调用注入的启动器/配置命令，未连接工作区与 `unsupported` 提示。
 
 本轮工程验证记录：
 
-- `npm --prefix tui test`：**263/264 通过**，唯一失败是沙箱无 PTY 的既有环境项（`interactive CLI enters and restores the alternate screen`）。
+- `npm --prefix tui test`：**271/272 通过**，唯一失败是沙箱无 PTY 的既有环境项（`interactive CLI enters and restores the alternate screen`）。
 - AppleScript 已通过 `osacompile` 语法编译校验；未在本机执行 `osascript`，避免触发用户的终端自动化授权或切换其窗口。
-- `./run_sidebar.sh --help` 正常；`readWorkspaceStatus` 在本仓库实际返回 11 个变更文件并成功读取首个 diff。
+- `./run_sidebar.sh --help` 正常；`readWorkspaceStatus` 在本仓库实际读取变更文件与 diff；`ghostty +show-config` 预检确认本机当前默认 `quick-terminal-position = top`，与用户反馈一致。
+- 配置脚本已在本机临时目录验证写入与校验；本机真实 Ghostty 配置未被修改。
 
-**仍待用户验收**：真实 Ghostty 1.3.1 下 `/sidebar` 打开右侧 quick terminal、首次授权、切换显隐、关闭后重开，以及 120 列主工作台布局是否完全不受影响。
+**仍待用户验收**：重启 Ghostty 后在真实终端里按 `/sidebar` 确认侧栏出现在右侧、首次授权、切换显隐、关闭后重开，以及 120 列主工作台布局是否完全不受影响。
 
 ## 已知限制与后续
 

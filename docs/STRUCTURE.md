@@ -61,8 +61,8 @@ mini-harness/
         git.ts          # 只读 git status / diff / numstat 与解析
         diff.ts         # unified diff 分类、宽字符换行
         state.ts        # 选中、跟随、焦点与滚动（纯函数）
-        host.ts         # Ghostty 1.3+ AppleScript 打开/切换与降级
-        launch.ts       # 工作台到侧栏入口的路径与启动
+        host.ts         # Ghostty 1.3+ AppleScript、quick terminal 位置预检与降级
+        launch.ts       # 工作台到侧栏入口的路径、启动与 /sidebar setup
     tests/              # Node 通信与 Ink 渲染测试
     package-lock.json   # 固定 Node 依赖
 
@@ -70,6 +70,7 @@ mini-harness/
   examples/demo-repo/   # 3 分钟 demo 仓库
   examples/skills.json  # 可提交的静态技能配置示例
   scripts/demo.sh       # 复制 demo 并启动 Ink 工作台
+  scripts/setup-ghostty-sidebar.sh # 写入右侧 quick terminal 配置（幂等）
   AGENTS.md             # 项目规则（自举）
 
   tests/                # 镜像模块

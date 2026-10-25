@@ -457,19 +457,39 @@ Agent 从常驻目录判断哪些技能与当前工作有关，调用 `load_skil
 
 需要 macOS + **Ghostty 1.3 或更新版本**（使用 Ghostty 的 AppleScript 接口）；首次自动打开时 macOS 会请求“自动化”权限。
 
-### Ghostty 配置
+### 首次配置（必须）
 
-在 `~/.config/ghostty/config`（或 `ghostty +edit-config`）加入：
+Ghostty 的 quick terminal 默认停在**屏幕顶部**；只有显式配置为右侧，侧栏才会出现在右边。工作台会做配置预检：位置不是 `right` 时**拒绝打开**并提示，不会在顶部开一条侧栏。
+
+在工作台里输入：
+
+```text
+/sidebar setup
+```
+
+或手动运行：
+
+```bash
+./scripts/setup-ghostty-sidebar.sh
+```
+
+脚本只向 `~/.config/ghostty/config` 追加一段带注释的配置；已有 `quick-terminal-position` 时不会覆盖，会提示你手动改。
+
+然后**完全退出并重启 Ghostty**（`quick-terminal-position` 只在启动时读取），再重新打开工作台。等价的配置块：
 
 ```ini
+# mini-harness Git 变更侧栏（quick terminal 停靠右侧）
 quick-terminal-position = right
 quick-terminal-size = 420px
 quick-terminal-autohide = false
 quick-terminal-animation-duration = 0
-keybind = global:cmd+shift+g=toggle_quick_terminal
 ```
 
-修改 `quick-terminal-position` 后需要完全重启 Ghostty。宽度按屏幕右侧空位调整（`300px`–`500px`）；主窗口最大化时侧栏会覆盖右侧一窄条，而不是压缩工作台。
+宽度按屏幕右侧空位调整（`300px`–`500px`）；主窗口最大化时侧栏会覆盖右侧一窄条，而不是压缩工作台。可选的全局快捷键（在 Ghostty 配置里）：
+
+```ini
+keybind = global:cmd+shift+g=toggle_quick_terminal
+```
 
 ### 使用
 
@@ -478,11 +498,11 @@ keybind = global:cmd+shift+g=toggle_quick_terminal
 # 在工作台里输入 /sidebar，或按 Ctrl+G
 ```
 
-- 第一次打开：工作台通过 `osascript` 打开右侧 quick terminal，并在其中启动 `./run_sidebar.sh`；
+- 第一次打开：工作台先检查 quick terminal 位置；配置为 `right` 后通过 `osascript` 打开右侧 quick terminal，并在其中启动 `./run_sidebar.sh`；
 - 再次触发：如果侧栏还在运行，只切换显隐；
 - 侧栏内 `q` 退出后 quick terminal 关闭，下次 `/sidebar` 重新启动；
 - macOS 拒绝自动化权限后，到 系统设置 → 隐私与安全性 → 自动化 中允许当前终端控制 Ghostty，再重试；
-- Ghostty 版本不足或非 Ghostty 终端时，工作台会提示手动运行命令，不会静默失败。
+- Ghostty 版本不足、非 Ghostty 终端、或 quick terminal 仍在顶部时，工作台会提示对应原因和下一步命令，不会静默打开到错误位置。
 
 手动入口（任意终端、tmux 或普通窗口都可用）：
 
