@@ -52,8 +52,8 @@ Ctrl+C 取消任务或 MCP 初始化，空闲时退出；Ctrl+Q 退出。
   /permissions                  查看当前授权规则
   /permissions reset            清除当前进程授权规则
   /diff                         查看实际 Git 改动（执行前审批）
-  /sidebar                      打开右侧 Git 变更侧栏（Ghostty ≥ 1.3；Ctrl+G）
-  /sidebar split                在当前窗口右侧分屏，跟随窗口尺寸（占用 TUI 宽度）
+  /sidebar                      在当前窗口右侧分屏，跟随窗口尺寸（Ctrl+G；占用 TUI 宽度）
+  /sidebar quick                屏幕右侧 quick terminal（不挤占 TUI；需先 /sidebar setup）
   /sidebar setup                写入 Ghostty quick terminal 右侧配置（需重启 Ghostty）
   /mcp                          查看 MCP 服务与工具状态
   /skills [refresh|activate NAME|unload NAME]  技能目录与生命周期

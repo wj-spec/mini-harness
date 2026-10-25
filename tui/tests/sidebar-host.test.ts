@@ -36,7 +36,8 @@ test('sidebar command changes directory, execs the entrypoint and links the pare
 test('split mode uses a right-hand split inside the current window and focuses an existing sidebar', () => {
   const script = splitScript('cd /repo && exec node /app/sidebar.js', '/repo');
   assert.match(script, /new surface configuration/u);
-  assert.match(script, /set command of cfg to/u);
+  assert.match(script, /input text/u);
+  assert.match(script, /send key "enter"/u);
   assert.match(script, /split target direction right with configuration cfg/u);
   assert.match(script, /focus \(item 1 of sidebarHits\)/u);
   assert.match(script, /return "focused"/u);

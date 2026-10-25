@@ -528,12 +528,12 @@ test('slash opens a scrollable command menu without overflowing the frame', asyn
   let frame = lastFrame() ?? '';
   assert.match(frame, /› \/help/);
   assert.match(frame, /查看操作帮助/);
-  assert.match(frame, /↑↓ 选择 · Tab 填充 · 1\/22/);
+  assert.match(frame, /↑↓ 选择 · Tab 填充 · 1\/23/);
   assert.ok(frame.split('\n').length <= 24);
   for (const line of frame.split('\n')) assert.ok(stringWidth(line) <= 80, line);
   stdin.write('\u001b[B');
   await pause(15);
-  assert.match(lastFrame() ?? '', /2\/22/);
+  assert.match(lastFrame() ?? '', /2\/23/);
   stdin.write('\t');
   await pause(15);
   frame = lastFrame() ?? '';
@@ -1049,4 +1049,18 @@ test('/sidebar split asks the launcher for split mode so the pane follows the Gh
   await enter(stdin, '/sidebar split');
   assert.deepEqual(modes, ['split']);
   assert.match(lastFrame() ?? '', /split 侧栏/u);
+});
+
+test('/sidebar defaults to split mode while /sidebar quick requests the screen-anchored quick terminal', async () => {
+  const modes: (string | undefined)[] = [];
+  const client = new MockClient();
+  const {stdin} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 140, rows: 40}}
+    initialState={{...initialState, phase: 'idle', workspace: '/repo', model: 'fake'}}
+    launchSidebar={(_workspace, mode) => {modes.push(mode); return {outcome: 'started', message: 'ok'};}}/>);
+  await pause(20);
+  await enter(stdin, '/sidebar');
+  await pause(20);
+  await enter(stdin, '/sidebar quick');
+  await pause(20);
+  assert.deepEqual(modes, ['split', 'quick']);
 });

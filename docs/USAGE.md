@@ -457,9 +457,9 @@ Agent 从常驻目录判断哪些技能与当前工作有关，调用 `load_skil
 
 需要 macOS + **Ghostty 1.3 或更新版本**（使用 Ghostty 的 AppleScript 接口）；首次自动打开时 macOS 会请求“自动化”权限。
 
-### 首次配置（必须）
+### Quick terminal 配置（仅 `/sidebar quick` 需要）
 
-Ghostty 的 quick terminal 默认停在**屏幕顶部**；只有显式配置为右侧，侧栏才会出现在右边。工作台会做配置预检：位置不是 `right` 时**拒绝打开**并提示，不会在顶部开一条侧栏。
+默认的 `/sidebar` 用 Ghostty 窗口内分屏，**不需要任何 Ghostty 配置**。只有想用 `/sidebar quick`（屏幕右侧浮层、不挤占 TUI）时才需要配置 quick terminal：Ghostty 默认停在**屏幕顶部**，只有显式配置为右侧才会出现在右边；工作台会做配置预检，位置不是 `right` 时拒绝打开并提示。
 
 在工作台里输入：
 
@@ -491,20 +491,24 @@ quick-terminal-animation-duration = 0
 keybind = global:cmd+shift+g=toggle_quick_terminal
 ```
 
-> quick terminal 是**屏幕边缘锚定**的浮层窗口，不是 Ghostty 窗口内的 pane：它的宽度/高度来自配置（右侧时第一个值是宽度，第二个可选值才是高度；不写高度就铺满屏幕），**不会随 Ghostty 窗口移动或缩放**。如果希望侧栏严格跟随窗口尺寸，用 `/sidebar split`（见下）；代价是它会占据主窗口内部宽度。
+> quick terminal 是**屏幕边缘锚定**的浮层窗口，不是 Ghostty 窗口内的 pane：它的宽度/高度来自配置（右侧时第一个值是宽度，第二个可选值才是高度；不写高度就铺满屏幕），**不会随 Ghostty 窗口移动或缩放**。需要跟随窗口尺寸时用默认的 `/sidebar`（窗口内 split）；quick 模式适合“不想让 TUI 变窄”的场景。
 
 ### 使用
 
 ```bash
 ./run_ink.sh --workspace /path/to/repo   # 正常打开工作台
-# 在工作台里输入 /sidebar，或按 Ctrl+G
+# 在工作台里输入 /sidebar，或按 Ctrl+G（默认窗口内 split）
 ```
 
-- 第一次打开：工作台先检查 quick terminal 位置；配置为 `right` 后通过 `osascript` 打开右侧 quick terminal，并在其中启动 `./run_sidebar.sh`；
-- `/sidebar split`：不依赖 quick terminal 配置，在当前 Ghostty 窗口内**右侧分屏**运行侧栏；分屏会跟随窗口尺寸变化。代价是 TUI 可用宽度减少；窗口宽度不足 118 列时 Ink 会进入紧凑布局（TUI 自己的右侧状态栏隐藏）。
-- 再次触发：如果侧栏还在运行，只切换显隐 / 聚焦已有侧栏；
-- 侧栏内 `q` 退出后 quick terminal 或分屏关闭，下次 `/sidebar` 重新启动；
-- **生命周期联动**：工作台通过 `--parent-pid` 把主进程号传给侧栏；工作台退出（`Ctrl+Q`、`/quit`、异常断开、进程被杀）后，侧栏会在约 1 秒内自动退出，quick terminal 或分屏随之关闭，不会留下孤儿面板。手动运行 `./run_sidebar.sh` 不传 `--parent-pid`，则不受工作台退出影响；
+| 命令 | 模式 | 说明 |
+|---|---|---|
+| `/sidebar` 或 `Ctrl+G` | **split（默认）** | 在当前 Ghostty 窗口内右侧分屏，**跟随窗口尺寸**；代价是 TUI 宽度减少。窗口不足 118 列时 Ink 进入紧凑布局，TUI 自己的右侧状态栏会隐藏。 |
+| `/sidebar quick` | quick terminal | 屏幕右缘浮层，**不挤占 TUI**；位置/尺寸锚定屏幕，不跟随窗口。需要先执行 `/sidebar setup` 并重启 Ghostty；首次会请求 macOS 自动化权限。 |
+| `/sidebar setup` | — | 写入 quick terminal 右侧配置（仅 quick 模式需要）。 |
+
+- 再次触发：如果侧栏还在运行，只聚焦已有侧栏（split）或切换显隐（quick）；
+- 侧栏内 `q` 退出后分屏/quick terminal 关闭，下次 `/sidebar` 重新启动；
+- **生命周期联动**：工作台通过 `--parent-pid` 把主进程号传给侧栏；工作台退出（`Ctrl+Q`、`/quit`、异常断开、进程被杀）后，侧栏会立即（正常退出）或约 1 秒内（崩溃）退出，分屏/quick terminal 随之关闭，不会留下孤儿面板。手动运行 `./run_sidebar.sh` 不传 `--parent-pid`，则不受工作台退出影响；
 - macOS 拒绝自动化权限后，到 系统设置 → 隐私与安全性 → 自动化 中允许当前终端控制 Ghostty，再重试；
 - Ghostty 版本不足、非 Ghostty 终端、或 quick terminal 仍在顶部时，工作台会提示对应原因和下一步命令，不会静默打开到错误位置。
 

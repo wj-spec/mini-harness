@@ -159,10 +159,12 @@ tell application "Ghostty"
     return "focused"
   end if
   set cfg to new surface configuration
-  set command of cfg to "${appleScriptString(command)}"
   set initial working directory of cfg to "${appleScriptString(workspace)}"
   set target to focused terminal of selected tab of front window
-  split target direction right with configuration cfg
+  set newTerminal to split target direction right with configuration cfg
+  delay 0.6
+  input text "${appleScriptString(command)}" to newTerminal
+  send key "enter" to newTerminal
   return "started"
 end tell`;
 }
@@ -183,8 +185,8 @@ function launchFailure(result: RunResult, command: string): LaunchResult | null 
 
 function mapQuickMarker(marker: string, command: string): LaunchResult {
   switch (marker) {
-    case 'started': return {outcome: 'started', message: '已打开右侧 Git 变更侧栏（Ghostty quick terminal）', command};
-    case 'toggled': return {outcome: 'toggled', message: '已切换右侧 Git 变更侧栏', command};
+    case 'started': return {outcome: 'started', message: '已打开右侧 Git 变更侧栏（Ghostty quick terminal；不跟随窗口尺寸，需要跟随用 /sidebar split 或直接用 /sidebar 默认分屏）', command};
+    case 'toggled': return {outcome: 'toggled', message: '已切换右侧 quick terminal 侧栏', command};
     case 'opened': return {outcome: 'opened', message: `已打开 quick terminal；请在其中运行：${command}`, command};
     case 'action-failed': return {outcome: 'failed', command, message: 'Ghostty 无法切换 quick terminal；请确认版本 ≥ 1.3 且未设置 macos-applescript = false'};
     default: return {outcome: 'failed', command, message: `侧栏启动结果未知：${marker || '空输出'}`};
@@ -224,7 +226,7 @@ export function openSidebar(options: OpenSidebarOptions): LaunchResult {
     return {
       outcome: 'misconfigured',
       command,
-      message: `Ghostty quick terminal 当前在${where}（quick-terminal-position=${quickTerminal.position ?? '未配置，默认 top'}），侧栏不会出现在右侧。输入 /sidebar setup 写入右侧配置，然后完全退出并重启 Ghostty，再按 Ctrl+G；或输入 /sidebar split 在窗口内分屏（会占用 TUI 宽度，但跟随窗口尺寸）。`,
+      message: `Ghostty quick terminal 当前在${where}（quick-terminal-position=${quickTerminal.position ?? '未配置，默认 top'}），quick 侧栏不会出现在右侧。输入 /sidebar setup 写入右侧配置，然后完全退出并重启 Ghostty，再执行 /sidebar quick；如果只是想让侧栏跟随窗口尺寸，直接用默认的 /sidebar（窗口内分屏，无需配置）。`,
     };
   }
   const result = run(SIDEBAR_COMMAND, ['-e', ghosttyScript(command)], {timeoutMs});

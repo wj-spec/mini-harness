@@ -9,7 +9,7 @@
 本切片交付：
 
 - 独立进程 `tui/src/sidebar/`：只读 Git 变更列表 + 选中文件 unified diff，1s 轮询跟随；
-- Ghostty 1.3+ 的 quick terminal 右侧浮层：`/sidebar` 或 `Ctrl+G` 打开/切换；
+- 两种形态：默认 `/sidebar`/`Ctrl+G` 在 Ghostty 窗口内右侧分屏（跟随窗口尺寸）；`/sidebar quick` 使用 Ghostty 1.3+ quick terminal（屏幕右缘浮层，不挤占 TUI）；
 - 主 TUI 的工作台入口、帮助与命令补全；
 - 手动入口 `./run_sidebar.sh`，可用于任意终端或面板；
 - 只读边界、错误降级与 AppleScript 语法校验。
@@ -18,7 +18,7 @@
 
 ## 形态与依据
 
-采用 Ghostty **quick terminal** 停靠右侧，而不是 `split`：
+提供两种形态，命令可切换：**默认 `/sidebar`/`Ctrl+G` 用 Ghostty 窗口内 split**（跟随窗口尺寸），**`/sidebar quick` 用 quick terminal**（屏幕右缘浮层，不挤占 TUI）。
 
 - quick terminal 是屏幕边缘的独立浮层窗口，不改变主终端窗口的行列数，Ink 的 120 列布局保持原样；
 - `split` 会让主终端列数减少，Ink 在 `< 118` 列时隐藏内部状态侧栏，正是用户要避免的“挤占视觉效果”；
@@ -26,9 +26,9 @@
 
 **窗口尺寸限制（2026-10-25 补充）**：quick terminal 锚定在**屏幕边缘**，不是 Ghostty 窗口内部的 pane。右侧定位时它取屏幕可用区域、垂直居中（源码 `QuickTerminalPosition.finalOrigin`）；`quick-terminal-size` 只接受屏幕百分比/像素，默认把非主轴方向铺满屏幕，因此**不会随 Ghostty 窗口移动或缩放**。用户反馈“没有跟随 Ghostty 窗口尺寸”即由此而来，无法通过 AppleScript 或配置改变。
 
-为了在需要“跟随窗口”时可用，新增 **split 模式**：
+为了在需要“跟随窗口”时可用，新增 **split 模式，并设为默认**（2026-10-25 用户反馈 quick terminal 不跟随窗口尺寸后调整；`/sidebar quick` 保留原形态）：
 
-- 命令：`/sidebar split`（`/sidebar` 仍是 quick terminal）；
+- 命令：`/sidebar`、`/sidebar split`、`Ctrl+G`；quick 模式为 `/sidebar quick`；
 - AppleScript：`new surface configuration` 设置 `command` 与 `initial working directory`，再 `split <terminal> direction right with configuration`；
 - 分屏属于窗口布局，**跟随窗口尺寸重排**，高度与窗口一致；代价是主 TUI 宽度减少（窗口不足 118 列时 Ink 切紧凑布局）；
 - 已有标题匹配的侧栏终端时只 `focus`，不重复分屏。
@@ -48,8 +48,8 @@ keybind = global:cmd+shift+g=toggle_quick_terminal
 ## 架构
 
 ```
-主 Ink 工作台（列宽不变）
-  /sidebar 或 Ctrl+G
+主 Ink 工作台
+  /sidebar、Ctrl+G（split）或 /sidebar quick
         │  spawnSync osascript
         ▼
 Ghostty 1.3 AppleScript（macos/Ghostty.sdef）
@@ -127,7 +127,7 @@ split 不需要 quick terminal 配置，也不经过 `quick-terminal-position` �
 | 读取 diff 失败 | 选中区显示错误，列表与轮询继续 |
 | Ghostty < 1.3 / 非 Ghostty | 自动打开返回 `unsupported`，工作台提示手动命令；`./run_sidebar.sh` 仍可用 |
 | macOS Terminal | 明确提示“自动化尚未实现”，避免误导 |
-| quick terminal 位置不是 right | 返回 `misconfigured`，不打开；提示 `/sidebar setup` 并重启 Ghostty |
+| quick 模式且位置不是 right | 返回 `misconfigured`，不打开；提示 `/sidebar setup` 并重启 Ghostty（split 模式不受影响） |
 | 自动化权限被拒 | 提示到系统设置授予后重试 |
 | quick terminal 已打开但标题不匹配 | 返回 `opened`，提示在 quick terminal 内手动运行启动命令 |
 | 侧栏进程退出 | quick terminal/分屏关闭；再次 `/sidebar` 重新打开并注入启动命令 |
@@ -145,11 +145,11 @@ split 不需要 quick terminal 配置，也不经过 `quick-terminal-position` �
 - `tui/tests/sidebar-lifecycle.test.ts`：父进程存活判断（ESRCH/EPERM）、watcher 只触发一次/可停止、按 workspace 登记的 PID 只会终止同一父进程的侧栏，并用真实子进程验证 `SIGTERM` 生效。
 - `tui/tests/sidebar-setup.test.ts`：用临时 `HOME`/`XDG_CONFIG_HOME` 验证配置脚本的 `--dry-run`、幂等写入、拒绝覆盖非 right 配置；不触碰真实用户配置。
 - `tui/tests/sidebar-app.test.tsx`：真实 Ink 组件渲染（分支/列表/diff/跟随/错误/键盘/宽度不溢出）。
-- `tui/tests/app.test.tsx`：`/sidebar`、`/sidebar split`、`Ctrl+G`、`/sidebar setup` 调用注入的启动器/配置命令，未连接工作区与 `unsupported` 提示。
+- `tui/tests/app.test.tsx`：`/sidebar`（默认 split）、`/sidebar split`、`/sidebar quick`、`Ctrl+G`、`/sidebar setup` 调用注入的启动器/配置命令，未连接工作区与 `unsupported` 提示。
 
 本轮工程验证记录：
 
-- `npm --prefix tui test`：**280/281 通过**，唯一失败是沙箱无 PTY 的既有环境项（`interactive CLI enters and restores the alternate screen`）。
+- `npm --prefix tui test`：**281/282 通过**，唯一失败是沙箱无 PTY 的既有环境项（`interactive CLI enters and restores the alternate screen`）。
 - AppleScript 已通过 `osacompile` 语法编译校验；未在本机执行 `osascript`，避免触发用户的终端自动化授权或切换其窗口。
 - `./run_sidebar.sh --help` 正常；`readWorkspaceStatus` 在本仓库实际读取变更文件与 diff；`ghostty +show-config` 预检确认本机当前默认 `quick-terminal-position = top`，与用户反馈一致。
 - 配置脚本已在本机临时目录验证写入与校验；本机真实 Ghostty 配置未被修改。
