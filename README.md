@@ -63,7 +63,7 @@ Python 回归使用 `./run_tests.sh -q`，Ink 构建与测试使用 `npm --prefi
 ./run_eval.sh check-budget
 ```
 
-它使用确定性 fake 模型，不需要 API Key 或 Docker，按上下文容量、压缩继续、累计预算暂停逐层验证，前层未通过则跳过后层。已有一次 CLI 检查 3/3 层通过；预期暂停通过只说明机制正确。真实编码验收依次运行内部 1/3 题、SWE-bench Lite 首题和固定 3 题；公开入口当前默认 1 题，显式 `--limit 3` 再扩展。评分器自检 `./run_eval.sh validate` 默认验第一题，`--limit 3` 可对固定前三题做空补丁/参考补丁自检，结果逐题写入 `validation.json`。真实评测默认继承本机预算配置，可先用 `./run_eval.sh doctor` 核对。命令、报告与结果分类见[评测规格](docs/specs/evaluation.md)，真实任务完成条件见[工作台里程碑](docs/MILESTONES.md)。
+它使用确定性 fake 模型，不需要 API Key 或 Docker，按上下文容量、压缩继续、累计预算暂停逐层验证，前层未通过则跳过后层。已有一次 CLI 检查 3/3 层通过；预期暂停通过只说明机制正确。真实编码验收依次运行内部 1/3 题、SWE-bench Lite 首题和固定 3 题；公开入口当前默认 1 题，显式 `--limit 3` 再扩展。评分器自检 `./run_eval.sh validate` 默认验第一题，`--limit 3` 可对固定前三题做空补丁/参考补丁自检，结果逐题写入 `validation.json`。本地基准的 `--runs` 记录多次运行分布，`--pause-tokens` 用低预算触发暂停并以 `--continue` 重开续做，验证恢复链路。真实评测默认继承本机预算配置，可先用 `./run_eval.sh doctor` 核对。命令、报告与结果分类见[评测规格](docs/specs/evaluation.md)，真实任务完成条件见[工作台里程碑](docs/MILESTONES.md)。
 
 ## 当前完善重点
 

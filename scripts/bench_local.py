@@ -112,13 +112,19 @@ def approval_decision(event: dict) -> str:
     return "deny"
 
 
-def run_agent(workspace: Path, prompt: str, timeout: float, log_path: Path, fake: bool = False) -> dict:
+def run_agent(
+    workspace: Path, prompt: str, timeout: float, log_path: Path, fake: bool = False,
+    *, env_extra: dict[str, str] | None = None, resume: bool = False,
+) -> dict:
     command = [str(ROOT / "run_vibe.sh"), "--stdio", "--workspace", str(workspace), "--test-session"]
     if fake:
         command.append("--fake")
+    if resume:
+        command.append("--continue")
     process = subprocess.Popen(
         command, cwd=ROOT, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
         stderr=subprocess.PIPE, text=True, bufsize=1,
+        env=dict(os.environ, **(env_extra or {})),
     )
     assert process.stdin is not None and process.stdout is not None
     started = time.monotonic()
@@ -126,6 +132,7 @@ def run_agent(workspace: Path, prompt: str, timeout: float, log_path: Path, fake
     result: dict | None = None
     error: str | None = None
     agent_model: str | None = None
+    session_id: str | None = None
     approvals: list[dict] = []
     events = 0
     log_lines: list[str] = []
@@ -134,7 +141,10 @@ def run_agent(workspace: Path, prompt: str, timeout: float, log_path: Path, fake
         process.stdin.write(json.dumps(frame, ensure_ascii=False) + "\n")
         process.stdin.flush()
 
-    send({"v": 1, "type": "run", "id": "bench-run", "text": prompt})
+    request_id = "bench-resume" if resume else "bench-run"
+    first = ({"v": 1, "type": "command", "id": request_id, "command": "resume"}
+             if resume else {"v": 1, "type": "run", "id": request_id, "text": prompt})
+    send(first)
     try:
         while time.monotonic() < deadline:
             ready, _, _ = select.select([process.stdout], [], [], min(1.0, max(0.0, deadline - time.monotonic())))
@@ -151,17 +161,18 @@ def run_agent(workspace: Path, prompt: str, timeout: float, log_path: Path, fake
             events += 1
             if event.get("type") == "ready":
                 agent_model = event.get("model")
+                session_id = event.get("session_id")
             if event.get("type") == "approval_request":
                 decision = approval_decision(event)
                 approvals.append({"tool": event.get("call", {}).get("name"), "decision": decision})
                 send({"v": 1, "type": "approval", "id": f"ap-{len(approvals)}",
                       "approval_id": event["approval_id"], "decision": decision})
-            elif event.get("type") == "done" and event.get("id") == "bench-run":
+            elif event.get("type") == "done" and event.get("id") == request_id:
                 result = event.get("result")
                 break
             elif event.get("type") == "error":
                 error = f"{event.get('code')}: {event.get('message')}"
-                if event.get("id") == "bench-run":
+                if event.get("id") == request_id:
                     break
             elif event.get("type") == "closed":
                 break
@@ -182,6 +193,7 @@ def run_agent(workspace: Path, prompt: str, timeout: float, log_path: Path, fake
         "result": result,
         "error": error,
         "model": agent_model,
+        "session_id": session_id,
         "approvals": approvals,
         "events": events,
         "duration_ms": round((time.monotonic() - started) * 1000, 1),
@@ -347,7 +359,8 @@ def latest_run_end(workspace: Path, run_id: str | None) -> dict | None:
     return None
 
 
-def run_task(task: str, prepare: bool, timeout: float, stamp: str, fake: bool = False, clean: bool = False, attempt: int = 1) -> dict:
+def run_task(task: str, prepare: bool, timeout: float, stamp: str, fake: bool = False,
+             clean: bool = False, attempt: int = 1, pause_tokens: int = 0) -> dict:
     task_dir = TASKS_DIR / task
     workdir = RUN_ROOT / stamp / (task if attempt == 1 else f"{task}__r{attempt}")
     if workdir.exists():
@@ -389,17 +402,36 @@ def run_task(task: str, prepare: bool, timeout: float, stamp: str, fake: bool = 
         return report
 
     before = file_hashes(workspace)
-    run = run_agent(workspace, prompt, timeout, workdir / "agent.log", fake)
+    env_extra = {"VIBE_MAX_RUN_TOKENS": str(pause_tokens)} if pause_tokens > 0 else None
+    run = run_agent(workspace, prompt, timeout, workdir / "agent.log", fake, env_extra=env_extra)
+    phases = [run]
+    resume_used = False
+    if pause_tokens > 0 and (run["result"] or {}).get("status") == "stopped":
+        # 预算暂停后重开进程续做：验证会话恢复与继续链路。
+        resume_used = True
+        resumed = run_agent(workspace, "", timeout, workdir / "resume.log", fake, resume=True)
+        phases.append(resumed)
+        run = resumed
     after = file_hashes(workspace)
     changed = changed_files(before, after)
     result = run["result"] or {}
     run_id = result.get("run_id")
     trace = latest_run_end(workspace, run_id) or {}
-    commands = trace_commands(workspace, run_id)
+    commands = [command for phase in phases
+                for command in trace_commands(workspace, (phase["result"] or {}).get("run_id"))]
     outside = outside_workspace_commands(workspace, commands)
     check = run_script(task_dir / "check.sh", workspace, task_dir)
 
     report.update({
+        "resume_used": resume_used,
+        "phases": [
+            {"phase": "initial" if index == 0 else "resume",
+             "status": (phase["result"] or {}).get("status"),
+             "steps": (phase["result"] or {}).get("steps"),
+             "tokens": ((phase["result"] or {}).get("usage") or {}).get("total_tokens"),
+             "run_id": (phase["result"] or {}).get("run_id")}
+            for index, phase in enumerate(phases)
+        ],
         "agent_model": run.get("model"),
         "agent_status": result.get("status"),
         "agent_steps": result.get("steps"),
@@ -437,6 +469,8 @@ def main() -> int:
     parser.add_argument("--fake", action="store_true", help="用 fake provider 验证跑分链路（必然不通过）")
     parser.add_argument("--clean", action="store_true", help="跑完删除临时工作区（默认保留供复查）")
     parser.add_argument("--runs", type=int, default=1, help="每题重复次数；多次运行才能谈可比较性")
+    parser.add_argument("--pause-tokens", type=int, default=0,
+                        help="用低预算触发暂停并重开进程续做（0 关闭）；用于验证恢复链路")
     args = parser.parse_args()
     selected = [item.strip() for item in args.tasks.split(",")] if args.tasks else task_ids()
     unknown = [task for task in selected if task not in task_ids()]
@@ -452,7 +486,8 @@ def main() -> int:
         for attempt in range(1, max(1, args.runs) + 1):
             label = task if args.runs == 1 else f"{task}#{attempt}"
             print(f"[{label}] 准备 workspace...", flush=True)
-            report = run_task(task, args.prepare, args.timeout, stamp, args.fake, args.clean, attempt=attempt)
+            report = run_task(task, args.prepare, args.timeout, stamp, args.fake, args.clean,
+                              attempt=attempt, pause_tokens=args.pause_tokens)
             reports.append(report)
         if args.prepare:
             marker = "RED" if report.get("red_expected") else "UNEXPECTED PASS"
@@ -464,7 +499,8 @@ def main() -> int:
                 f"[{label}] {status} artifact={report.get('artifact_correct')} complete={report.get('run_complete')} "
                 f"comparable={report.get('comparable')} status={report.get('agent_status')} "
                 f"steps={report.get('agent_steps')} tokens={tokens} tool_calls={report.get('tool_calls')} "
-                f"changed={len(report.get('changed_files', []))} check_rc={report.get('check', {}).get('exit_code')} "
+                f"changed={len(report.get('changed_files', []))} resume={report.get('resume_used')} "
+                f"check_rc={report.get('check', {}).get('exit_code')} "
                 f"class={report.get('failure_class')}",
                 flush=True,
             )
