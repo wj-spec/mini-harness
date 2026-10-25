@@ -43,6 +43,8 @@
 
 同日按恢复历史反馈，进一步分离完整原始记录与压缩模型上下文，并新增只读会话列表、按 ID 打开旧会话；已用 219 条旧记录副本验证完整回看，见上述规格的恢复章节。此项补齐 W3 的工程基础，真实任务续做仍待验收。
 
+**右侧 Git 变更侧栏（2026-10-25）**：用户要求在不挤占主 Ink 工作台的前提下，于终端右侧额外显示跟随工作区的 Git 变更与 diff。新增独立侧栏进程与只读 Git 数据层，通过 Ghostty 1.3+ AppleScript 的 `toggle_quick_terminal` 在右侧 quick terminal 启动；工作台入口为 `/sidebar` 或 `Ctrl+G`，手动入口 `./run_sidebar.sh`。主 TUI 布局未改，侧栏只执行固定参数的 `git status` / `git diff`，不经过 shell、不写工作区、不联网。工程验证：Ink `npm --prefix tui test` **263/264 通过**（唯一失败为沙箱无 PTY 的既有环境项），Python `./run_tests.sh -q` 退出 0（收集 886 项，含 4 项跳过）；生成的 AppleScript 通过 `osacompile` 语法校验。真实 Ghostty 终端里的打开、切换、首次授权与视觉体验待用户验收；macOS 原生 Terminal 与 `new window` 摆位列后续切片。规格见 [右侧 Git 变更侧栏](specs/sidebar-git-panel.md)。
+
 ## 如何认定完成
 
 - “已有代码”“自动测试通过”“真实使用验收通过”分别记录；只有验收证据和用户实际体验都成立，才标记已验收。

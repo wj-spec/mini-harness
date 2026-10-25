@@ -55,6 +55,14 @@ mini-harness/
       terminal-colors.ts # 与 Ink 共用颜色能力及禁色规则
       composer.tsx      # 多行草稿、输入历史、光标与粘贴
       editor.ts         # grapheme 编辑和终端单元格宽度
+      sidebar/          # 独立 Git 变更侧栏（Ghostty quick terminal）
+        cli.tsx         # 参数、终端标题、渲染与信号清理
+        app.tsx         # 变更列表、diff、跟随与键盘交互
+        git.ts          # 只读 git status / diff / numstat 与解析
+        diff.ts         # unified diff 分类、宽字符换行
+        state.ts        # 选中、跟随、焦点与滚动（纯函数）
+        host.ts         # Ghostty 1.3+ AppleScript 打开/切换与降级
+        launch.ts       # 工作台到侧栏入口的路径与启动
     tests/              # Node 通信与 Ink 渲染测试
     package-lock.json   # 固定 Node 依赖
 
@@ -104,6 +112,7 @@ mini-harness/
   pyproject.toml
   run_vibe.sh
   run_ink.sh            # 编译并启动 Ink（唯一交互入口）
+  run_sidebar.sh        # 手动启动右侧 Git 变更侧栏
   run_vibe.sh           # Python 入口：--stdio 后端、--eval、会话列表
   run_tests.sh
   .gitignore

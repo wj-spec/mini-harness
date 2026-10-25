@@ -63,6 +63,7 @@ npm --prefix tui test
 | 续做与权限 | `/resume` 显式续做、`/permissions` 查看、`/permissions reset` 撤销 |
 | 帮助与信息 | `/help`、`/cost` 会话用量、`/tools` 已注册工具、`/mcp` 服务、`/session` 会话路径 |
 | 查看改动 | `/diff` 经审批执行 git diff，全文可翻页 |
+| 右侧变更侧栏 | `/sidebar` 或 `Ctrl+G` 打开/切换 Ghostty 右侧 Git 变更侧栏（只读、跟随工作区） |
 | 查看技能 | `/skills`（或 `/skill`）重新扫描 `.vibe/skills` 并列出摘要，不调用模型 |
 
 运行中输入框保持可用：`Enter` 提交纠偏，`/followup <内容>` 排队后续消息；阅读、审批和工具详情聚焦时暂停编辑，滚动不会改写草稿。对话区支持鼠标拖选：按住左键拖动看高亮，松开即复制所选文本，`Esc` 取消；要整段复制用 `Ctrl+Y` / `/copy`。没有鼠标事件的终端可以用上述键盘操作。工具结果默认摘要，全文在详情页查看；原始消息和结果仍保存在 `.vibe/sessions/`。取消后需核对已发生的副作用。
@@ -449,6 +450,69 @@ Agent 从常驻目录判断哪些技能与当前工作有关，调用 `load_skil
 - 工作台 `/diff`：看当前 git diff，不发给模型。
 
 可调：`VIBE_LLM_TIMEOUT`、`VIBE_LLM_RETRIES`、`VIBE_LLM_RETRY_BACKOFF`、`VIBE_MAX_CONTINUATIONS`、`VIBE_MAX_NO_PROGRESS`、`VIBE_MAX_RUN_TOKENS`、`VIBE_COMPACT_INTERVAL_TOKENS`、`VIBE_MAX_RUN_COST_USD`、`VIBE_TOOL_RETRIES`。
+
+## 右侧 Git 变更侧栏（Ghostty）
+
+工作台可以在终端窗口右侧额外打开一个**独立的变更侧栏**，显示整个工作区的 Git 状态：变更文件列表、每个文件的新增/删除行数、选中文件的 unified diff。它跑在独立的 TTY 里，不改变主 Ink 工作台的列宽和布局。
+
+需要 macOS + **Ghostty 1.3 或更新版本**（使用 Ghostty 的 AppleScript 接口）；首次自动打开时 macOS 会请求“自动化”权限。
+
+### Ghostty 配置
+
+在 `~/.config/ghostty/config`（或 `ghostty +edit-config`）加入：
+
+```ini
+quick-terminal-position = right
+quick-terminal-size = 420px
+quick-terminal-autohide = false
+quick-terminal-animation-duration = 0
+keybind = global:cmd+shift+g=toggle_quick_terminal
+```
+
+修改 `quick-terminal-position` 后需要完全重启 Ghostty。宽度按屏幕右侧空位调整（`300px`–`500px`）；主窗口最大化时侧栏会覆盖右侧一窄条，而不是压缩工作台。
+
+### 使用
+
+```bash
+./run_ink.sh --workspace /path/to/repo   # 正常打开工作台
+# 在工作台里输入 /sidebar，或按 Ctrl+G
+```
+
+- 第一次打开：工作台通过 `osascript` 打开右侧 quick terminal，并在其中启动 `./run_sidebar.sh`；
+- 再次触发：如果侧栏还在运行，只切换显隐；
+- 侧栏内 `q` 退出后 quick terminal 关闭，下次 `/sidebar` 重新启动；
+- macOS 拒绝自动化权限后，到 系统设置 → 隐私与安全性 → 自动化 中允许当前终端控制 Ghostty，再重试；
+- Ghostty 版本不足或非 Ghostty 终端时，工作台会提示手动运行命令，不会静默失败。
+
+手动入口（任意终端、tmux 或普通窗口都可用）：
+
+```bash
+./run_sidebar.sh --workspace /path/to/repo
+```
+
+侧栏快捷键：
+
+| 操作 | 键位 |
+|---|---|
+| 选择文件 | `↑/↓` 或 `j/k` |
+| 切换列表 / diff 焦点 | `Tab` |
+| 翻页 / diff 首尾 | `PgUp/PgDn`、`Home/End`、`g/G` |
+| 跟随最新变更 / 转手动 | `f` |
+| 立即刷新 | `r` |
+| 退出 | `q` 或 `Ctrl+C` |
+
+侧栏默认每 1 秒重新读取一次 `git status`，发现工作区文件变化时自动选中变化的文件；手动选择后转为手动模式，按 `f` 恢复跟随。中文文件名通过 `-z` 与关闭 `core.quotePath` 正确处理。
+
+### 只读边界
+
+侧栏只执行固定参数的 `git status --porcelain=v2`、`git diff`、`git diff --numstat`：不经过 shell、不写工作区、不联网、2 秒超时、diff 截断。它是界面侧的只读查询，不是 Agent 工具，不扩大模型的写入或命令权限；`/diff` 与写工具仍走 `ApprovalGate`。
+
+### 已知限制
+
+- 当前只支持 Ghostty；macOS 原生 Terminal、`new window` 手动摆位在后续切片；
+- quick terminal 全局唯一，宽度由 Ghostty 配置固定，不能像普通窗口一样拖拽；
+- 尚未支持从侧栏回传操作到工作台（例如把选中文件附到下一条消息）；
+- 实现与验证记录见 [右侧 Git 变更侧栏](specs/sidebar-git-panel.md)。
 
 ## 调试
 
