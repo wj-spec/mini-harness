@@ -168,3 +168,11 @@ test('session selection and listing are mutually exclusive before backend startu
     ['--list-sessions','--session','saved'], ['--session'], ['--session',''],
   ]) assert.throws(() => validateClientArgs(args));
 });
+
+
+test('client args accept sandbox flags, with --sandbox-network implying sandbox', () => {
+  assert.deepEqual(validateClientArgs(['--sandbox']), ['--sandbox']);
+  assert.deepEqual(validateClientArgs(['--sandbox-network']), ['--sandbox-network']);
+  assert.deepEqual(validateClientArgs(['--sandbox', '--sandbox-network', '--workspace', '/tmp/ws']),
+    ['--sandbox', '--sandbox-network', '--workspace', '/tmp/ws']);
+});
