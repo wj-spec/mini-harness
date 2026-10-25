@@ -7,7 +7,8 @@ export const SIDEBAR_TITLE = 'mini-harness sidebar';
 export const SIDEBAR_COMMAND = 'osascript';
 
 export type TerminalHost = 'ghostty' | 'terminal' | 'unknown';
-export type LaunchOutcome = 'started' | 'toggled' | 'opened' | 'unsupported' | 'misconfigured' | 'failed';
+export type SidebarMode = 'quick' | 'split';
+export type LaunchOutcome = 'started' | 'toggled' | 'focused' | 'opened' | 'unsupported' | 'misconfigured' | 'failed';
 export type LaunchResult = {outcome: LaunchOutcome; message: string; command?: string};
 
 export type RunResult = {status: number | null; stdout: string; stderr: string; error?: string};
@@ -21,6 +22,9 @@ export type OpenSidebarOptions = {
   platform?: NodeJS.Platform;
   run?: Runner;
   timeoutMs?: number;
+  mode?: SidebarMode;
+  /** 主 TUI 进程号；侧栏用它做生命周期联动。 */
+  parentPid?: number;
   /** 测试注入；显式 null 表示跳过 quick terminal 配置预检。 */
   ghosttyBinary?: string | null;
 };
@@ -40,9 +44,10 @@ export function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
-export function sidebarCommand(options: {workspace: string; cliPath: string; nodePath?: string}): string {
+export function sidebarCommand(options: {workspace: string; cliPath: string; nodePath?: string; parentPid?: number}): string {
   const node = options.nodePath ?? 'node';
-  return `cd ${shellQuote(options.workspace)} && exec ${shellQuote(node)} ${shellQuote(options.cliPath)} --workspace ${shellQuote(options.workspace)}`;
+  const parent = options.parentPid ? ` --parent-pid ${options.parentPid}` : '';
+  return `cd ${shellQuote(options.workspace)} && exec ${shellQuote(node)} ${shellQuote(options.cliPath)} --workspace ${shellQuote(options.workspace)}${parent}`;
 }
 
 /** 找到 Ghostty 命令行二进制；找不到时跳过配置预检，保持旧行为。 */
@@ -141,8 +146,62 @@ function unsupported(message: string, command: string): LaunchResult {
   return {outcome: 'unsupported', message, command};
 }
 
+/**
+ * 在同一个 Ghostty 窗口内右侧分屏。split 属于窗口布局，会跟随窗口尺寸；
+ * 代价是主 TUI 的可视宽度减少。
+ */
+export function splitScript(command: string, workspace: string): string {
+  return `set sidebarTitle to "${SIDEBAR_TITLE}"
+tell application "Ghostty"
+  set sidebarHits to (every terminal whose name contains sidebarTitle)
+  if (count of sidebarHits) > 0 then
+    focus (item 1 of sidebarHits)
+    return "focused"
+  end if
+  set cfg to new surface configuration
+  set command of cfg to "${appleScriptString(command)}"
+  set initial working directory of cfg to "${appleScriptString(workspace)}"
+  set target to focused terminal of selected tab of front window
+  split target direction right with configuration cfg
+  return "started"
+end tell`;
+}
+
+function launchFailure(result: RunResult, command: string): LaunchResult | null {
+  if (result.error) return {outcome: 'failed', message: `打开侧栏失败：${result.error}`, command};
+  if (result.status === 0) return null;
+  const stderr = result.stderr.trim();
+  if (/-1743|not allowed|not authorized|Not authorized|automation/iu.test(stderr)) {
+    return {
+      outcome: 'failed',
+      command,
+      message: '打开侧栏需要 macOS 自动化权限：请在 系统设置 → 隐私与安全性 → 自动化 中允许当前终端控制 Ghostty，然后重试',
+    };
+  }
+  return {outcome: 'failed', command, message: `打开侧栏失败：${lastLine(stderr) || `osascript 退出码 ${result.status ?? '未知'}`}`};
+}
+
+function mapQuickMarker(marker: string, command: string): LaunchResult {
+  switch (marker) {
+    case 'started': return {outcome: 'started', message: '已打开右侧 Git 变更侧栏（Ghostty quick terminal）', command};
+    case 'toggled': return {outcome: 'toggled', message: '已切换右侧 Git 变更侧栏', command};
+    case 'opened': return {outcome: 'opened', message: `已打开 quick terminal；请在其中运行：${command}`, command};
+    case 'action-failed': return {outcome: 'failed', command, message: 'Ghostty 无法切换 quick terminal；请确认版本 ≥ 1.3 且未设置 macos-applescript = false'};
+    default: return {outcome: 'failed', command, message: `侧栏启动结果未知：${marker || '空输出'}`};
+  }
+}
+
+function mapSplitMarker(marker: string, command: string): LaunchResult {
+  switch (marker) {
+    case 'started': return {outcome: 'started', message: '已在当前窗口右侧打开 Git 变更侧栏（split，会跟随窗口尺寸；TUI 可用宽度会减少）', command};
+    case 'focused': return {outcome: 'focused', message: '已聚焦右侧 Git 变更侧栏', command};
+    default: return {outcome: 'failed', command, message: `侧栏启动结果未知：${marker || '空输出'}`};
+  }
+}
+
 export function openSidebar(options: OpenSidebarOptions): LaunchResult {
   const command = sidebarCommand(options);
+  const mode: SidebarMode = options.mode ?? 'quick';
   const platform = options.platform ?? process.platform;
   if (platform !== 'darwin') return unsupported(`当前平台暂不支持自动打开侧栏；请手动运行：${command}`, command);
   const env = options.env ?? process.env;
@@ -154,34 +213,20 @@ export function openSidebar(options: OpenSidebarOptions): LaunchResult {
     return unsupported(`当前终端不支持自动打开侧栏（需要 Ghostty ≥ 1.3）；请手动运行：${command}`, command);
   }
   const run = options.run ?? defaultRunner;
+  const timeoutMs = options.timeoutMs ?? 10_000;
+  if (mode === 'split') {
+    const result = run(SIDEBAR_COMMAND, ['-e', splitScript(command, options.workspace)], {timeoutMs});
+    return launchFailure(result, command) ?? mapSplitMarker(lastLine(result.stdout), command);
+  }
   const quickTerminal = checkQuickTerminalPosition({env, run, binary: options.ghosttyBinary});
   if (quickTerminal.checked && !quickTerminal.ok) {
     const where = quickTerminal.position === 'top' ? '屏幕顶部' : `位置 ${quickTerminal.position ?? '未知'}`;
     return {
       outcome: 'misconfigured',
       command,
-      message: `Ghostty quick terminal 当前在${where}（quick-terminal-position=${quickTerminal.position ?? '未配置，默认 top'}），侧栏不会出现在右侧。输入 /sidebar setup 写入右侧配置，然后完全退出并重启 Ghostty，再按 Ctrl+G。`,
+      message: `Ghostty quick terminal 当前在${where}（quick-terminal-position=${quickTerminal.position ?? '未配置，默认 top'}），侧栏不会出现在右侧。输入 /sidebar setup 写入右侧配置，然后完全退出并重启 Ghostty，再按 Ctrl+G；或输入 /sidebar split 在窗口内分屏（会占用 TUI 宽度，但跟随窗口尺寸）。`,
     };
   }
-  const result = run(SIDEBAR_COMMAND, ['-e', ghosttyScript(command)], {timeoutMs: options.timeoutMs ?? 10_000});
-  if (result.error) return {outcome: 'failed', message: `打开侧栏失败：${result.error}`, command};
-  if (result.status !== 0) {
-    const stderr = result.stderr.trim();
-    if (/-1743|not allowed|not authorized|Not authorized|automation/iu.test(stderr)) {
-      return {
-        outcome: 'failed',
-        command,
-        message: '打开侧栏需要 macOS 自动化权限：请在 系统设置 → 隐私与安全性 → 自动化 中允许当前终端控制 Ghostty，然后重试',
-      };
-    }
-    return {outcome: 'failed', command, message: `打开侧栏失败：${lastLine(stderr) || `osascript 退出码 ${result.status ?? '未知'}`}`};
-  }
-  const marker = lastLine(result.stdout);
-  switch (marker) {
-    case 'started': return {outcome: 'started', message: '已打开右侧 Git 变更侧栏（Ghostty quick terminal）', command};
-    case 'toggled': return {outcome: 'toggled', message: '已切换右侧 Git 变更侧栏', command};
-    case 'opened': return {outcome: 'opened', message: `已打开 quick terminal；请在其中运行：${command}`, command};
-    case 'action-failed': return {outcome: 'failed', command, message: 'Ghostty 无法切换 quick terminal；请确认版本 ≥ 1.3 且未设置 macos-applescript = false'};
-    default: return {outcome: 'failed', command, message: `侧栏启动结果未知：${marker || '空输出'}`};
-  }
+  const result = run(SIDEBAR_COMMAND, ['-e', ghosttyScript(command)], {timeoutMs});
+  return launchFailure(result, command) ?? mapQuickMarker(lastLine(result.stdout), command);
 }

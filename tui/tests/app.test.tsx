@@ -528,12 +528,12 @@ test('slash opens a scrollable command menu without overflowing the frame', asyn
   let frame = lastFrame() ?? '';
   assert.match(frame, /› \/help/);
   assert.match(frame, /查看操作帮助/);
-  assert.match(frame, /↑↓ 选择 · Tab 填充 · 1\/20/);
+  assert.match(frame, /↑↓ 选择 · Tab 填充 · 1\/22/);
   assert.ok(frame.split('\n').length <= 24);
   for (const line of frame.split('\n')) assert.ok(stringWidth(line) <= 80, line);
   stdin.write('\u001b[B');
   await pause(15);
-  assert.match(lastFrame() ?? '', /2\/20/);
+  assert.match(lastFrame() ?? '', /2\/22/);
   stdin.write('\t');
   await pause(15);
   frame = lastFrame() ?? '';
@@ -1037,4 +1037,16 @@ test('/sidebar setup writes the Ghostty sidebar configuration through the inject
   await enter(stdin, '/sidebar setup');
   assert.equal(calls, 1);
   assert.match(lastFrame() ?? '', /已写入 Ghostty 配置/u);
+});
+
+test('/sidebar split asks the launcher for split mode so the pane follows the Ghostty window', async () => {
+  const modes: (string | undefined)[] = [];
+  const client = new MockClient();
+  const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 140, rows: 40}}
+    initialState={{...initialState, phase: 'idle', workspace: '/repo', model: 'fake'}}
+    launchSidebar={(workspace, mode) => {modes.push(mode); return {outcome: 'started', message: `已打开 ${workspace} 的 split 侧栏`};}}/>);
+  await pause(20);
+  await enter(stdin, '/sidebar split');
+  assert.deepEqual(modes, ['split']);
+  assert.match(lastFrame() ?? '', /split 侧栏/u);
 });

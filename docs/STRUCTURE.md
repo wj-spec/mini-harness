@@ -61,8 +61,10 @@ mini-harness/
         git.ts          # 只读 git status / diff / numstat 与解析
         diff.ts         # unified diff 分类、宽字符换行
         state.ts        # 选中、跟随、焦点与滚动（纯函数）
-        host.ts         # Ghostty 1.3+ AppleScript、quick terminal 位置预检与降级
-        launch.ts       # 工作台到侧栏入口的路径、启动与 /sidebar setup
+        host.ts         # Ghostty 1.3+ AppleScript、quick/split、quick terminal 位置预检与降级
+        launch.ts       # 工作台到侧栏入口的路径、启动、/sidebar setup 与退出联动
+        args.ts         # 侧栏 CLI 参数（workspace/theme/refresh/parent-pid）
+        lifecycle.ts    # 父进程看护与侧栏 PID 登记/终止
     tests/              # Node 通信与 Ink 渲染测试
     package-lock.json   # 固定 Node 依赖
 

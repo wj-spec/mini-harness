@@ -5,7 +5,7 @@ import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import test from 'node:test';
 import {
-  SIDEBAR_TITLE, checkQuickTerminalPosition, detectHost, ghosttyBinary, ghosttyScript, openSidebar, shellQuote, sidebarCommand,
+  SIDEBAR_TITLE, checkQuickTerminalPosition, detectHost, ghosttyBinary, ghosttyScript, openSidebar, shellQuote, sidebarCommand, splitScript,
   type Runner,
 } from '../src/sidebar/host.js';
 import {sidebarCliPath} from '../src/sidebar/launch.js';
@@ -25,11 +25,31 @@ test('shell quoting keeps safe paths and escapes spaces and quotes', () => {
   assert.equal(shellQuote('/tmp/a.b+c'), '/tmp/a.b+c');
 });
 
-test('sidebar command changes directory and execs the sidebar entrypoint', () => {
-  const command = sidebarCommand({workspace: '/my repo', cliPath: '/app/dist/src/sidebar/cli.js'});
-  assert.match(command, /^cd '\/my repo' && exec node \/app\/dist\/src\/sidebar\/cli\.js --workspace '\/my repo'$/u);
+test('sidebar command changes directory, execs the entrypoint and links the parent pid', () => {
+  const command = sidebarCommand({workspace: '/my repo', cliPath: '/app/dist/src/sidebar/cli.js', parentPid: 4242});
+  assert.match(command, /^cd '\/my repo' && exec node \/app\/dist\/src\/sidebar\/cli\.js --workspace '\/my repo' --parent-pid 4242$/u);
+  assert.doesNotMatch(sidebarCommand({workspace: '/repo', cliPath: '/app/sidebar.js'}), /--parent-pid/u);
   const cli = sidebarCliPath('/app/dist/src/cli.js');
   assert.equal(cli, path.resolve('/app/dist/src/sidebar/cli.js'));
+});
+
+test('split mode uses a right-hand split inside the current window and focuses an existing sidebar', () => {
+  const script = splitScript('cd /repo && exec node /app/sidebar.js', '/repo');
+  assert.match(script, /new surface configuration/u);
+  assert.match(script, /set command of cfg to/u);
+  assert.match(script, /split target direction right with configuration cfg/u);
+  assert.match(script, /focus \(item 1 of sidebarHits\)/u);
+  assert.match(script, /return "focused"/u);
+  const calls: string[][] = [];
+  const run: Runner = (command, args) => {
+    calls.push([command, ...args]);
+    return {status: 0, stdout: 'started\n', stderr: ''};
+  };
+  const result = openSidebar({workspace: '/repo', cliPath: '/app/sidebar.js', env: {TERM_PROGRAM: 'ghostty'}, platform: 'darwin',
+    mode: 'split', run});
+  assert.equal(result.outcome, 'started');
+  assert.equal(calls.length, 1, 'split mode must not run the quick terminal preflight');
+  assert.match(calls[0]![2]!, /split target direction right/u);
 });
 
 test('Ghostty AppleScript detects an existing sidebar, toggles it and starts a new one', () => {
@@ -111,10 +131,12 @@ test('automatic sidebars explain unsupported hosts and macOS automation permissi
 
 test('generated AppleScript compiles with the macOS scripting compiler', {skip: process.platform !== 'darwin' || !hasOsacompile()}, () => {
   const directory = mkdtempSync(path.join(tmpdir(), 'mini-harness-sidebar-'));
-  const output = path.join(directory, 'sidebar.scpt');
   try {
-    const result = spawnSync('osacompile', ['-o', output, '-e', ghosttyScript('echo hello')], {encoding: 'utf8'});
-    assert.equal(result.status, 0, result.stderr);
+    for (const [name, script] of [['quick', ghosttyScript('echo hello')], ['split', splitScript('echo hello', '/repo')]] as const) {
+      const output = path.join(directory, `${name}.scpt`);
+      const result = spawnSync('osacompile', ['-o', output, '-e', script], {encoding: 'utf8'});
+      assert.equal(result.status, 0, `${name}: ${result.stderr}`);
+    }
   } finally {
     rmSync(directory, {recursive: true, force: true});
   }

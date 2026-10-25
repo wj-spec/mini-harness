@@ -1,7 +1,8 @@
 import {spawnSync} from 'node:child_process';
 import {existsSync} from 'node:fs';
 import path from 'node:path';
-import {openSidebar, type LaunchResult} from './host.js';
+import {openSidebar, type LaunchResult, type SidebarMode} from './host.js';
+import {killLinkedSidebar} from './lifecycle.js';
 
 /** 侧栏入口与主 TUI 同目录构建：dist/src/sidebar/cli.js。 */
 export function sidebarCliPath(argv1: string | undefined = process.argv[1]): string {
@@ -9,8 +10,8 @@ export function sidebarCliPath(argv1: string | undefined = process.argv[1]): str
   return path.resolve(base, 'sidebar', 'cli.js');
 }
 
-export function launchSidebarForTui(workspace: string): LaunchResult {
-  return openSidebar({workspace, cliPath: sidebarCliPath(), nodePath: process.execPath});
+export function launchSidebarForTui(workspace: string, mode: SidebarMode = 'quick'): LaunchResult {
+  return openSidebar({workspace, cliPath: sidebarCliPath(), nodePath: process.execPath, mode, parentPid: process.pid});
 }
 
 /** dist/src/cli.js → 仓库根目录。 */
@@ -37,4 +38,9 @@ export function runSidebarSetup(argv1: string | undefined = process.argv[1]): Se
     ok: result.status === 0,
     message: lines.slice(-3).join('\n') || (result.status === 0 ? '已写入 Ghostty 配置；请完全重启 Ghostty。' : `配置脚本退出码 ${result.status ?? '未知'}`),
   };
+}
+
+/** 工作台退出时尽量立即终止同一工作区、同一父进程启动的侧栏。 */
+export function killSidebarForTui(workspace: string): boolean {
+  return killLinkedSidebar(workspace);
 }
