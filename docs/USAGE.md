@@ -63,7 +63,7 @@ npm --prefix tui test
 | 续做与权限 | `/resume` 显式续做、`/permissions` 查看、`/permissions reset` 撤销 |
 | 帮助与信息 | `/help`、`/cost` 会话用量、`/tools` 已注册工具、`/mcp` 服务、`/session` 会话路径 |
 | 查看改动 | `/diff` 经审批执行 git diff，全文可翻页 |
-| 右侧变更侧栏 | `/sidebar` 或 `Ctrl+G` 打开/切换 Ghostty 右侧 Git 变更侧栏（只读、跟随工作区） |
+| 右侧变更侧栏 | `/sidebar` 或 `Ctrl+G` 打开/切换 Git 变更侧栏（Ghostty split/quick；macOS Terminal 独立窗口） |
 | 查看技能 | `/skills`（或 `/skill`）重新扫描 `.vibe/skills` 并列出摘要，不调用模型 |
 
 运行中输入框保持可用：`Enter` 提交纠偏，`/followup <内容>` 排队后续消息；阅读、审批和工具详情聚焦时暂停编辑，滚动不会改写草稿。对话区支持鼠标拖选：按住左键拖动看高亮，松开即复制所选文本，`Esc` 取消；要整段复制用 `Ctrl+Y` / `/copy`。没有鼠标事件的终端可以用上述键盘操作。工具结果默认摘要，全文在详情页查看；原始消息和结果仍保存在 `.vibe/sessions/`。取消后需核对已发生的副作用。
@@ -451,11 +451,11 @@ Agent 从常驻目录判断哪些技能与当前工作有关，调用 `load_skil
 
 可调：`VIBE_LLM_TIMEOUT`、`VIBE_LLM_RETRIES`、`VIBE_LLM_RETRY_BACKOFF`、`VIBE_MAX_CONTINUATIONS`、`VIBE_MAX_NO_PROGRESS`、`VIBE_MAX_RUN_TOKENS`、`VIBE_COMPACT_INTERVAL_TOKENS`、`VIBE_MAX_RUN_COST_USD`、`VIBE_TOOL_RETRIES`。
 
-## 右侧 Git 变更侧栏（Ghostty）
+## 右侧 Git 变更侧栏（Ghostty / macOS Terminal）
 
 工作台可以在终端窗口右侧额外打开一个**独立的变更侧栏**，显示整个工作区的 Git 状态：变更文件列表、每个文件的新增/删除行数、选中文件的 unified diff。它跑在独立的 TTY 里，不改变主 Ink 工作台的列宽和布局。
 
-需要 macOS + **Ghostty 1.3 或更新版本**（使用 Ghostty 的 AppleScript 接口）；首次自动打开时 macOS 会请求“自动化”权限。
+支持 **Ghostty 1.3+**（split / quick terminal 两种形态）和 **macOS 原生 Terminal**（没有 split/quick，使用独立窗口，自动放在当前窗口右侧、同高）。首次自动操作时 macOS 会请求“自动化”权限。
 
 ### Quick terminal 配置（仅 `/sidebar quick` 需要）
 
@@ -504,9 +504,11 @@ keybind = global:cmd+shift+g=toggle_quick_terminal
 |---|---|---|
 | `/sidebar` 或 `Ctrl+G` | **split（默认）** | 在当前 Ghostty 窗口内右侧分屏，**跟随窗口尺寸**；打开后会自动把 Ghostty 默认的 50/50 校准到约 **70/30**（TUI 70%）。代价是 TUI 宽度减少；窗口不足 118 列时 Ink 进入紧凑布局，TUI 自己的右侧状态栏会隐藏（上下文预算显示到顶部状态条）。 |
 | `/sidebar quick` | quick terminal | 屏幕右缘浮层，**不挤占 TUI**；位置/尺寸锚定屏幕，不跟随窗口。需要先执行 `/sidebar setup` 并重启 Ghostty；首次会请求 macOS 自动化权限。 |
-| `/sidebar setup` | — | 写入 quick terminal 右侧配置（仅 quick 模式需要）。 |
+| `/sidebar window` | 独立窗口（手动） | Ghostty：新开侧栏窗口，需手动拖到右侧；Terminal：自动放在 TUI 右侧、同高，可再拖动。 |
+| `/sidebar setup` | — | 写入 Ghostty quick terminal 右侧配置（仅 quick 模式需要）。 |
 
-- 再次触发：如果侧栏还在运行，只聚焦已有侧栏（split）或切换显隐（quick）；split 创建时先按估算 resize 到接近 70/30（在侧栏进程启动前，避免先看到完整的 50/50），侧栏启动后再按回报的列宽做一次校准；
+- macOS Terminal：`/sidebar` 或 `Ctrl+G` 默认走独立窗口模式（自动靠右、同高）；退出 TUI 时会关闭该窗口；侧栏内 `q` 退出时通常随 shell 结束关闭；
+- 再次触发：如果侧栏还在运行，只聚焦已有侧栏（split/window）或切换显隐（quick）；split 创建时先按估算 resize 到接近 70/30（在侧栏进程启动前，避免先看到完整的 50/50），侧栏启动后再按回报的列宽做一次校准；
 - 顶部紧凑状态条：当主 TUI 宽度 `< 118` 列时，右侧状态面板会隐藏，状态/上下文预算/构成条合并到顶部 3 行；窗口足够宽（约 ≥169 列时 70/30 仍能保留右侧面板）时自动恢复。
 - 侧栏内 `q` 退出后分屏/quick terminal 关闭，下次 `/sidebar` 重新启动；
 - **生命周期联动**：工作台通过 `--parent-pid` 把主进程号传给侧栏；工作台退出（`Ctrl+Q`、`/quit`、异常断开、进程被杀）后，侧栏会立即（正常退出）或约 1 秒内（崩溃）退出，分屏/quick terminal 随之关闭，不会留下孤儿面板。手动运行 `./run_sidebar.sh` 不传 `--parent-pid`，则不受工作台退出影响；
@@ -538,7 +540,7 @@ keybind = global:cmd+shift+g=toggle_quick_terminal
 
 ### 已知限制
 
-- 当前只支持 Ghostty；macOS 原生 Terminal、`new window` 手动摆位在后续切片；
+- Ghostty 支持 split/quick；macOS Terminal 支持独立窗口（自动靠右），但没有 split/quick；
 - quick terminal 全局唯一，宽度由 Ghostty 配置固定，不能像普通窗口一样拖拽；
 - 尚未支持从侧栏回传操作到工作台（例如把选中文件附到下一条消息）；
 - 实现与验证记录见 [右侧 Git 变更侧栏](specs/sidebar-git-panel.md)。

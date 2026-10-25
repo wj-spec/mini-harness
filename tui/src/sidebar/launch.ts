@@ -1,7 +1,7 @@
 import {spawnSync} from 'node:child_process';
 import {existsSync} from 'node:fs';
 import path from 'node:path';
-import {openSidebar, type LaunchResult, type SidebarMode} from './host.js';
+import {closeSidebarWindow, openSidebar, type LaunchResult, type SidebarMode, type TerminalHost} from './host.js';
 import {killLinkedSidebar} from './lifecycle.js';
 import {adjustSidebarSplit} from './split-ratio.js';
 
@@ -49,4 +49,9 @@ export function killSidebarForTui(workspace: string): boolean {
 /** split 打开后把比例从 Ghostty 默认 50/50 调整到约 70/30。后台执行，不阻塞 TUI。 */
 export function adjustSidebarSplitForTui(workspace: string, totalColumns: number): void {
   void adjustSidebarSplit({workspace, totalColumns}).catch(() => {});
+}
+
+/** 退出工作台时关闭独立窗口模式留下的窗口（split/quick 不需要）。 */
+export function closeSidebarWindowForTui(host: TerminalHost, windowId: string): boolean {
+  return closeSidebarWindow(host, windowId);
 }

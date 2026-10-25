@@ -5,7 +5,7 @@ import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import test from 'node:test';
 import {
-  SIDEBAR_TITLE, checkQuickTerminalPosition, detectHost, ghosttyBinary, ghosttyScript, openSidebar, readFontSize, resizeSidebarSplit, resizeSplitScript, shellQuote, sidebarCommand, splitScript,
+  SIDEBAR_TITLE, checkQuickTerminalPosition, closeSidebarWindow, closeWindowScript, detectHost, ghosttyBinary, ghosttyScript, ghosttyWindowScript, openSidebar, readFontSize, resizeSidebarSplit, resizeSplitScript, shellQuote, sidebarCommand, splitScript, terminalWindowScript,
   type Runner,
 } from '../src/sidebar/host.js';
 import {sidebarCliPath} from '../src/sidebar/launch.js';
@@ -118,10 +118,9 @@ test('openSidebar proceeds once quick-terminal-position is right', () => {
 });
 
 test('automatic sidebars explain unsupported hosts and macOS automation permissions', () => {
-  const unsupportedTerminal = openSidebar({workspace: '/repo', cliPath: '/app/sidebar.js', env: {TERM_PROGRAM: 'Apple_Terminal'}, platform: 'darwin'});
-  assert.equal(unsupportedTerminal.outcome, 'unsupported');
-  assert.match(unsupportedTerminal.message, /macOS Terminal/u);
-  assert.match(unsupportedTerminal.message, /请先手动运行/u);
+  const unsupportedHost = openSidebar({workspace: '/repo', cliPath: '/app/sidebar.js', env: {TERM_PROGRAM: 'iTerm.app'}, platform: 'darwin'});
+  assert.equal(unsupportedHost.outcome, 'unsupported');
+  assert.match(unsupportedHost.message, /iTerm|不支持/u);
   const otherPlatform = openSidebar({workspace: '/repo', cliPath: '/app/sidebar.js', env: {TERM_PROGRAM: 'ghostty'}, platform: 'linux'});
   assert.equal(otherPlatform.outcome, 'unsupported');
   const denied = openSidebar({workspace: '/repo', cliPath: '/app/sidebar.js', env: {TERM_PROGRAM: 'ghostty'}, platform: 'darwin', ghosttyBinary: null,
@@ -160,6 +159,40 @@ test('split launch with total columns injects an initial resize before sidebar s
   assert.match(osascript![2]!, /resize_split:right,265/u);
 });
 
+test('window modes open a separate Ghostty or Terminal window', () => {
+  const ghostty = ghosttyWindowScript('cd /repo && exec node /app/sidebar.js', '/repo');
+  assert.match(ghostty, /new window with configuration cfg/u);
+  assert.match(ghostty, /initial input of cfg/u);
+  assert.match(ghostty, /return "started:"/u);
+  const terminal = terminalWindowScript('cd /repo && exec node /app/sidebar.js');
+  assert.match(terminal, /do script "cd \/repo/u);
+  assert.match(terminal, /bounds of window 1/u);
+  assert.match(terminal, /set bounds of newWindow/u);
+  assert.match(terminal, /sidebarWidth/u);
+});
+
+test('Terminal host opens a right-side window and reports its window id for cleanup', () => {
+  const result = openSidebar({workspace: '/repo', cliPath: '/app/sidebar.js', env: {TERM_PROGRAM: 'Apple_Terminal'}, platform: 'darwin',
+    run: () => ({status: 0, stdout: 'started:42\n', stderr: ''})});
+  assert.equal(result.outcome, 'started');
+  assert.equal(result.host, 'terminal');
+  assert.equal(result.windowId, '42');
+  assert.match(result.message, /Terminal/u);
+  const ghostty = openSidebar({workspace: '/repo', cliPath: '/app/sidebar.js', env: {TERM_PROGRAM: 'ghostty'}, platform: 'darwin', mode: 'window',
+    run: () => ({status: 0, stdout: 'started:win-1\n', stderr: ''})});
+  assert.equal(ghostty.outcome, 'started');
+  assert.equal(ghostty.host, 'ghostty');
+  assert.equal(ghostty.windowId, 'win-1');
+});
+
+test('window cleanup close scripts target the reported window id', () => {
+  assert.match(closeWindowScript('terminal', '42')!, /every window whose id is 42/u);
+  assert.match(closeWindowScript('ghostty', 'win-1')!, /every window whose id is "win-1"/u);
+  assert.equal(closeWindowScript('terminal', 'not-a-number'), null);
+  assert.equal(closeSidebarWindow('terminal', '42', {env: {TERM_PROGRAM: 'Apple_Terminal'}, platform: 'darwin',
+    run: () => ({status: 0, stdout: 'closed\n', stderr: ''})}), true);
+});
+
 test('split resize scripts target the sidebar terminal and use Ghostty resize_split', () => {
   const script = resizeSplitScript('right', 160.4);
   assert.match(script, /resize_split:right,160/u);
@@ -174,7 +207,15 @@ test('split resize scripts target the sidebar terminal and use Ghostty resize_sp
 test('generated AppleScript compiles with the macOS scripting compiler', {skip: process.platform !== 'darwin' || !hasOsacompile()}, () => {
   const directory = mkdtempSync(path.join(tmpdir(), 'mini-harness-sidebar-'));
   try {
-    for (const [name, script] of [['quick', ghosttyScript('echo hello')], ['split', splitScript('echo hello', '/repo')], ['resize', resizeSplitScript('right', 120)]] as const) {
+    const scripts: [string, string][] = [
+      ['quick', ghosttyScript('echo hello')],
+      ['split', splitScript('echo hello', '/repo')],
+      ['ghostty-window', ghosttyWindowScript('echo hello', '/repo')],
+      ['terminal-window', terminalWindowScript('echo hello')],
+      ['resize', resizeSplitScript('right', 120)],
+      ['close', closeWindowScript('terminal', '42')!],
+    ];
+    for (const [name, script] of scripts) {
       const output = path.join(directory, `${name}.scpt`);
       const result = spawnSync('osacompile', ['-o', output, '-e', script], {encoding: 'utf8'});
       assert.equal(result.status, 0, `${name}: ${result.stderr}`);

@@ -1,20 +1,21 @@
-# 右侧 Git 变更侧栏（Ghostty quick terminal）
+# 右侧 Git 变更侧栏（Ghostty / macOS Terminal）
 
 日期：2026-10-25。状态：工程实现、自动回归与 AppleScript 语法校验完成；真实 Ghostty 终端里的 quick terminal 打开、切换与视觉验收待用户确认。
 
 ## 背景与范围
 
-用户希望在工作台之外、终端窗口右侧有一个跟随工作区的文件变更与 diff 面板，**不改变主 Ink 工作台的列宽与布局**。先支持 macOS + Ghostty；后续再扩展 `new window` 手动摆位与 macOS 原生 Terminal。
+用户希望在工作台之外、终端窗口右侧有一个跟随工作区的文件变更与 diff 面板，**不改变主 Ink 工作台的列宽与布局**。先支持 macOS + Ghostty；同日补齐 macOS Terminal 与独立窗口模式（`new window` / 手动摆位）。
 
 本切片交付：
 
 - 独立进程 `tui/src/sidebar/`：只读 Git 变更列表 + 选中文件 unified diff，1s 轮询跟随；
-- 两种形态：默认 `/sidebar`/`Ctrl+G` 在 Ghostty 窗口内右侧分屏（跟随窗口尺寸）；`/sidebar quick` 使用 Ghostty 1.3+ quick terminal（屏幕右缘浮层，不挤占 TUI）；
+- Ghostty 三种形态：默认 `/sidebar`/`Ctrl+G` 窗口内右侧 split（跟随窗口尺寸）、`/sidebar quick` 屏幕右缘 quick terminal（不挤占 TUI）、`/sidebar window` 独立窗口（手动摆位）；
+- macOS Terminal：没有 split/quick，`/sidebar` 自动使用独立窗口，按当前 TUI 窗口 bounds 放到右侧、同高；
 - 主 TUI 的工作台入口、帮助与命令补全；
 - 手动入口 `./run_sidebar.sh`，可用于任意终端或面板；
 - 只读边界、错误降级与 AppleScript 语法校验。
 
-不在本切片：macOS Terminal 自动化、新窗口摆位、双向操作（从侧栏写回工作台）、鼠标、side-by-side、语法高亮。
+不在本切片：从侧栏写回工作台（双向操作）、鼠标、side-by-side、语法高亮。
 
 ## 形态与依据
 
@@ -29,7 +30,7 @@
 为了在需要“跟随窗口”时可用，新增 **split 模式，并设为默认**（2026-10-25 用户反馈 quick terminal 不跟随窗口尺寸后调整；`/sidebar quick` 保留原形态）：
 
 - 命令：`/sidebar`、`/sidebar split`、`Ctrl+G`；quick 模式为 `/sidebar quick`；
-- AppleScript：`new surface configuration` 设置 `command` 与 `initial working directory`，再 `split <terminal> direction right with configuration`；
+- AppleScript：`new surface configuration` 设置 `initial working directory`，`split <terminal> direction right with configuration` 后向新终端 `input text` 启动命令、`send key "enter"`；
 - 分屏属于窗口布局，**跟随窗口尺寸重排**，高度与窗口一致；代价是主 TUI 宽度减少（窗口不足 118 列时 Ink 切紧凑布局）；
 - 已有标题匹配的侧栏终端时只 `focus`，不重复分屏。
 
@@ -88,6 +89,13 @@ return "started"
 
 split 不需要 quick terminal 配置，也不经过 `quick-terminal-position` 预检；失败路径与 quick 模式共用 TCC/权限错误映射。
 
+## macOS Terminal 与独立窗口
+
+- **macOS Terminal**：`tell application "Terminal"` 读取 `bounds of window 1`（当前 TUI 窗口），`do script "<启动命令>"` 打开新窗口，再设置 `bounds` 到 `{right, top, right + width*0.3, bottom}`（最小宽度 320），达到“右侧、同高”；返回 `started:<window id>`。
+- **Ghostty 独立窗口**：`new window with configuration`，配置 `initial working directory` 与 `initial input`（启动命令 + return），返回 `started:<window id>`；Ghostty sdef 不暴露窗口 bounds，因此只能手动拖到右侧。
+- 工作台把 `{host, windowId}` 记在内存中；退出 TUI 时先 `SIGTERM` 侧栏进程，再按 host 关闭窗口（Terminal `close window id` / Ghostty `close window`）。侧栏内 `q` 正常退出时，Terminal 通常随 shell 结束关闭，Ghostty 窗口随 surface 结束关闭；异常崩溃时窗口可能残留，需要手动关闭。
+- 已有标题匹配的侧栏时返回 `focused` 并前置窗口，不重复创建。
+
 ## 只读边界与安全
 
 `tui/src/sidebar/git.ts` 的所有 Git 调用都满足：
@@ -128,7 +136,8 @@ split 不需要 quick terminal 配置，也不经过 `quick-terminal-position` �
 | 未安装 git | 显示“未找到 git 命令” |
 | 读取 diff 失败 | 选中区显示错误，列表与轮询继续 |
 | Ghostty < 1.3 / 非 Ghostty | 自动打开返回 `unsupported`，工作台提示手动命令；`./run_sidebar.sh` 仍可用 |
-| macOS Terminal | 明确提示“自动化尚未实现”，避免误导 |
+| macOS Terminal | 自动走独立窗口模式：按 TUI 窗口 bounds 放右侧、同高；退出 TUI 时按记录的 window id 关闭 |
+| Terminal/未知终端 | 未知终端仍返回 `unsupported` 并提示手动命令 |
 | quick 模式且位置不是 right | 返回 `misconfigured`，不打开；提示 `/sidebar setup` 并重启 Ghostty（split 模式不受影响） |
 | 自动化权限被拒 | 提示到系统设置授予后重试 |
 | quick terminal 已打开但标题不匹配 | 返回 `opened`，提示在 quick terminal 内手动运行启动命令 |
@@ -142,7 +151,7 @@ split 不需要 quick terminal 配置，也不经过 `quick-terminal-position` �
 - `tui/tests/sidebar-git.test.ts`：porcelain v2（分支/ahead/behind、M/A/D/R/?/冲突、中文路径关闭 quotepath）、numstat、无 Git/非 Git、diff 截断、固定参数。
 - `tui/tests/sidebar-diff.test.ts`：unified diff 分类、宽字符换行、空行保留。
 - `tui/tests/sidebar-state.test.ts`：首次选择、跟随变化文件、手动选择保持、文件消失回退、滚动 clamp。
-- `tui/tests/sidebar-host.test.ts`：终端识别、shell 转义、AppleScript 生成、quick/split 结果映射、quick terminal 位置预检（top 拒绝 / right 通过 / 读取失败放行）、split 不预检、`--parent-pid` 注入、权限/不支持降级，以及用 `osacompile` 分别校验 quick 与 split 脚本语法。
+- `tui/tests/sidebar-host.test.ts`：终端识别、shell 转义、AppleScript 生成、quick/split/window 结果映射、Terminal window id 与关闭脚本、quick terminal 位置预检、`--parent-pid` 注入、权限/不支持降级，以及用 `osacompile` 校验 quick/split/window/close 脚本语法。
 - `tui/tests/sidebar-args.test.ts`：`--workspace/--theme/--refresh-ms/--parent-pid` 解析与非法值。
 - `tui/tests/sidebar-lifecycle.test.ts`：父进程存活判断（ESRCH/EPERM）、watcher 只触发一次/可停止、按 workspace 登记的 PID 只会终止同一父进程的侧栏，并用真实子进程验证 `SIGTERM` 生效；link 文件含侧栏列宽供比例校准。
 - `tui/tests/sidebar-split-ratio.test.ts`：目标列数计算、70/30 校准收敛、已达标不 resize、拿不到列宽时放弃。
@@ -152,12 +161,12 @@ split 不需要 quick terminal 配置，也不经过 `quick-terminal-position` �
 
 本轮工程验证记录：
 
-- `npm --prefix tui test`：**289/290 通过**，唯一失败是沙箱无 PTY 的既有环境项（`interactive CLI enters and restores the alternate screen`）。
+- `npm --prefix tui test`：**292/293 通过**，唯一失败是沙箱无 PTY 的既有环境项（`interactive CLI enters and restores the alternate screen`）。
 - AppleScript 已通过 `osacompile` 语法编译校验；未在本机执行 `osascript`，避免触发用户的终端自动化授权或切换其窗口。
 - `./run_sidebar.sh --help` 正常；`readWorkspaceStatus` 在本仓库实际读取变更文件与 diff；`ghostty +show-config` 预检确认本机当前默认 `quick-terminal-position = top`，与用户反馈一致。
 - 配置脚本已在本机临时目录验证写入与校验；本机真实 Ghostty 配置未被修改。
 
-**仍待用户验收**：重启工作台后，`/sidebar` 或 `Ctrl+G` 确认 split 打开并自动调到约 70/30、跟随窗口尺寸、退出工作台关闭侧栏；`/sidebar quick` 确认原来的浮层模式；以及两种模式下主 TUI 的视觉与输入体验。
+**仍待用户验收**：Ghostty 下 split 自动 70/30、跟随尺寸、退出联动；`/sidebar quick` 浮层；`/sidebar window` 手动摆位；macOS Terminal 下 `/sidebar` 自动右侧窗口、退出时关闭；以及主 TUI 的视觉与输入体验。
 
 ## 已知限制与后续
 

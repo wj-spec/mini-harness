@@ -2,14 +2,14 @@ import {spawnSync} from 'node:child_process';
 import {existsSync} from 'node:fs';
 import path from 'node:path';
 
-/** Ghostty 1.3+ 的 AppleScript 入口；后续 macOS Terminal 在此扩展。 */
+/** Ghostty 1.3+ 与 macOS Terminal 的 AppleScript 入口。 */
 export const SIDEBAR_TITLE = 'mini-harness sidebar';
 export const SIDEBAR_COMMAND = 'osascript';
 
 export type TerminalHost = 'ghostty' | 'terminal' | 'unknown';
-export type SidebarMode = 'quick' | 'split';
+export type SidebarMode = 'quick' | 'split' | 'window';
 export type LaunchOutcome = 'started' | 'toggled' | 'focused' | 'opened' | 'unsupported' | 'misconfigured' | 'failed';
-export type LaunchResult = {outcome: LaunchOutcome; message: string; command?: string};
+export type LaunchResult = {outcome: LaunchOutcome; message: string; command?: string; host?: TerminalHost; windowId?: string};
 
 export type RunResult = {status: number | null; stdout: string; stderr: string; error?: string};
 export type Runner = (command: string, args: string[], options: {timeoutMs: number}) => RunResult;
@@ -201,6 +201,79 @@ export function resizeSidebarSplit(direction: 'left' | 'right', pixels: number, 
   return result.status === 0 && lastLine(result.stdout) === 'ok';
 }
 
+/** Ghostty 独立窗口模式：新建窗口运行侧栏，窗口位置由用户手动摆放。 */
+export function ghosttyWindowScript(command: string, workspace: string): string {
+  return `set sidebarTitle to "${SIDEBAR_TITLE}"
+tell application "Ghostty"
+  set sidebarHits to (every terminal whose name contains sidebarTitle)
+  if (count of sidebarHits) > 0 then
+    focus (item 1 of sidebarHits)
+    return "focused"
+  end if
+  set cfg to new surface configuration
+  set initial working directory of cfg to "${appleScriptString(workspace)}"
+  set initial input of cfg to "${appleScriptString(command)}" & return
+  set newWin to new window with configuration cfg
+  return "started:" & ((id of newWin) as text)
+end tell`;
+}
+
+/** macOS Terminal 独立窗口：新建窗口并尽量放在当前 TUI 窗口右侧、同高。 */
+export function terminalWindowScript(command: string): string {
+  return `set sidebarTitle to "${SIDEBAR_TITLE}"
+tell application "Terminal"
+  activate
+  set sidebarHits to (every window whose name contains sidebarTitle)
+  if (count of sidebarHits) > 0 then
+    set index of (item 1 of sidebarHits) to 1
+    return "focused"
+  end if
+  set tuiBounds to bounds of window 1
+  set leftX to item 1 of tuiBounds
+  set topY to item 2 of tuiBounds
+  set rightX to item 3 of tuiBounds
+  set bottomY to item 4 of tuiBounds
+  set sidebarWidth to ((rightX - leftX) * 0.3) as integer
+  if sidebarWidth < 320 then set sidebarWidth to 320
+  set newWindow to make new window
+  set bounds of newWindow to {rightX, topY, rightX + sidebarWidth, bottomY}
+  do script "${appleScriptString(command)}" in newWindow
+  return "started:" & ((id of newWindow) as text)
+end tell`;
+}
+
+/** 关闭独立窗口模式留下的窗口；split/quick 不需要。 */
+export function closeWindowScript(host: TerminalHost, windowId: string): string | null {
+  if (host === 'terminal' && /^\d+$/u.test(windowId)) {
+    return `tell application "Terminal"
+  set matches to (every window whose id is ${windowId})
+  if (count of matches) > 0 then close (item 1 of matches)
+  return "closed"
+end tell`;
+  }
+  if (host === 'ghostty') {
+    return `tell application "Ghostty"
+  set matches to (every window whose id is "${appleScriptString(windowId)}")
+  if (count of matches) > 0 then close (item 1 of matches)
+  return "closed"
+end tell`;
+  }
+  return null;
+}
+
+export function closeSidebarWindow(host: TerminalHost, windowId: string, options: {
+  env?: NodeJS.ProcessEnv; platform?: NodeJS.Platform; run?: Runner; timeoutMs?: number;
+} = {}): boolean {
+  const platform = options.platform ?? process.platform;
+  const env = options.env ?? process.env;
+  if (platform !== 'darwin' || detectHost(env) === 'unknown') return false;
+  const script = closeWindowScript(host, windowId);
+  if (!script) return false;
+  const run = options.run ?? defaultRunner;
+  const result = run(SIDEBAR_COMMAND, ['-e', script], {timeoutMs: options.timeoutMs ?? 3000});
+  return result.status === 0 && lastLine(result.stdout) === 'closed';
+}
+
 function launchFailure(result: RunResult, command: string): LaunchResult | null {
   if (result.error) return {outcome: 'failed', message: `打开侧栏失败：${result.error}`, command};
   if (result.status === 0) return null;
@@ -213,6 +286,20 @@ function launchFailure(result: RunResult, command: string): LaunchResult | null 
     };
   }
   return {outcome: 'failed', command, message: `打开侧栏失败：${lastLine(stderr) || `osascript 退出码 ${result.status ?? '未知'}`}`};
+}
+
+function mapWindowMarker(marker: string, host: TerminalHost, command: string): LaunchResult {
+  const started = /^started:(.+)$/u.exec(marker);
+  if (started) {
+    return {
+      outcome: 'started', command, host, windowId: started[1],
+      message: host === 'terminal'
+        ? '已在 Terminal 中打开独立侧栏窗口（已放到右侧、与 TUI 同高；可拖动调整）'
+        : '已打开 Ghostty 侧栏窗口（不会自动摆位，请拖到窗口右侧）',
+    };
+  }
+  if (marker === 'focused') return {outcome: 'focused', command, host, message: '已聚焦侧栏窗口'};
+  return {outcome: 'failed', command, message: `侧栏窗口启动结果未知：${marker || '空输出'}`};
 }
 
 function mapQuickMarker(marker: string, command: string): LaunchResult {
@@ -261,14 +348,17 @@ export function openSidebar(options: OpenSidebarOptions): LaunchResult {
   if (platform !== 'darwin') return unsupported(`当前平台暂不支持自动打开侧栏；请手动运行：${command}`, command);
   const env = options.env ?? process.env;
   const host = detectHost(env);
-  if (host === 'terminal') {
-    return unsupported(`macOS Terminal 的自动侧栏尚未实现；请先手动运行：${command}`, command);
-  }
-  if (host !== 'ghostty') {
-    return unsupported(`当前终端不支持自动打开侧栏（需要 Ghostty ≥ 1.3）；请手动运行：${command}`, command);
+  if (host === 'unknown') {
+    return unsupported(`当前终端不支持自动打开侧栏（Ghostty 或 macOS Terminal）；请手动运行：${command}`, command);
   }
   const run = options.run ?? defaultRunner;
   const timeoutMs = options.timeoutMs ?? 10_000;
+  // Terminal 没有 split/quick：统一用独立窗口，并尽量放到右侧。
+  if (mode === 'window' || host === 'terminal') {
+    const script = host === 'terminal' ? terminalWindowScript(command) : ghosttyWindowScript(command, options.workspace);
+    const result = run(SIDEBAR_COMMAND, ['-e', script], {timeoutMs});
+    return launchFailure(result, command) ?? mapWindowMarker(lastLine(result.stdout), host, command);
+  }
   if (mode === 'split') {
     const initialPixels = options.totalColumns
       ? Math.max(0, Math.round(options.totalColumns * 0.2 * readFontSize(run, env, options.ghosttyBinary) * 0.6))
