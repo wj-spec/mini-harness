@@ -240,6 +240,50 @@ def run_config(fake: bool) -> dict:
     }
 
 
+def distribution(values: list[float]) -> dict:
+    """多次运行的成本分布；单次结果波动大时不能只报均值。"""
+    ordered = sorted(values)
+    if not ordered:
+        return {}
+    middle = len(ordered) // 2
+    median = ordered[middle] if len(ordered) % 2 else (ordered[middle - 1] + ordered[middle]) / 2
+    return {"count": len(ordered), "min": ordered[0], "median": median, "max": ordered[-1]}
+
+
+def summarize(reports: list[dict], *, stamp: str, prepare: bool, fake: bool) -> dict:
+    """汇总三类结果、配置冻结、保留题与成本分布。"""
+    configs = {json.dumps(report.get("config"), sort_keys=True) for report in reports if report.get("config")}
+    held_out = [report for report in reports if report.get("held_out")]
+    per_task: dict[str, dict] = {}
+    for report in reports:
+        bucket = per_task.setdefault(report["task"], {"attempts": 0, "passed": 0, "steps": [], "tokens": []})
+        bucket["attempts"] += 1
+        bucket["passed"] += 1 if report.get("passed") else 0
+        if isinstance(report.get("agent_steps"), (int, float)):
+            bucket["steps"].append(report["agent_steps"])
+        if isinstance(report.get("agent_tokens"), dict) and report["agent_tokens"].get("total_tokens") is not None:
+            bucket["tokens"].append(report["agent_tokens"]["total_tokens"])
+    for bucket in per_task.values():
+        bucket["steps"] = distribution(bucket["steps"])
+        bucket["tokens"] = distribution(bucket["tokens"])
+    return {
+        "stamp": stamp,
+        "prepare": prepare,
+        "fake": fake,
+        "tasks": reports,
+        "passed": sum(1 for report in reports if report.get("passed")),
+        "total": len(reports),
+        "artifact_correct": sum(1 for report in reports if report.get("artifact_correct")),
+        "run_complete": sum(1 for report in reports if report.get("run_complete")),
+        "comparable": sum(1 for report in reports if report.get("comparable")),
+        "valid": sum(1 for report in reports if report.get("valid")),
+        "config_frozen": len(configs) <= 1,
+        "held_out_total": len(held_out),
+        "held_out_passed": sum(1 for report in held_out if report.get("passed")),
+        "per_task": per_task,
+    }
+
+
 def failure_class(report: dict) -> str | None:
     if report.get("passed"):
         return None
@@ -424,23 +468,7 @@ def main() -> int:
                 f"class={report.get('failure_class')}",
                 flush=True,
             )
-    configs = {json.dumps(report.get("config"), sort_keys=True) for report in reports if report.get("config")}
-    held_out = [report for report in reports if report.get("held_out")]
-    summary = {
-        "stamp": stamp,
-        "prepare": args.prepare,
-        "fake": args.fake,
-        "tasks": reports,
-        "passed": sum(1 for report in reports if report.get("passed")),
-        "total": len(reports),
-        "artifact_correct": sum(1 for report in reports if report.get("artifact_correct")),
-        "run_complete": sum(1 for report in reports if report.get("run_complete")),
-        "comparable": sum(1 for report in reports if report.get("comparable")),
-        "valid": sum(1 for report in reports if report.get("valid")),
-        "config_frozen": len(configs) <= 1,
-        "held_out_total": len(held_out),
-        "held_out_passed": sum(1 for report in held_out if report.get("passed")),
-    }
+    summary = summarize(reports, stamp=stamp, prepare=args.prepare, fake=args.fake)
     summary_path = RUN_ROOT / stamp / "summary.json"
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"报告：{summary_path}", flush=True)

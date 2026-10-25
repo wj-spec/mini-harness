@@ -80,3 +80,25 @@ def test_run_config_records_model_budget_and_version():
     assert set(config) == {"model", "budget", "version", "fake"}
     assert config["fake"] is True
 
+
+def test_summarize_records_cost_distribution_per_task():
+    bench = _bench_module()
+    reports = [
+        {"task": "t1", "attempt": 1, "passed": True, "agent_steps": 11, "agent_tokens": {"total_tokens": 100},
+         "config": {"model": "m"}, "held_out": True, "comparable": True, "valid": True,
+         "artifact_correct": True, "run_complete": True},
+        {"task": "t1", "attempt": 2, "passed": True, "agent_steps": 24, "agent_tokens": {"total_tokens": 300},
+         "config": {"model": "m"}, "held_out": True, "comparable": True, "valid": True,
+         "artifact_correct": True, "run_complete": True},
+        {"task": "t1", "attempt": 3, "passed": False, "agent_steps": 36, "agent_tokens": {"total_tokens": 200},
+         "config": {"model": "m"}, "held_out": True, "comparable": True, "valid": True,
+         "artifact_correct": False, "run_complete": True},
+    ]
+    summary = bench.summarize(reports, stamp="s", prepare=False, fake=False)
+    assert summary["config_frozen"] is True
+    assert summary["held_out_total"] == 3 and summary["held_out_passed"] == 2
+    stats = summary["per_task"]["t1"]
+    assert stats["attempts"] == 3 and stats["passed"] == 2
+    assert stats["steps"] == {"count": 3, "min": 11, "median": 24, "max": 36}
+    assert stats["tokens"] == {"count": 3, "min": 100, "median": 200, "max": 300}
+
