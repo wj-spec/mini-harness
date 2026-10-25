@@ -54,6 +54,8 @@ def main() -> None:
     parser.add_argument("--model", default=None)
     parser.add_argument("--base-url", default=None)
     parser.add_argument("--workspace", default=None)
+    parser.add_argument("--sandbox", action="store_true", help="用 macOS Seatbelt 沙箱执行命令（写入限工作区与临时目录）")
+    parser.add_argument("--sandbox-network", action="store_true", help="沙箱内允许网络（默认拒绝）")
     parser.add_argument("--max-steps", type=int, default=None)
     parser.add_argument("--chat-only", action="store_true", help="M1: 不挂工具，只验证真实模型流式回复")
     sessions = parser.add_mutually_exclusive_group()
@@ -92,6 +94,11 @@ def main() -> None:
         config.workspace = Path(args.workspace)
     if args.max_steps is not None:
         config.max_steps = args.max_steps
+    if args.sandbox:
+        config.sandbox = True
+    if args.sandbox_network:
+        config.sandbox = True
+        config.sandbox_network = True
 
     session_purpose = "test" if args.test_session or args.fake or config.provider == "fake" else "user"
 
@@ -181,7 +188,8 @@ def main() -> None:
     approval = ApprovalGate(audit_path=session.audit_path)
     try:
         tools = ToolRegistry(config.workspace, context=context, state=state,
-                             skills_config=config.skills_config)
+                             skills_config=config.skills_config,
+                             sandbox=config.sandbox, sandbox_network=config.sandbox_network)
     except (OSError, ValueError) as exc:
         print(f"error: invalid skills config: {exc}", file=sys.stderr)
         raise SystemExit(1)

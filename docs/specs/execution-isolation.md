@@ -1,6 +1,6 @@
 # 执行隔离评估
 
-状态：评估（2026-10-25）；选项 B 第一小步已实施，其余待决策。当前边界是**审批 + 危险命令黑名单 + 超时 + 进程组回收**，不是操作系统级沙箱。本文记录现状、可绕过点、选项与验收口径，供后续按真实风险决定实现顺序。
+状态：评估（2026-10-25）；选项 B 第一小步与 macOS Seatbelt 可选沙箱已实施，Linux 后端与网络白名单待做。当前边界是**审批 + 危险命令黑名单 + 超时 + 进程组回收**，不是操作系统级沙箱。本文记录现状、可绕过点、选项与验收口径，供后续按真实风险决定实现顺序。
 
 ## 当前机制
 
@@ -33,6 +33,19 @@
 | B 黑名单护栏增强 | 增加"写/删指向工作区外的明显命令"模式（`rm/mv/tee/cp` + 绝对或 `~` 路径） | 低 | 提高误操作门槛 | 仍可绕过，不能当边界；误报需维护 |
 | C 环境收敛 | 子进程 `HOME`/`TMPDIR` 指向工作区内（如 `workspace/.home`） | 中 | 降低误写用户目录概率 | 可能破坏 npm/uv 缓存与工具链；需实测 |
 | D OS 级沙箱 | macOS `sandbox-exec` 模板：只允许写工作区 + 临时目录，网络按需开关；或 Linux bubblewrap/firejail；或复用评测 Docker | 高 | 唯一不依赖正则的边界 | 平台差异、维护成本；沙箱内工具链兼容性需验证 |
+
+## 已实施（2026-10-25，macOS Seatbelt 可选沙箱）
+
+选型依据见 [沙箱调研](../research/sandbox-research-2026-10-25.md)。实现位于 `app/sandbox.py`：
+
+- `--sandbox`（或 `VIBE_SANDBOX=1`）开启；`sandbox-exec -f <profile> /bin/bash -lc <cmd>` 包裹命令。
+- 策略：默认允许读取；**写入仅限工作区、`/tmp` 与系统临时目录**；**默认拒绝网络**（`--sandbox-network`/`VIBE_SANDBOX_NETWORK` 放开）；`~/.ssh`、`~/.aws`、`~/.gnupg`、`~/.netrc`、`~/.docker`、`~/.config/gh`、`~/.config/gcloud` 读取被拒。
+- 拒绝标注：输出以 `ERROR sandbox_denied: ...` 开头，模型能区分策略拒绝与普通失败；沙箱无法应用时输出 `ERROR sandbox_unavailable` 并要求去掉 `--sandbox`。
+- 启动探测：开启时先跑一次 `sandbox-exec` 探针，无法应用（例如本身运行在另一个沙箱内）会直接拒绝启动并给出原因，不会静默降级。
+- 审批、黑名单与写路径护栏保持生效；沙箱是兜底，不替代审批。
+- 测试：`tests/test_sandbox_seatbelt.py` 覆盖策略生成、配置解析、启动拒绝、错误标注，以及（在可应用环境下）工作区写放行/外部写拒绝/断网/工具链可用；无 seatbelt 或嵌套沙箱环境自动跳过集成部分。
+
+**限制**：仅 macOS；`sandbox-exec` 已被标记 deprecated 但 Codex、Anthropic sandbox-runtime、Gemini CLI 仍在用，需保留探测与降级错误。Linux 待用 bubblewrap 对齐。
 
 ## 已实施（2026-10-25，选项 B 的第一小步）
 

@@ -19,7 +19,10 @@ from core.context import ContextBuilder
 from core.models import ExecutionOutcome, ToolCall
 from core.state import TaskState
 from app.diff import unified_diff
-from app.sandbox import CommandCancelled, check_command, run_command, run_command_async
+from app.sandbox import (
+    CommandCancelled, check_command, ensure_seatbelt_profile, probe_sandbox, run_command,
+    run_command_async, sandbox_available,
+)
 from app.skills import Skill, SkillManager
 from app.skill_history import skill_history_view
 from app.web_search import validate_search, web_search
@@ -90,8 +93,22 @@ class ToolRegistry:
         state: TaskState | None = None,
         *,
         skills_config: str = "",
+        sandbox: bool = False,
+        sandbox_network: bool = False,
     ):
         self.root = Path(workspace).resolve()
+        if sandbox:
+            if not sandbox_available():
+                raise ValueError(
+                    "sandbox requested but sandbox-exec is unavailable on this platform; "
+                    "run without --sandbox"
+                )
+            applied, detail = probe_sandbox()
+            if not applied:
+                raise ValueError(f"sandbox cannot be applied here: {detail}; run without --sandbox")
+        self._sandbox_profile = (
+            ensure_seatbelt_profile(self.root, allow_network=sandbox_network) if sandbox else None
+        )
         self.context = context
         self.state = state
         self._read_hashes: dict[Path, str] = {}
@@ -301,7 +318,10 @@ class ToolRegistry:
         if not target.is_dir():
             raise NotADirectoryError(cwd)
         check_command(command, self.root)
-        code, output, timed_out = run_command(command, target, float(timeout))
+        code, output, timed_out = run_command(
+            command, target, float(timeout),
+            **({"sandbox_profile": self._sandbox_profile} if self._sandbox_profile else {}),
+        )
         return _command_output(command, cwd, timeout, code, output, timed_out=timed_out)
 
     async def _bash_async(self, command: str, timeout: float = 30.0, cwd: str = ".",
@@ -311,7 +331,10 @@ class ToolRegistry:
             raise NotADirectoryError(cwd)
         check_command(command, self.root)
         try:
-            code, output, timed_out = await run_command_async(command, target, float(timeout))
+            code, output, timed_out = await run_command_async(
+                command, target, float(timeout),
+                **({"sandbox_profile": self._sandbox_profile} if self._sandbox_profile else {}),
+            )
         except CommandCancelled as exc:
             return _command_output(command, cwd, timeout, exc.exit_code, exc.output, cancelled=True)
         return _command_output(command, cwd, timeout, code, output, timed_out=timed_out)

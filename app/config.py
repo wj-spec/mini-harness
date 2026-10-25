@@ -48,6 +48,8 @@ class Config:
     mcp_config: str = ""
     mcp_servers: str = ""
     skills_config: str = ""
+    sandbox: bool = False
+    sandbox_network: bool = False
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -98,6 +100,8 @@ class Config:
             mcp_config=os.getenv("VIBE_MCP_CONFIG", ""),
             mcp_servers=os.getenv("VIBE_MCP_SERVERS", ""),
             skills_config=os.getenv("VIBE_SKILLS_CONFIG", ""),
+            sandbox=os.getenv("VIBE_SANDBOX", "0").lower() in {"1", "true", "yes"},
+            sandbox_network=os.getenv("VIBE_SANDBOX_NETWORK", "0").lower() in {"1", "true", "yes"},
         )
 
     def label(self) -> str:

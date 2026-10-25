@@ -4,8 +4,11 @@ import asyncio
 import os
 import re
 import shlex
+import shutil
 import signal
 import subprocess
+import sys
+import tempfile
 from pathlib import Path
 
 DANGEROUS_PATTERNS: list[tuple[str, str]] = [
@@ -27,6 +30,89 @@ WRITE_COMMANDS = frozenset({
     "rm", "rmdir", "mv", "cp", "ln", "tee", "touch", "mkdir", "install", "truncate", "shred",
 })
 SAFE_WRITE_ROOTS = (Path("/tmp").resolve(),)
+
+SEATBELT_BINARY = "sandbox-exec"
+SENSITIVE_READ_PATHS = (
+    ".ssh", ".aws", ".gnupg", ".netrc", ".docker", ".config/gh", ".config/gcloud",
+)
+
+
+def sandbox_available() -> bool:
+    """macOS Seatbelt 是否可用；其他平台或缺少 sandbox-exec 时返回 False。"""
+    return sys.platform == "darwin" and shutil.which(SEATBELT_BINARY) is not None
+
+
+def probe_sandbox() -> tuple[bool, str]:
+    """探测沙箱能否真正应用；嵌套沙箱环境会失败，需提前给出清晰错误。"""
+    if not sandbox_available():
+        return False, "sandbox-exec unavailable"
+    handle = tempfile.NamedTemporaryFile("w", suffix=".sb", delete=False, encoding="utf-8")
+    try:
+        handle.write("(version 1)\n(allow default)\n")
+        handle.close()
+        proc = subprocess.run(
+            [SEATBELT_BINARY, "-f", handle.name, "/bin/echo", "ok"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return False, f"{type(exc).__name__}: {exc}"
+    finally:
+        Path(handle.name).unlink(missing_ok=True)
+    if proc.returncode != 0:
+        return False, (proc.stderr or proc.stdout).strip()[:300]
+    return True, ""
+
+
+def build_seatbelt_profile(workspace: Path, *, allow_network: bool = False) -> str:
+    """生成 Seatbelt 策略：默认放行读取，写入仅限工作区与临时目录，网络默认拒绝。"""
+    lines = ["(version 1)", "(allow default)"]
+    if not allow_network:
+        lines.append("(deny network*)")
+    lines.append("(deny file-write*)")
+    roots = [workspace.resolve()]
+    for candidate in (Path("/tmp").resolve(), Path(tempfile.gettempdir()).resolve(),
+                      Path("/private/var/folders").resolve()):
+        if candidate not in roots:
+            roots.append(candidate)
+    for root in roots:
+        lines.append(f'(allow file-write* (subpath "{root}"))')
+    lines.append('(allow file-write* (literal "/dev/null") (literal "/dev/stdout") '
+                 '(literal "/dev/stderr") (literal "/dev/dtracehelper"))')
+    home = Path.home()
+    for name in SENSITIVE_READ_PATHS:
+        lines.append(f'(deny file-read* (subpath "{home / name}"))')
+    return "\n".join(lines) + "\n"
+
+
+def ensure_seatbelt_profile(workspace: Path, *, allow_network: bool = False) -> Path:
+    """按工作区写出策略文件；内容不变时复用。"""
+    profile = workspace / ".vibe" / "sandbox" / (
+        "seatbelt-network.sb" if allow_network else "seatbelt.sb"
+    )
+    content = build_seatbelt_profile(workspace, allow_network=allow_network)
+    profile.parent.mkdir(parents=True, exist_ok=True)
+    if not profile.is_file() or profile.read_text(encoding="utf-8") != content:
+        profile.write_text(content, encoding="utf-8")
+    return profile
+
+
+def sandbox_wrapped(command: str, profile: Path | None) -> list[str]:
+    if profile is None:
+        return ["/bin/bash", "-lc", command]
+    return [SEATBELT_BINARY, "-f", str(profile), "/bin/bash", "-lc", command]
+
+
+def annotate_sandbox_denial(output: str, profile: Path | None) -> str:
+    """沙箱拒绝时给出结构化前缀，模型能区分策略拒绝与普通失败。"""
+    if profile is None:
+        return output
+    if "sandbox_apply:" in output:
+        return ("ERROR sandbox_unavailable: sandbox could not be applied in this "
+                "environment; rerun without --sandbox\n" + output)
+    if "Operation not permitted" in output or "Sandbox:" in output:
+        return ("ERROR sandbox_denied: command blocked by sandbox policy "
+                "(write outside workspace or network disabled)\n" + output)
+    return output
 
 
 def _outside_workspace_write(token: str, workspace: Path) -> str | None:
@@ -100,9 +186,11 @@ def run_command(
     cwd: Path,
     timeout: float = 30.0,
     max_chars: int = 10_000,
+    *,
+    sandbox_profile: Path | None = None,
 ) -> tuple[int, str, bool]:
     proc = subprocess.Popen(
-        ["/bin/bash", "-lc", command],
+        sandbox_wrapped(command, sandbox_profile),
         cwd=str(cwd),
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -120,7 +208,7 @@ def run_command(
             pass
         output, _ = proc.communicate()
 
-    output = output or ""
+    output = annotate_sandbox_denial(output or "", sandbox_profile)
     if len(output) > max_chars:
         output = "...[truncated]...\n" + output[-max_chars:]
     return proc.returncode, output, timed_out
@@ -131,10 +219,12 @@ async def run_command_async(
     cwd: Path,
     timeout: float = 30.0,
     max_chars: int = 10_000,
+    *,
+    sandbox_profile: Path | None = None,
 ) -> tuple[int, str, bool]:
     """异步执行；取消和超时都回收整个进程组。"""
     spawning = asyncio.create_task(asyncio.create_subprocess_exec(
-        "/bin/bash", "-lc", command, cwd=str(cwd),
+        *sandbox_wrapped(command, sandbox_profile), cwd=str(cwd),
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
         start_new_session=True,
     ))
@@ -164,7 +254,7 @@ async def run_command_async(
         output, _ = await communicating
         await proc.wait()
 
-    text = (output or b"").decode("utf-8", errors="replace")
+    text = annotate_sandbox_denial((output or b"").decode("utf-8", errors="replace"), sandbox_profile)
     if len(text) > max_chars:
         text = "...[truncated]...\n" + text[-max_chars:]
     if cancelled:

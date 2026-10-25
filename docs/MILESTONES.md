@@ -318,7 +318,7 @@ README「当前完善重点」六项已修复并附针对性回归，真实任�
 
 **仍待做**：前三题参考补丁自检与 `--limit 3` 扩题；W6 三组收益对照。
 
-**执行隔离评估（2026-10-25）**：新增 [执行隔离评估](specs/execution-isolation.md)，梳理当前边界（审批 + 12 条正则黑名单 + 超时 + 进程组回收）与六类可绕过点（工作区外读写、黑名单绕过、网络外发、workspace 授权窗口、子进程逃逸），列出 A–D 四项方案与建议顺序（先护栏与授权语义，再环境收敛实测，最后可选 OS 沙箱）。随后实施了选项 B 的第一小步：`bash` 显式写/删工作区外路径（绝对、家目录、`..` 逃逸与重定向）被 `PermissionError` 拦截，`/tmp` 与相对路径放行；回归见 `tests/test_sandbox.py`，限制（`cd` 后相对写入、嵌套 shell、`.venv` 符号链接等仍可绕过）已写入评估文档。用户决定保留 workspace 级永久授权（选项 A 否决）。沙箱方向完成 GitHub 调研（[沙箱调研](research/sandbox-research-2026-10-25.md)）：Codex 与 Anthropic sandbox-runtime 均不用容器做默认隔离，建议先做 macOS Seatbelt 可选开关、Linux bubblewrap 对齐；实现待启动。
+**执行隔离评估（2026-10-25）**：新增 [执行隔离评估](specs/execution-isolation.md)，梳理当前边界（审批 + 12 条正则黑名单 + 超时 + 进程组回收）与六类可绕过点（工作区外读写、黑名单绕过、网络外发、workspace 授权窗口、子进程逃逸），列出 A–D 四项方案与建议顺序（先护栏与授权语义，再环境收敛实测，最后可选 OS 沙箱）。随后实施了选项 B 的第一小步：`bash` 显式写/删工作区外路径（绝对、家目录、`..` 逃逸与重定向）被 `PermissionError` 拦截，`/tmp` 与相对路径放行；回归见 `tests/test_sandbox.py`，限制（`cd` 后相对写入、嵌套 shell、`.venv` 符号链接等仍可绕过）已写入评估文档。用户决定保留 workspace 级永久授权（选项 A 否决）。沙箱方向完成 GitHub 调研（[沙箱调研](research/sandbox-research-2026-10-25.md)）：Codex 与 Anthropic sandbox-runtime 均不用容器做默认隔离。随后实现 macOS Seatbelt 可选沙箱：`--sandbox` / `VIBE_SANDBOX=1` 写入限工作区与临时目录、默认断网、敏感读取拒绝、拒绝标注 `sandbox_denied`、启动探针失败直接拒绝；回归 `tests/test_sandbox_seatbelt.py`（集成部分在嵌套沙箱环境跳过）。Linux bubblewrap 对齐与网络白名单待做。
 
 ## 当前下一步
 
