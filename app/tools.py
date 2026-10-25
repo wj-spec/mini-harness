@@ -20,7 +20,7 @@ from core.models import ExecutionOutcome, ToolCall
 from core.state import TaskState
 from app.diff import unified_diff
 from app.sandbox import (
-    CommandCancelled, check_command, ensure_seatbelt_profile, probe_sandbox, run_command,
+    CommandCancelled, build_sandbox, check_command, probe_sandbox, run_command,
     run_command_async, sandbox_available,
 )
 from app.skills import Skill, SkillManager
@@ -106,9 +106,7 @@ class ToolRegistry:
             applied, detail = probe_sandbox()
             if not applied:
                 raise ValueError(f"sandbox cannot be applied here: {detail}; run without --sandbox")
-        self._sandbox_profile = (
-            ensure_seatbelt_profile(self.root, allow_network=sandbox_network) if sandbox else None
-        )
+        self._sandbox = build_sandbox(self.root, allow_network=sandbox_network) if sandbox else None
         self.context = context
         self.state = state
         self._read_hashes: dict[Path, str] = {}
@@ -320,7 +318,7 @@ class ToolRegistry:
         check_command(command, self.root)
         code, output, timed_out = run_command(
             command, target, float(timeout),
-            **({"sandbox_profile": self._sandbox_profile} if self._sandbox_profile else {}),
+            **({"sandbox": self._sandbox} if self._sandbox else {}),
         )
         return _command_output(command, cwd, timeout, code, output, timed_out=timed_out)
 
@@ -333,7 +331,7 @@ class ToolRegistry:
         try:
             code, output, timed_out = await run_command_async(
                 command, target, float(timeout),
-                **({"sandbox_profile": self._sandbox_profile} if self._sandbox_profile else {}),
+                **({"sandbox": self._sandbox} if self._sandbox else {}),
             )
         except CommandCancelled as exc:
             return _command_output(command, cwd, timeout, exc.exit_code, exc.output, cancelled=True)

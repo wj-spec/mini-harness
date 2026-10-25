@@ -528,12 +528,12 @@ test('slash opens a scrollable command menu without overflowing the frame', asyn
   let frame = lastFrame() ?? '';
   assert.match(frame, /› \/help/);
   assert.match(frame, /查看操作帮助/);
-  assert.match(frame, /↑↓ 选择 · Tab 填充 · 1\/19/);
+  assert.match(frame, /↑↓ 选择 · Tab 填充 · 1\/20/);
   assert.ok(frame.split('\n').length <= 24);
   for (const line of frame.split('\n')) assert.ok(stringWidth(line) <= 80, line);
   stdin.write('\u001b[B');
   await pause(15);
-  assert.match(lastFrame() ?? '', /2\/19/);
+  assert.match(lastFrame() ?? '', /2\/20/);
   stdin.write('\t');
   await pause(15);
   frame = lastFrame() ?? '';
@@ -978,4 +978,51 @@ test('manages user preferences from the workbench', async () => {
   } finally {
     await rm(directory, {recursive: true, force: true});
   }
+});
+
+test('/sidebar opens the right-hand Git sidebar through the injected launcher', async () => {
+  const calls: string[] = [];
+  const client = new MockClient();
+  const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}
+    initialState={{...initialState, phase: 'idle', workspace: '/repo', model: 'fake'}}
+    launchSidebar={workspace => {calls.push(workspace); return {outcome: 'started', message: '已打开右侧 Git 变更侧栏'};}}/>);
+  await pause(20);
+  await enter(stdin, '/sidebar');
+  assert.deepEqual(calls, ['/repo']);
+  assert.match(lastFrame() ?? '', /已打开右侧 Git 变更侧栏/u);
+});
+
+test('Ctrl+G also opens the Git sidebar', async () => {
+  const calls: string[] = [];
+  const client = new MockClient();
+  const {stdin} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}
+    initialState={{...initialState, phase: 'idle', workspace: '/repo', model: 'fake'}}
+    launchSidebar={workspace => {calls.push(workspace); return {outcome: 'toggled', message: '已切换右侧 Git 变更侧栏'};}}/>);
+  await pause(20);
+  stdin.write('\u0007');
+  await pause(20);
+  assert.deepEqual(calls, ['/repo']);
+});
+
+test('/sidebar explains when no workspace is connected yet', async () => {
+  const calls: string[] = [];
+  const client = new MockClient();
+  const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}
+    initialState={{...initialState, phase: 'idle'}}
+    launchSidebar={workspace => {calls.push(workspace); return {outcome: 'started', message: 'unexpected'};}}/>);
+  await pause(20);
+  await enter(stdin, '/sidebar');
+  assert.deepEqual(calls, []);
+  assert.match(lastFrame() ?? '', /尚未连接工作区/u);
+});
+
+test('unsupported sidebar hosts keep the launch reason and manual command visible', async () => {
+  const client = new MockClient();
+  const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}
+    initialState={{...initialState, phase: 'idle', workspace: '/repo', model: 'fake'}}
+    launchSidebar={() => ({outcome: 'unsupported', message: '当前终端不支持自动打开侧栏；请手动运行：cd /repo && node sidebar.js'} as const)}/>);
+  await pause(20);
+  await enter(stdin, '/sidebar');
+  assert.match(lastFrame() ?? '', /当前终端不支持自动打开侧栏/u);
+  assert.match(lastFrame() ?? '', /请手动运行/u);
 });

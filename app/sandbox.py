@@ -9,6 +9,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
 DANGEROUS_PATTERNS: list[tuple[str, str]] = [
@@ -32,35 +33,71 @@ WRITE_COMMANDS = frozenset({
 SAFE_WRITE_ROOTS = (Path("/tmp").resolve(),)
 
 SEATBELT_BINARY = "sandbox-exec"
+BWRAP_BINARY = "bwrap"
 SENSITIVE_READ_PATHS = (
     ".ssh", ".aws", ".gnupg", ".netrc", ".docker", ".config/gh", ".config/gcloud",
 )
 
 
+@dataclass(frozen=True)
+class SandboxSpec:
+    """一次运行的沙箱配置；写入限制在工作区与临时目录。"""
+
+    kind: str  # seatbelt | bubblewrap
+    workspace: Path
+    allow_network: bool = False
+    profile: Path | None = None
+
+
+def sandbox_kind() -> str | None:
+    if sys.platform == "darwin" and shutil.which(SEATBELT_BINARY):
+        return "seatbelt"
+    if sys.platform.startswith("linux") and shutil.which(BWRAP_BINARY):
+        return "bubblewrap"
+    return None
+
+
 def sandbox_available() -> bool:
-    """macOS Seatbelt 是否可用；其他平台或缺少 sandbox-exec 时返回 False。"""
-    return sys.platform == "darwin" and shutil.which(SEATBELT_BINARY) is not None
+    """当前平台是否有可用的 OS 级沙箱后端。"""
+    return sandbox_kind() is not None
 
 
 def probe_sandbox() -> tuple[bool, str]:
-    """探测沙箱能否真正应用；嵌套沙箱环境会失败，需提前给出清晰错误。"""
-    if not sandbox_available():
-        return False, "sandbox-exec unavailable"
-    handle = tempfile.NamedTemporaryFile("w", suffix=".sb", delete=False, encoding="utf-8")
+    """探测沙箱能否真正应用；嵌套沙箱等环境会失败，需提前给出清晰错误。"""
+    kind = sandbox_kind()
+    if kind is None:
+        return False, "no sandbox backend available"
     try:
-        handle.write("(version 1)\n(allow default)\n")
-        handle.close()
-        proc = subprocess.run(
-            [SEATBELT_BINARY, "-f", handle.name, "/bin/echo", "ok"],
-            capture_output=True, text=True, timeout=10,
-        )
+        if kind == "bubblewrap":
+            proc = subprocess.run(
+                [BWRAP_BINARY, "--ro-bind", "/", "/", "--dev", "/dev", "/bin/true"],
+                capture_output=True, text=True, timeout=10,
+            )
+        else:
+            handle = tempfile.NamedTemporaryFile("w", suffix=".sb", delete=False, encoding="utf-8")
+            try:
+                handle.write("(version 1)\n(allow default)\n")
+                handle.close()
+                proc = subprocess.run(
+                    [SEATBELT_BINARY, "-f", handle.name, "/bin/echo", "ok"],
+                    capture_output=True, text=True, timeout=10,
+                )
+            finally:
+                Path(handle.name).unlink(missing_ok=True)
     except (OSError, subprocess.SubprocessError) as exc:
         return False, f"{type(exc).__name__}: {exc}"
-    finally:
-        Path(handle.name).unlink(missing_ok=True)
     if proc.returncode != 0:
         return False, (proc.stderr or proc.stdout).strip()[:300]
     return True, ""
+
+
+def build_sandbox(workspace: Path, *, allow_network: bool = False) -> SandboxSpec:
+    kind = sandbox_kind()
+    if kind is None:
+        raise ValueError("no OS-level sandbox backend available (macOS seatbelt or Linux bwrap)")
+    profile = ensure_seatbelt_profile(workspace, allow_network=allow_network) if kind == "seatbelt" else None
+    return SandboxSpec(kind=kind, workspace=workspace.resolve(),
+                       allow_network=allow_network, profile=profile)
 
 
 def build_seatbelt_profile(workspace: Path, *, allow_network: bool = False) -> str:
@@ -78,6 +115,11 @@ def build_seatbelt_profile(workspace: Path, *, allow_network: bool = False) -> s
         lines.append(f'(allow file-write* (subpath "{root}"))')
     lines.append('(allow file-write* (literal "/dev/null") (literal "/dev/stdout") '
                  '(literal "/dev/stderr") (literal "/dev/dtracehelper"))')
+    # 保护 .git 的钩子与配置：写它们可造成沙箱外的持久化代码执行。
+    git_dir = workspace.resolve() / ".git"
+    lines.append(f'(deny file-write* (subpath "{git_dir / "hooks"}"))')
+    for name in ("config", "config.worktree"):
+        lines.append(f'(deny file-write* (literal "{git_dir / name}"))')
     home = Path.home()
     for name in SENSITIVE_READ_PATHS:
         lines.append(f'(deny file-read* (subpath "{home / name}"))')
@@ -96,17 +138,36 @@ def ensure_seatbelt_profile(workspace: Path, *, allow_network: bool = False) -> 
     return profile
 
 
-def sandbox_wrapped(command: str, profile: Path | None) -> list[str]:
-    if profile is None:
+def build_bwrap_command(command: str, workspace: Path, *, allow_network: bool = False) -> list[str]:
+    roots = [workspace.resolve()]
+    for candidate in (Path("/tmp").resolve(), Path(tempfile.gettempdir()).resolve()):
+        if candidate not in roots:
+            roots.append(candidate)
+    argv = [
+        BWRAP_BINARY, "--die-with-parent", "--unshare-pid", "--unshare-ipc", "--unshare-uts",
+        "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc",
+    ]
+    for root in roots:
+        argv += ["--bind", str(root), str(root)]
+    if not allow_network:
+        argv.append("--unshare-net")
+    argv += ["--", "/bin/bash", "-lc", command]
+    return argv
+
+
+def sandbox_wrapped(command: str, spec: SandboxSpec | None) -> list[str]:
+    if spec is None:
         return ["/bin/bash", "-lc", command]
-    return [SEATBELT_BINARY, "-f", str(profile), "/bin/bash", "-lc", command]
+    if spec.kind == "bubblewrap":
+        return build_bwrap_command(command, spec.workspace, allow_network=spec.allow_network)
+    return [SEATBELT_BINARY, "-f", str(spec.profile), "/bin/bash", "-lc", command]
 
 
-def annotate_sandbox_denial(output: str, profile: Path | None) -> str:
+def annotate_sandbox_denial(output: str, spec: SandboxSpec | None) -> str:
     """沙箱拒绝时给出结构化前缀，模型能区分策略拒绝与普通失败。"""
-    if profile is None:
+    if spec is None:
         return output
-    if "sandbox_apply:" in output:
+    if "sandbox_apply:" in output or "bwrap: setting up uid map" in output:
         return ("ERROR sandbox_unavailable: sandbox could not be applied in this "
                 "environment; rerun without --sandbox\n" + output)
     if "Operation not permitted" in output or "Sandbox:" in output:
@@ -187,10 +248,10 @@ def run_command(
     timeout: float = 30.0,
     max_chars: int = 10_000,
     *,
-    sandbox_profile: Path | None = None,
+    sandbox: SandboxSpec | None = None,
 ) -> tuple[int, str, bool]:
     proc = subprocess.Popen(
-        sandbox_wrapped(command, sandbox_profile),
+        sandbox_wrapped(command, sandbox),
         cwd=str(cwd),
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -208,7 +269,7 @@ def run_command(
             pass
         output, _ = proc.communicate()
 
-    output = annotate_sandbox_denial(output or "", sandbox_profile)
+    output = annotate_sandbox_denial(output or "", sandbox)
     if len(output) > max_chars:
         output = "...[truncated]...\n" + output[-max_chars:]
     return proc.returncode, output, timed_out
@@ -220,11 +281,11 @@ async def run_command_async(
     timeout: float = 30.0,
     max_chars: int = 10_000,
     *,
-    sandbox_profile: Path | None = None,
+    sandbox: SandboxSpec | None = None,
 ) -> tuple[int, str, bool]:
     """异步执行；取消和超时都回收整个进程组。"""
     spawning = asyncio.create_task(asyncio.create_subprocess_exec(
-        *sandbox_wrapped(command, sandbox_profile), cwd=str(cwd),
+        *sandbox_wrapped(command, sandbox), cwd=str(cwd),
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
         start_new_session=True,
     ))
@@ -254,7 +315,7 @@ async def run_command_async(
         output, _ = await communicating
         await proc.wait()
 
-    text = annotate_sandbox_denial((output or b"").decode("utf-8", errors="replace"), sandbox_profile)
+    text = annotate_sandbox_denial((output or b"").decode("utf-8", errors="replace"), sandbox)
     if len(text) > max_chars:
         text = "...[truncated]...\n" + text[-max_chars:]
     if cancelled:

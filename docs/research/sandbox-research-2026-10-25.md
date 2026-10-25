@@ -64,7 +64,8 @@
 - 开启沙箱后：`echo x > ~/file`、`rm ~/file` 等写外部失败并返回 `sandbox_denied`；`cat ~/.ssh/id_rsa` 读取被拒（按策略）；`curl https://example.com` 默认被拒。
 - 正常工作流：`npm --prefix tui test`、`uv run python -m pytest`、`git status/diff/commit` 在沙箱内可通过；`proxy`/本地端口如需要则写进白名单。
 - 关闭沙箱：行为与当前一致，全部既有回归通过。
-- 关闭/不可用场景：非 macOS 明确提示；`sandbox-exec` 缺失时给出可操作错误而不是崩溃。
+- 关闭/不可用场景：无可用后端时明确提示；`sandbox-exec` 缺失/嵌套沙箱时给出可操作错误而不是崩溃。
+- 已实现补充（2026-10-25）：`.git/hooks` 与 `.git/config*` 写入被拒；Linux bubblewrap 后端已接入（argv 单测通过，实机待验）。
 - 证据：新增 `tests/test_sandbox_seatbelt.py`（darwin 专用 skipif），记录被拒命令与放行命令；回填 [执行隔离评估](../specs/execution-isolation.md)。
 
 ## 开放问题
