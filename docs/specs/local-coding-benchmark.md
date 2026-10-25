@@ -13,8 +13,13 @@ SWE-bench 首题只能证明评测接入可用，内部 eval 只是文件操作�
 | `recall-guard` | Python 安全 | 移除 `ContextBuilder` 的 offload 路径校验 | 符号链接逃逸、绝对路径、非法引用；合法引用仍可读 |
 | `footer-outcome` | Ink/TS | 页脚重复追加结果标签 | done / cancelled / stopped(token_budget) 各只显示一次 |
 | `tool-count` | stdio 协议 | 取消 run 的 `run_end.tool_calls` 记 0 | 两个工具结果后取消，计数必须为 2 |
+| `stream-truncation`（held_out） | Provider 流式 | 截断工具调用重新变为可执行、异常断流不标记 | 只执行完整解析的调用；无 `[DONE]`/`finish_reason` 的流标 `truncated` |
+| `restore-guard`（held_out） | 工具边界 | 移除恢复会话的重新读取守卫 | 重开后首次修改已有文件必须重读；外部改动仍拒绝；新文件不受影响 |
+| `execution-chain`（held_out，跨层压测） | Agent + stdio + Ink | 执行证据链在 agent/core/stdio/tui 五处断裂 | 工具消息保留 execution；命令记录含退出码；Ink 显示 `零退出 · exit=N` |
 
-任务合同：初始 `red.sh` 失败；Agent 修复后 `check.sh` 退出 0；评分前用仓库原始测试覆盖工作区测试，防止改测试通过；隐藏测试不在工作区公开。
+任务合同：初始 `red.sh` 失败；Agent 修复后 `check.sh` 退出 0；评分前用仓库原始测试覆盖工作区测试，防止改测试通过；隐藏测试不在工作区公开。`held_out: true` 的题目未参与提示与修复调优；`--runs` 多次运行与 `config`（模型/预算/版本）一起用于判断可比较性。
+
+**扩展记录（2026-10-25）**：三题均为“恢复已知修复”之外的补充——`stream-truncation`、`restore-guard` 覆盖流完整性与恢复守卫，`execution-chain` 是首个跨文件/跨语言压测题（注入点在 5 个文件，隐藏检查同时覆盖 Python 与 Ink）；三题均已用 `--prepare` 验证初始 red、恢复修复后 `check.sh` 通过。真实模型运行待跑，结果按三类结果与 `verified_fix` 判定。
 
 ## 跑分流程
 

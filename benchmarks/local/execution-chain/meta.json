@@ -1,0 +1,1 @@
+{"held_out": true, "stress": "cross_layer", "note": "未参与调优的跨层压测题：执行证据链断在 agent/core/stdio/tui 五处"}
