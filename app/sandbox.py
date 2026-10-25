@@ -12,6 +12,8 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.sandbox_proxy import PROXY_ENV_KEYS
+
 DANGEROUS_PATTERNS: list[tuple[str, str]] = [
     (r"\brm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s+)+(/|~|\$HOME)(\s|$)", "rm -rf on root/home"),
     (r"\bmkfs(\.|\s)", "mkfs"),
@@ -47,6 +49,7 @@ class SandboxSpec:
     workspace: Path
     allow_network: bool = False
     profile: Path | None = None
+    proxy_port: int | None = None
 
 
 def sandbox_kind() -> str | None:
@@ -91,19 +94,36 @@ def probe_sandbox() -> tuple[bool, str]:
     return True, ""
 
 
-def build_sandbox(workspace: Path, *, allow_network: bool = False) -> SandboxSpec:
+def build_sandbox(workspace: Path, *, allow_network: bool = False,
+                  proxy_port: int | None = None) -> SandboxSpec:
     kind = sandbox_kind()
     if kind is None:
         raise ValueError("no OS-level sandbox backend available (macOS seatbelt or Linux bwrap)")
-    profile = ensure_seatbelt_profile(workspace, allow_network=allow_network) if kind == "seatbelt" else None
+    profile = (ensure_seatbelt_profile(workspace, allow_network=allow_network, proxy_port=proxy_port)
+               if kind == "seatbelt" else None)
     return SandboxSpec(kind=kind, workspace=workspace.resolve(),
-                       allow_network=allow_network, profile=profile)
+                       allow_network=allow_network, profile=profile, proxy_port=proxy_port)
 
 
-def build_seatbelt_profile(workspace: Path, *, allow_network: bool = False) -> str:
+def sandbox_env(spec: SandboxSpec | None) -> dict[str, str] | None:
+    """白名单模式下给子命令注入代理环境变量。"""
+    if spec is None or spec.proxy_port is None:
+        return None
+    url = f"http://127.0.0.1:{spec.proxy_port}"
+    env = {key: url for key in PROXY_ENV_KEYS}
+    env["NO_PROXY"] = "localhost,127.0.0.1"
+    return env
+
+
+def build_seatbelt_profile(workspace: Path, *, allow_network: bool = False,
+                           proxy_port: int | None = None) -> str:
     """生成 Seatbelt 策略：默认放行读取，写入仅限工作区与临时目录，网络默认拒绝。"""
     lines = ["(version 1)", "(allow default)"]
-    if not allow_network:
+    if proxy_port is not None:
+        # 白名单模式：只允许连本机代理，其余网络由策略与代理共同拦截。
+        lines.append("(deny network*)")
+        lines.append(f'(allow network* (remote ip "localhost:{proxy_port}"))')
+    elif not allow_network:
         lines.append("(deny network*)")
     lines.append("(deny file-write*)")
     roots = [workspace.resolve()]
@@ -126,12 +146,13 @@ def build_seatbelt_profile(workspace: Path, *, allow_network: bool = False) -> s
     return "\n".join(lines) + "\n"
 
 
-def ensure_seatbelt_profile(workspace: Path, *, allow_network: bool = False) -> Path:
+def ensure_seatbelt_profile(workspace: Path, *, allow_network: bool = False,
+                            proxy_port: int | None = None) -> Path:
     """按工作区写出策略文件；内容不变时复用。"""
-    profile = workspace / ".vibe" / "sandbox" / (
-        "seatbelt-network.sb" if allow_network else "seatbelt.sb"
-    )
-    content = build_seatbelt_profile(workspace, allow_network=allow_network)
+    name = ("seatbelt-allowlist.sb" if proxy_port is not None
+            else "seatbelt-network.sb" if allow_network else "seatbelt.sb")
+    profile = workspace / ".vibe" / "sandbox" / name
+    content = build_seatbelt_profile(workspace, allow_network=allow_network, proxy_port=proxy_port)
     profile.parent.mkdir(parents=True, exist_ok=True)
     if not profile.is_file() or profile.read_text(encoding="utf-8") != content:
         profile.write_text(content, encoding="utf-8")
@@ -167,6 +188,8 @@ def annotate_sandbox_denial(output: str, spec: SandboxSpec | None) -> str:
     """沙箱拒绝时给出结构化前缀，模型能区分策略拒绝与普通失败。"""
     if spec is None:
         return output
+    if "blocked by sandbox allowlist" in output:
+        return ("ERROR sandbox_denied: host not in sandbox network allowlist\n" + output)
     if "sandbox_apply:" in output or "bwrap: setting up uid map" in output:
         return ("ERROR sandbox_unavailable: sandbox could not be applied in this "
                 "environment; rerun without --sandbox\n" + output)
@@ -249,9 +272,10 @@ def run_command(
     max_chars: int = 10_000,
     *,
     sandbox: SandboxSpec | None = None,
+    env_extra: dict[str, str] | None = None,
 ) -> tuple[int, str, bool]:
     proc = subprocess.Popen(
-        sandbox_wrapped(command, sandbox),
+        sandbox_wrapped(command, sandbox), env=({**os.environ, **env_extra} if env_extra else None),
         cwd=str(cwd),
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -282,10 +306,12 @@ async def run_command_async(
     max_chars: int = 10_000,
     *,
     sandbox: SandboxSpec | None = None,
+    env_extra: dict[str, str] | None = None,
 ) -> tuple[int, str, bool]:
     """异步执行；取消和超时都回收整个进程组。"""
     spawning = asyncio.create_task(asyncio.create_subprocess_exec(
         *sandbox_wrapped(command, sandbox), cwd=str(cwd),
+        env=({**os.environ, **env_extra} if env_extra else None),
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
         start_new_session=True,
     ))

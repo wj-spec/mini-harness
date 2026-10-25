@@ -141,3 +141,22 @@ def test_sandbox_wrapped_uses_the_backend_of_the_spec(tmp_path):
     assert sandbox.sandbox_wrapped("echo", bwrap)[0] == sandbox.BWRAP_BINARY
     assert sandbox.sandbox_wrapped("echo", None) == ["/bin/bash", "-lc", "echo"]
 
+
+@needs_applicable
+def test_allowlist_mode_reaches_proxy_port_but_blocks_direct_connections(tmp_path):
+    registry = ToolRegistry(tmp_path, sandbox=True, sandbox_network_allow="example.com")
+    try:
+        proxy_port = registry._sandbox.proxy_port
+        assert proxy_port
+        ok, output = registry.execute(ToolCall("bash", {
+            "command": f"python3 -c \"import socket; socket.create_connection(('127.0.0.1', {proxy_port}), 2)\"",
+        }))
+        assert ok is True, output
+        ok, output = registry.execute(ToolCall("bash", {
+            "command": "python3 -c \"import socket; socket.create_connection(('1.1.1.1', 53), 2)\"",
+        }))
+        assert ok is False
+        assert "Operation not permitted" in output or "sandbox_denied" in output
+    finally:
+        registry.close()
+

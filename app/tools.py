@@ -21,8 +21,9 @@ from core.state import TaskState
 from app.diff import unified_diff
 from app.sandbox import (
     CommandCancelled, build_sandbox, check_command, probe_sandbox, run_command,
-    run_command_async, sandbox_available,
+    run_command_async, sandbox_available, sandbox_env,
 )
+from app.sandbox_proxy import AllowlistProxy
 from app.skills import Skill, SkillManager
 from app.skill_history import skill_history_view
 from app.web_search import validate_search, web_search
@@ -95,6 +96,7 @@ class ToolRegistry:
         skills_config: str = "",
         sandbox: bool = False,
         sandbox_network: bool = False,
+        sandbox_network_allow: str = "",
     ):
         self.root = Path(workspace).resolve()
         if sandbox:
@@ -107,10 +109,23 @@ class ToolRegistry:
             if not applied:
                 raise ValueError(f"sandbox cannot be applied here: {detail}; run without --sandbox")
         self._sandbox = build_sandbox(self.root, allow_network=sandbox_network) if sandbox else None
+        self._proxy = None
+        allowlist = tuple(part.strip() for part in sandbox_network_allow.split(",") if part.strip())
+        if allowlist and not sandbox_network:
+            if self._sandbox is None or self._sandbox.kind != "seatbelt":
+                raise ValueError("sandbox network allowlist requires --sandbox on macOS")
+            from dataclasses import replace
+
+            self._proxy = AllowlistProxy(allowlist).start()
+            self._sandbox = replace(self._sandbox, proxy_port=self._proxy.port)
+        self._sandbox_env = sandbox_env(self._sandbox)
+        if self._sandbox_env is None and allowlist and not sandbox_network:
+            raise ValueError("sandbox network allowlist could not start a local proxy")
         self.context = context
         self.state = state
         self._read_hashes: dict[Path, str] = {}
         self._restore_guard = False
+
         self.skill_manager = SkillManager(self.root, config_path=skills_config)
         self._tools: dict[str, ToolSpec] = {
             "web_search": ToolSpec(
@@ -318,7 +333,7 @@ class ToolRegistry:
         check_command(command, self.root)
         code, output, timed_out = run_command(
             command, target, float(timeout),
-            **({"sandbox": self._sandbox} if self._sandbox else {}),
+            **({"sandbox": self._sandbox, "env_extra": self._sandbox_env} if self._sandbox else {}),
         )
         return _command_output(command, cwd, timeout, code, output, timed_out=timed_out)
 
@@ -331,7 +346,7 @@ class ToolRegistry:
         try:
             code, output, timed_out = await run_command_async(
                 command, target, float(timeout),
-                **({"sandbox": self._sandbox} if self._sandbox else {}),
+                **({"sandbox": self._sandbox, "env_extra": self._sandbox_env} if self._sandbox else {}),
             )
         except CommandCancelled as exc:
             return _command_output(command, cwd, timeout, exc.exit_code, exc.output, cancelled=True)
@@ -484,6 +499,12 @@ class ToolRegistry:
 
     def names(self) -> list[str]:
         return list(self._tools)
+
+    def close(self) -> None:
+        """停止沙箱网络代理（进程退出时也会随守护线程结束）。"""
+        if self._proxy is not None:
+            self._proxy.close()
+            self._proxy = None
 
     def register(self, spec: ToolSpec) -> None:
         self._tools[spec.name] = spec

@@ -299,7 +299,7 @@ export function parseServerEvent(line: string): ServerEvent {
 }
 
 const booleanArgs = new Set(['--fake', '--chat-only', '--continue', '--list-sessions', '--test-session', '--sandbox', '--sandbox-network']);
-const valueArgs = new Set(['--workspace', '--provider', '--model', '--base-url', '--max-steps', '--session']);
+const valueArgs = new Set(['--workspace', '--provider', '--model', '--base-url', '--max-steps', '--session', '--sandbox-network-allow']);
 
 export function validateClientArgs(args: readonly string[]): string[] {
   const checked: string[] = [];

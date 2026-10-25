@@ -56,6 +56,7 @@ def main() -> None:
     parser.add_argument("--workspace", default=None)
     parser.add_argument("--sandbox", action="store_true", help="用 macOS Seatbelt 沙箱执行命令（写入限工作区与临时目录）")
     parser.add_argument("--sandbox-network", action="store_true", help="沙箱内允许网络（默认拒绝）")
+    parser.add_argument("--sandbox-network-allow", default=None, metavar="HOSTS", help="沙箱内只允许这些域名（逗号分隔，隐含 --sandbox）")
     parser.add_argument("--max-steps", type=int, default=None)
     parser.add_argument("--chat-only", action="store_true", help="M1: 不挂工具，只验证真实模型流式回复")
     sessions = parser.add_mutually_exclusive_group()
@@ -99,6 +100,9 @@ def main() -> None:
     if args.sandbox_network:
         config.sandbox = True
         config.sandbox_network = True
+    if args.sandbox_network_allow:
+        config.sandbox = True
+        config.sandbox_network_allow = args.sandbox_network_allow
 
     session_purpose = "test" if args.test_session or args.fake or config.provider == "fake" else "user"
 
@@ -189,7 +193,8 @@ def main() -> None:
     try:
         tools = ToolRegistry(config.workspace, context=context, state=state,
                              skills_config=config.skills_config,
-                             sandbox=config.sandbox, sandbox_network=config.sandbox_network)
+                             sandbox=config.sandbox, sandbox_network=config.sandbox_network,
+                             sandbox_network_allow=config.sandbox_network_allow)
     except (OSError, ValueError) as exc:
         print(f"error: invalid skills config: {exc}", file=sys.stderr)
         raise SystemExit(1)

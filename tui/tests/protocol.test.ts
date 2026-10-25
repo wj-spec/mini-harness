@@ -176,3 +176,10 @@ test('client args accept sandbox flags, with --sandbox-network implying sandbox'
   assert.deepEqual(validateClientArgs(['--sandbox', '--sandbox-network', '--workspace', '/tmp/ws']),
     ['--sandbox', '--sandbox-network', '--workspace', '/tmp/ws']);
 });
+
+
+test('client args accept a sandbox network allowlist with a value', () => {
+  assert.deepEqual(validateClientArgs(['--sandbox-network-allow', 'registry.npmjs.org,*.pypi.org']),
+    ['--sandbox-network-allow', 'registry.npmjs.org,*.pypi.org']);
+});
+

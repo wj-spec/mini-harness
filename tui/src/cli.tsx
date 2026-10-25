@@ -26,6 +26,7 @@ const help = `vibe Ink — 个人编码工作台
   --test-session          显式进入测试会话范围，恢复和列表也仅限测试会话
   --sandbox               用 macOS Seatbelt 沙箱执行命令（写入限工作区，默认断网）
   --sandbox-network       沙箱内允许网络（隐含 --sandbox）
+  --sandbox-network-allow HOSTS  沙箱内只允许这些域名（逗号分隔，隐含 --sandbox）
   --help                  显示帮助
 
 支持会话恢复、MCP 启动与调用、分范围审批和可靠取消。

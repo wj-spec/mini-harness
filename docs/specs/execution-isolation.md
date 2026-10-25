@@ -44,6 +44,7 @@
 - 启动探测：开启时先跑一次 `sandbox-exec` 探针，无法应用（例如本身运行在另一个沙箱内）会直接拒绝启动并给出原因，不会静默降级。
 - 审批、黑名单与写路径护栏保持生效；沙箱是兜底，不替代审批。
 - 保护 `.git/hooks` 与 `.git/config*` 不被写入（防止钩子/配置成为沙箱外的持久化执行入口）；提交所需的 `.git/index`、对象与 refs 仍可写。
+- 网络白名单（macOS）：`--sandbox-network-allow github.com,*.npmjs.org`（或 `VIBE_SANDBOX_NETWORK_ALLOW`）启动本地代理，Seatbelt 只允许连 `localhost:<proxy_port>`；HTTP 绝对 URI 与 CONNECT 按域名放行，未列出的域名返回 403 并在工具输出标注 `sandbox_denied`。`--sandbox-network` 全开优先于白名单。设计与取舍见 [网络白名单设计](../research/sandbox-network-allowlist.md)。
 - Linux 对齐：同一接口支持 `bubblewrap`（`--ro-bind / /` + `--bind` 工作区与临时目录、`--unshare-net` 默认断网），`probe_sandbox` 会先验证 bwrap 可用；Linux 实机验证待做。
 - 测试：`tests/test_sandbox_seatbelt.py` 覆盖策略生成、bwrap argv、配置解析、启动拒绝、错误标注、`.git` 保护，以及（在可应用环境下）工作区写放行/外部写拒绝/断网/工具链可用/提交可用；无 seatbelt 或嵌套沙箱环境自动跳过集成部分。
 
