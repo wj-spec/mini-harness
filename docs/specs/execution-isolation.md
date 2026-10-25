@@ -21,6 +21,10 @@
 5. **审批范围副作用**：workspace 级授权让后续同类调用不再询问，风险窗口大；审计只记录不阻断。
 6. **子进程逃逸**：`start_new_session` + killpg 覆盖常规子进程，但自行 `setsid`/daemon 化的进程可能逃出回收。
 
+## 选型调研
+
+主流实现调研与推荐方案见 [Coding Agent 执行隔离调研（2026-10-25）](../research/sandbox-research-2026-10-25.md)：Codex（Seatbelt / Landlock+seccomp）与 Anthropic sandbox-runtime（sandbox-exec / bubblewrap + 代理白名单）都不用容器作为默认隔离；本项目决定先做 macOS Seatbelt 可选开关，Linux 用 bubblewrap 对齐，Docker 继续只用于评测。
+
 ## 选项
 
 | 选项 | 做法 | 成本 | 收益 | 风险 |
