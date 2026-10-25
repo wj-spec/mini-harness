@@ -102,3 +102,18 @@ def test_summarize_records_cost_distribution_per_task():
     assert stats["steps"] == {"count": 3, "min": 11, "median": 24, "max": 36}
     assert stats["tokens"] == {"count": 3, "min": 100, "median": 200, "max": 300}
 
+
+def test_summarize_prefers_phase_totals_for_resumed_runs():
+    bench = _bench_module()
+    reports = [{
+        "task": "t1", "attempt": 1, "passed": True, "agent_steps": 7,
+        "agent_tokens": {"total_tokens": 107216},
+        "phase_totals": {"steps": 12, "tokens": 167389},
+        "config": {"model": "m"}, "held_out": True, "comparable": True, "valid": True,
+        "artifact_correct": True, "run_complete": True,
+    }]
+    summary = bench.summarize(reports, stamp="s", prepare=False, fake=False)
+    stats = summary["per_task"]["t1"]
+    assert stats["steps"] == {"count": 1, "min": 12, "median": 12, "max": 12}
+    assert stats["tokens"] == {"count": 1, "min": 167389, "median": 167389, "max": 167389}
+

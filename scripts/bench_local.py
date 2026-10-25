@@ -271,10 +271,13 @@ def summarize(reports: list[dict], *, stamp: str, prepare: bool, fake: bool) -> 
         bucket = per_task.setdefault(report["task"], {"attempts": 0, "passed": 0, "steps": [], "tokens": []})
         bucket["attempts"] += 1
         bucket["passed"] += 1 if report.get("passed") else 0
-        if isinstance(report.get("agent_steps"), (int, float)):
-            bucket["steps"].append(report["agent_steps"])
-        if isinstance(report.get("agent_tokens"), dict) and report["agent_tokens"].get("total_tokens") is not None:
-            bucket["tokens"].append(report["agent_tokens"]["total_tokens"])
+        totals = report.get("phase_totals") or {}
+        steps = totals.get("steps") if totals else report.get("agent_steps")
+        tokens = totals.get("tokens") if totals else (report.get("agent_tokens") or {}).get("total_tokens")
+        if isinstance(steps, (int, float)):
+            bucket["steps"].append(steps)
+        if isinstance(tokens, (int, float)):
+            bucket["tokens"].append(tokens)
     for bucket in per_task.values():
         bucket["steps"] = distribution(bucket["steps"])
         bucket["tokens"] = distribution(bucket["tokens"])
@@ -422,8 +425,13 @@ def run_task(task: str, prepare: bool, timeout: float, stamp: str, fake: bool = 
     outside = outside_workspace_commands(workspace, commands)
     check = run_script(task_dir / "check.sh", workspace, task_dir)
 
+    phase_totals = {
+        "steps": sum(((phase["result"] or {}).get("steps") or 0) for phase in phases),
+        "tokens": sum((((phase["result"] or {}).get("usage") or {}).get("total_tokens") or 0) for phase in phases),
+    }
     report.update({
         "resume_used": resume_used,
+        "phase_totals": phase_totals,
         "phases": [
             {"phase": "initial" if index == 0 else "resume",
              "status": (phase["result"] or {}).get("status"),

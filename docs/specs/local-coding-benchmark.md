@@ -19,7 +19,7 @@ SWE-bench 首题只能证明评测接入可用，内部 eval 只是文件操作�
 
 任务合同：初始 `red.sh` 失败；Agent 修复后 `check.sh` 退出 0；评分前用仓库原始测试覆盖工作区测试，防止改测试通过；隐藏测试不在工作区公开。`held_out: true` 的题目未参与提示与修复调优；`--runs` 多次运行与 `config`（模型/预算/版本）一起用于判断可比较性。
 
-**暂停与续做压测（2026-10-25）**：`--pause-tokens N` 用低预算让首轮停在 `stopped`，随后以 `--continue` 重开进程并发送 `/resume` 指令续做；报告写入 `resume_used` 与逐阶段 `phases`（状态、步数、tokens、run_id），`check.sh` 在续做结束后判定最终状态。fake 冒烟已验证两阶段链路（首轮 `stopped` → 续做 `done`）。真实模型的暂停/续做运行待跑，用于验证长任务恢复、上下文压缩与恢复守卫的协同。
+**暂停与续做压测（2026-10-25）**：`--pause-tokens N` 用低预算让首轮停在 `stopped`，随后以 `--continue` 重开进程并发送 `/resume` 指令续做；报告写入 `resume_used`、逐阶段 `phases`（状态、步数、tokens、run_id）与 `phase_totals`（跨阶段总成本，避免只记续做阶段而低估开销），`check.sh` 在续做结束后判定最终状态。fake 冒烟已验证两阶段链路（首轮 `stopped` → 续做 `done`）。真实模型的暂停/续做运行待跑，用于验证长任务恢复、上下文压缩与恢复守卫的协同。
 
 **扩展记录（2026-10-25）**：三题均为“恢复已知修复”之外的补充——`stream-truncation`、`restore-guard` 覆盖流完整性与恢复守卫，`execution-chain` 是首个跨文件/跨语言压测题（注入点在 5 个文件，隐藏检查同时覆盖 Python 与 Ink）；三题均已用 `--prepare` 验证初始 red、恢复修复后 `check.sh` 通过。真实模型运行结果：`execution-chain` 3/3 通过且每次改动全部 5 个文件；同题三次 tokens 为 19.5 万 / 44.3 万 / 72.5 万，说明**单次运行不足以比较成本**，汇总新增 `per_task` 的 min/median/max 分布，后续对照需 `--runs` + 分布口径。
 
