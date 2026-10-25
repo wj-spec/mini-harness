@@ -288,6 +288,12 @@ class Agent:
                         "need no approval. Quote their actual output before claiming workspace state, and say "
                         "when the workspace is not a Git repository."
                     )
+                if "apply_patch" in tools.names():
+                    system += (
+                        " Use apply_patch for multi-file or multi-hunk edits; it applies a unified diff and "
+                        "requires approval. Read the affected files first, keep paths relative to the workspace, "
+                        "and do not include .git or renames."
+                    )
                 system += (
                     " Ground every claim in tool output: before reporting workspace state "
                     "(uncommitted changes, file existence, test results) run a command and quote what it showed; "

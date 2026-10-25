@@ -22,7 +22,8 @@ mini-harness/
       base.py           # Provider 协议
       fake.py           # 脚本 provider
       openai_compat.py  # SSE /chat/completions
-    tools.py            # read/list/grep/recall/update_task/write_file/edit_file/bash
+    tools.py            # read/list/grep/git_status/git_diff/recall/update_task/apply_patch/write_file/edit_file/bash
+    patch.py            # unified diff 解析、校验与 hunk 应用
     mcp.py              # FastMCP Client：stdio 接入、启动审批、工具映射与清理
     policy.py           # 审批闸、session allowlist、审计
     diff.py             # unified diff 预览
@@ -55,9 +56,11 @@ mini-harness/
       terminal-colors.ts # 与 Ink 共用颜色能力及禁色规则
       composer.tsx      # 多行草稿、输入历史、光标与粘贴
       editor.ts         # grapheme 编辑和终端单元格宽度
-      sidebar/          # 独立 Git 变更侧栏（Ghostty quick terminal）
+      sidebar/          # 独立 Git 变更侧栏（Ghostty split/quick、Terminal 独立窗口）
         cli.tsx         # 参数、终端标题、渲染与信号清理
         app.tsx         # 变更列表、diff、跟随与键盘交互
+        agent-activity.ts # 从工具记录提取 Agent 成功改过的文件（含 apply_patch diff 头）
+        signal.ts       # TUI → 侧栏的 workspace 信号文件（版本/文件/active）
         git.ts          # 只读 git status / diff / numstat 与解析
         diff.ts         # unified diff 分类、宽字符换行
         state.ts        # 选中、跟随、焦点与滚动（纯函数）
@@ -66,7 +69,8 @@ mini-harness/
         args.ts         # 侧栏 CLI 参数（workspace/theme/refresh/parent-pid）
         lifecycle.ts    # 父进程看护、侧栏 PID/终端尺寸登记与终止
         split-ratio.ts  # 读取侧栏列宽并把 Ghostty split 校准到 70/30
-    tests/              # Node 通信与 Ink 渲染测试
+
+    tests/              # Node 通信与 Ink 渲染测试（含 sidebar signal/agent-activity）
     package-lock.json   # 固定 Node 依赖
 
   evals/                # tasks.json（10 个任务）
@@ -96,6 +100,7 @@ mini-harness/
     test_policy.py
     test_provider.py
     test_git_tools.py
+    test_patch_tool.py
 
   docs/
     USAGE.md           # 安装、配置与运行参考

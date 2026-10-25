@@ -19,6 +19,7 @@ from core.context import ContextBuilder
 from core.models import ExecutionOutcome, ToolCall
 from core.state import TaskState
 from app.diff import unified_diff
+from app.patch import FilePatch, apply_hunks, new_file_text, parse_patch, render_summary
 from app.sandbox import (
     CommandCancelled, build_sandbox, check_command, probe_sandbox, run_command,
     run_command_async, sandbox_available, sandbox_env,
@@ -255,6 +256,25 @@ class ToolRegistry:
                 fn=self.edit_file,
                 risk="write",
             ),
+            "apply_patch": ToolSpec(
+                name="apply_patch",
+                description=(
+                    "Apply a unified diff to files inside the workspace (modify, create or delete; "
+                    "multi-file and multi-hunk supported). Read affected files first; paths are relative "
+                    "to the workspace and must not include .git. Requires approval. "
+                    "Renames, binary and mode-only patches are rejected."
+                ),
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "patch": {"type": "string", "description": "Unified diff text (git diff format)"},
+                    },
+                    "required": ["patch"],
+                    "additionalProperties": False,
+                },
+                fn=self.apply_patch,
+                risk="write",
+            ),
             "bash": ToolSpec(
                 name="bash",
                 description="Run a shell command in the workspace. Requires approval. Output is truncated.",
@@ -383,6 +403,13 @@ class ToolRegistry:
         return _command_output(command, cwd, timeout, code, output, timed_out=timed_out)
 
     def preview(self, call: ToolCall) -> str:
+        if call.name == "apply_patch":
+            patch = call.args.get("patch")
+            if not isinstance(patch, str):
+                raise ValueError("patch must be a string")
+            files = parse_patch(patch)
+            preview = render_summary(files)
+            return preview + "\n\n[risk] write — approval required\n\n" + patch[:20_000]
         if call.name == "web_search":
             args = {"max_results": 5, "region": "us-en", "timelimit": None, **call.args}
             validate_search(**args)
@@ -577,6 +604,54 @@ class ToolRegistry:
             rendered = rendered[:40_000] + "\n...[diff truncated at 40k chars]"
         header = f"git {' '.join(args)} (cwd={self.root})"
         return header + "\n" + (rendered if rendered.strip() else "(no differences)")
+
+    def apply_patch(self, patch: str) -> str:
+        files = parse_patch(patch)
+        planned: list[tuple[FilePatch, Path, str | None, str | None]] = []
+        targets: set[Path] = set()
+        for file in files:
+            target_path = file.target
+            target = self._resolve(target_path)
+            if target in targets:
+                raise ValueError(f"same file appears twice in patch: {target_path}")
+            targets.add(target)
+            if target.is_symlink():
+                raise ValueError(f"symlink targets are not supported: {target_path}")
+            if file.new_file:
+                if target.exists():
+                    raise ValueError(f"file already exists: {target_path}")
+                planned.append((file, target, None, new_file_text(file)))
+                continue
+            if not target.exists():
+                raise ValueError(f"missing file: {target_path}")
+            old = target.read_text(encoding="utf-8")
+            self._assert_fresh(target, old)
+            if file.deleted_file:
+                leftover, _, _ = apply_hunks(old, file)
+                if leftover.strip():
+                    raise ValueError(f"delete hunks do not cover file: {target_path}")
+                planned.append((file, target, old, None))
+                continue
+            updated, _, _ = apply_hunks(old, file)
+            planned.append((file, target, old, updated))
+
+        lines = [f"applied patch: {len(planned)} file(s)"]
+        for file, target, old, updated in planned:
+            if updated is None:
+                self._backup(target)
+                target.unlink()
+                self._read_hashes.pop(target, None)
+                lines.append(f"deleted {file.target}")
+                continue
+            if old is not None:
+                if target.read_text(encoding="utf-8") != old:
+                    raise ValueError(f"file changed during patch: {file.target}")
+                self._backup(target)
+            self._atomic_write(target, updated)
+            self._read_hashes[target] = self._hash(updated)
+            additions, deletions = file.stats
+            lines.append(f"{'created' if file.new_file else 'modified'} {file.target} +{additions} -{deletions}")
+        return "\n".join(lines)
 
     def write_file(self, path: str, content: str) -> str:
         target = self._resolve(path)

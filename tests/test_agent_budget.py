@@ -260,7 +260,7 @@ def test_retry_cannot_consume_another_budget_sized_request(tmp_path):
 def test_budget_preflight_uses_compacted_request(tmp_path):
     provider = FakeProvider([Response("done", usage={"total_tokens": 200})])
     context = ContextBuilder(
-        max_tokens=2000, reserve_output=200, keep_recent_groups=1,
+        max_tokens=3200, reserve_output=200, keep_recent_groups=1,
         pin_first_user=False, offload_dir=tmp_path / ".vibe" / "offload",
     )
     agent = Agent(

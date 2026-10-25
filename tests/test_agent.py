@@ -184,6 +184,7 @@ def test_prompt_reflects_tools(tmp_path):
     assert "list_files" in with_tools.system
     assert "git_status" in with_tools.system
     assert "git_diff" in with_tools.system
+    assert "apply_patch" in with_tools.system
 
     chat_only = Agent(FakeProvider([]), ToolRegistry(tmp_path), tools_enabled=False)
     assert "list_files" not in chat_only.system

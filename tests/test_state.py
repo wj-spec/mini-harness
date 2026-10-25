@@ -29,3 +29,10 @@ def test_task_state_is_not_in_stable_prefix_hash():
     a = [Message("system", "sys"), Message("system", "Goal: a", name="task_state")]
     b = [Message("system", "sys"), Message("system", "Goal: b", name="task_state")]
     assert stable_prefix_hash(a) == stable_prefix_hash(b)
+
+
+def test_observe_tool_tracks_apply_patch_targets():
+    state = TaskState(goal="g")
+    patch = "diff --git a/one.py b/one.py\n--- a/one.py\n+++ b/one.py\n@@ -1 +1 @@\n-a\n+b\n"
+    state.observe_tool("apply_patch", {"patch": patch}, True, "applied patch")
+    assert state.files_changed == ["one.py"]

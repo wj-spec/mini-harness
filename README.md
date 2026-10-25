@@ -8,12 +8,12 @@
 
 界面入口是 React/Ink 工作台，通过本地 JSON Lines 连接 Python Agent；Textual 入口已于 2026-10-23 退役。当前已接通：
 
-- **编码与工具**：读取、搜索、修改工作区文件，运行命令、联网检索，通过 stdio MCP 接入外部工具；新增免审批的只读 `git_status` / `git_diff`，便于 Agent 在报告前核对实际改动。
+- **编码与工具**：读取、搜索、修改工作区文件，运行命令、联网检索，通过 stdio MCP 接入外部工具；新增免审批的只读 `git_status` / `git_diff`，便于 Agent 在报告前核对实际改动；`apply_patch` 支持多文件/多 hunk 的 diff 编辑（审批预览）。
 - **模型与技能**：OpenAI-compatible 流式接口、本地 fake 模式，以及 Skill 的发现、加载和卸载；加载 Skill 不授予额外工具权限。
 - **过程控制**：运行中纠偏、排队后续任务、拒绝审批、取消与超时处理；取消后仍需核对已发生的修改。
 - **上下文与恢复**：预算控制、历史压缩、原文回取、上下文快照，以及会话保存和显式 `/resume` 续做。
 - **执行证据**：命令状态与退出码、审批审计、消息与运行记录、独立评测入口。
-- **右侧变更侧栏**：默认 `/sidebar` 或 `Ctrl+G` 在当前 Ghostty 窗口内右侧分屏（自动校准到约 70/30），只读跟随工作区 Git 变更与 diff，分屏跟随窗口尺寸并随工作台退出联动关闭；`/sidebar quick` 可改用屏幕右侧 quick terminal（不挤占 TUI）；macOS Terminal 下自动改为右侧独立窗口。见[使用指南](docs/USAGE.md#右侧-git-变更侧栏ghostty--macos-terminal)。
+- **右侧变更侧栏**：默认 `/sidebar` 或 `Ctrl+G` 在当前 Ghostty 窗口内右侧分屏（自动校准到约 70/30），只读跟随工作区 Git 变更与 diff，分屏跟随窗口尺寸并随工作台退出联动关闭；`/sidebar quick` 可改用屏幕右侧 quick terminal（不挤占 TUI）；macOS Terminal 下使用独立窗口（自动摆位仍在调整）。侧栏会即时刷新并标记 Agent 本轮改过的文件（`●`）。见[使用指南](docs/USAGE.md#右侧-git-变更侧栏ghostty--macos-terminal)。
 
 这些能力的工程实现与真实任务验收分别记录在[工作台里程碑](docs/MILESTONES.md)。fake 模式用于离线检查交互与协议；会话恢复服务于同一任务，项目背景（W4）与个人偏好（W5）已交付，但 W6 收益对照未观察到重复说明减少，个性化收益尚未成立。
 

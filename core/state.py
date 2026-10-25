@@ -71,6 +71,18 @@ def _clip(text: str, limit: int = 200) -> str:
     return text if len(text) <= limit else text[:limit] + "…"
 
 
+def _patch_paths(patch: str) -> list[str]:
+    """从 apply_patch 的 diff 头提取目标路径；core 不依赖 app。"""
+    import re
+    found: list[str] = []
+    for match in re.finditer(r"^diff --git a/(.+?) b/(.+)$", patch, re.M):
+        found.append(match.group(2))
+    if not found:
+        for match in re.finditer(r"^\+\+\+ b/(.+)$", patch, re.M):
+            found.append(match.group(1))
+    return list(dict.fromkeys(found))
+
+
 @dataclass
 class TaskState:
     """harness 侧的任务进度；不依赖模型记忆。"""
@@ -150,6 +162,10 @@ class TaskState:
             path = str(args["path"])
             if path not in self.files_changed:
                 self.files_changed.append(path)
+        if ok and name == "apply_patch" and isinstance(args.get("patch"), str):
+            for path in _patch_paths(str(args["patch"])):
+                if path not in self.files_changed:
+                    self.files_changed.append(path)
         if name == "bash" and args.get("command") and execution is not None:
             command = str(args["command"])
             verification = args.get("verification") is True

@@ -228,14 +228,15 @@ Agent 新增两个**只读、无需审批**的工具，用于在报告工作区�
 | `git_status` | 分支、ahead/behind、未提交文件与每个文件相对 HEAD 的增删行数（porcelain v2 XY 状态；未跟踪为 `??`） |
 | `git_diff` | 未提交改动的 unified diff（默认 HEAD 基线，含 staged + unstaged；可限定 `path` 或只看 staged；未跟踪文件展示内容） |
 
-- 两者 `risk=read`，不弹审批；写文件、`bash`、web、MCP 的审批边界不变；
+- 两者 `risk=read`，不弹审批；写文件、`bash`、web、MCP 的审批边界不变；侧栏展示全部未提交改动，Agent 工具用于报告前自检，二者互不替代；
 - 固定参数数组、不经过 shell，禁用外部 diff / textconv / fsmonitor，只读、不联网；路径限制在工作区内；
 - 输出有上限（diff 1200 行 / 40k 字符），非 Git 仓库会明确报错；
 - 用户仍可用 `/diff` 主动查看；这两个工具是 Agent 自检入口，不替代审批语义。实现与限制见 [只读 Git 工具](specs/git-readonly-tools.md)。
 
 ## 写 + 审批
 
-- `write_file` / `edit_file` 是 `risk=write`，必须过审批。
+- `write_file` / `edit_file` / `apply_patch` 是 `risk=write`，必须过审批。
+- `apply_patch`：一次应用 unified diff（多文件/多 hunk、新建、删除）；预览显示文件列表、增删行数与 diff 原文；拒绝重命名、二进制、`.git`、越界路径与符号链接目标；跨文件写盘非事务（先完整校验，失败时按 `.vibe/backups/` 核对）。实现见 [apply_patch](specs/apply-patch.md)。
 - 审批弹窗：`y/a` 仅本次；`s` 本会话此工具与此文件、此目录下相同命令或远端工具相同参数；`p` 批准本进程工作区发起的内置文件写入和命令；`n/d` 拒绝。
 - `p` 不覆盖 MCP 工具，换工作区或重启不继承。授权后的每个动作仍经过 `ApprovalGate` 并审计；`/permissions` 查看，`/permissions reset` 撤销。
 - 等待人工审批不设截止时间，也不计入 `max_run_seconds`。`Ctrl+C` 可取消等待、关闭弹窗并恢复输入；取消之后不会再执行待批动作。
@@ -521,7 +522,7 @@ keybind = global:cmd+shift+g=toggle_quick_terminal
 | `/sidebar window` | 独立窗口（手动） | Ghostty：新开侧栏窗口，需手动拖到右侧；Terminal：自动放在 TUI 右侧、同高，可再拖动。 |
 | `/sidebar setup` | — | 写入 Ghostty quick terminal 右侧配置（仅 quick 模式需要）。 |
 
-- macOS Terminal：`/sidebar` 或 `Ctrl+G` 默认走独立窗口模式（自动靠右、同高）；退出 TUI 时会关闭该窗口；侧栏内 `q` 退出时通常随 shell 结束关闭；
+- macOS Terminal：`/sidebar` 或 `Ctrl+G` 走独立窗口模式；**自动靠右/同高实测仍不准确，已降优先级**，可手动拖到右侧；退出 TUI 时会关闭该窗口；侧栏内 `q` 退出时通常随 shell 结束关闭；
 - 再次触发：如果侧栏还在运行，只聚焦已有侧栏（split/window）或切换显隐（quick）；split 创建时先按估算 resize 到接近 70/30（在侧栏进程启动前，避免先看到完整的 50/50），侧栏启动后再按回报的列宽做一次校准；
 - 顶部紧凑状态条：当主 TUI 宽度 `< 118` 列时，右侧状态面板会隐藏，状态/上下文预算/构成条合并到顶部 3 行；窗口足够宽（约 ≥169 列时 70/30 仍能保留右侧面板）时自动恢复。
 - 侧栏内 `q` 退出后分屏/quick terminal 关闭，下次 `/sidebar` 重新启动；
