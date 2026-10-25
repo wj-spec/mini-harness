@@ -165,6 +165,9 @@ test('window modes open a separate Ghostty or Terminal window', () => {
   assert.match(ghostty, /initial input of cfg/u);
   assert.match(ghostty, /return "started:"/u);
   const terminal = terminalWindowScript('cd /repo && exec node /app/sidebar.js');
+  assert.match(terminal, /do script ":"/u);
+  assert.match(terminal, /unexpected-tab/u);
+  assert.match(terminal, /set index of tuiWindow to 1/u);
   assert.match(terminal, /do script "cd \/repo/u);
   assert.match(terminal, /bounds of window 1/u);
   assert.match(terminal, /set bounds of newWindow/u);
@@ -183,6 +186,10 @@ test('Terminal host opens a right-side window and reports its window id for clea
   assert.equal(ghostty.outcome, 'started');
   assert.equal(ghostty.host, 'ghostty');
   assert.equal(ghostty.windowId, 'win-1');
+  const tab = openSidebar({workspace: '/repo', cliPath: '/app/sidebar.js', env: {TERM_PROGRAM: 'Apple_Terminal'}, platform: 'darwin',
+    run: () => ({status: 0, stdout: 'unexpected-tab\n', stderr: ''})});
+  assert.equal(tab.outcome, 'failed');
+  assert.match(tab.message, /独立侧栏窗口/u);
 });
 
 test('window cleanup close scripts target the reported window id', () => {
