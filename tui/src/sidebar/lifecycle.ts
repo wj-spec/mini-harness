@@ -39,7 +39,7 @@ export function watchParentPid(pid: number, onGone: () => void, options: {
   };
 }
 
-export type SidebarLink = {pid: number; parentPid: number};
+export type SidebarLink = {pid: number; parentPid: number; columns?: number; rows?: number};
 
 /** 侧栏登记文件放在系统临时目录，不给目标工作区留下运行时文件。 */
 export function sidebarLinkPath(workspace: string): string {
@@ -58,7 +58,10 @@ export function readSidebarLink(workspace: string): SidebarLink | null {
     const value = JSON.parse(readFileSync(sidebarLinkPath(workspace), 'utf8')) as Partial<SidebarLink>;
     if (!Number.isSafeInteger(value.pid) || !Number.isSafeInteger(value.parentPid)) return null;
     if ((value.pid ?? 0) <= 0 || (value.parentPid ?? 0) <= 0) return null;
-    return {pid: value.pid!, parentPid: value.parentPid!};
+    const link: SidebarLink = {pid: value.pid!, parentPid: value.parentPid!};
+    if (Number.isSafeInteger(value.columns) && (value.columns ?? 0) > 0) link.columns = value.columns!;
+    if (Number.isSafeInteger(value.rows) && (value.rows ?? 0) > 0) link.rows = value.rows!;
+    return link;
   } catch {
     return null;
   }

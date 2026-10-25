@@ -165,8 +165,34 @@ tell application "Ghostty"
   delay 0.6
   input text "${appleScriptString(command)}" to newTerminal
   send key "enter" to newTerminal
+  focus target
   return "started"
 end tell`;
+}
+
+export function resizeSplitScript(direction: 'left' | 'right', pixels: number): string {
+  const amount = Math.max(1, Math.round(pixels));
+  return `tell application "Ghostty"
+  set sidebarHits to (every terminal whose name contains "${SIDEBAR_TITLE}")
+  if (count of sidebarHits) = 0 then return "missing"
+  if not (perform action "resize_split:${direction},${amount}" on (item 1 of sidebarHits)) then return "action-failed"
+  return "ok"
+end tell`;
+}
+
+/** 调整 split 分隔条，把侧栏缩到约 30% / 主 TUI 70%。 */
+export function resizeSidebarSplit(direction: 'left' | 'right', pixels: number, options: {
+  env?: NodeJS.ProcessEnv;
+  platform?: NodeJS.Platform;
+  run?: Runner;
+  timeoutMs?: number;
+} = {}): boolean {
+  const platform = options.platform ?? process.platform;
+  const env = options.env ?? process.env;
+  if (platform !== 'darwin' || detectHost(env) !== 'ghostty') return false;
+  const run = options.run ?? defaultRunner;
+  const result = run(SIDEBAR_COMMAND, ['-e', resizeSplitScript(direction, pixels)], {timeoutMs: options.timeoutMs ?? 3000});
+  return result.status === 0 && lastLine(result.stdout) === 'ok';
 }
 
 function launchFailure(result: RunResult, command: string): LaunchResult | null {

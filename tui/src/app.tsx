@@ -17,7 +17,7 @@ import {copyToClipboard} from './clipboard.js';
 import {selectedText, type Selection, type SelectionPoint} from './selection.js';
 import {loadProfile, projectProfilePath, saveProfile} from './project-profile.js';
 import {loadUserProfile, saveUserProfile, userProfileFile, type UserPreference} from './user-profile.js';
-import {killSidebarForTui, launchSidebarForTui, runSidebarSetup} from './sidebar/launch.js';
+import {adjustSidebarSplitForTui, killSidebarForTui, launchSidebarForTui, runSidebarSetup} from './sidebar/launch.js';
 import type {LaunchResult, SidebarMode} from './sidebar/host.js';
 import type {SetupResult} from './sidebar/launch.js';
 
@@ -188,12 +188,18 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
   const notice = (text: string) => {dispatch({type: 'notice', text}); setScroll({follow: true, top: 0});};
   const announce = (text: string) => {notice(text); setFeedback(text); setFeedbackTone('info');};
   const reportError = (text: string) => {notice(text); setFeedback(text); setFeedbackTone('error');};
+  const usesDefaultLauncher = launchSidebar === launchSidebarForTui;
   const openSidebarPanel = (mode: SidebarMode = 'split') => {
     if (quitting) return;
     const workspace = state.workspace;
     if (!workspace) {notice('尚未连接工作区，暂时无法打开变更侧栏'); return;}
     try {
-      announce(launchSidebar(workspace, mode).message);
+      const result = launchSidebar(workspace, mode);
+      announce(result.message);
+      if (mode === 'split' && result.outcome === 'started' && usesDefaultLauncher) {
+        const totalColumns = columns;
+        setTimeout(() => adjustSidebarSplitForTui(workspace, totalColumns), 1200);
+      }
     } catch (error) {
       reportError(`打开变更侧栏失败：${String(error)}`);
     }

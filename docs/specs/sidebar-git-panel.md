@@ -144,19 +144,20 @@ split 不需要 quick terminal 配置，也不经过 `quick-terminal-position` �
 - `tui/tests/sidebar-state.test.ts`：首次选择、跟随变化文件、手动选择保持、文件消失回退、滚动 clamp。
 - `tui/tests/sidebar-host.test.ts`：终端识别、shell 转义、AppleScript 生成、quick/split 结果映射、quick terminal 位置预检（top 拒绝 / right 通过 / 读取失败放行）、split 不预检、`--parent-pid` 注入、权限/不支持降级，以及用 `osacompile` 分别校验 quick 与 split 脚本语法。
 - `tui/tests/sidebar-args.test.ts`：`--workspace/--theme/--refresh-ms/--parent-pid` 解析与非法值。
-- `tui/tests/sidebar-lifecycle.test.ts`：父进程存活判断（ESRCH/EPERM）、watcher 只触发一次/可停止、按 workspace 登记的 PID 只会终止同一父进程的侧栏，并用真实子进程验证 `SIGTERM` 生效。
+- `tui/tests/sidebar-lifecycle.test.ts`：父进程存活判断（ESRCH/EPERM）、watcher 只触发一次/可停止、按 workspace 登记的 PID 只会终止同一父进程的侧栏，并用真实子进程验证 `SIGTERM` 生效；link 文件含侧栏列宽供比例校准。
+- `tui/tests/sidebar-split-ratio.test.ts`：目标列数计算、70/30 校准收敛、已达标不 resize、拿不到列宽时放弃。
 - `tui/tests/sidebar-setup.test.ts`：用临时 `HOME`/`XDG_CONFIG_HOME` 验证配置脚本的 `--dry-run`、幂等写入、拒绝覆盖非 right 配置；不触碰真实用户配置。
 - `tui/tests/sidebar-app.test.tsx`：真实 Ink 组件渲染（分支/列表/diff/跟随/错误/键盘/宽度不溢出）。
 - `tui/tests/app.test.tsx`：`/sidebar`（默认 split）、`/sidebar split`、`/sidebar quick`、`Ctrl+G`、`/sidebar setup` 调用注入的启动器/配置命令，未连接工作区与 `unsupported` 提示。
 
 本轮工程验证记录：
 
-- `npm --prefix tui test`：**281/282 通过**，唯一失败是沙箱无 PTY 的既有环境项（`interactive CLI enters and restores the alternate screen`）。
+- `npm --prefix tui test`：**286/287 通过**，唯一失败是沙箱无 PTY 的既有环境项（`interactive CLI enters and restores the alternate screen`）。
 - AppleScript 已通过 `osacompile` 语法编译校验；未在本机执行 `osascript`，避免触发用户的终端自动化授权或切换其窗口。
 - `./run_sidebar.sh --help` 正常；`readWorkspaceStatus` 在本仓库实际读取变更文件与 diff；`ghostty +show-config` 预检确认本机当前默认 `quick-terminal-position = top`，与用户反馈一致。
 - 配置脚本已在本机临时目录验证写入与校验；本机真实 Ghostty 配置未被修改。
 
-**仍待用户验收**：重启 Ghostty 后 `/sidebar` 确认 quick terminal 在右侧；`/sidebar split` 确认分屏跟随窗口尺寸；退出工作台确认侧栏在约 1s 内关闭；以及两种模式下主 TUI 的视觉与输入体验。
+**仍待用户验收**：重启工作台后，`/sidebar` 或 `Ctrl+G` 确认 split 打开并自动调到约 70/30、跟随窗口尺寸、退出工作台关闭侧栏；`/sidebar quick` 确认原来的浮层模式；以及两种模式下主 TUI 的视觉与输入体验。
 
 ## 已知限制与后续
 

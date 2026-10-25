@@ -5,7 +5,7 @@ import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import test from 'node:test';
 import {
-  SIDEBAR_TITLE, checkQuickTerminalPosition, detectHost, ghosttyBinary, ghosttyScript, openSidebar, shellQuote, sidebarCommand, splitScript,
+  SIDEBAR_TITLE, checkQuickTerminalPosition, detectHost, ghosttyBinary, ghosttyScript, openSidebar, resizeSidebarSplit, resizeSplitScript, shellQuote, sidebarCommand, splitScript,
   type Runner,
 } from '../src/sidebar/host.js';
 import {sidebarCliPath} from '../src/sidebar/launch.js';
@@ -130,10 +130,21 @@ test('automatic sidebars explain unsupported hosts and macOS automation permissi
   assert.match(denied.message, /自动化权限/u);
 });
 
+test('split resize scripts target the sidebar terminal and use Ghostty resize_split', () => {
+  const script = resizeSplitScript('right', 160.4);
+  assert.match(script, /resize_split:right,160/u);
+  assert.match(script, new RegExp(SIDEBAR_TITLE, 'u'));
+  assert.match(script, /return "ok"/u);
+  const run = () => ({status: 0, stdout: 'ok\n', stderr: ''});
+  assert.equal(resizeSidebarSplit('right', 160, {env: {TERM_PROGRAM: 'ghostty'}, platform: 'darwin', run}), true);
+  assert.equal(resizeSidebarSplit('right', 160, {env: {TERM_PROGRAM: 'ghostty'}, platform: 'darwin',
+    run: () => ({status: 0, stdout: 'action-failed\n', stderr: ''})}), false);
+});
+
 test('generated AppleScript compiles with the macOS scripting compiler', {skip: process.platform !== 'darwin' || !hasOsacompile()}, () => {
   const directory = mkdtempSync(path.join(tmpdir(), 'mini-harness-sidebar-'));
   try {
-    for (const [name, script] of [['quick', ghosttyScript('echo hello')], ['split', splitScript('echo hello', '/repo')]] as const) {
+    for (const [name, script] of [['quick', ghosttyScript('echo hello')], ['split', splitScript('echo hello', '/repo')], ['resize', resizeSplitScript('right', 120)]] as const) {
       const output = path.join(directory, `${name}.scpt`);
       const result = spawnSync('osacompile', ['-o', output, '-e', script], {encoding: 'utf8'});
       assert.equal(result.status, 0, `${name}: ${result.stderr}`);

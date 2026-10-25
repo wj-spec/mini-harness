@@ -35,7 +35,16 @@ async function main() {
     onQuit={() => instance?.unmount()}/>, {
     exitOnCtrlC: false, patchConsole: false, interactive: true, alternateScreen: true,
   });
-  if (options.parentPid !== null) writeSidebarLink(options.workspace, {pid: process.pid, parentPid: options.parentPid});
+  // 登记父进程与当前终端列宽；工作台据列宽把 split 调成 70/30。
+  const updateLink = () => {
+    if (options.parentPid === null) return;
+    writeSidebarLink(options.workspace, {
+      pid: process.pid, parentPid: options.parentPid,
+      columns: process.stdout.columns, rows: process.stdout.rows,
+    });
+  };
+  updateLink();
+  process.stdout.on('resize', updateLink);
   // 主工作台退出即联动收起侧栏；即使工作台崩溃，进程消失也会触发。
   const stopParentWatch = options.parentPid === null ? () => {} : watchParentPid(options.parentPid, () => instance?.unmount());
   const onSignal = () => {instance?.unmount();};
@@ -45,6 +54,7 @@ async function main() {
     await instance.waitUntilExit();
   } finally {
     stopParentWatch();
+    process.stdout.off('resize', updateLink);
     process.off('SIGTERM', onSignal);
     process.off('SIGHUP', onSignal);
     setTitle('');
