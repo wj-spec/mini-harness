@@ -77,10 +77,12 @@ if (count of sidebarHits) > 0 then
   return "focused"
 end if
 set cfg to new surface configuration
-set command of cfg to "<sidebar 启动命令>"
 set initial working directory of cfg to "<workspace>"
 set target to focused terminal of selected tab of front window
-split target direction right with configuration cfg
+set newTerminal to split target direction right with configuration cfg
+delay 0.6
+input text "<sidebar 启动命令>" to newTerminal
+send key "enter" to newTerminal
 return "started"
 ```
 
