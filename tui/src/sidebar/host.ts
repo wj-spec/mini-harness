@@ -235,9 +235,12 @@ tell application "Terminal"
   set bottomY to item 4 of tuiBounds
   set sidebarWidth to ((rightX - leftX) * 0.3) as integer
   if sidebarWidth < 320 then set sidebarWidth to 320
-  set newWindow to make new window
+  do script ":"
+  set newWindow to window 1
+  if (id of newWindow) = (id of tuiWindow) then return "unexpected-tab"
   set bounds of newWindow to {rightX, topY, rightX + sidebarWidth, bottomY}
   do script "${appleScriptString(command)}" in newWindow
+  set index of tuiWindow to 1
   return "started:" & ((id of newWindow) as text)
 end tell`;
 }
@@ -299,6 +302,9 @@ function mapWindowMarker(marker: string, host: TerminalHost, command: string): L
     };
   }
   if (marker === 'focused') return {outcome: 'focused', command, host, message: '已聚焦侧栏窗口'};
+  if (marker === 'unexpected-tab') {
+    return {outcome: 'failed', command, message: 'Terminal 未能创建独立侧栏窗口（命令被开在新标签页）；请确认 Terminal 的“新建窗口”设置或手动运行命令。'};
+  }
   return {outcome: 'failed', command, message: `侧栏窗口启动结果未知：${marker || '空输出'}`};
 }
 
@@ -357,7 +363,14 @@ export function openSidebar(options: OpenSidebarOptions): LaunchResult {
   if (mode === 'window' || host === 'terminal') {
     const script = host === 'terminal' ? terminalWindowScript(command) : ghosttyWindowScript(command, options.workspace);
     const result = run(SIDEBAR_COMMAND, ['-e', script], {timeoutMs});
-    return launchFailure(result, command) ?? mapWindowMarker(lastLine(result.stdout), host, command);
+    const failure = launchFailure(result, command);
+    if (failure) {
+      if (host === 'terminal' && /-10000|AppleEvent handler failed/iu.test(result.stderr)) {
+        return {outcome: 'failed', command, message: 'Terminal 窗口创建失败（AppleScript -10000）；请更新到最新代码重试，或手动运行 ./run_sidebar.sh 后把窗口拖到右侧。'};
+      }
+      return failure;
+    }
+    return mapWindowMarker(lastLine(result.stdout), host, command);
   }
   if (mode === 'split') {
     const initialPixels = options.totalColumns

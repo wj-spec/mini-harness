@@ -91,7 +91,7 @@ split 不需要 quick terminal 配置，也不经过 `quick-terminal-position` �
 
 ## macOS Terminal 与独立窗口
 
-- **macOS Terminal**：`tell application "Terminal"` 读取 `bounds of window 1`（当前 TUI 窗口），`do script "<启动命令>"` 打开新窗口，再设置 `bounds` 到 `{right, top, right + width*0.3, bottom}`（最小宽度 320），达到“右侧、同高”；返回 `started:<window id>`。
+- **macOS Terminal**：`tell application "Terminal"` 读取 `bounds of window 1`（当前 TUI 窗口），用 `do script ":"` 先创建新窗口并设置 `bounds` 到 `{right, top, right + width*0.3, bottom}`（最小宽度 320，右侧、同高），再用 `do script "<启动命令>" in newWindow` 在窗口内启动侧栏并 `set index of tuiWindow to 1` 把焦点交回 TUI；返回 `started:<window id>`。Terminal 不支持 `make new window`（AppleScript -10000），已用后者替代；若新窗口被开成 TUI 的标签页则返回失败提示。
 - **Ghostty 独立窗口**：`new window with configuration`，配置 `initial working directory` 与 `initial input`（启动命令 + return），返回 `started:<window id>`；Ghostty sdef 不暴露窗口 bounds，因此只能手动拖到右侧。
 - 工作台把 `{host, windowId}` 记在内存中；退出 TUI 时先 `SIGTERM` 侧栏进程，再按 host 关闭窗口（Terminal `close window id` / Ghostty `close window`）。侧栏内 `q` 正常退出时，Terminal 通常随 shell 结束关闭，Ghostty 窗口随 surface 结束关闭；异常崩溃时窗口可能残留，需要手动关闭。
 - 已有标题匹配的侧栏时返回 `focused` 并前置窗口，不重复创建。
