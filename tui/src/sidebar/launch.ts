@@ -11,8 +11,8 @@ export function sidebarCliPath(argv1: string | undefined = process.argv[1]): str
   return path.resolve(base, 'sidebar', 'cli.js');
 }
 
-export function launchSidebarForTui(workspace: string, mode: SidebarMode = 'quick'): LaunchResult {
-  return openSidebar({workspace, cliPath: sidebarCliPath(), nodePath: process.execPath, mode, parentPid: process.pid});
+export function launchSidebarForTui(workspace: string, mode: SidebarMode = 'split', totalColumns?: number): LaunchResult {
+  return openSidebar({workspace, cliPath: sidebarCliPath(), nodePath: process.execPath, mode, parentPid: process.pid, totalColumns});
 }
 
 /** dist/src/cli.js → 仓库根目录。 */

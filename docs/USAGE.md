@@ -506,7 +506,7 @@ keybind = global:cmd+shift+g=toggle_quick_terminal
 | `/sidebar quick` | quick terminal | 屏幕右缘浮层，**不挤占 TUI**；位置/尺寸锚定屏幕，不跟随窗口。需要先执行 `/sidebar setup` 并重启 Ghostty；首次会请求 macOS 自动化权限。 |
 | `/sidebar setup` | — | 写入 quick terminal 右侧配置（仅 quick 模式需要）。 |
 
-- 再次触发：如果侧栏还在运行，只聚焦已有侧栏（split）或切换显隐（quick）；split 首次打开后约 1–2 秒内自动把比例调成约 70/30（通过侧栏回报的列宽做一次校准 resize）；
+- 再次触发：如果侧栏还在运行，只聚焦已有侧栏（split）或切换显隐（quick）；split 创建时先按估算 resize 到接近 70/30（在侧栏进程启动前，避免先看到完整的 50/50），侧栏启动后再按回报的列宽做一次校准；
 - 顶部紧凑状态条：当主 TUI 宽度 `< 118` 列时，右侧状态面板会隐藏，状态/上下文预算/构成条合并到顶部 3 行；窗口足够宽（约 ≥169 列时 70/30 仍能保留右侧面板）时自动恢复。
 - 侧栏内 `q` 退出后分屏/quick terminal 关闭，下次 `/sidebar` 重新启动；
 - **生命周期联动**：工作台通过 `--parent-pid` 把主进程号传给侧栏；工作台退出（`Ctrl+Q`、`/quit`、异常断开、进程被杀）后，侧栏会立即（正常退出）或约 1 秒内（崩溃）退出，分屏/quick terminal 随之关闭，不会留下孤儿面板。手动运行 `./run_sidebar.sh` 不传 `--parent-pid`，则不受工作台退出影响；

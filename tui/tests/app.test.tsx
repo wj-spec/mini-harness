@@ -1053,14 +1053,16 @@ test('/sidebar split asks the launcher for split mode so the pane follows the Gh
 
 test('/sidebar defaults to split mode while /sidebar quick requests the screen-anchored quick terminal', async () => {
   const modes: (string | undefined)[] = [];
+  const totals: (number | undefined)[] = [];
   const client = new MockClient();
   const {stdin} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 140, rows: 40}}
     initialState={{...initialState, phase: 'idle', workspace: '/repo', model: 'fake'}}
-    launchSidebar={(_workspace, mode) => {modes.push(mode); return {outcome: 'started', message: 'ok'};}}/>);
+    launchSidebar={(_workspace, mode, totalColumns) => {modes.push(mode); totals.push(totalColumns); return {outcome: 'started', message: 'ok'};}}/>);
   await pause(20);
   await enter(stdin, '/sidebar');
   await pause(20);
   await enter(stdin, '/sidebar quick');
   await pause(20);
   assert.deepEqual(modes, ['split', 'quick']);
+  assert.deepEqual(totals, [140, 140]);
 });

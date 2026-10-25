@@ -31,7 +31,7 @@ const approvalKeys: Record<string, ApprovalDecision> = {y: 'once', s: 'session',
 export function App({client, initialState = emptyState, windowSize, initialTheme = 'system', copyText = copyToClipboard, profilePath, userProfilePath, launchSidebar = launchSidebarForTui, setupSidebar = runSidebarSetup}: {
   client: BackendClient; initialState?: ViewState; windowSize?: {columns: number; rows: number}; initialTheme?: ThemeName;
   copyText?: (text: string) => string | null; profilePath?: string; userProfilePath?: string;
-  launchSidebar?: (workspace: string, mode?: SidebarMode) => LaunchResult;
+  launchSidebar?: (workspace: string, mode?: SidebarMode, totalColumns?: number) => LaunchResult;
   setupSidebar?: () => SetupResult;
 }) {
   const [state, dispatch] = useReducer(reduceView, initialState);
@@ -194,7 +194,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
     const workspace = state.workspace;
     if (!workspace) {notice('尚未连接工作区，暂时无法打开变更侧栏'); return;}
     try {
-      const result = launchSidebar(workspace, mode);
+      const result = launchSidebar(workspace, mode, columns);
       announce(result.message);
       if (mode === 'split' && result.outcome === 'started' && usesDefaultLauncher) {
         const totalColumns = columns;

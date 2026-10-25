@@ -23,6 +23,8 @@ export type OpenSidebarOptions = {
   run?: Runner;
   timeoutMs?: number;
   mode?: SidebarMode;
+  /** split 前主 TUI 的总列数，用于首次 resize 估算。 */
+  totalColumns?: number;
   /** 主 TUI 进程号；侧栏用它做生命周期联动。 */
   parentPid?: number;
   /** 测试注入；显式 null 表示跳过 quick terminal 配置预检。 */
@@ -150,7 +152,11 @@ function unsupported(message: string, command: string): LaunchResult {
  * 在同一个 Ghostty 窗口内右侧分屏。split 属于窗口布局，会跟随窗口尺寸；
  * 代价是主 TUI 的可视宽度减少。
  */
-export function splitScript(command: string, workspace: string): string {
+export function splitScript(command: string, workspace: string, initialPixels = 0): string {
+  const initial = Math.max(0, Math.round(initialPixels));
+  const initialResize = initial > 0
+    ? `  delay 0.05\n  perform action "resize_split:right,${initial}" on newTerminal\n`
+    : '';
   return `set sidebarTitle to "${SIDEBAR_TITLE}"
 tell application "Ghostty"
   set sidebarHits to (every terminal whose name contains sidebarTitle)
@@ -162,7 +168,7 @@ tell application "Ghostty"
   set initial working directory of cfg to "${appleScriptString(workspace)}"
   set target to focused terminal of selected tab of front window
   set newTerminal to split target direction right with configuration cfg
-  delay 0.6
+${initialResize}  delay 0.6
   input text "${appleScriptString(command)}" to newTerminal
   send key "enter" to newTerminal
   focus target
@@ -227,6 +233,27 @@ function mapSplitMarker(marker: string, command: string): LaunchResult {
   }
 }
 
+function parseFontSize(output: string): number | null {
+  const match = /^\s*font-size\s*=\s*([\d.]+)\s*$/mu.exec(output);
+  if (!match) return null;
+  const value = Number(match[1]);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+/** 读取 Ghostty 字号，用于估算 split 初始 resize 的像素量（默认 13pt）。 */
+export function readFontSize(run: Runner, env: NodeJS.ProcessEnv = process.env, binary?: string | null): number {
+  const ghostty = binary === null ? null : binary ?? ghosttyBinary(env);
+  if (ghostty) {
+    const effective = run(ghostty, ['+show-config'], {timeoutMs: 1000});
+    const value = effective.status === 0 ? parseFontSize(effective.stdout) : null;
+    if (value) return value;
+    const defaults = run(ghostty, ['+show-config', '--default'], {timeoutMs: 1500});
+    const fallback = defaults.status === 0 ? parseFontSize(defaults.stdout) : null;
+    if (fallback) return fallback;
+  }
+  return 13;
+}
+
 export function openSidebar(options: OpenSidebarOptions): LaunchResult {
   const command = sidebarCommand(options);
   const mode: SidebarMode = options.mode ?? 'quick';
@@ -243,7 +270,10 @@ export function openSidebar(options: OpenSidebarOptions): LaunchResult {
   const run = options.run ?? defaultRunner;
   const timeoutMs = options.timeoutMs ?? 10_000;
   if (mode === 'split') {
-    const result = run(SIDEBAR_COMMAND, ['-e', splitScript(command, options.workspace)], {timeoutMs});
+    const initialPixels = options.totalColumns
+      ? Math.max(0, Math.round(options.totalColumns * 0.2 * readFontSize(run, env, options.ghosttyBinary) * 0.6))
+      : 0;
+    const result = run(SIDEBAR_COMMAND, ['-e', splitScript(command, options.workspace, initialPixels)], {timeoutMs});
     return launchFailure(result, command) ?? mapSplitMarker(lastLine(result.stdout), command);
   }
   const quickTerminal = checkQuickTerminalPosition({env, run, binary: options.ghosttyBinary});

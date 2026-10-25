@@ -152,7 +152,7 @@ split 不需要 quick terminal 配置，也不经过 `quick-terminal-position` �
 
 本轮工程验证记录：
 
-- `npm --prefix tui test`：**286/287 通过**，唯一失败是沙箱无 PTY 的既有环境项（`interactive CLI enters and restores the alternate screen`）。
+- `npm --prefix tui test`：**289/290 通过**，唯一失败是沙箱无 PTY 的既有环境项（`interactive CLI enters and restores the alternate screen`）。
 - AppleScript 已通过 `osacompile` 语法编译校验；未在本机执行 `osascript`，避免触发用户的终端自动化授权或切换其窗口。
 - `./run_sidebar.sh --help` 正常；`readWorkspaceStatus` 在本仓库实际读取变更文件与 diff；`ghostty +show-config` 预检确认本机当前默认 `quick-terminal-position = top`，与用户反馈一致。
 - 配置脚本已在本机临时目录验证写入与校验；本机真实 Ghostty 配置未被修改。

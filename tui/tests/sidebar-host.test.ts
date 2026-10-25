@@ -5,7 +5,7 @@ import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import test from 'node:test';
 import {
-  SIDEBAR_TITLE, checkQuickTerminalPosition, detectHost, ghosttyBinary, ghosttyScript, openSidebar, resizeSidebarSplit, resizeSplitScript, shellQuote, sidebarCommand, splitScript,
+  SIDEBAR_TITLE, checkQuickTerminalPosition, detectHost, ghosttyBinary, ghosttyScript, openSidebar, readFontSize, resizeSidebarSplit, resizeSplitScript, shellQuote, sidebarCommand, splitScript,
   type Runner,
 } from '../src/sidebar/host.js';
 import {sidebarCliPath} from '../src/sidebar/launch.js';
@@ -128,6 +128,36 @@ test('automatic sidebars explain unsupported hosts and macOS automation permissi
     run: () => ({status: 1, stdout: '', stderr: 'execution error: Not authorized to send Apple events to Ghostty. (-1743)'})});
   assert.equal(denied.outcome, 'failed');
   assert.match(denied.message, /自动化权限/u);
+});
+
+test('split script applies an initial resize estimate before starting the sidebar', () => {
+  const script = splitScript('echo hello', '/repo', 240);
+  assert.match(script, /resize_split:right,240/u);
+  assert.ok(script.indexOf('resize_split:right,240') < script.indexOf('input text'), 'resize before the sidebar renders');
+  assert.doesNotMatch(splitScript('echo hello', '/repo'), /resize_split/u);
+});
+
+test('readFontSize prefers the effective config and falls back to defaults', () => {
+  const runner = (_command: string, args: string[]) => args.includes('--default')
+    ? {status: 0, stdout: 'font-size = 14\n', stderr: ''}
+    : {status: 0, stdout: '', stderr: ''};
+  assert.equal(readFontSize(runner, {}, '/Applications/Ghostty.app/Contents/MacOS/ghostty'), 14);
+  assert.equal(readFontSize(() => ({status: 1, stdout: '', stderr: ''}), {}, null), 13);
+});
+
+test('split launch with total columns injects an initial resize before sidebar startup', () => {
+  const calls: string[][] = [];
+  const run: Runner = (command, args) => {
+    calls.push([command, ...args]);
+    if (args[0] === '+show-config') return {status: 0, stdout: args.includes('--default') ? 'font-size = 13\n' : '', stderr: ''};
+    return {status: 0, stdout: 'started\n', stderr: ''};
+  };
+  const result = openSidebar({workspace: '/repo', cliPath: '/app/sidebar.js', env: {TERM_PROGRAM: 'ghostty'}, platform: 'darwin',
+    mode: 'split', totalColumns: 170, ghosttyBinary: '/fake/ghostty', run});
+  assert.equal(result.outcome, 'started');
+  const osascript = calls.find(call => call[0] === 'osascript');
+  assert.ok(osascript);
+  assert.match(osascript![2]!, /resize_split:right,265/u);
 });
 
 test('split resize scripts target the sidebar terminal and use Ghostty resize_split', () => {
