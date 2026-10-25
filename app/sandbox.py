@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import shlex
 import signal
 import subprocess
 from pathlib import Path
@@ -22,6 +23,63 @@ DANGEROUS_PATTERNS: list[tuple[str, str]] = [
 ]
 
 
+WRITE_COMMANDS = frozenset({
+    "rm", "rmdir", "mv", "cp", "ln", "tee", "touch", "mkdir", "install", "truncate", "shred",
+})
+SAFE_WRITE_ROOTS = (Path("/tmp").resolve(),)
+
+
+def _outside_workspace_write(token: str, workspace: Path) -> str | None:
+    """显式写/删工作区外的一次尽力检查；bash 仍可绕过，不能当边界。"""
+    probe = token.strip("'\"")
+    if not probe or probe.startswith("-") or probe in {"~", "$HOME", "${HOME}"}:
+        return None
+    expanded = os.path.expandvars(os.path.expanduser(probe))
+    if expanded.startswith(("~", "$")):
+        return None
+    if not expanded.startswith("/"):
+        if ".." not in Path(expanded).parts:
+            return None
+        target = (workspace / expanded).resolve()
+    else:
+        target = Path(expanded).resolve()
+    root = workspace.resolve()
+    if target == root or root in target.parents:
+        return None
+    if any(target == base or base in target.parents for base in SAFE_WRITE_ROOTS):
+        return None
+    return str(target)
+
+
+def check_write_paths(command: str, workspace: Path) -> None:
+    try:
+        tokens = list(shlex.shlex(command, posix=True, punctuation_chars=True))
+    except ValueError:
+        return
+    command_word = ""
+    after_redirect = False
+    for token in tokens:
+        if after_redirect:
+            violation = _outside_workspace_write(token, workspace)
+            if violation:
+                raise PermissionError(f"blocked write outside workspace: {violation}")
+            after_redirect = False
+            continue
+        if token in {">", ">>", ">|"}:
+            after_redirect = True
+            continue
+        if token and token[0] in "|;&()<>":
+            command_word = ""
+            continue
+        if not command_word:
+            command_word = token
+            continue
+        if command_word in WRITE_COMMANDS:
+            violation = _outside_workspace_write(token, workspace)
+            if violation:
+                raise PermissionError(f"blocked write outside workspace: {violation}")
+
+
 class CommandCancelled(Exception):
     def __init__(self, exit_code: int | None, output: str):
         self.exit_code = exit_code
@@ -29,10 +87,12 @@ class CommandCancelled(Exception):
         super().__init__("command cancelled; process group reaped")
 
 
-def check_command(command: str) -> None:
+def check_command(command: str, workspace: Path | None = None) -> None:
     for pattern, reason in DANGEROUS_PATTERNS:
         if re.search(pattern, command):
             raise PermissionError(f"blocked dangerous command ({reason})")
+    if workspace is not None:
+        check_write_paths(command, workspace)
 
 
 def run_command(

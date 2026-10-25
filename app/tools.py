@@ -300,7 +300,7 @@ class ToolRegistry:
         target = self._resolve(cwd)
         if not target.is_dir():
             raise NotADirectoryError(cwd)
-        check_command(command)
+        check_command(command, self.root)
         code, output, timed_out = run_command(command, target, float(timeout))
         return _command_output(command, cwd, timeout, code, output, timed_out=timed_out)
 
@@ -309,7 +309,7 @@ class ToolRegistry:
         target = self._resolve(cwd)
         if not target.is_dir():
             raise NotADirectoryError(cwd)
-        check_command(command)
+        check_command(command, self.root)
         try:
             code, output, timed_out = await run_command_async(command, target, float(timeout))
         except CommandCancelled as exc:
@@ -337,7 +337,7 @@ class ToolRegistry:
             return unified_diff(old, content, path)
         if call.name == "bash":
             command = str(call.args.get("command", ""))
-            check_command(command)
+            check_command(command, self.root)
             timeout = call.args.get("timeout", 30)
             cwd = call.args.get("cwd", ".")
             return f"$ {command}\ncwd: {cwd}\ntimeout: {timeout}s\n\n[risk] exec — approval required"
