@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, {afterEach} from 'node:test';
 import {setTimeout as pause} from 'node:timers/promises';
 import React from 'react';
-import {render} from 'ink-testing-library';
+import {cleanup, render} from 'ink-testing-library';
 import {App} from '../src/app.js';
 import type {BackendClient} from '../src/backend.js';
 import type {ServerEvent} from '../src/protocol.js';
+
+afterEach(cleanup);
 
 class Client {
   listeners = new Set<(event: ServerEvent) => void>();
