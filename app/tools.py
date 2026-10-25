@@ -193,6 +193,36 @@ class ToolRegistry:
                 fn=self.list_files,
                 retryable=True,
             ),
+            "git_status": ToolSpec(
+                name="git_status",
+                description=(
+                    "Read-only Git status for the workspace: current branch, ahead/behind and "
+                    "uncommitted files with change counts. No approval required. Use it to ground "
+                    "claims about workspace state instead of running bash."
+                ),
+                parameters={"type": "object", "properties": {}, "additionalProperties": False},
+                fn=self.git_status,
+                retryable=True,
+            ),
+            "git_diff": ToolSpec(
+                name="git_diff",
+                description=(
+                    "Read-only unified diff of uncommitted changes (staged + unstaged; HEAD baseline). "
+                    "Optionally limit to a workspace path or show only staged changes. "
+                    "No approval required; output is truncated."
+                ),
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string", "description": "Optional path relative to workspace"},
+                        "cached": {"type": "boolean", "default": False,
+                                   "description": "Show staged (index) changes instead"},
+                    },
+                    "additionalProperties": False,
+                },
+                fn=self.git_diff,
+                retryable=True,
+            ),
             "write_file": ToolSpec(
                 name="write_file",
                 description="Create or overwrite a text file inside the workspace. Requires approval.",
@@ -394,6 +424,159 @@ class ToolRegistry:
             return unified_diff(content, content.replace(old_text, new_text, 1), path)
         args = json.dumps(call.args, ensure_ascii=False, sort_keys=True)
         return f"{call.name} {args}\n\n[risk] {self.risk(call.name)} — approval required"
+
+    def _git_run(self, args: list[str], timeout: float = 15.0):
+        """只读 git：固定参数、清理 GIT_* 环境、禁用外部 diff/fsmonitor/hook 类行为。"""
+        git = shutil.which("git")
+        if not git:
+            raise ValueError("git is not installed or not in PATH")
+        env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        env.update({"GIT_OPTIONAL_LOCKS": "0", "LC_ALL": "C", "GIT_PAGER": "cat"})
+        try:
+            return subprocess.run(
+                [git, "--no-pager", "-c", "core.quotepath=false", "-c", "core.fsmonitor=false", *args],
+                cwd=self.root, capture_output=True, text=True, timeout=timeout, env=env,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise TimeoutError(f"git command timed out after {timeout}s") from exc
+
+    @staticmethod
+    def _git_failure(proc, action: str) -> None:
+        detail = (proc.stderr or proc.stdout).strip() or f"exit {proc.returncode}"
+        if "not a git repository" in detail.lower():
+            raise ValueError("not a git repository: use a Git workspace or run git init")
+        raise ValueError(f"git {action} failed: {detail[:2000]}")
+
+    def _git_numstat(self) -> dict[str, tuple[int | None, int | None]]:
+        attempts = [
+            ["diff", "HEAD", "--numstat", "-z", "--no-renames", "--no-color", "--no-ext-diff"],
+            ["diff", "--numstat", "-z", "--no-renames", "--no-color", "--no-ext-diff"],
+        ]
+        for args in attempts:
+            proc = self._git_run(args)
+            if proc.returncode != 0:
+                continue
+            counts: dict[str, tuple[int | None, int | None]] = {}
+            for record in proc.stdout.split("\0"):
+                match = re.match(r"^(\d+|-)\t(\d+|-)\t(.+)$", record, re.S)
+                if not match:
+                    continue
+                additions = None if match.group(1) == "-" else int(match.group(1))
+                deletions = None if match.group(2) == "-" else int(match.group(2))
+                counts[match.group(3)] = (additions, deletions)
+            return counts
+        return {}
+
+    @staticmethod
+    def _change_count(additions: int | None, deletions: int | None) -> str:
+        if additions is None and deletions is None:
+            return ""
+        return f" +{additions if additions is not None else '?'} -{deletions if deletions is not None else '?'}"
+
+    def git_status(self) -> str:
+        proc = self._git_run(["status", "--porcelain=v2", "-z", "--branch", "--untracked-files=all"])
+        if proc.returncode != 0:
+            self._git_failure(proc, "status")
+        branch = "(unknown)"
+        oid: str | None = None
+        ahead = behind = 0
+        files: list[tuple[str, str, str | None]] = []
+        records = proc.stdout.split("\0")
+        index = 0
+        while index < len(records):
+            record = records[index]
+            index += 1
+            if not record:
+                continue
+            if record.startswith("# branch.head "):
+                branch = record[len("# branch.head "):]
+                continue
+            if record.startswith("# branch.oid "):
+                oid = record[len("# branch.oid "):]
+                continue
+            if record.startswith("# branch.ab "):
+                match = re.match(r"# branch\.ab \+(\d+) -(\d+)$", record)
+                if match:
+                    ahead, behind = int(match.group(1)), int(match.group(2))
+                continue
+            if record.startswith("1 "):
+                parts = record.split(" ", 8)
+                if len(parts) == 9:
+                    files.append((parts[1], parts[8], None))
+                continue
+            if record.startswith("2 "):
+                parts = record.split(" ", 9)
+                original = records[index] if index < len(records) else None
+                index += 1
+                if len(parts) == 10:
+                    files.append((parts[1], parts[9], original))
+                continue
+            if record.startswith("u "):
+                parts = record.split(" ", 10)
+                if len(parts) == 11:
+                    files.append((parts[1], parts[10], None))
+                continue
+            if record.startswith("? "):
+                files.append(("??", record[2:], None))
+        if branch == "(detached)" and oid and oid != "(initial)":
+            branch = oid[:7]
+        counts = self._git_numstat()
+        lines = [f"branch: {branch} (ahead {ahead}, behind {behind})"]
+        if not files:
+            lines.append("working tree clean")
+            return "\n".join(lines)
+        lines.append(f"files: {len(files)}")
+        for xy, path, original in files[:200]:
+            safe_path = path.replace("\n", "\\n").replace("\r", "\\r")
+            suffix = f" (renamed from {original})" if original else ""
+            additions, deletions = counts.get(path, (None, None))
+            lines.append(f"{xy}  {safe_path}{suffix}{self._change_count(additions, deletions)}")
+        if len(files) > 200:
+            lines.append(f"...[truncated at 200 files; {len(files) - 200} more]")
+        return "\n".join(lines)
+
+    def git_diff(self, path: str | None = None, cached: bool = False) -> str:
+        pathspec: str | None = None
+        if path:
+            target = self._resolve(path)
+            relative = target.relative_to(self.root).as_posix()
+            pathspec = relative if relative != "." else None
+        args = ["diff"]
+        if cached:
+            args.append("--cached")
+        else:
+            head = self._git_run(["rev-parse", "--verify", "HEAD"])
+            if head.returncode == 0:
+                args.append("HEAD")
+        args += ["--no-color", "--no-ext-diff", "--no-textconv", "-U3"]
+        if pathspec:
+            args += ["--", pathspec]
+        proc = self._git_run(args)
+        if proc.returncode not in (0, 1):
+            self._git_failure(proc, "diff")
+        text = proc.stdout
+        if not text.strip() and pathspec and not cached:
+            tracked = self._git_run(["ls-files", "--error-unmatch", "--", pathspec])
+            if tracked.returncode != 0:
+                target = self.root / pathspec
+                if target.is_file():
+                    no_index = self._git_run(
+                        ["diff", "--no-index", "--no-color", "--no-ext-diff", "-U3", "--", "/dev/null", pathspec],
+                    )
+                    if no_index.returncode == 1 and no_index.stdout.strip():
+                        text = no_index.stdout
+        lines = text.splitlines()
+        truncated = False
+        if len(lines) > 1200:
+            lines = lines[:1200]
+            truncated = True
+        rendered = "\n".join(lines)
+        if truncated:
+            rendered += "\n...[diff truncated at 1200 lines]"
+        if len(rendered) > 40_000:
+            rendered = rendered[:40_000] + "\n...[diff truncated at 40k chars]"
+        header = f"git {' '.join(args)} (cwd={self.root})"
+        return header + "\n" + (rendered if rendered.strip() else "(no differences)")
 
     def write_file(self, path: str, content: str) -> str:
         target = self._resolve(path)

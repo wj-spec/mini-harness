@@ -282,6 +282,12 @@ class Agent:
                     system += " Keep the plan and progress current with update_task."
                 if "recall" in tools.names():
                     system += " If context shows [offloaded: ref], call recall(ref) to read it."
+                if "git_status" in tools.names():
+                    system += (
+                        " Inspect uncommitted changes with git_status and git_diff; they are read-only and "
+                        "need no approval. Quote their actual output before claiming workspace state, and say "
+                        "when the workspace is not a Git repository."
+                    )
                 system += (
                     " Ground every claim in tool output: before reporting workspace state "
                     "(uncommitted changes, file existence, test results) run a command and quote what it showed; "

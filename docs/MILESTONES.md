@@ -322,6 +322,8 @@ README「当前完善重点」六项已修复并附针对性回归，真实任�
 
 **执行隔离评估（2026-10-25）**：新增 [执行隔离评估](specs/execution-isolation.md)，梳理当前边界（审批 + 12 条正则黑名单 + 超时 + 进程组回收）与六类可绕过点（工作区外读写、黑名单绕过、网络外发、workspace 授权窗口、子进程逃逸），列出 A–D 四项方案与建议顺序（先护栏与授权语义，再环境收敛实测，最后可选 OS 沙箱）。随后实施了选项 B 的第一小步：`bash` 显式写/删工作区外路径（绝对、家目录、`..` 逃逸与重定向）被 `PermissionError` 拦截，`/tmp` 与相对路径放行；回归见 `tests/test_sandbox.py`，限制（`cd` 后相对写入、嵌套 shell、`.venv` 符号链接等仍可绕过）已写入评估文档。用户决定保留 workspace 级永久授权（选项 A 否决）。沙箱方向完成 GitHub 调研（[沙箱调研](research/sandbox-research-2026-10-25.md)）：Codex 与 Anthropic sandbox-runtime 均不用容器做默认隔离。随后实现 macOS Seatbelt 可选沙箱：`--sandbox` / `VIBE_SANDBOX=1` 写入限工作区与临时目录、默认断网、敏感读取拒绝、拒绝标注 `sandbox_denied`、启动探针失败直接拒绝；回归 `tests/test_sandbox_seatbelt.py`（集成部分在嵌套沙箱环境跳过，用户实机 8 通过/1 跳过）。Ink 入口已支持 `--sandbox`/`--sandbox-network` 转发。补充：`.git/hooks` 与 `.git/config*` 写入拒绝；Linux bubblewrap 后端已接入（argv 单测，实机待验）；macOS 网络白名单已实现（本地代理 + 域名放行，HTTP/CONNECT 按域名判定，未列出返回 403 并标注 `sandbox_denied`），实机集成用例待用户环境确认。
 
+**只读 Git 工具（2026-10-25）**：新增 `git_status` 与 `git_diff` 两个 `risk=read` 工具（免审批），让 Agent 在报告工作区状态前直接核对分支、未提交文件与 unified diff，减少过去必须走 `bash` 审批的自检摩擦；写文件、`bash`、web、MCP 的审批边界不变。实现固定参数数组、不经过 shell，清理 `GIT_*` 环境并禁用外部 diff / textconv / fsmonitor，路径限制在工作区内，diff 截断到 1200 行 / 40k 字符。系统提示加入对应使用约束（引用真实输出、非 Git 仓库要说明）。回归 `tests/test_git_tools.py` **7 项**；全量 `./run_tests.sh -q` 退出 0（收集 902 项）。规格见 [只读 Git 工具](specs/git-readonly-tools.md)；真实编码任务中的收益待验收。
+
 ## 当前下一步
 
 W1–W5 已完成真实验收；W6 已按协议完成对照（2026-10-25），主假设未获支持。接下来：

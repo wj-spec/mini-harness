@@ -118,11 +118,11 @@ def test_context_is_applied_before_model_call(tmp_path):
     )
     context = ContextBuilder(
         policy=BudgetPolicy(
-            context_window=1600,
+            context_window=2000,
             output_cap=100,
-            system_cap=100,
+            system_cap=500,
             memory_cap=100,
-            tools_cap=1400,
+            tools_cap=1600,
             history_cap=60,
             scratch_cap=10,
         ),
@@ -182,6 +182,8 @@ def test_chat_only_rejects_text_tool_call(tmp_path):
 def test_prompt_reflects_tools(tmp_path):
     with_tools = Agent(FakeProvider([]), ToolRegistry(tmp_path))
     assert "list_files" in with_tools.system
+    assert "git_status" in with_tools.system
+    assert "git_diff" in with_tools.system
 
     chat_only = Agent(FakeProvider([]), ToolRegistry(tmp_path), tools_enabled=False)
     assert "list_files" not in chat_only.system

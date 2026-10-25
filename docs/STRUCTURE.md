@@ -95,6 +95,7 @@ mini-harness/
     test_skill_lifecycle.py
     test_policy.py
     test_provider.py
+    test_git_tools.py
 
   docs/
     USAGE.md           # 安装、配置与运行参考

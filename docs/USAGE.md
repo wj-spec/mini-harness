@@ -219,6 +219,20 @@ history 实际额度 = 窗口 − 输出预留 − 安全余量 − 实际 syste
 - **TaskState**：harness 记录目标、计划、文件变化与 `command_results`（命令、用途、状态、退出码和输出），作为 `task_state` system 消息注入；不进 stable prefix hash。`tests_run` 兼容旧记录，仅新显式标记验证的命令会追加，不能单凭命令名作为通过证明。
 - **工作台**：状态栏显示 `todo done/total`。
 
+## 只读 Git 检查
+
+Agent 新增两个**只读、无需审批**的工具，用于在报告工作区状态前核对事实：
+
+| 工具 | 作用 |
+|---|---|
+| `git_status` | 分支、ahead/behind、未提交文件与每个文件相对 HEAD 的增删行数（porcelain v2 XY 状态；未跟踪为 `??`） |
+| `git_diff` | 未提交改动的 unified diff（默认 HEAD 基线，含 staged + unstaged；可限定 `path` 或只看 staged；未跟踪文件展示内容） |
+
+- 两者 `risk=read`，不弹审批；写文件、`bash`、web、MCP 的审批边界不变；
+- 固定参数数组、不经过 shell，禁用外部 diff / textconv / fsmonitor，只读、不联网；路径限制在工作区内；
+- 输出有上限（diff 1200 行 / 40k 字符），非 Git 仓库会明确报错；
+- 用户仍可用 `/diff` 主动查看；这两个工具是 Agent 自检入口，不替代审批语义。实现与限制见 [只读 Git 工具](specs/git-readonly-tools.md)。
+
 ## 写 + 审批
 
 - `write_file` / `edit_file` 是 `risk=write`，必须过审批。
