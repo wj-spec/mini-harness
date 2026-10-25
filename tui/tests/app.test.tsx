@@ -1085,3 +1085,27 @@ test('the TUI publishes agent-touched files so the sidebar can refresh and mark 
   assert.ok(latest?.files.includes('tui/src/app.tsx'));
   assert.ok(latest?.files.includes('src/a.ts'));
 });
+
+test('typing /skills opens a scrollable menu and Tab completes a skill action', async () => {
+  const client = new MockClient();
+  const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 100, rows: 30}}/>);
+  await pause(20);
+  client.emit({type: 'ready', workspace: '/repo', model: 'fake', session_id: 's', capabilities: [], skills: [
+    {name: 'ponytail', summary: '精简实现', active: false},
+    {name: 'tdd', summary: '先写测试', active: false},
+  ]});
+  client.emit({type: 'status', phase: 'idle'});
+  await pause(20);
+  stdin.write('/skills');
+  await pause(25);
+  assert.match(lastFrame() ?? '', /\/skills activate ponytail/);
+  assert.match(lastFrame() ?? '', /↑↓ 选择 · Tab 填充/);
+  stdin.write('\u001b[B');
+  await pause(15);
+  stdin.write('\t');
+  await pause(20);
+  stdin.write('\r');
+  await pause(30);
+  assert.deepEqual(client.commands, ['skills']);
+  assert.deepEqual(client.commandArgs, [{action: 'activate', name: 'tdd'}]);
+});

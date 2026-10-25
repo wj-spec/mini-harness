@@ -183,3 +183,16 @@ test('client args accept a sandbox network allowlist with a value', () => {
     ['--sandbox-network-allow', 'registry.npmjs.org,*.pypi.org']);
 });
 
+
+
+test('ready and skills command results carry an optional structured catalog', () => {
+  const ready = {v: 1, type: 'ready', id: null, workspace: '/repo', model: 'fake', session_id: 's', capabilities: []};
+  const skills = [{name: 'ponytail', summary: '精简实现', active: false, source: '/repo/.vibe/skills/ponytail/SKILL.md'}];
+  assert.equal(parseServerEvent(JSON.stringify({...ready, skills})).type, 'ready');
+  assert.throws(() => parseServerEvent(JSON.stringify({...ready, skills: [{name: '', summary: 'x', active: false}]})));
+  assert.throws(() => parseServerEvent(JSON.stringify({...ready, skills: [{name: 'x', summary: 'x', active: 'no'}]})));
+
+  const result = {v: 1, type: 'command_result', id: 'c1', command: 'skills', text: 'skills: 1 registered'};
+  assert.equal(parseServerEvent(JSON.stringify({...result, skills})).type, 'command_result');
+  assert.equal(parseServerEvent(JSON.stringify({...result, skills: undefined})).type, 'command_result');
+});

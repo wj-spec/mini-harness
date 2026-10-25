@@ -46,6 +46,7 @@ mini-harness/
       protocol.ts       # JSONL v1 类型与运行时校验
       app.tsx           # 阅读焦点、滚动、输入、审批与取消
       view-state.ts     # 实际活动、最终状态、完整消息与工具记录
+      skills-menu.ts    # /skills 的动态补全菜单（↑↓ 滚动、Tab 补全）
       agent-status.tsx  # 活动、任务、工具与真实资源预算分区
       workbench.tsx     # 全屏阅读、消息卡片、滚动条与详情
       mouse.ts          # 有界鼠标滚轮协议解析与粘贴隔离

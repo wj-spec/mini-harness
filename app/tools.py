@@ -950,6 +950,16 @@ class ToolRegistry:
         changed = self.skill_manager.deactivate(name)
         return f"skill inactive: {name}; {'unloaded' if changed else 'already inactive'}; files retained."
 
+    def skill_entries(self) -> list[dict]:
+        """结构化技能目录：TUI 菜单与 /skills 共用。"""
+        manager = self.skill_manager
+        active = {skill.name for skill in manager.active}
+        return [
+            {"name": skill.name, "summary": skill.summary(), "active": skill.name in active,
+             "source": str(skill.path)}
+            for skill in manager.available
+        ]
+
     def manage_skills(self, action: str = "list", name: str | None = None) -> str:
         if action not in {"list", "refresh", "activate", "unload"}:
             raise ValueError(f"unknown skills action: {action}")

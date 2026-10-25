@@ -349,3 +349,13 @@ def test_parse_skill_supports_multiline_descriptions_and_rejects_unclosed_frontm
     assert folded is not None and folded.description == "第一行 第二行"
     assert literal is not None and literal.description == "第一行\n第二行"
     assert parse_skill("---\nname: alpha\n正文", name="fallback") is None
+
+
+def test_skill_entries_expose_catalog_for_tui_menu(tmp_path):
+    write_skill(tmp_path, "alpha", "name: alpha\ndescription: 第一个\n\n步骤 A\n")
+    registry = ToolRegistry(tmp_path)
+    entries = registry.skill_entries()
+    assert entries == [{"name": "alpha", "summary": "第一个", "active": False,
+                        "source": str(tmp_path / ".vibe" / "skills" / "alpha" / "SKILL.md")}]
+    registry.manage_skills("activate", "alpha")
+    assert registry.skill_entries()[0]["active"] is True

@@ -64,7 +64,7 @@ npm --prefix tui test
 | 帮助与信息 | `/help`、`/cost` 会话用量、`/tools` 已注册工具、`/mcp` 服务、`/session` 会话路径 |
 | 查看改动 | `/diff` 经审批执行 git diff，全文可翻页 |
 | 右侧变更侧栏 | `/sidebar` 或 `Ctrl+G` 打开/切换 Git 变更侧栏（Ghostty split/quick；macOS Terminal 独立窗口） |
-| 查看技能 | `/skills`（或 `/skill`）重新扫描 `.vibe/skills` 并列出摘要，不调用模型 |
+| 查看技能 | `/skills`（或 `/skill`）打开技能菜单：`↑↓` 滚动、`Tab` 补全、`Enter` 执行；不调用模型 |
 
 运行中输入框保持可用：`Enter` 提交纠偏，`/followup <内容>` 排队后续消息；阅读、审批和工具详情聚焦时暂停编辑，滚动不会改写草稿。对话区支持鼠标拖选：按住左键拖动看高亮，松开即复制所选文本，`Esc` 取消；要整段复制用 `Ctrl+Y` / `/copy`。没有鼠标事件的终端可以用上述键盘操作。工具结果默认摘要，全文在详情页查看；原始消息和结果仍保存在 `.vibe/sessions/`。取消后需核对已发生的副作用。
 
@@ -424,7 +424,7 @@ Agent 从常驻目录判断哪些技能与当前工作有关，调用 `load_skil
 
 | 命令 | 行为 |
 |---|---|
-| `/skills` 或 `/skill` | 重新发现并列出技能、来源、状态和错误 |
+| `/skills` 或 `/skill` | 技能菜单：`↑↓` 滚动、`Tab` 补全完整命令、`Enter` 执行；只读刷新目录，不调用模型 |
 | `/skills refresh` | 重读配置和文件；更新已激活正文，移除已删除或禁用项 |
 | `/skills activate NAME` | 激活或更新指定技能 |
 | `/skills unload NAME` | 卸载正文，保留文件；重复卸载无副作用 |

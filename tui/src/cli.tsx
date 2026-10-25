@@ -57,7 +57,7 @@ Ctrl+C 取消任务或 MCP 初始化，空闲时退出；Ctrl+Q 退出。
   /sidebar window               独立侧栏窗口（Ghostty 需手动摆位；Terminal 会自动靠右）
   /sidebar setup                写入 Ghostty quick terminal 右侧配置（需重启 Ghostty）
   /mcp                          查看 MCP 服务与工具状态
-  /skills [refresh|activate NAME|unload NAME]  技能目录与生命周期
+  /skills [refresh|activate NAME|unload NAME]  技能菜单与生命周期（↑↓ 选择，Tab 补全）
   /session                      查看当前会话路径
   /followup TEXT                运行中排队为后续消息，结束后自动继续
   /copy                         复制最近回复、工具详情或审批预览（Ctrl+Y）

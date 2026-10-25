@@ -449,3 +449,26 @@ run_stdio(Agent(provider, ToolRegistry(root), approval=ApprovalGate()), Config(w
         if proc.poll() is None:
             proc.kill()
             proc.wait()
+
+
+def test_ready_and_skills_command_expose_structured_catalog(tmp_path):
+    skill = tmp_path / ".vibe" / "skills" / "alpha" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("name: alpha\ndescription: 第一个\n\n步骤 A\n", encoding="utf-8")
+    agent = agent_for(tmp_path, [])
+
+    async def scenario():
+        harness = Harness(agent, Config(workspace=tmp_path))
+        ready = await harness.until("ready")
+        assert ready["skills"] == [{"name": "alpha", "summary": "第一个", "active": False,
+                                    "source": str(skill)}]
+        harness.send("command", "c1", command="skills")
+        result = await harness.until("command_result", "c1")
+        assert "skills: 1 registered" in result["text"]
+        assert result["skills"][0]["name"] == "alpha"
+        harness.send("command", "c2", command="skills", args={"action": "activate", "name": "alpha"})
+        activated = await harness.until("command_result", "c2")
+        assert activated["skills"][0]["active"] is True
+        await harness.close()
+
+    asyncio.run(scenario())

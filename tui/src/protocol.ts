@@ -14,7 +14,7 @@ export const COMMAND_COMPLETIONS = ['/help', '/resume', '/context', '/continue',
 export const COMMAND_DESCRIPTIONS: Record<string, string> = {
   '/help': '查看操作帮助', '/resume': '继续已保存的任务', '/context': '查看上下文与预算', '/continue': '同 /resume，继续任务',
   '/cost': '查看本轮与会话成本', '/tools': '查看工具调用统计', '/diff': '查看工作区改动', '/permissions': '查看审批规则',
-  '/permissions reset': '恢复默认审批规则', '/mcp': '查看 MCP 服务', '/skills': '查看与切换技能', '/session': '查看会话路径',
+  '/permissions reset': '恢复默认审批规则', '/mcp': '查看 MCP 服务', '/skills': '技能菜单（↑↓ 选择，Tab 补全）', '/session': '查看会话路径',
   '/theme': '切换主题', '/followup': '排队后续任务', '/copy': '复制最近回复', '/project': '管理项目背景',
   '/about': '管理个人偏好', '/sidebar': '打开右侧变更侧栏', '/sidebar split': '窗口内右侧分屏（跟随窗口）', '/sidebar quick': '屏幕右侧 quick terminal（不挤占）', '/sidebar window': '独立窗口模式（手动摆位）', '/sidebar setup': '写入 Ghostty 右侧配置', '/quit': '退出', '/exit': '退出',
 };
@@ -23,6 +23,18 @@ export function commandMatches(value: string): string[] {
 }
 export type BackendCommand = typeof BACKEND_COMMANDS[number];
 export type SkillsCommandArgs = {action?: 'list' | 'refresh' | 'activate' | 'unload'; name?: string};
+export interface SkillInfo {name: string; summary: string; active: boolean; source?: string}
+
+function skillInfo(value: unknown): value is SkillInfo {
+  return record(value) && typeof value.name === 'string' && value.name.length > 0 && value.name.length <= 200 &&
+    typeof value.summary === 'string' && value.summary.length <= 2000 &&
+    typeof value.active === 'boolean' &&
+    (value.source === undefined || (typeof value.source === 'string' && value.source.length <= 2000));
+}
+
+function skillList(value: unknown): value is SkillInfo[] {
+  return Array.isArray(value) && value.length <= 500 && value.every(skillInfo);
+}
 
 export function validateSkillsArgs(value: unknown): asserts value is SkillsCommandArgs {
   if (!record(value) || Object.keys(value).some(key => key !== 'action' && key !== 'name')) {
@@ -120,10 +132,10 @@ type Envelope<T extends string, P = Record<never, never>> = {
 } & P;
 
 export type ServerEvent =
-  | Envelope<'ready', {workspace: string; model: string; session_id: string; capabilities: string[]; provider?: string; session_path?: string; session_purpose?: SessionPurpose; resumed?: boolean}>
+  | Envelope<'ready', {workspace: string; model: string; session_id: string; capabilities: string[]; provider?: string; session_path?: string; session_purpose?: SessionPurpose; resumed?: boolean; skills?: SkillInfo[]}>
   | Envelope<'history_message', {message: PersistedMessage}>
   | Envelope<'notice', {message: string}>
-  | Envelope<'command_result', {command: BackendCommand; text: string}>
+  | Envelope<'command_result', {command: BackendCommand; text: string; skills?: SkillInfo[]}>
   | Envelope<'metrics', RunMetrics>
   | Envelope<'context_snapshot', {snapshot: ContextSnapshot}>
   | Envelope<'diagnostic', {message: string}>
@@ -251,12 +263,14 @@ export function parseServerEvent(line: string): ServerEvent {
         (value.provider === undefined || typeof value.provider === 'string') &&
         (value.session_path === undefined || typeof value.session_path === 'string') &&
         (value.session_purpose === undefined || value.session_purpose === 'user' || value.session_purpose === 'test') &&
-        (value.resumed === undefined || typeof value.resumed === 'boolean');
+        (value.resumed === undefined || typeof value.resumed === 'boolean') &&
+        (value.skills === undefined || skillList(value.skills));
       break;
     case 'history_message': valid = value.id === null && message(value.message); break;
     case 'notice': valid = value.id === null && typeof value.message === 'string'; break;
     case 'command_result':
-      valid = validId(value.id) && BACKEND_COMMANDS.includes(value.command as BackendCommand) && typeof value.text === 'string';
+      valid = validId(value.id) && BACKEND_COMMANDS.includes(value.command as BackendCommand) && typeof value.text === 'string' &&
+        (value.skills === undefined || skillList(value.skills));
       break;
     case 'metrics':
       valid = (validId(value.id) || (value.id === null && value.used_tokens === 0 &&

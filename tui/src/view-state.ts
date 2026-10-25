@@ -1,4 +1,4 @@
-import type {ApprovalDecision, BackendCommand, CommandExecution, ContextSnapshot, PersistedMessage, RunMetrics, RunResult, ServerEvent, SessionPurpose, ToolCall} from './protocol.js';
+import type {ApprovalDecision, BackendCommand, CommandExecution, ContextSnapshot, PersistedMessage, RunMetrics, RunResult, ServerEvent, SessionPurpose, SkillInfo, ToolCall} from './protocol.js';
 
 export const MAX_CONTEXT_SNAPSHOTS = 100;
 
@@ -39,6 +39,7 @@ export type ViewState = {
   contextSnapshots: ContextSnapshot[];
   hasStartedRun: boolean;
   resumed: boolean;
+  skills: SkillInfo[];
 };
 export type Action =
   | {type: 'event'; event: ServerEvent}
@@ -51,7 +52,7 @@ export type Action =
 export const initialState: ViewState = {
   phase: 'starting', activeId: null, activeCommand: null, activity: 'initializing', entries: [], nextEntry: 0, live: '', segment: '',
   approval: null, model: '', workspace: '', lastResult: '', lastStatus: null, lastStopReason: null, error: null,
-  sessionId: '', sessionPath: '', sessionPurpose: 'user', provider: '', metrics: null, contextSnapshots: [], hasStartedRun: false, resumed: false,
+  sessionId: '', sessionPath: '', sessionPurpose: 'user', provider: '', metrics: null, contextSnapshots: [], hasStartedRun: false, resumed: false, skills: [],
 };
 
 function append(state: ViewState, kind: Entry['kind'], text: string): ViewState {
@@ -147,13 +148,15 @@ export function reduceView(state: ViewState, action: Action): ViewState {
     case 'ready':
       return {...state, phase: 'starting', activity: 'initializing', workspace: event.workspace, model: event.model, error: null,
         provider: event.provider ?? '', sessionId: event.session_id, sessionPath: event.session_path ?? '',
-        sessionPurpose: event.session_purpose ?? 'user', resumed: event.resumed ?? false};
+        sessionPurpose: event.session_purpose ?? 'user', resumed: event.resumed ?? false,
+        skills: event.skills ?? []};
     case 'history_message':
       return restoreMessage(state, event.message);
     case 'notice':
       return append(state, 'notice', event.message);
     case 'command_result':
-      return {...append(state, 'notice', event.text), phase: 'idle', activeId: null, activeCommand: null, activity: null, approval: null};
+      return {...append(state, 'notice', event.text), skills: event.skills ?? state.skills,
+        phase: 'idle', activeId: null, activeCommand: null, activity: null, approval: null};
     case 'metrics': {
       const {v, type, id, ...metrics} = event;
       const latest = state.contextSnapshots.at(-1);

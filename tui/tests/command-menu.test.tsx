@@ -23,7 +23,7 @@ test('menu shows descriptions and scrolls the window with the highlight', () => 
   assert.doesNotMatch(frame, /[┌┐└┘│─╭╮╰╯]/u);
   assert.match(frame, /› \/session/);
   assert.match(frame, /查看会话路径/);
-  assert.match(frame, /\/skills {2,}查看与切换技能/);
+  assert.match(frame, /\/skills {2,}技能菜单/);
   assert.doesNotMatch(frame, /\/help/);
   assert.doesNotMatch(frame, /\/exit/);
   for (const line of frame.split('\n')) assert.ok(stringWidth(line) <= 80, line);

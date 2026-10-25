@@ -328,6 +328,8 @@ README「当前完善重点」六项已修复并附针对性回归，真实任�
 
 **只读 Git 工具（2026-10-25）**：新增 `git_status` 与 `git_diff` 两个 `risk=read` 工具（免审批），让 Agent 在报告工作区状态前直接核对分支、未提交文件与 unified diff，减少过去必须走 `bash` 审批的自检摩擦；写文件、`bash`、web、MCP 的审批边界不变。实现固定参数数组、不经过 shell，清理 `GIT_*` 环境并禁用外部 diff / textconv / fsmonitor，路径限制在工作区内，diff 截断到 1200 行 / 40k 字符。系统提示加入对应使用约束（引用真实输出、非 Git 仓库要说明）。回归 `tests/test_git_tools.py` **7 项**；全量 `./run_tests.sh -q` 退出 0（收集 902 项）。规格见 [只读 Git 工具](specs/git-readonly-tools.md)；真实编码任务中的收益待验收。
 
+**技能选择菜单（2026-10-25）**：`/skills` 不再只是把长列表塞进对话；后端在 `ready` 与 `command_result(skills)` 中附带结构化 `{name, summary, active, source}` 目录，TUI 在输入 `/skills`、`/skills activate `、`/skills unload ` 时弹出动态菜单：`↑↓` 滚动、`Tab` 补全完整命令、`Enter` 执行；已激活技能显示卸载入口。菜单复用现有 CommandMenu 的滚动与宽度处理，未新增 IPC。回归：`tui/tests/skills-menu.test.ts`、`protocol.test.ts`、`app.test.tsx` 菜单/补全/执行，Python `test_skills.py` 与 `test_stdio.py` 的结构化目录事件；TUI 全量 **305 项、304 通过**（唯一失败为沙箱无 PTY 的既有项），Python 全量收集 **915 项**退出 0。
+
 ## 当前下一步
 
 W1–W5 已完成真实验收；W6 已按协议完成对照（2026-10-25），主假设未获支持。接下来：

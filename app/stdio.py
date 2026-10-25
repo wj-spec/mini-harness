@@ -223,6 +223,7 @@ class _Connection:
                 self.send("status", phase="idle")
 
     async def command(self, request_id, command, args=None):
+        skills = None
         if command == "resume" and self.agent.history:
             await self.run(request_id, RESUME_INSTRUCTION)
             return
@@ -253,6 +254,8 @@ class _Connection:
             elif command == "skills":
                 text = (self.agent.manage_skills(**(args or {})) if self.agent.tools_enabled
                         else "skills 不可用：chat-only 模式已禁用工具。")
+                if self.agent.tools_enabled:
+                    skills = self.agent.tools.skill_entries()
             elif command == "mcp":
                 if self.mcp is None or not self.mcp.servers:
                     text = "未配置 MCP 服务。"
@@ -285,7 +288,10 @@ class _Connection:
                 else:
                     ok, output = await self.agent.tools.execute_async(call, cancel=self.cancel)
                     text = output or ("no diff" if ok else "diff failed")
-            self.send("command_result", request_id, command=command, text=str(text)[:100000])
+            payload = {"command": command, "text": str(text)[:100000]}
+            if skills is not None:
+                payload["skills"] = skills
+            self.send("command_result", request_id, **payload)
         except asyncio.CancelledError:
             self.send("command_result", request_id, command=command, text="命令已取消；已开始操作的结果需要核对。")
         except Exception as exc:
@@ -620,7 +626,8 @@ async def serve(
         connection.send("ready", workspace=str(config.workspace.resolve()), model=config.model,
                         session_id=session.id, session_path=str(session.root.resolve()),
                     provider=provider, capabilities=capabilities, resumed=resumed,
-                    session_purpose=session.purpose)
+                    session_purpose=session.purpose,
+                    skills=(agent.tools.skill_entries() if agent.tools_enabled else []))
         if resumed:
             connection.restore()
         await connection.publish_loaded_context()
