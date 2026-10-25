@@ -265,6 +265,24 @@
 
 届时再细化验收任务和界面；TUI、其他界面、MCP、多 Agent 都是可评估的手段，不作为完成标准。
 
+## README 完善项验收（2026-10-25）
+
+README「当前完善重点」六项已修复并附针对性回归，真实任务核对已用保留题完成。
+
+**保留题**：新增 `benchmarks/local/stream-truncation`、`restore-guard`，`meta.json` 标注 `held_out: true`（未参与调优），分别覆盖流式截断完整性与重开会话的重新读取守卫。
+
+**判定口径**：`artifact_correct`（隐藏检查通过）、`run_complete`（正常结束）、`comparable`（协议有效且改前失败基线成立）分开记录；`verified_fix` 要求改前失败、改后通过。取消、越界、改动测试、隐藏泄漏等情况保留证据并判为无效。
+
+**真实运行证据**：`.vibe/bench-local/20261025-141504/summary.json`（2 道保留题 × 3 次 = 6 次真实运行，版本 `7c74168`，预算 1,000,000；`VIBE_MODEL` 未设置，实际使用默认 `deepseek-chat`，该次报告 `config.model` 记为 `unset`，记录逻辑已在本次修复）：
+
+- 6/6 次 `artifact_correct`、`run_complete`、`comparable`、`valid`、`verified_fix` 全部为真，`config_frozen: true`；
+- 每次 `red_rc=1` → `check_rc=0`；`test_edits`、`hidden_leak_attempts`、`outside_workspace_commands` 均为空；
+- 单次 10–22 步、改动 1 个文件；同一题三次运行结果一致，具备可比较性。
+
+**夹具缺陷**：`footer-outcome` 隐藏测试缺少 `afterEach(cleanup)`，`node --test` 进程不退出导致 `check.sh` 挂起；已修复（11.2s 通过）。5/5 题 `--prepare` 初始 red、恢复修复文件后 `check.sh` 全部通过。
+
+**仍待做**：前三题参考补丁自检与 `--limit 3` 扩题；W6 三组收益对照。
+
 ## 当前下一步
 
 W1–W5 已完成真实验收（2026-10-24）。下一步 W6 收益对照：
@@ -273,4 +291,4 @@ W1–W5 已完成真实验收（2026-10-24）。下一步 W6 收益对照：
 2. 用 `scripts/w6_report.py` 汇总，手动记录补充/纠正次数、正确性与实际评价；
 3. 只有重复交代/纠正减少且正确性、审批边界未回退，才认定收益；收益成立再考虑自动观察/提议机制（W5 扩展）。
 
-评测侧仍待办：固定前三题参考补丁自检与 `--limit 3`；W0 剩入口/循环代码走查与学习记录。
+评测侧：README 六项完善已通过保留题真实核对（2026-10-25）；仍待固定前三题参考补丁自检与 `--limit 3`。W0 剩入口/循环代码走查与学习记录。

@@ -125,6 +125,7 @@ def run_agent(workspace: Path, prompt: str, timeout: float, log_path: Path, fake
     deadline = started + timeout
     result: dict | None = None
     error: str | None = None
+    agent_model: str | None = None
     approvals: list[dict] = []
     events = 0
     log_lines: list[str] = []
@@ -148,6 +149,8 @@ def run_agent(workspace: Path, prompt: str, timeout: float, log_path: Path, fake
             except json.JSONDecodeError:
                 continue
             events += 1
+            if event.get("type") == "ready":
+                agent_model = event.get("model")
             if event.get("type") == "approval_request":
                 decision = approval_decision(event)
                 approvals.append({"tool": event.get("call", {}).get("name"), "decision": decision})
@@ -178,6 +181,7 @@ def run_agent(workspace: Path, prompt: str, timeout: float, log_path: Path, fake
     return {
         "result": result,
         "error": error,
+        "model": agent_model,
         "approvals": approvals,
         "events": events,
         "duration_ms": round((time.monotonic() - started) * 1000, 1),
@@ -229,8 +233,8 @@ def run_config(fake: bool) -> dict:
     except (OSError, subprocess.SubprocessError):
         version = "unknown"
     return {
-        "model": os.environ.get("VIBE_MODEL", "fake" if fake else "unset"),
-        "budget": os.environ.get("VIBE_MAX_RUN_TOKENS") or os.environ.get("VIBE_MAX_TOKENS") or "local-config",
+        "model": "fake" if fake else (os.environ.get("VIBE_MODEL") or "deepseek-chat"),
+        "budget": os.environ.get("VIBE_MAX_RUN_TOKENS", "1000000"),
         "version": version,
         "fake": fake,
     }
@@ -352,6 +356,7 @@ def run_task(task: str, prepare: bool, timeout: float, stamp: str, fake: bool = 
     check = run_script(task_dir / "check.sh", workspace, task_dir)
 
     report.update({
+        "agent_model": run.get("model"),
         "agent_status": result.get("status"),
         "agent_steps": result.get("steps"),
         "agent_tokens": result.get("usage", {}),
