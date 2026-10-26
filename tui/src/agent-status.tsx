@@ -68,7 +68,7 @@ export function AgentHeader({state, columns, height = 3, palette}: {
   const statusText = spinning ? `◀ ${spinner} ${status.label} ▶` : `◀ ${status.label} ▶`;
   const wideMark = height >= 5 && columns >= 80;
   const compactMark = !wideMark && height >= 3 && columns >= 60;
-  const markWidth = wideMark ? 10 : compactMark ? 8 : 0;
+  const markWidth = wideMark ? 12 : compactMark ? 8 : 0;
   const markBox = markWidth ? markWidth + 2 : 0;
   const contentColumns = Math.max(1, columns - markBox);
   const showStatus = contentColumns >= 50;

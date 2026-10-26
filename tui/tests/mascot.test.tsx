@@ -11,9 +11,9 @@ function plain(output: string): string[] {
 }
 
 test('wide mascot renders ten pixel columns in five terminal rows', () => {
-  const lines = plain(renderToString(<PixelMascot sprite={WIDE_MASCOT} palette={themes.system}/>, {columns: 10}));
+  const lines = plain(renderToString(<PixelMascot sprite={WIDE_MASCOT} palette={themes.system}/>, {columns: 12}));
   assert.equal(lines.length, 5);
-  assert.ok(lines.every(line => stringWidth(line) <= 10));
+  assert.ok(lines.every(line => stringWidth(line) <= 12));
   assert.match(lines.join(''), /[▀▄█]/u);
 });
 
