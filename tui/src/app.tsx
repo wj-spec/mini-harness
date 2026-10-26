@@ -6,6 +6,7 @@ import {commandMatches} from './protocol.js';
 import {buildSkillMenu} from './skills-menu.js';
 import type {ApprovalDecision, BackendCommand, RunResult, SkillsCommandArgs} from './protocol.js';
 import {goalDecision, goalLabel, goalPrompt, goalStatusText, resumeGoal, startGoal as newGoal, type GoalMode} from './goal.js';
+import {loadGoal, saveGoal} from './goal-store.js';
 import {initialState as emptyState, reduceView, resultReason, type ViewState} from './view-state.js';
 import {Composer} from './composer.js';
 import {fitText, textLines} from './markdown.js';
@@ -65,6 +66,8 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
   const goalRef = useRef<GoalMode | null>(null);
   goalRef.current = goal;
   const goalDoneRef = useRef<((result: RunResult) => boolean) | null>(null);
+  const goalLoadedSession = useRef('');
+  const goalSaveError = useRef(false);
   const latestState = useRef(state);
   latestState.current = state;
   const quittingRef = useRef(quitting);
@@ -242,6 +245,26 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
     return launchGoalSegment(decision.goal, `目标续段 · 第 ${decision.goal.segment} 段`);
   };
   goalDoneRef.current = handleGoalDone;
+  useEffect(() => {
+    if (!state.sessionPath || goalLoadedSession.current === state.sessionPath) return;
+    goalLoadedSession.current = state.sessionPath;
+    const restored = loadGoal(state.sessionPath);
+    if (!restored) return;
+    goalRef.current = restored;
+    setGoal(restored);
+    dispatch({type: 'notice', text: `目标状态已从会话恢复：${goalStatusText(restored)}${restored.active ? '' : ' · /goal resume 继续'}`});
+  }, [state.sessionPath]);
+  useEffect(() => {
+    if (!state.sessionPath || !goal || goalLoadedSession.current !== state.sessionPath) return;
+    try {
+      saveGoal(state.sessionPath, goal);
+    } catch (error) {
+      if (!goalSaveError.current) {
+        goalSaveError.current = true;
+        dispatch({type: 'notice', text: `目标状态保存失败：${String(error)}`});
+      }
+    }
+  }, [state.sessionPath, goal]);
   const handleGoalCommand = (rest: string) => {
     const current = goalRef.current;
     if (!rest) {

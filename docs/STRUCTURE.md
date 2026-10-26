@@ -48,6 +48,7 @@ mini-harness/
       view-state.ts     # 实际活动、最终状态、完整消息与工具记录
       mascot.tsx       # 彩色像素猫 Mini 的 sprite 与半格渲染
       goal.ts          # /goal 目标状态、段决策、提示与上限
+      goal-store.ts    # 目标状态写入/恢复 session 的 goal.json
       skills-menu.ts    # /skills 的动态补全菜单（↑↓ 滚动、Tab 补全）
       agent-status.tsx  # 活动、任务、工具与真实资源预算分区
       workbench.tsx     # 全屏阅读、消息卡片、滚动条与详情
@@ -111,6 +112,7 @@ mini-harness/
     MILESTONES.md       # 工作台里程碑与验收状态
     roadmap.md          # 产品方向与阶段取舍
     STRUCTURE.md        # 本文件
+    assets/             # README 与规格文档使用的图片
     specs/              # 每个切片的 spec
     history/            # 旧 M1–M8 模块建设计划
 

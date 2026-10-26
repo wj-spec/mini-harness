@@ -336,7 +336,7 @@ README「当前完善重点」六项已修复并附针对性回归，真实任�
 
 **首屏与单轮时限（2026-10-26）**：交互默认 `max_run_seconds` 从 600 秒提高到 **1800 秒**（30 分钟，审批等待不计入），评测/基准仍在未配置时保留 600 秒，保证分数可比；`VIBE_MAX_RUN_SECONDS` / `--max-seconds` 可覆盖。TUI 首屏改为“工作台首页”：顶部 header 彩色像素猫 Mini（12×10 宽屏猫头、8×6 窄屏脸部、无彩色保留剪影、过窄隐藏）与三条 starter prompt、当前工作区/模型/会话、常用入口与输入提示；≤72 列用纯文本分区，宽屏用现有卡片表面，首屏标题与底部 hint 同步。新增 `tui/tests/workbench.test.ts` 首屏内容/宽度回归；TUI 全量 **309 项、308 通过**（唯一失败为沙箱无 PTY 的既有项），Python 全量 `./run_tests.sh -q` 退出 0（收集 931 项）。设计见 [TUI 首屏](specs/home-screen.md)。
 
-**/goal 目标模式（2026-10-26）**：TUI 编排长任务目标：`/goal <目标>` 第 1 段开始；当段因 `max_run_seconds` / token / cost / steps 资源停止时，自动核对并开启第 N 段（默认最多 8 段、总 4 小时，可调），`done` 完成；`no_progress`、`context_window`、`error`、`cancelled` 暂停而不续段。`/goal` 查看、`/goal stop` 停止、`/goal resume` 恢复。每段仍走普通 run 的审批/工具/会话边界，目标状态仅保存在当前 TUI 进程。回归：`tui/tests/goal.test.ts` 纯函数与 `app.test.tsx` 自动续段/停止；TUI 全量 **316 项、315 通过**（唯一失败为沙箱无 PTY 的既有项）。真实长任务成本与跨段效果待验收；后续可把目标状态持久化到 session。
+**/goal 目标模式（2026-10-26）**：TUI 编排长任务目标：`/goal <目标>` 第 1 段开始；当段因 `max_run_seconds` / token / cost / steps 资源停止时，自动核对并开启第 N 段（默认最多 8 段、总 4 小时，可调），`done` 完成；`no_progress`、`context_window`、`error`、`cancelled` 暂停而不续段。`/goal` 查看、`/goal stop` 停止、`/goal resume` 恢复。每段仍走普通 run 的审批/工具/会话边界；目标状态写入 `<session>/goal.json`，重启/`--continue` 恢复为 paused，显式 `/goal resume` 续段。回归：`tui/tests/goal.test.ts` 纯函数与 `app.test.tsx` 自动续段/停止；TUI 全量 **319 项、318 通过**（唯一失败为沙箱无 PTY 的既有项）。真实长任务成本与跨段效果待验收；后续可把目标状态持久化到 session。
 
 ## 当前下一步
 

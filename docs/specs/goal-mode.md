@@ -1,6 +1,6 @@
 # /goal 目标模式与长任务自动续段
 
-日期：2026-10-26。状态：TUI 编排实现与回归完成；真实长任务验收待跑。
+日期：2026-10-26。状态：TUI 编排与 session 持久化实现、回归完成；真实长任务验收待跑。
 
 ## 目标
 
@@ -36,13 +36,15 @@
 ## 实现
 
 - `tui/src/goal.ts`：纯函数目标状态、段决策、提示词、上限与恢复；
-- `tui/src/app.tsx`：`/goal` 命令、done 事件后的 `goalDecision`、续段 run 启动；
-- 目标状态保存在 App 进程内；重启 Ink 不自动恢复目标（历史会话可用 `/resume`）；
+- `tui/src/goal-store.ts`：把目标写入 `<session>/goal.json`（临时文件 + rename），读取时校验；active 目标恢复后强制变为 paused，避免重启自动烧预算；
+- `tui/src/app.tsx`：`/goal` 命令、done 事件后的 `goalDecision`、续段 run 启动、加载/保存目标；
+- 目标状态随 session 保存；TUI 重启或 `--continue` 后恢复并提示 `/goal resume`；
 - 底部 hint/输入占位显示目标段；续段任务以新 task entry 呈现，便于阅读。
 
 ## 测试与边界
 
 - `tui/tests/goal.test.ts`：段推进、完成、非资源暂停、段/总量上限、resume；
-- `tui/tests/app.test.tsx`：`/goal` 启动、`max_run_seconds` 后自动发起第 2 段、done 停止自动续段、`/goal stop` 不再续段；
+- `tui/tests/app.test.tsx`：`/goal` 启动、`max_run_seconds` 后自动发起第 2 段、done 停止自动续段、`/goal stop` 不再续段、session 重启恢复；
+- `tui/tests/goal-store.test.ts`：写入/恢复、active→paused、completed、损坏文件忽略；
 - 现有审批、preview、写文件、bash、sandbox、上下文压缩行为不变；
 - 真实长任务与跨段成本待验收。

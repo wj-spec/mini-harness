@@ -227,7 +227,7 @@ history 实际额度 = 窗口 − 输出预留 − 安全余量 − 实际 syste
 - 模型正常 done 时目标完成；`done` 之前的资源暂停不会丢历史，后续段继续读取同一会话；
 - 默认最多 **8 段**、总时长 **4 小时**：`VIBE_GOAL_MAX_SEGMENTS`、`VIBE_GOAL_SECONDS`；可选总 token/费用上限 `VIBE_GOAL_MAX_TOKENS`、`VIBE_GOAL_MAX_COST_USD`（0=不限）；
 - 目标完成/暂停后可以用 `/goal resume` 继续，或输入新 `/goal` 开始新目标；
-- 当前目标状态保存在 TUI 进程内，重启 Ink 不会自动恢复目标（会话历史仍可 `/resume`）；这是第一阶段限制。
+- 目标状态以 `goal.json` 保存在当前会话目录（`.vibe/sessions/<id>/goal.json`）；重启 Ink 或 `--continue` 后会恢复目标并标记为 paused，输入 `/goal resume` 显式续段，不会在重启后自动继续花费。
 
 目标模式不会改变审批、沙箱、写文件或命令边界；每段仍然遵守当前配置的单轮限制。
 

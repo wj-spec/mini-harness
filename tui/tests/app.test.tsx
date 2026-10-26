@@ -1157,3 +1157,31 @@ test('/goal stop pauses the active goal without starting another segment', async
   await pause(20);
   assert.equal(client.runs.length, 1);
 });
+
+test('a goal is saved in the session and restored as paused after restart', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'mini-harness-goal-app-'));
+  try {
+    const state = {...initialState, phase: 'idle' as const, workspace: '/repo', model: 'fake', sessionId: 'session-goal', sessionPath: dir};
+    const client = new MockClient();
+    const first = render(<App client={client as unknown as BackendClient} initialState={state} windowSize={{columns: 120, rows: 40}}/>);
+    await pause(20);
+    await enter(first.stdin, '/goal 保存到会话');
+    await pause(40);
+    const raw = JSON.parse(await readFile(path.join(dir, 'goal.json'), 'utf8'));
+    assert.equal(raw.objective, '保存到会话');
+    assert.equal(raw.active, true);
+    first.unmount();
+
+    const secondClient = new MockClient();
+    const second = render(<App client={secondClient as unknown as BackendClient} initialState={state} windowSize={{columns: 120, rows: 40}}/>);
+    await pause(40);
+    const frame = second.lastFrame() ?? '';
+    assert.match(frame, /目标状态已从会话恢复/);
+    assert.match(frame, /目标暂停/);
+    await enter(second.stdin, '/goal resume');
+    await pause(30);
+    assert.equal(secondClient.runs.length, 1);
+  } finally {
+    await rm(dir, {recursive: true, force: true});
+  }
+});
