@@ -112,9 +112,9 @@ export function welcomeLines(state: ViewState, columns: number): ReadingLine[] {
   const session = state.sessionId || '待连接';
 
   if (compact) {
-    lines.push(...textLines('▌ mini-harness · 个人编码工作台', columns, 'heading'));
-    lines.push(...textLines('  单 Agent · 先读后写 · 工具动作按权限审批', columns));
-    lines.push(...textLines('  描述任务、范围与完成条件，然后开始。', columns));
+    lines.push({spans: [{text: '▗▄▖ ', code: true}, {text: 'mini-harness', bold: true}]});
+    lines.push(...textLines('  个人编码工作台 · 描述任务与完成条件', columns));
+    lines.push(...textLines('  单 Agent · 先读后写 · 动作按权限审批', columns));
     lines.push(blank);
     lines.push(...textLines('▌ 从这些开始', columns, 'label'));
     for (const prompt of [
@@ -132,10 +132,14 @@ export function welcomeLines(state: ViewState, columns: number): ReadingLine[] {
     lines.push(...textLines('  /help 命令 · /skills 技能 · /sidebar 侧栏', columns));
     lines.push(...textLines('  /context 上下文 · /resume 续做', columns));
   } else {
-    lines.push(...cardLines('mini-harness · 个人编码工作台', [
-      ...textLines('先读后写 · 每一步都有证据 · 工具动作按权限审批', columns - 4),
-      ...textLines('描述任务、范围与完成条件，然后按 Enter 开始。', columns - 4),
-    ], columns, 'accent', false, 'task'));
+    const brand = [
+      ['  ▗▄▖  ', 'mini-harness'],
+      ['  ▐◉▌  ', '个人编码工作台'],
+      ['  ▝▀▘  ', '先读后写 · 描述任务与完成条件'],
+    ];
+    for (const [mark, text] of brand) {
+      lines.push({spans: [{text: mark, code: true}, {text, bold: text === 'mini-harness'}], surface: 'task'});
+    }
     lines.push(blank);
     lines.push(...cardLines('从这些开始', [
       ...textLines('• 读 README，说明项目入口与运行流程', columns - 4),

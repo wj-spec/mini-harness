@@ -114,7 +114,9 @@ test('transcript surfaces replace enclosing frames while preserving focus and fa
 test('home screen leads with project start prompts and keeps context discoverable', () => {
   const state = {...initialState, phase: 'idle' as const, workspace: '/repo/mini-harness', model: 'deepseek-chat', provider: 'openai', sessionId: 's-1'};
   const wide = welcomeLines(state, 80).map(line => line.spans.map(span => span.text).join('')).join('\n');
-  assert.match(wide, /mini-harness · 个人编码工作台/);
+  assert.match(wide, /▗▄▖/);
+  assert.match(wide, /mini-harness/);
+  assert.match(wide, /个人编码工作台/);
   assert.match(wide, /描述任务/);
   assert.match(wide, /从这些开始/);
   assert.match(wide, /读 README/);
