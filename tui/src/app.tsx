@@ -20,6 +20,7 @@ import {copyToClipboard} from './clipboard.js';
 import {selectedText, type Selection, type SelectionPoint} from './selection.js';
 import {loadProfile, projectProfilePath, saveProfile} from './project-profile.js';
 import {loadUserProfile, saveUserProfile, userProfileFile, type UserPreference} from './user-profile.js';
+import {proposePreferences, readSessionUserMessages} from './preference-observer.js';
 import {adjustSidebarSplitForTui, closeSidebarWindowForTui, killSidebarForTui, launchSidebarForTui, runSidebarSetup} from './sidebar/launch.js';
 import {agentTouchedFiles} from './sidebar/agent-activity.js';
 import {writeSidebarSignal, type SidebarSignalInput} from './sidebar/signal.js';
@@ -443,6 +444,16 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       const index = Number(value);
       return Number.isInteger(index) && index >= 1 && index <= profile.entries.length ? index : null;
     };
+    if (rest === 'observe') {
+      if (!state.sessionPath) {announce('当前会话还没有可读取的会话目录；无法观察偏好。'); return;}
+      try {
+        const proposals = proposePreferences(profile, readSessionUserMessages(state.sessionPath), state.sessionId);
+        if (!proposals.length) {announce('未从本会话发现新的明确长期偏好；proposed 不会自动注入。'); return;}
+        saveEntries([...profile.entries, ...proposals]);
+        announce(`已提出 ${proposals.length} 条待确认偏好（不会自动注入）：\n${proposals.map((entry, index) => `${profile.entries.length + index + 1}. ${entry.text}`).join('\n')}\n输入 /about 查看，/about confirm <序号> 确认`);
+      } catch (error) {announce(`观察偏好失败：${String(error)}`);}
+      return;
+    }
     if (!rest) {
       const stateText = profile.enabled ? '已启用' : '已停用';
       if (!profile.entries.length) {announce(`关于你（${stateText}）：暂无条目。用 /about add <文本> 添加，/about propose <文本> 记录待确认观察`); return;}
@@ -522,7 +533,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       announce(`已删除偏好：${removed?.text ?? ''}`);
       return;
     }
-    announce('用法：/about；/about add|propose <文本>；/about edit <序号> <文本>；/about triggers <序号> <词1,词2|->；/about confirm|disable|enable <序号>；/about remove <序号>；/about on|off');
+    announce('用法：/about；/about add|propose <文本>；/about observe 观察本会话；/about edit <序号> <文本>；/about triggers <序号> <词1,词2|->；/about confirm|disable|enable <序号>；/about remove <序号>；/about on|off');
   };
 
   const copyCurrent = () => {

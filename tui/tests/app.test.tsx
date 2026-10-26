@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {mkdtemp, readFile, rm} from 'node:fs/promises';
+import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {afterEach, test} from 'node:test';
@@ -1205,6 +1205,33 @@ test('edits, tags and disables a user preference', async () => {
     assert.equal(payload.entries[0]?.text, '解释代码时先给结论');
     assert.deepEqual(payload.entries[0]?.triggers, ['解释', '说明']);
     assert.equal(payload.entries[0]?.status, 'stale');
+  } finally {
+    await rm(directory, {recursive: true, force: true});
+  }
+});
+
+
+test('/about observe turns explicit session statements into proposed preferences', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'preference-observe-app-'));
+  const profile = path.join(directory, 'user-profile.json');
+  try {
+    await writeFile(path.join(directory, 'events.jsonl'), JSON.stringify({
+      type: 'message', message: {role: 'user', content: '以后解释代码时先给结论，再给细节。'},
+    }) + '\n', 'utf8');
+    const state = {...initialState, phase: 'idle' as const, workspace: '/repo', sessionId: 's-observe', sessionPath: directory};
+    const client = new MockClient();
+    const {stdin} = render(<App client={client as unknown as BackendClient} initialState={state} windowSize={{columns: 100, rows: 30}} userProfilePath={profile}/>);
+    await pause(20);
+    await enter(stdin, '/about observe');
+    await pause(30);
+    const stored = JSON.parse(await readFile(profile, 'utf8')) as {entries: {status: string; source: string; triggers?: string[]}[]};
+    assert.equal(stored.entries.at(-1)?.status, 'proposed');
+    assert.equal(stored.entries.at(-1)?.source, 'observation');
+    assert.ok(stored.entries.at(-1)?.triggers?.includes('解释'));
+    await enter(stdin, '/about confirm 1');
+    await pause(30);
+    const confirmed = JSON.parse(await readFile(profile, 'utf8')) as {entries: {status: string}[]};
+    assert.equal(confirmed.entries[0]?.status, 'confirmed');
   } finally {
     await rm(directory, {recursive: true, force: true});
   }

@@ -340,6 +340,8 @@ README「当前完善重点」六项已修复并附针对性回归，真实任�
 
 **P1 Profile v2 + 相关性注入（2026-10-26）**：按 [用户偏好、画像与记忆路线图](specs/memory-personalization-roadmap.md) 实施：用户 profile 升级 v2，新增 `id/kind/scope/triggers/evidence/status/confidence/时间戳/expires_at`，v1 自动兼容；`select_user_preferences` 按当前任务与 triggers 匹配，最多 3 条 / 800 字符，无 triggers 的旧条目保持兼容注入；`/about` 新增 edit/triggers/disable/enable，显示来源与触发词。后端只在用户会话注入，测试/评测仍隔离。回归：`tests/test_user_profile.py` 覆盖 v2 迁移、选择器、预算/过期与只注入相关条目；`tui/tests/user-profile.test.ts`、`tui/tests/app.test.tsx` 覆盖 v2 落盘与编辑/触发词/停用。TUI 全量 **321 项、320 通过**（唯一失败为沙箱无 PTY 的既有项），Python 全量收集 **935 项**退出 0。P0 W6 v2 夹具已切换为带触发词的 v2 偏好，新增 `scripts/w6_report_v2.py` 按 task/mode 聚合多次运行分布（min/median/max），`trace.jsonl` 记录 `user_profile_selection`；真实模型运行尚未执行，建议每个 task-on/off ≥3 次。
 
+**P2 手动观察 → proposed（2026-10-26）**：在 P1 之后实现证据驱动的第一步：`/about observe` 只读本会话 `events.jsonl` 的用户消息，按显式长期偏好线索（以后/记住/始终/from now on 等）生成最多 2 条 `proposed`，带 `source=observation`、`evidence=session:<id>`、建议 triggers 和置信度 0.6；与已有条目规范化文本去重，proposed 永不注入，必须 `/about confirm`。仍为手动触发，任务结束自动观察、UPDATE/CONFLICT/NOOP 与 proposed TTL 留在 P2 后续。回归：`tui/tests/preference-observer.test.ts`、`app.test.tsx`；TUI 全量 **325 项、324 通过**（唯一失败为沙箱无 PTY 的既有项）。P0 W6 v2 真实运行仍待用户执行。
+
 ## 当前下一步
 
 W1–W5 已完成真实验收；W6 已按协议完成对照（2026-10-25），主假设未获支持。接下来：

@@ -1,6 +1,6 @@
 # W5/P1：用户偏好与画像条目
 
-日期：2026-10-26。状态：P1 Profile v2 + 相关性注入实现完成；W6 v2 真实对照待跑，画像/长期记忆未实现。
+日期：2026-10-26。状态：P1 Profile v2 + 相关性注入完成；P2 手动观察→proposed 第一步完成；W6 v2 真实对照待跑。
 
 ## 目标
 
@@ -61,6 +61,7 @@
 - `/about edit <序号> <文本>`：修改文本；
 - `/about triggers <序号> <词1,词2|->`：设置/清除触发词；
 - `/about confirm|disable|enable <序号>`：确认、停用、重新启用单条；
+- `/about observe`：只读本会话用户消息，按显式长期线索（以后/记住/始终/from now on 等）生成最多 2 条 **proposed**，带证据，不自动注入；
 - `/about remove <序号>` / `/about on|off`：删除单条 / 启停全部；
 - 下一次任务前重读，修改即时生效。
 
@@ -73,6 +74,13 @@
 5. 过期条目不再注入；损坏文件不阻塞；
 6. 项目规则、审批边界与当前指令不被偏好覆盖；
 7. W6 v2 多次运行验证重复说明/纠正是否减少（P0）。
+
+## 观察 → proposed（P2 第一步）
+
+- `tui/src/preference-observer.ts` 读取 `<session>/events.jsonl` 的 user 消息；
+- 只匹配显式长期偏好线索，最多 2 条；生成 `status=proposed`、`source=observation`、`evidence=session:<id>`、建议 triggers 与置信度 0.6；
+- 与已有条目规范化文本去重；proposed 永不被后端注入，必须 `/about confirm`；
+- 当前由 `/about observe` 手动触发；任务结束自动观察、冲突判断与 NOOP 仍待 P2 后续。
 
 ## 非目标
 
