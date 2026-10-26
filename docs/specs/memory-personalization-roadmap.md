@@ -1,6 +1,6 @@
 # 用户偏好、画像与记忆路线图
 
-日期：2026-10-26。状态：P1 Profile v2 + 相关性注入已实现；P2 观察→proposed 已实现；P3 过期/容量/冲突第一版已实现；P4 凭据过滤/导出/注入边界第一版已实现；P0 W6 v2 待跑。
+日期：2026-10-26。状态：P1 Profile v2 + 相关性注入已实现；P2 观察→proposed 已实现；P3 过期/容量/冲突第一版已实现；P4 凭据过滤/导出/注入边界第一版已实现；P0 W6 v2 task-a 3+3 次无收益信号，task-b/c 待跑。
 
 ## 背景
 
@@ -91,11 +91,13 @@ W4 项目背景与 W5 用户偏好已完成 MVP 与真实使用验收；W6 三�
 
 ## 当前阻塞（2026-10-26）
 
-P0 W6 v2 需要真实模型、API key 和交互式任务运行；当前自动化环境没有 `VIBE_API_KEY`/`OPENAI_API_KEY`/`DEEPSEEK_API_KEY`，无法代替用户完成。P0 的真实收益结论与 P5 的触发条件因此未完成。实现侧 P1–P4 第一版、W6 v2 夹具/汇总/离线选择校验已完成；下一步由用户在本机执行：
+P0 W6 v2 的 task-a 已完成 3+3 次：用户消息 1/1/1 对 1/1/1，主假设未获支持；启用组 tokens/步数中位更高。task-b/task-c 的真实运行仍需用户本机执行；P5 触发条件未完成。早期报告曾混入 2026-10-24 的 v1 证据，已修复为只统计 v2 证据。下一步：
 
 ```bash
-.venv/bin/python3 scripts/w6_run.py task-a-on   # 每个 task-on/off ≥3 次
-.venv/bin/python3 scripts/w6_run.py task-a-off
+.venv/bin/python3 scripts/w6_run.py task-b-on    # 每个 part ≥3 次
+.venv/bin/python3 scripts/w6_run.py task-b-off
+.venv/bin/python3 scripts/w6_run.py task-c-on
+.venv/bin/python3 scripts/w6_run.py task-c-off
 .venv/bin/python3 scripts/w6_report_v2.py
 ```
 
