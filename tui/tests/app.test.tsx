@@ -1310,3 +1310,28 @@ test('rejects sensitive preference text and omits it from export', async () => {
     await rm(directory, {recursive: true, force: true});
   }
 });
+
+test('/about reset requires confirmation and removes the profile', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'user-profile-reset-'));
+  const file = path.join(directory, 'user-profile.json');
+  try {
+    const {stdin, lastFrame} = await mount(undefined, undefined, {columns: 100, rows: 30}, undefined, file);
+    await enter(stdin, '/about add 以后回答一律用中文');
+    await pause(20);
+    await enter(stdin, '/about reset');
+    await pause(20);
+    assert.match(lastFrame() ?? '', /reset confirm/u);
+    await enter(stdin, '/about');
+    await pause(20);
+    assert.match(lastFrame() ?? '', /1\. \[已确认\]/u);
+    await enter(stdin, '/about reset');
+    await pause(20);
+    await enter(stdin, '/about reset confirm');
+    await pause(30);
+    await enter(stdin, '/about');
+    await pause(30);
+    assert.match(lastFrame() ?? '', /暂无条目/u);
+  } finally {
+    await rm(directory, {recursive: true, force: true});
+  }
+});

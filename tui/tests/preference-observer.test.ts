@@ -71,7 +71,9 @@ test('proposals similar to a confirmed preference are reported as conflicts and 
   assert.equal(merged.entries.length, 1);
   const conflicting = mergeProposals(existing, [{text: '回答先给结论再补充例子', source: 'observation', status: 'proposed' as const}]);
   assert.equal(conflicting.conflicts, 1);
-  assert.equal(conflicting.entries.length, 1);
+  assert.equal(conflicting.added, 1);
+  assert.equal(conflicting.entries.length, 2);
+  assert.ok(conflicting.entries[1]?.evidence?.some(value => value.startsWith('conflict:')));
 });
 
 

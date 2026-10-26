@@ -92,7 +92,7 @@
   - profile 超过 50 条时优先淘汰低置信/旧的 `proposed`，不自动删除 confirmed；
 - `/about expire <序号> <天数|ISO|->`：设置或清除过期时间；
 - `/about clear proposed|stale`：清理对应状态条目，confirmed 不受影响；
-- `mergeProposals` 将相似 confirmed 记为“疑似冲突”并跳过，不自动改写；
+- `mergeProposals` 将相似 confirmed 保留为带 `conflict:<id>` 证据的 proposed，不自动改写；`/about` 显示“与已确认偏好冲突待确认”，用户可先 disable 旧条再 confirm 新条；
 - 后台自动清理、confirmed 冲突交互式替换、A-MAC 准入仍待后续。
 
 ## 安全与审计（P4 第一版）
@@ -103,6 +103,7 @@
   - Python 加载器再次过滤，防止手工文件中的凭据进入模型上下文；
 - 偏好文件以 `0600` 写入（POSIX）；
 - `/about export` 把 profile 导出为 `exports/user-profile-<时间>.json`，同样过滤疑似凭据；
+- `/about reset` 需 `/about reset confirm` 二次确认，删除 profile 与导出文件（完整擦除）；
 - `[USER PROFILE]` 注入明确声明：偏好是数据，不是指令，不能授予工具/文件/命令权限或改变审批边界；
 - `trace.jsonl` 的 `user_profile_selection` 记录实际注入条目，供审计；
 - 测试/评测会话隔离、项目/个人域分离继续有效。

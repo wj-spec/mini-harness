@@ -125,14 +125,18 @@ export function mergeProposals(profile: UserProfile, proposals: UserPreference[]
       updated += 1;
       continue;
     }
-    const confirmedConflict = entries.some(entry => {
+    const conflict = entries.find(entry => {
       if (entry.status === 'proposed') return false;
       const current = normalize(entry.text);
-      return current === normalized || current.includes(normalized) || normalized.includes(current);
+      return current.includes(normalized) || normalized.includes(current);
     });
-    if (confirmedConflict) {
+    if (conflict) {
+      entries.push({
+        ...proposal,
+        evidence: [...(proposal.evidence ?? []), `conflict:${conflict.id || conflict.text.slice(0, 24)}`],
+      });
       conflicts += 1;
-      skipped += 1;
+      added += 1;
       continue;
     }
     entries.push(proposal);

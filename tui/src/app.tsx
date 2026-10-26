@@ -1,3 +1,5 @@
+import {rmSync} from 'node:fs';
+import path from 'node:path';
 import React, {useEffect, useMemo, useReducer, useRef, useState} from 'react';
 import {CommandMenu} from './command-menu.js';
 import {Box, Text, useApp, useInput, usePaste, useWindowSize} from 'ink';
@@ -71,6 +73,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
   const goalLoadedSession = useRef('');
   const goalSaveError = useRef(false);
   const autoObserveRef = useRef<(() => void) | null>(null);
+  const aboutResetPending = useRef(false);
   const latestState = useRef(state);
   latestState.current = state;
   const quittingRef = useRef(quitting);
@@ -467,6 +470,20 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       const index = Number(value);
       return Number.isInteger(index) && index >= 1 && index <= profile.entries.length ? index : null;
     };
+    if (rest !== 'reset confirm') aboutResetPending.current = false;
+    if (rest === 'reset') {
+      aboutResetPending.current = true;
+      announce('即将删除全部个人偏好和导出文件；再次输入 /about reset confirm 确认');
+      return;
+    }
+    if (rest === 'reset confirm') {
+      if (!aboutResetPending.current) {announce('请先输入 /about reset，再确认'); return;}
+      aboutResetPending.current = false;
+      rmSync(file, {force: true});
+      rmSync(path.join(path.dirname(file), 'exports'), {recursive: true, force: true});
+      announce('已删除全部个人偏好与导出文件；新任务不会再注入历史偏好');
+      return;
+    }
     if (rest === 'export') {
       const exported = exportUserProfile(profile, file);
       announce(`已导出 ${exported.count} 条偏好到 ${exported.path}；疑似凭据条目未导出`);
@@ -490,7 +507,8 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       const lines = profile.entries.map((entry, index) => {
         const triggers = entry.triggers?.length ? `；触发：${entry.triggers.join(',')}` : '';
         const expiry = entry.expires_at ? `；过期：${entry.expires_at.slice(0, 10)}` : '';
-        return `${index + 1}. [${statusLabel(entry.status)}] ${entry.text}（来源：${entry.source}${triggers}${expiry}）`;
+        const conflict = entry.evidence?.some(value => value.startsWith('conflict:')) ? '；与已确认偏好冲突待确认' : '';
+        return `${index + 1}. [${statusLabel(entry.status)}] ${entry.text}（来源：${entry.source}${triggers}${expiry}${conflict}）`;
       });
       announce(`关于你（${stateText}，${profile.entries.length} 条）：\n${lines.join('\n')}`);
       return;
@@ -596,7 +614,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       announce(`已删除偏好：${removed?.text ?? ''}`);
       return;
     }
-    announce('用法：/about；/about add|propose <文本>；/about observe 观察本会话；/about export 导出；/about edit <序号> <文本>；/about triggers <序号> <词1,词2|->；/about expire <序号> <天数|ISO|->；/about confirm|disable|enable <序号>；/about clear proposed|stale；/about remove <序号>；/about on|off');
+    announce('用法：/about；/about add|propose <文本>；/about observe 观察本会话；/about export 导出；/about edit <序号> <文本>；/about triggers <序号> <词1,词2|->；/about expire <序号> <天数|ISO|->；/about confirm|disable|enable <序号>；/about clear proposed|stale；/about export；/about reset confirm；/about remove <序号>；/about on|off');
   };
 
   const copyCurrent = () => {
