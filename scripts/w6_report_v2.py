@@ -17,6 +17,11 @@ EVIDENCE = ROOT / ".vibe" / "w6" / "evidence"
 TASKS = ("task-a", "task-b", "task-c")
 
 
+def valid_run(run: dict) -> bool:
+    ends = run.get("run_ends") or []
+    return bool(ends) and any(event.get("status") == "done" for event in ends)
+
+
 def summary(runs: list[dict]) -> dict:
     user_messages = [int(run.get("user_message_count") or 0) for run in runs]
     steps = [sum(event.get("steps") or 0 for event in run.get("run_ends", [])) for run in runs]
@@ -91,7 +96,8 @@ def main() -> None:
             if not runs:
                 print(f"- {mode}: 证据缺失；运行 `w6_run.py {task}-{mode}`（建议每侧 ≥3 次）")
                 continue
-            rows.append((mode, summary(runs)))
+            valid = [run for run in runs if valid_run(run)]
+            rows.append((mode, summary(valid), len(runs) - len(valid)))
         if len(rows) < 2:
             print()
             continue
@@ -99,14 +105,13 @@ def main() -> None:
         print("|---|---|---|")
         on = rows[0][1]
         off = rows[1][1]
-        print(f"| 运行数 | {on['runs']} | {off['runs']} |")
+        print(f"| 有效运行数 | {on['runs']}（失败 {rows[0][2]}） | {off['runs']}（失败 {rows[1][2]}） |")
         print(f"| 用户消息（补充/纠正） | {fmt(on['user_messages'])} | {fmt(off['user_messages'])} |")
         print(f"| 步数 | {fmt(on['steps'])} | {fmt(off['steps'])} |")
         print(f"| tokens | {fmt(on['tokens'])} | {fmt(off['tokens'])} |")
         print(f"| 工具调用 | {fmt(on['tools'])} | {fmt(off['tools'])} |")
         print(f"| 测试通过命令数 | {fmt(on['tests'])} | {fmt(off['tests'])} |")
         selected_texts = [item.get("text", "") for item in on["selected"]]
-        off = rows[1][1]
         off_selected = [item.get("text", "") for item in off["selected"]]
         print(f"| 实际选中偏好 | {on['selected_runs']} 次选择 / {len(set(selected_texts))} 条 | {off['selected_runs']} 次选择 / {len(set(off_selected))} 条 |")
         for text in sorted(set(selected_texts)):

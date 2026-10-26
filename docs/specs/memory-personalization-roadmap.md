@@ -1,6 +1,6 @@
 # 用户偏好、画像与记忆路线图
 
-日期：2026-10-26。状态：P1 Profile v2 + 相关性注入已实现；P2 观察→proposed 已实现；P3 过期/容量/冲突第一版已实现；P4 凭据过滤/导出/注入边界第一版已实现；P0 W6 v2 task-a 3+3 次无收益信号，task-b/c 待跑。
+日期：2026-10-26。状态：P1 Profile v2 + 相关性注入已实现；P2 观察→proposed 已实现；P3 过期/容量/冲突第一版已实现；P4 凭据过滤/导出/注入边界第一版已实现；P0 W6 v2 已完成：三组均无重复说明/纠正下降，主假设未获支持；不进入 P5。
 
 ## 背景
 
@@ -89,19 +89,9 @@ W4 项目背景与 W5 用户偏好已完成 MVP 与真实使用验收；W6 三�
 - P1 的 schema/迁移/选择器/UI 回归进入 `tests/test_user_profile.py`、`tui/tests/user-profile.test.ts`、`tests/test_stdio*.py` 与 `/about` 测试；
 - 不把“能存能读”当成个性化收益；只认重复说明/纠正减少且正确性不倒退。
 
-## 当前阻塞（2026-10-26）
+## P0 结果与决策（2026-10-26）
 
-P0 W6 v2 的 task-a 已完成 3+3 次：用户消息 1/1/1 对 1/1/1，主假设未获支持；启用组 tokens/步数中位更高。task-b/task-c 的真实运行仍需用户本机执行；P5 触发条件未完成。早期报告曾混入 2026-10-24 的 v1 证据，已修复为只统计 v2 证据。下一步：
-
-```bash
-.venv/bin/python3 scripts/w6_run.py task-b-on    # 每个 part ≥3 次
-.venv/bin/python3 scripts/w6_run.py task-b-off
-.venv/bin/python3 scripts/w6_run.py task-c-on
-.venv/bin/python3 scripts/w6_run.py task-c-off
-.venv/bin/python3 scripts/w6_report_v2.py
-```
-
-拿到分布后回到 `docs/MILESTONES.md` 记录真实结论，再决定是否进入 P5。
+W6 v2 三组结果：task-a 3/3 有效，task-b 3/2 有效（各 1 次失败），task-c 2/2 有效；用户消息三组都是 1/1/1，主假设未获支持。启用组中位 tokens/步数普遍更高，相关性选择正常但未带来可观察收益。按路线图判定：不进入 P5，不扩自动画像/向量记忆；下一步优先改偏好质量与评估指标（例如偏好遵循评分），并补足 task-b/task-c 的失败/样本数。
 
 ## 当前进行
 

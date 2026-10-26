@@ -1,6 +1,6 @@
 import json
 
-from scripts.w6_report_v2 import group_runs, summary
+from scripts.w6_report_v2 import group_runs, summary, valid_run
 
 
 def _evidence(path, label, version, selected):
@@ -27,3 +27,12 @@ def test_report_excludes_v1_evidence_and_counts_only_real_selections(tmp_path):
     stats = summary(groups[("task-a", "on")])
     assert stats["selected_runs"] == 1
     assert [item["text"] for item in stats["selected"]] == ["解释偏好"]
+
+
+def test_failed_runs_are_not_counted_as_valid(tmp_path):
+    failed = {"run_ends": [{"status": "error", "steps": 1}]}
+    empty = {"run_ends": []}
+    done = {"run_ends": [{"status": "done", "steps": 2}]}
+    assert valid_run(failed) is False
+    assert valid_run(empty) is False
+    assert valid_run(done) is True
