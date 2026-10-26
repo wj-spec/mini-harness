@@ -1,6 +1,6 @@
 # Multi-Agent 与 Computer Use：调研与实施规格
 
-日期：2026-10-26。状态：方向调研与规格完成；**未实现**。2026-10-26 用户进一步收窄 Computer Use：**先做 Browser Use，桌面 AX/视觉 Computer Use 延后**，详见 [browser-use.md](browser-use.md)。本文保留两方向完整调研与桌面路径，实施顺序以 browser-use 文档为准。
+日期：2026-10-26。状态：方向调研与规格完成；G0 MCP 工具级权限已实现，Browser Use B1 待实施；桌面 C1 延后。2026-10-26 用户进一步收窄 Computer Use：**先做 Browser Use，桌面 AX/视觉 Computer Use 延后**，详见 [browser-use.md](browser-use.md)。本文保留两方向完整调研与桌面路径，实施顺序以 browser-use 文档为准。
 
 ## 0. 结论摘要
 

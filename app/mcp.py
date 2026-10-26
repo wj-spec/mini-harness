@@ -49,6 +49,27 @@ class McpServer:
     cwd: str | None = None
     timeout: float = 60.0
     risk: str = "exec"
+    allowed_tools: tuple[str, ...] = ()
+    tool_risks: dict[str, str] = field(default_factory=dict)
+    allowed_origins: tuple[str, ...] = ()
+
+
+def _valid_origin(value: str) -> bool:
+    from urllib.parse import urlsplit
+
+    parts = urlsplit(value)
+    return parts.scheme in {"http", "https"} and bool(parts.netloc) and parts.path in {"", "/"} and not parts.query and not parts.fragment
+
+
+def _check_origin(tool: str, url: str, allowed_origins: tuple[str, ...]) -> None:
+    from urllib.parse import urlsplit
+
+    parts = urlsplit(url)
+    if parts.scheme not in {"http", "https"}:
+        raise McpToolError(f"{tool}: blocked non-http origin: {url[:200]}")
+    origin = f"{parts.scheme}://{parts.netloc}".rstrip("/")
+    if origin not in allowed_origins:
+        raise McpToolError(f"{tool}: origin not allowed: {origin}; allowed: {', '.join(allowed_origins)}")
 
 
 def parse_servers(raw: dict[str, Any] | None) -> dict[str, McpServer]:
@@ -61,6 +82,9 @@ def parse_servers(raw: dict[str, Any] | None) -> dict[str, McpServer]:
         command = item.get("command")
         args, env = item.get("args", []), item.get("env", {})
         cwd, risk = item.get("cwd"), item.get("risk", "exec")
+        allowed_tools = item.get("allowed_tools", [])
+        tool_risks = item.get("tool_risks", {})
+        allowed_origins = item.get("allowed_origins", [])
         if not isinstance(command, str) or not command.strip():
             raise ValueError(f"mcp server {name!r} missing command")
         if not isinstance(args, list) or not all(isinstance(a, str) for a in args):
@@ -77,7 +101,30 @@ def parse_servers(raw: dict[str, Any] | None) -> dict[str, McpServer]:
             raise ValueError(f"mcp server {name!r} timeout must be positive and finite")
         if not isinstance(risk, str) or risk not in {"read", "write", "exec"}:
             raise ValueError(f"mcp server {name!r} risk must be read, write or exec")
-        servers[name] = McpServer(name, command, list(args), dict(env), cwd, timeout, risk)
+        if not isinstance(allowed_tools, list) or not all(
+            isinstance(tool, str) and tool.strip() for tool in allowed_tools
+        ):
+            raise ValueError(f"mcp server {name!r} allowed_tools must be a list of names")
+        normalized_allowed = tuple(dict.fromkeys(tool.strip() for tool in allowed_tools))
+        if not isinstance(tool_risks, dict) or not all(
+            isinstance(tool, str) and tool.strip() and isinstance(value, str)
+            and value in {"read", "write", "exec"}
+            for tool, value in tool_risks.items()
+        ):
+            raise ValueError(f"mcp server {name!r} tool_risks must map tool names to read/write/exec")
+        if normalized_allowed and set(tool_risks) - set(normalized_allowed):
+            raise ValueError(f"mcp server {name!r} tool_risks contains tools outside allowed_tools")
+        if not isinstance(allowed_origins, list) or not all(
+            isinstance(origin, str) and origin.strip() for origin in allowed_origins
+        ):
+            raise ValueError(f"mcp server {name!r} allowed_origins must be a list of origins")
+        normalized_origins = tuple(dict.fromkeys(origin.strip().rstrip("/") for origin in allowed_origins))
+        if any(not _valid_origin(origin) for origin in normalized_origins):
+            raise ValueError(f"mcp server {name!r} allowed_origins must be http(s) origins")
+        servers[name] = McpServer(
+            name, command, list(args), dict(env), cwd, timeout, risk,
+            normalized_allowed, dict(tool_risks), normalized_origins,
+        )
     return servers
 
 
@@ -262,6 +309,7 @@ class McpManager:
             preview = (
                 f"MCP server: {name}\ncommand: {json.dumps([server.command, *server.args], ensure_ascii=False)}"
                 f"\ncwd: {cwd}\nenv keys: {', '.join(sorted(server.env)) or '(none)'}"
+                f"\nallowed tools: {', '.join(server.allowed_tools) or '(all)'}"
                 "\n\n[risk] exec — 启动外部服务，需要审批；工具调用另行审批。"
             )
             if approval is None or not (await approval.request(call, preview, self.root)).allowed:
@@ -273,6 +321,12 @@ class McpManager:
                 names = [tool.name for tool in remote_tools]
                 if any(not n.strip() for n in names) or len(set(names)) != len(names):
                     raise McpError("invalid or duplicate remote tool names")
+                if server.allowed_tools:
+                    by_name = {tool.name: tool for tool in remote_tools}
+                    missing = [name for name in server.allowed_tools if name not in by_name]
+                    if missing:
+                        raise McpError(f"missing allowed MCP tools: {', '.join(missing)}")
+                    remote_tools = [by_name[name] for name in server.allowed_tools]
             except BaseException as exc:
                 try:
                     await connection.close()
@@ -300,15 +354,17 @@ class McpManager:
 
             registry.register(ToolSpec(
                 exposed, tool.description or f"MCP {name}:{tool.name}",
-                tool.input_schema, self._make_fn(connection, tool.name), timeout=connection.server.timeout,
-                risk=connection.server.risk,
+                tool.input_schema, self._make_fn(connection, tool.name, connection.server.allowed_origins), timeout=connection.server.timeout,
+                risk=connection.server.tool_risks.get(tool.name, connection.server.risk),
             ))
             self.tools[exposed] = (name, tool.name)
         return sorted(self.tools)
 
     @staticmethod
-    def _make_fn(connection: _Connection, name: str):
+    def _make_fn(connection: _Connection, name: str, allowed_origins: tuple[str, ...] = ()):
         async def invoke(**kwargs):
+            if allowed_origins and isinstance(kwargs.get("url"), str):
+                _check_origin(name, str(kwargs["url"]), allowed_origins)
             return await connection.call(name, kwargs)
 
         return invoke

@@ -702,3 +702,112 @@ def _child_cleanup_case(tmp_path):
 @pytest.mark.skipif(os.name != "posix", reason="stdio process groups use POSIX")
 def test_close_cleans_up_server_and_descendant(tmp_path):
     _bounded_scenario(tmp_path, "_child_cleanup_case")
+
+
+def test_parse_servers_supports_tool_allowlist_and_risk_override():
+    servers = parse_servers({"browser": {
+        "command": "npx", "args": ["@playwright/mcp@x"],
+        "allowed_tools": ["browser_snapshot", "browser_navigate", "browser_snapshot"],
+        "tool_risks": {"browser_navigate": "write"},
+    }})
+    server = servers["browser"]
+    assert server.allowed_tools == ("browser_snapshot", "browser_navigate")
+    assert server.tool_risks == {"browser_navigate": "write"}
+    assert server.allowed_origins == ()
+
+
+def test_parse_servers_rejects_invalid_tool_policy():
+    with pytest.raises(ValueError):
+        parse_servers({"browser": {"command": "x", "allowed_tools": "browser_snapshot"}})
+    with pytest.raises(ValueError):
+        parse_servers({"browser": {"command": "x", "allowed_tools": [1]}})
+    with pytest.raises(ValueError):
+        parse_servers({"browser": {"command": "x", "tool_risks": {"a": "root"}}})
+    with pytest.raises(ValueError):
+        parse_servers({"browser": {"command": "x", "allowed_tools": ["a"], "tool_risks": {"b": "read"}}})
+
+
+def test_mcp_registers_only_allowed_tools_and_applies_risk_override(tmp_path):
+    async def scenario():
+        server = make_server(tmp_path)
+        server["risk"] = "read"
+        server["env"]["FAKE_MCP_NAMES"] = json.dumps([
+            "browser_navigate", "browser_snapshot", "browser_click",
+        ])
+        server["allowed_tools"] = ["browser_navigate", "browser_snapshot"]
+        server["tool_risks"] = {"browser_navigate": "write"}
+        manager = McpManager.from_config({"browser": server}, tmp_path)
+        try:
+            registry = ToolRegistry(tmp_path)
+            loaded = await manager.register_into(registry, allow_start())
+            exposed = {remote: name for name, (_, remote) in manager.tools.items()}
+            assert set(exposed) == {"browser_navigate", "browser_snapshot"}
+            assert registry.risk(exposed["browser_navigate"]) == "write"
+            assert registry.risk(exposed["browser_snapshot"]) == "read"
+            assert all("browser_click" not in name for name in loaded)
+        finally:
+            await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_mcp_missing_allowed_tool_fails_closed(tmp_path):
+    async def scenario():
+        server = make_server(tmp_path)
+        server["allowed_tools"] = ["does_not_exist"]
+        manager = McpManager.from_config({"fake": server}, tmp_path)
+        try:
+            loaded = await manager.register_into(ToolRegistry(tmp_path), allow_start())
+            assert loaded == []
+            assert any("missing allowed MCP tools" in error for error in manager.errors)
+        finally:
+            await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_parse_servers_validates_allowed_origins():
+    servers = parse_servers({"browser": {
+        "command": "x", "allowed_origins": ["http://localhost:3000/", "https://example.test"],
+    }})
+    assert servers["browser"].allowed_origins == ("http://localhost:3000", "https://example.test")
+    with pytest.raises(ValueError):
+        parse_servers({"browser": {"command": "x", "allowed_origins": "http://localhost"}})
+    with pytest.raises(ValueError):
+        parse_servers({"browser": {"command": "x", "allowed_origins": ["file:///tmp"]}})
+    with pytest.raises(ValueError):
+        parse_servers({"browser": {"command": "x", "allowed_origins": ["http://localhost/path"]}})
+
+
+def test_mcp_origin_guard_blocks_disallowed_navigation_before_server_call(tmp_path):
+    async def scenario():
+        server = make_server(tmp_path)
+        server["risk"] = "read"
+        marker = tmp_path / "tool-called"
+        server["env"].update({
+            "FAKE_MCP_NAMES": json.dumps(["browser_navigate", "browser_snapshot"]),
+            "FAKE_MCP_TOOL_MARKER": str(marker),
+        })
+        server["allowed_tools"] = ["browser_navigate", "browser_snapshot"]
+        server["tool_risks"] = {"browser_navigate": "write"}
+        server["allowed_origins"] = ["http://localhost:3000"]
+        manager = McpManager.from_config({"browser": server}, tmp_path)
+        try:
+            registry = ToolRegistry(tmp_path)
+            await manager.register_into(registry, allow_start())
+            exposed = {remote: name for name, (_, remote) in manager.tools.items()}
+            ok, output = await registry.execute_async(
+                ToolCall(exposed["browser_navigate"], {"url": "https://evil.example/"}),
+            )
+            assert ok is False
+            assert "origin not allowed" in output
+            assert not marker.exists(), "guard must reject before calling the MCP server"
+            ok, output = await registry.execute_async(
+                ToolCall(exposed["browser_navigate"], {"url": "http://localhost:3000/app"}),
+            )
+            assert ok is True
+            assert marker.exists()
+        finally:
+            await manager.close()
+
+    asyncio.run(scenario())

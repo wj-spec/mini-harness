@@ -1,6 +1,6 @@
 # Browser Use：先做的 Computer Use 子集
 
-日期：2026-10-26。状态：方向已收窄，规格待实施。本文把 Computer Use 缩小到**浏览器**，不碰桌面 AX/视觉/系统级 GUI；先做只读浏览器观察，再做受控浏览器动作。
+日期：2026-10-26。状态：G0 MCP 工具级权限已实现；B1 Playwright 配置与真实浏览器验收待做。本文把 Computer Use 缩小到**浏览器**，不碰桌面 AX/视觉/系统级 GUI；先做只读浏览器观察，再做受控浏览器动作。
 
 ## 0. 结论
 
@@ -63,8 +63,17 @@ Playwright 官方 README 明确说：对 coding agent，**CLI + skills 往往比
 
 G0 二选一：
 
-- **方案 A（推荐）**：给 `McpServer` 增加 `allowed_tools` + `tool_risks`，注册时过滤/覆盖 risk；这样只暴露 B1 白名单，后续 B2 再按工具审批；
+- **方案 A（已实现）**：`McpServer` 支持 `allowed_tools`、`tool_risks`、`allowed_origins`，注册时过滤/覆盖 risk；这样只暴露 B1 白名单，后续 B2 再按工具审批；
 - 方案 B：启动两个 Playwright MCP 实例，一个只读配置、一个动作配置；但同一 package 的工具集不能由 server 端裁剪到“只读”，仍需客户端过滤，收益小。
+
+已实现的 G0（`app/mcp.py`）：
+
+- `allowed_tools`：只注册白名单工具；缺失配置的白名单工具启动失败（fail closed）；
+- `tool_risks`：工具级 risk 覆盖，`browser_navigate` 可标 `write`，其余只读；
+- `allowed_origins`：对工具参数中的 `url` 做 scheme/origin 检查；非 http(s) 或不在 allowlist 的 URL 在调用 MCP server 前拒绝；
+- 启动预览显示 allowed tools，审批仍显示完整命令。
+
+**限制**：`allowed_origins` 只检查工具入参，不检查重定向后的最终 URL；B1 首版只用于本地 fixture/dev server，不用于不可信外部站点。重定向后检查留给 B1.1/B2。
 
 实施前先写测试：未列出的 remote tool 不进入 `specs()`；`execute_async()` 拒绝；risk 覆盖生效；启动审批仍显示完整命令。
 
@@ -98,8 +107,8 @@ G0 二选一：
 - 默认仅允许 `http://localhost`、`http://127.0.0.1`、`http://[::1]`；
 - 其他 origin 需要用户在配置中显式加入 allowlist，并按 origin 审批；
 - 拒绝 `file://`、`data:`、`javascript:`、`chrome://`、浏览器扩展页面；
-- 导航时显示完整 URL；不自动跟随重定向到未授权 origin（重定向后要重新检查，不能只检查输入 URL）；
-- Playwright `--allowed-origins`/`--blocked-origins` 不是安全边界（README 明确说“does not serve as a security boundary and does not affect redirects”），只能在 **客户端/server 包装层**做 URL 策略，不能只依赖参数；
+- 导航时显示完整 URL；`allowed_origins` 先在客户端检查输入 URL；重定向后的最终 URL 还没有机器可验证的检查，因此 B1 只用于本地 dev server/fixture，不用于不可信外部站点；
+- Playwright `--allowed-origins`/`--blocked-origins` 不是安全边界（README 明确说“does not serve as a security boundary and does not affect redirects”），只能在 **客户端/server 包装层**做 URL 策略；当前 G0 已做输入 URL 的 origin 检查，重定向限制仍存在；
 - 首版不启用 `--extension`、`--cdp-endpoint`、`--allow-unrestricted-file-access`、`--no-sandbox`；
 - 使用 `--isolated --headless`，独立临时 profile；不读取用户浏览器登录态；不传 `--storage-state`。
 
@@ -129,7 +138,11 @@ G0 二选一：
         "browser_network_requests",
         "browser_close"
       ],
-      "tool_risks": {"browser_navigate": "write"}
+      "tool_risks": {"browser_navigate": "write"},
+      "allowed_origins": [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000"
+      ]
     }
   }
 }
@@ -162,8 +175,8 @@ Headless（CI 可跑）：
 4. `browser_run_code_unsafe`、`browser_click` 等未暴露；`specs()` 不含；
 5. 超长 snapshot 被截断并标记；
 6. 未审批的 `browser_navigate` 不执行（ApprovalGate 行为）；
-7. 测试会话（`--test-session`）不挂载 browser server；
-8. MCP 启动审批显示完整命令。
+8. 测试会话（`--test-session`）不挂载 browser server；
+9. MCP 启动审批显示完整命令和 allowed tools。
 
 真实 macOS/Linux smoke（手工）：
 
@@ -174,6 +187,14 @@ Headless（CI 可跑）：
 如果浏览器二进制缺失，明确提示安装命令，不在运行中静默 `npx install`。
 
 ---
+
+## 2.6 B1 实施前置
+
+- 安装并固定 Playwright MCP 版本（npm 包 `@playwright/mcp`）；不要使用 `@latest`；
+- 安装 Chromium（`npx playwright install chromium`），这是可选运行时依赖，不进入 `core/`；
+- 用 `VIBE_MCP_CONFIG`/`VIBE_MCP_SERVERS` 加载 browser 配置；
+- 启动时审批完整 `npx` 命令和 allowed tools；
+- 如果浏览器二进制缺失，明确提示安装，不在后台静默安装。
 
 ## 3. B2：浏览器受控动作（B1 通过后）
 
@@ -310,7 +331,7 @@ B2 必须做到：
 
 ## 9. 下一步
 
-1. 先做 G0：`McpServer.allowed_tools` + `tool_risks`，补测试；
+1. G0 已完成：`McpServer.allowed_tools` + `tool_risks` + `allowed_origins`，并有 MCP 回归；
 2. 固定 Playwright MCP 版本，写 `browser` MCP 配置；
 3. 建本地 fixture HTTP server + headless B1 测试；
 4. B1 通过后再做 B2；

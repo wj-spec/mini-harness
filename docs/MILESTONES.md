@@ -354,6 +354,8 @@ README「当前完善重点」六项已修复并附针对性回归，真实任�
 
 **Computer Use 收窄为 Browser Use（2026-10-26）**：用户决定先做浏览器自动化，暂缓桌面 AX/视觉 Computer Use。新增 [Browser Use 规格](specs/browser-use.md)：用 Playwright MCP 只读观察（navigate/snapshot/console/network），再做受控 click/type/select；不登录、不付账、不上传下载、不读 cookies/storage、不执行任意 JS；先补 G0 的 MCP tool-level allowlist/risk。桌面路线仍保留在 [multi-agent-computer-use](specs/multi-agent-computer-use.md)，不并行开工。
 
+**Browser Use G0：MCP 工具级权限（2026-10-26）**：按 [Browser Use 规格](specs/browser-use.md) 先实现 G0：`McpServer` 新增 `allowed_tools`、`tool_risks`、`allowed_origins`；注册时只暴露白名单工具、按工具覆盖 risk，白名单工具缺失时 fail closed；`allowed_origins` 在调用 MCP server 前检查 `url` 参数（非 http(s) / 非 allowlist 拒绝）。启动预览显示 allowed tools。回归：`tests/test_mcp.py` 覆盖解析校验、白名单过滤、risk 覆盖、缺失工具 fail closed、origin 守卫不触达 server。Python 全量 **946 项**退出 0；TUI 337 项、336 通过（既有 PTY 失败）。B1 的 Playwright MCP 配置/真实浏览器 smoke 待做。
+
 ## 当前下一步
 
 W1–W5 已完成真实验收；W6 v2 三组对照完成，主假设未获支持。2026-10-26 用户决定停止 P0 扩张、不进入 P5，保留显式偏好管理能力；后续只有新证据/新评估方法才重新评估个性化。接下来：
