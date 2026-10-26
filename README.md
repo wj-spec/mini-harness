@@ -1,107 +1,181 @@
 # mini-harness
 
-一个以终端为入口的本地 Coding Agent。当前采用单进程、单 Agent loop：模型提出下一步，Python harness 负责组装上下文、审批动作、执行工具并记录结果。
+**个人编码工作台 · 过程可核对、结果可验收的终端 Coding Agent**
 
-随着 Agent 能执行的步骤增多，最终回答不足以说明它依据了什么、实际做了什么，以及验证是否真的通过。这个项目尝试让这些过程有据可查，并以此为基础，逐步发展为更了解用户的个人助手工作台。
+以终端为入口的本地编码 Agent：模型负责提议下一步，Python harness 负责组装上下文、审批动作、执行工具，并把过程与结果留成可复查的证据。项目同时作为 Agent 原理与全栈工程的长期学习载体，长期目标是演进为「越用越了解用户」的个人助手工作台。
 
-## 当前能力
+[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-React%2019%20%2B%20Ink%208-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-22%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-界面入口是 React/Ink 工作台，通过本地 JSON Lines 连接 Python Agent；Textual 入口已于 2026-10-23 退役。当前已接通：
+![mini-harness 工作台](docs/assets/workbench.png)
 
-- **编码与工具**：读取、搜索、修改工作区文件，运行命令、联网检索，通过 stdio MCP 接入外部工具；新增免审批的只读 `git_status` / `git_diff`，便于 Agent 在报告前核对实际改动；`apply_patch` 支持多文件/多 hunk 的 diff 编辑（审批预览）。
-- **模型与技能**：OpenAI-compatible 流式接口、本地 fake 模式，以及 Skill 的发现、加载和卸载；加载 Skill 不授予额外工具权限。
-- **过程控制**：运行中纠偏、排队后续任务、拒绝审批、取消与超时处理；取消后仍需核对已发生的修改。交互单轮默认 30 分钟，评测/基准保留 10 分钟。
-- **目标模式**：`/goal <目标>` 让长任务在时间/预算暂停时自动续段；`/goal stop|resume` 控制，/goal 状态保存在当前 TUI 进程内。
-- **工作台首页**：顶部 header 左侧是彩色像素猫 Mini（12×10 宽屏猫头 / 8×6 窄屏脸部，无彩色时保留剪影；过窄隐藏）；首屏提供 starter prompt、当前工作区/模型/会话、常用命令和输入提示。
-- **上下文与恢复**：预算控制、历史压缩、原文回取、上下文快照，以及会话保存和显式 `/resume` 续做。
-- **执行证据**：命令状态与退出码、审批审计、消息与运行记录、独立评测入口。
-- **右侧变更侧栏**：默认 `/sidebar` 或 `Ctrl+G` 在当前 Ghostty 窗口内右侧分屏（自动校准到约 70/30），只读跟随工作区 Git 变更与 diff，分屏跟随窗口尺寸并随工作台退出联动关闭；`/sidebar quick` 可改用屏幕右侧 quick terminal（不挤占 TUI）；macOS Terminal 下使用独立窗口（自动摆位仍在调整）。侧栏会即时刷新并标记 Agent 本轮改过的文件（`●`）。见[使用指南](docs/USAGE.md#右侧-git-变更侧栏ghostty--macos-terminal)。
+*React/Ink 工作台（左）与只读 Git 变更侧栏（右）；顶部是产品标识像素猫 Mini。截图为 2026-10-26 的当前版本。*
 
-这些能力的工程实现与真实任务验收分别记录在[工作台里程碑](docs/MILESTONES.md)。fake 模式用于离线检查交互与协议；会话恢复服务于同一任务，项目背景（W4）与个人偏好（W5）已交付，但 W6 收益对照未观察到重复说明减少，个性化收益尚未成立。
+> 状态：单 Agent 编码流程已可用（W1–W5 真实验收完成），持续开发中；最新进度见[工作台里程碑](docs/MILESTONES.md)。
+
+## 项目简介
+
+Agent 执行的步骤一多，最终回答就不足以说明它依据了什么、实际做了什么、验证是否真的通过。这个项目把每次模型请求的上下文构成、每个动作的审批决定、每条命令的退出状态，以及中断后的恢复依据都保存下来，让编码任务可以像 code review 一样被核对。
+
+- **主线**：先把单 Agent 的编码任务做可靠、可理解，再扩展长任务与个性化；
+- **自举**：工作台也用于本仓库自身的开发与验收，真实编码任务包含在本项目上定位并修复 bug；
+- **边界**：单进程、单 Agent loop；命令仍以当前用户权限运行，审批 + 黑名单 + 超时是当前边界，可选 macOS Seatbelt 沙箱；
+- **学习**：Agent loop / 上下文与预算 / 权限与隔离 / 会话恢复 / 评测方法，以及 TypeScript + React 全栈与进程间通信。
+
+**技术栈**：Python 3.11+（asyncio、SSE、JSONL、FastMCP、pytest）· TypeScript + React 19 + Ink 8（Node.js 22）· 本地 JSON Lines 协议 · 只读 Git 数据层 · macOS Seatbelt（可选）
+
+## 功能概览
+
+| 方向 | 已交付能力 |
+| --- | --- |
+| 编码工具 | 读取 / 搜索 / 列目录、`write_file` / `edit_file`、`apply_patch`（多文件多 hunk）、`bash`、免费 Web 搜索、stdio MCP 外部工具；`git_status` / `git_diff` 只读免审批 |
+| 执行边界 | 写文件与命令经 `ApprovalGate` 预览审批（单次 / 精确规则 / 工作区授权、撤销、审计）；无审批处理器时 fail closed；可选 macOS Seatbelt 沙箱与网络白名单 |
+| 过程控制 | 运行中纠偏、排队后续任务、取消与超时回收；重复调用 / 重复读取 / 无产物进展的空转护栏；交互单轮默认 30 分钟 |
+| 上下文 | 1M 上下文窗口、预算分区、80% 主动压缩、原文 offload + `recall` 回取、请求前上下文快照与 `/context` |
+| 会话与恢复 | JSONL 会话与原始消息、崩溃对账、交付回执、显式 `/resume` 续做同一任务 |
+| 长任务 | `/goal` 目标模式：资源暂停自动续段（默认 8 段 / 4 小时）；目标状态写入会话目录，重启 / `--continue` 后恢复为暂停态，需 `/goal resume` 显式续段 |
+| 工作台 | 全屏 Ink、Markdown 阅读、多行输入与历史、拖选复制、`/skills` 菜单、Git 变更侧栏、像素猫 Mini 首屏 |
+| 个性化 | 项目背景 `/project`（W4）与个人偏好 `/about`（W5）：带来源，可确认 / 纠正 / 停用，下一次任务生效 |
 
 ## 架构
 
 ```mermaid
-flowchart LR
-    user["用户"] --> ink["React / Ink TUI"]
-    ink -- "JSON Lines" --> stdio["Python stdio 适配"]
-    stdio --> agent["Agent.run() · 单 Agent loop"]
-    agent <--> provider["Provider · OpenAI-compatible / fake"]
-    agent --> core["core/ · 消息、上下文、预算、任务状态"]
-    agent -- "只读工具" --> tools["ToolRegistry"]
-    agent -- "需授权工具" --> gate["ApprovalGate · 预览、授权、审计"]
+flowchart TD
+    user([用户]) --> tui
+
+    subgraph UI["tui/ · React + Ink 工作台（唯一入口）"]
+        tui["对话 · 审批 · 阅读 · 状态 · 目标编排"]
+    end
+
+    subgraph APP["app/ · Python 应用后端"]
+        stdio["stdio · JSON Lines 协议"]
+        agent["Agent.run() · 唯一单 Agent loop"]
+        provider["Provider · OpenAI-compatible / fake"]
+        gate["ApprovalGate · 预览 / 授权 / 审计"]
+        tools["ToolRegistry"]
+        session["SessionStore · JSONL 会话"]
+        trace["TraceRecorder / 评测"]
+    end
+
+    subgraph CORE["core/ · 可复用 harness（仅标准库）"]
+        context["ContextBuilder / BudgetPolicy"]
+        state["TaskState / ProgressMonitor"]
+    end
+
+    tui -- "JSON Lines v1" --> stdio
+    stdio --> agent
+    agent <--> provider
+    agent -- 只读工具 --> tools
+    agent -- 需授权工具 --> gate
     gate --> tools
+    agent --> context
+    agent --> state
+    agent --> session
+    agent --> trace
     tools --> world["工作区 / 命令 / Web / stdio MCP"]
-    agent -- "消息、状态、Trace" --> session["SessionStore"]
-    session --> local[".vibe/ 会话与运行记录"]
 ```
 
-[`core/`](core/) 只依赖 Python 标准库，负责可复用的消息、预算、上下文与任务状态；模型接入、工具和执行流程在 [`app/`](app/)。Ink 通过 stdio 后端调用同一个 [`Agent.run()`](app/agent.py)，界面更换不会产生第二套执行逻辑。
+| 层 | 目录 | 职责 | 边界 |
+| --- | --- | --- | --- |
+| 工作台 | `tui/` | React/Ink 界面、JSONL 协议、Git 侧栏、目标编排 | 只通过协议交互，不持有工具执行权 |
+| 应用后端 | `app/` | Provider、工具、审批、会话、MCP、评测 | 界面与 eval 共用同一个 `Agent.run()` |
+| 可复用 harness | `core/` | 消息、上下文、预算、任务状态、进展检测 | 只依赖标准库，不能 import `app/` 或界面 |
 
-## 核心设计
+### 设计要点
 
-1. **模型提议动作，harness 决定执行。** Agent 对非只读工具先生成预览，再经过 [`ApprovalGate`](app/policy.py)；没有审批处理器时默认拒绝。授权可限定为单次或精确规则，内置写入与命令还可按工作区授权，支持撤销和审计；MCP 服务启动另行审批。命令仍以当前用户权限运行，审批和超时不构成操作系统级沙箱。
-2. **从实际请求观察上下文。** [`ContextBuilder`](core/context.py) 控制预算、压缩旧历史，并用引用保留可回取的原文。模型请求前的[上下文快照](core/context_snapshot.py)按最终组装的消息和工具定义统计来源、分区及估算用量；`/context` 可以查看变化。这里展示的是可核对的输入构成，token 分区数字是估算值，不是模型生成的行为解释。
-3. **把执行结果与恢复状态当作证据。** 命令结果保留退出码，以及成功、失败、超时、取消等状态；工具结果回灌模型并写入任务记录。[`SessionStore`](app/session.py)保存原始消息、状态和运行轨迹；打开旧会话不会自动重放可能已生效的动作，显式输入 `/resume` 后才继续。结果未知时，先核对实际文件和命令结果。
+1. **模型提议动作，harness 决定执行。** 非只读工具先生成预览再过 `ApprovalGate`，授权粒度为单次、精确规则或当前工作区，并支持撤销与审计；没有审批处理器时默认拒绝。命令仍以当前用户权限运行，审批不构成操作系统级沙箱。
+2. **上下文按最终请求组装并可核验。** `ContextBuilder` 按预算分区，压缩旧历史时保留可回取的原文；请求前快照统计来源、分区与估算用量，`/context` 可查看变化。展示的是可核对输入，不是对模型行为的解释。
+3. **执行结果与恢复状态都是证据。** 命令保留退出码与成功 / 失败 / 超时 / 取消等状态；工具调用按 `run_id + step + tool_call_id` 关联进 trace；交付回执汇总本轮改动、验证命令与未完成项；打开旧会话不自动重放动作，显式 `/resume` 后才继续。
+4. **长任务分段落，而不是放宽边界。** `/goal` 只在运行段因资源限制停止时自动续段，遇到无进展、上下文窗口、错误或取消则暂停；每段仍走普通 run 的审批、工具与会话边界。目标状态随会话保存，重启后恢复为暂停态，必须显式续段，避免自动消耗预算。
 
-## 快速体验
+## 工程验证
 
-需要 Python 3.11+、`uv` 和 Node.js 22+。以下命令启动无需模型 API 的界面演示：
+结论尽量来自可复核的证据，而不是「看起来能跑」。完整运行记录与验收条件见[工作台里程碑](docs/MILESTONES.md)。
+
+| 验证项 | 方式 | 结果（2026-10-26） |
+| --- | --- | --- |
+| 自动回归 | `./run_tests.sh`、`npm --prefix tui test` | Python **926** 通过 / 5 项环境跳过（收集 931）；TUI **319** 项中 318 通过（1 项为无 PTY 环境的已知限制） |
+| 真实编码任务 | 内部 eval（10 任务）+ SWE-bench Lite | 内部文件操作 3/3；SWE-bench Lite 首题官方评分 resolved 1/1 |
+| 本地编码基准 | 6 道真实仓库任务，含 3 道未参与调优的保留 / 压测题 | 首轮能力 2/3 → 3/3；保留题 2 题 × 3 次运行 `verified_fix` 全真；跨层压测 3/3 |
+| 端到端里程碑 | 真实模型 + 证据采集脚本 | W1–W5 完成真实验收；W6 三组对照完成（主假设未获支持，如实记录） |
+| 评测口径 | 隐藏测试、初始 RED、防改测试、环境隔离 | 分开记录产物正确 / 运行完成 / 可比较性；支持 `--runs` 多次运行、`--pause-tokens` 暂停续做 |
+
+2026-10-25 按 P0/P1 逐项修复工具工作区边界、流式截断、交付核验、恢复对账、评测有效性与完整 trace 六项缺口，均有针对性回归；真实任务核对使用未参与调优的保留题完成。
+
+## 里程碑与规划
+
+按 W0–W7 推进，以真实任务验收为准；代码完成或自动测试通过不会自动提升状态。
+
+| 里程碑 | 目标 | 状态 |
+| --- | --- | --- |
+| W0 可复现起点 | 启动、测试与回退基线 | 基线已建；入口 / loop 代码走查待补 |
+| W1 真实小改动 | 需求 → 修改 → 验证 → 可核对交付 | ✅ 2026-10-23 真实验收 |
+| W2 掌控运行 | 运行中纠偏、拒绝、停止与超时 | ✅ 2026-10-23 真实验收 |
+| W3 隔天续做 | 中断恢复、副作用对账、压缩后继续 | ✅ 2026-10-23 真实验收 |
+| W4 项目背景 | 新任务复用项目事实与决定 | ✅ 2026-10-23 真实验收 |
+| W5 关于你 | 个人偏好的查看、确认与纠正 | ✅ 2026-10-24 真实验收 |
+| W6 个性化收益 | 对照实验验证是否减少重复说明 | ✅ 对照完成，主假设未获支持 |
+| W7 第二工作流 | 编码之外的一种常用工作流 | 条件性方向，等待真实需求 |
+
+**下一步**
+
+- **长任务可靠性**：`/goal` 的真实长任务与跨段成本验收。
+- **个性化精细化**：W6 未观察到重复说明减少；后续把偏好条目做得更具体、更少，按任务相关性过滤，并用多次运行观察。
+- **评测扩题**：固定前三题参考补丁自检与 `--limit 3` 扩题，建立多次运行基线。
+- **方向探索**：受控只读知识库、多 Agent 主 / 子编排、W7 第二种工作流，均按实际需求再评估。
+- **体验补齐**：Git 侧栏在 Ghostty / macOS Terminal 中的真实终端验收。
+
+## 快速开始
+
+依赖：Python 3.11+、`uv`、Node.js 22+。
 
 ```bash
 uv sync --extra test
 npm --prefix tui ci
+
+# 不需要模型 API：启动工作台，检查界面与协议接线
 ./run_ink.sh --fake
 ```
 
-配置 `VIBE_API_KEY`、`VIBE_BASE_URL`、`VIBE_MODEL` 后，可以用 `./scripts/demo.sh` 在临时示例仓库里体验真实编码任务。
-
-安装、模型配置与操作方式见[使用指南](docs/USAGE.md)；演示步骤见[三分钟 Demo](docs/DEMO.md)。fake 模式用于确定性接线检查，不代表真实模型的任务完成效果。
-
-## 验证
-
-Python 回归使用 `./run_tests.sh -q`，Ink 构建与测试使用 `npm --prefix tui test`。预算机制可先离线检查：
+配置真实模型（OpenAI-compatible）：
 
 ```bash
-./run_eval.sh check-budget
+export VIBE_API_KEY=sk-...
+export VIBE_BASE_URL=https://api.deepseek.com/v1
+export VIBE_MODEL=deepseek-chat
+
+./run_ink.sh --workspace /path/to/your/repo
+./scripts/demo.sh   # 在临时示例仓库体验一次真实编码任务
 ```
 
-它使用确定性 fake 模型，不需要 API Key 或 Docker，按上下文容量、压缩继续、累计预算暂停逐层验证，前层未通过则跳过后层。已有一次 CLI 检查 3/3 层通过；预期暂停通过只说明机制正确。真实编码验收依次运行内部 1/3 题、SWE-bench Lite 首题和固定 3 题；公开入口当前默认 1 题，显式 `--limit 3` 再扩展。评分器自检 `./run_eval.sh validate` 默认验第一题，`--limit 3` 可对固定前三题做空补丁/参考补丁自检，结果逐题写入 `validation.json`。本地基准的 `--runs` 记录多次运行分布，`--pause-tokens` 用低预算触发暂停并以 `--continue` 重开续做，验证恢复链路。macOS 上可用 `--sandbox`（或 `VIBE_SANDBOX=1`）把命令放进 Seatbelt 沙箱：写入限工作区与临时目录、默认断网，`--sandbox-network` 放开，`--sandbox-network-allow HOSTS` 只放行指定域名（本地代理判定）；沙箱拒绝会以 `ERROR sandbox_denied` 返回，无法应用时直接拒绝启动。真实评测默认继承本机预算配置，可先用 `./run_eval.sh doctor` 核对。命令、报告与结果分类见[评测规格](docs/specs/evaluation.md)，真实任务完成条件见[工作台里程碑](docs/MILESTONES.md)。
+常用验证：
 
-## 当前完善重点
+```bash
+./run_tests.sh -q           # Python 回归
+npm --prefix tui test       # TypeScript / Ink 测试
+./run_eval.sh check-budget  # 离线预算机制检查，不需要 API Key
+```
 
-以下是 2026-10-23 结合代码与本地 LLM Wiki 得出的改进建议（[推断]）。2026-10-25 已逐项修复并附针对性回归；真实任务核对与多次评测运行仍待完成，最终交付状态以[工作台里程碑](docs/MILESTONES.md)为准。
+安装、模型配置、审批与快捷键见[使用指南](docs/USAGE.md)；演示步骤见[三分钟 Demo](docs/DEMO.md)；评测命令与报告口径见[评测规格](docs/specs/evaluation.md)。
 
-| 优先级 | 待完善项与当前缺口 | 建议的完成条件 | 交付状态 |
-| --- | --- | --- | --- |
-| P0 | **工具工作区边界**：[文件与搜索工具](app/tools.py)的固定临时文件、搜索参数和无 `rg` 时的符号链接处理仍有边界缺口。 | 使用排他创建的随机临时文件；搜索模式与命令选项分离；逐文件校验解析后的路径；错误与无匹配分别返回。回归覆盖临时文件符号链接、选项形式的模式和工作区外链接。 | 已修复（484fb57），回归 `tests/test_tools.py`；真实任务核对待做。 |
-| P0 | **流式终止与协议完整性**：[Provider](app/providers/openai_compat.py)对未完整结束的流、[Agent](app/agent.py)对截断工具调用的后续消息配对仍需收紧。 | 不执行未完整接收的工具调用；异常断流明确标为失败或截断；每个已记录的工具调用都有对应结果或未执行说明；同进程续做和重开恢复均通过回归。 | 已修复（a741b17），回归 `tests/test_provider.py`、`tests/test_agent.py`；真实任务核对待做。 |
-| P1 | **交付核验**：[Agent](app/agent.py)在交互任务中仍可能以纯文字结束动作请求，最终回复也缺少统一的产物核对。 | 区分问答与动作任务；动作任务未执行时说明阻碍并尊重审批决定；由 harness 汇总本轮起止差异、实际验证及退出码、未验证项，分别呈现运行结束与任务验收。 | 已交付（d0e1479），任务分类为启发式仅影响呈现；回归 `tests/test_delivery_receipt.py`；真实任务核对待做。 |
-| P1 | **恢复对账与关键约束**：已有显式续做和进程内文件新鲜度检查，但重开会话后读文件哈希未恢复，较早纠偏也可能被有损摘要压缩。 | 恢复后首次修改已有文件前重新读取；结果未知的动作先核对副作用；当前有效约束单独保留来源和覆盖关系；外部改动、长上下文压缩及多次纠偏均有回归。 | 已修复（4e4f8fa），回归 `tests/test_tools.py`、`tests/test_steering.py`；真实任务核对待做。 |
-| P1 | **评测有效性**：[本地评测](scripts/bench_local.py)的 `passed` 主要取决于最终检查退出码，尚未充分区分产物正确、运行完成与可比较性。 | 分别记录这三类结果；取消、越界或改动测试等情况保留证据并按评测协议判定有效性；验证改前失败、改后通过；固定模型、预算与版本，多次运行并加入未参与调优的保留题。 | 已交付（9674537，`--runs`/保留题）；两道 `held_out` 保留题已用真实模型 3 次×2 题核对，6/6 有效且 `verified_fix` 全真（[证据](docs/MILESTONES.md)，报告 `.vibe/bench-local/20261025-141504/summary.json`）。 |
-| P1 | **完整工具 Trace**：[TraceRecorder](app/trace.py)已有工具开始、审批和结束接口，主循环尚未统一接入；部分证据需跨记录人工拼接。 | 按 `run_id`、步骤与 `tool_call_id` 关联工具开始、审批、结束、耗时和错误；拒绝、取消、超时均有终态；先用本地记录定位首个异常。 | 已交付（4e920fc），回归 `tests/test_tool_trace.py`；真实任务核对待做。 |
+## 文档
 
-六项均已通过针对性回归；下一步是用真实编码任务核对边界修复与 Trace 证据，并用 `--runs` 多次运行评测确认可比较性，之后在里程碑中登记最终验收。
+| 文档 | 内容 |
+| --- | --- |
+| [使用指南](docs/USAGE.md) | 安装、模型配置、命令、审批、预算、MCP、侧栏与评测 |
+| [工作台里程碑](docs/MILESTONES.md) | W0–W7 的验收条件、真实运行证据与当前状态 |
+| [建设方向](docs/roadmap.md) | 长期方向、阶段取舍与界面 / 全栈学习路径 |
+| [文件规划](docs/STRUCTURE.md) | 目录职责、依赖方向与新增文件约定 |
+| [规格](docs/specs/) | 每个功能切片的 spec、边界与验收口径 |
+| [调研](docs/research/) | TUI、评测、沙箱、上下文等选型记录 |
 
-## 后续方向
+## 使用边界
 
-当前先把单 Agent 编码任务做得可靠、可理解，再按[开发规划](docs/roadmap.md)验证以下尚未交付的能力：
-
-| 方向 | 当前基础与缺口 | 最小可用范围 |
-| --- | --- | --- |
-| **受控只读知识库接入** | Skill 可以加载流程说明；常规文件工具受工作区限制，外部知识库内容尚无独立的只读访问范围。 | 显式登记可撤销的知识源目录，按需搜索和分行读取，返回来源与行号或 PDF 页码；读取知识不扩大写入或命令权限。先验证本地文件检索是否足够，再决定索引方式。 |
-| **跨任务项目事实（W4）** | 已有项目规则与当前任务的会话状态，尚未形成可维护的跨任务项目记忆。 | 按项目保存经确认的事实和决策，记录来源、版本、更新时间与失效规则；用新任务中减少重复说明来验收。 |
-| **“关于你”（W5–W6）** | 用户偏好与个人画像仍处于规划阶段。 | 能查看、确认、纠正和删除，保留来源与时间；区分稳定偏好和临时信息，验证是否减少反复纠正。 |
-
-多 Agent、LSP、其他 MCP transport / 资源 / prompt 能力与新界面，按具体任务收益再评估。当前命令仍以当前用户权限运行；操作系统级隔离需另行设计与验收。
-
-## 知识依据
-
-以上建议使用本地 `endless-llm-wiki` 的来源快照，并结合本项目代码作出推断，不代表资料直接评价过本项目。下列链接要求两个仓库同级放置；单独克隆本项目时需另行准备知识库。页码均为《智能体 AI 权威指南》（yeasy，2026-06-16 来源快照）的 PDF 物理页码：
-
-- [Harness](../endless-llm-wiki/wiki/agentic-ai/agent-harness.md)与[故障恢复](../endless-llm-wiki/wiki/agentic-ai/agent-fault-recovery.md)：执行边界、独立验收、半结果完整性与恢复后环境核对，p.421、459、466–468、495。
-- [智能体评估](../endless-llm-wiki/wiki/agentic-ai/agent-evaluation.md)：最终环境状态、重复试验与可比较条件，p.306–307、319–320；另见 [Agent-Interview-100 #111](../endless-llm-wiki/raw/agent-interview-100/files/08-evaluation/111-eval-harness-design.md) L218–236。
-- [智能体记忆](../endless-llm-wiki/wiki/agentic-ai/agent-memory.md)与[Skills](../endless-llm-wiki/wiki/agentic-ai/agent-skills.md)：事实更新、关键约束与渐进加载，p.96–97、100–108、178–182。知识源目录与权限范围是本项目的设计建议。
-- [可观测性](../endless-llm-wiki/wiki/agentic-ai/agent-observability.md)：关联执行片段、结果、延迟与消耗，p.431–433。
+- 当前是单 Agent、本地单用户；多 Agent 编排与第二种工作流是方向，尚未实现。
+- 命令以当前用户权限运行；审批、黑名单、超时与可选 Seatbelt 沙箱不等于容器级隔离。
+- fake 模型只证明接线和确定性行为，真实能力以真实模型任务与独立评分为准。
+- 个性化收益尚未成立（W6 主假设未获支持），当前只提供可查看、可纠正的偏好管理。
 
 采用 [MIT](LICENSE) 许可证。
