@@ -7,6 +7,7 @@ import {compactNumber, toolState} from './workbench.js';
 import type {Palette, SemanticTone} from './theme.js';
 import {contextLine, contextSummarySpans, needsContextComposition} from './context-view.js';
 import type {ContextSnapshot} from './protocol.js';
+import {COMPACT_MASCOT, PixelMascot, WIDE_MASCOT} from './mascot.js';
 
 export type AgentStatus = {label: string; detail: string; tone: SemanticTone};
 
@@ -67,19 +68,8 @@ export function AgentHeader({state, columns, height = 3, palette}: {
   const statusText = spinning ? `◀ ${spinner} ${status.label} ▶` : `◀ ${status.label} ▶`;
   const wideMark = height >= 5 && columns >= 80;
   const compactMark = !wideMark && height >= 3 && columns >= 60;
-  const mark = wideMark ? [
-    '   ▄   ',
-    '  ▐█▌  ',
-    ' ▟▀▀▀▙ ',
-    ' █◉ ◉█ ',
-    ' ▜▄▄▄▛ ',
-  ] : compactMark ? [
-    '▗▄▄▄▖',
-    '▐◉ ◉▌',
-    '▝▀▀▀▘',
-  ] : null;
-  const markWidth = mark ? Math.max(...mark.map(line => stringWidth(line))) : 0;
-  const markBox = mark ? markWidth + 2 : 0;
+  const markWidth = wideMark ? 10 : compactMark ? 8 : 0;
+  const markBox = markWidth ? markWidth + 2 : 0;
   const contentColumns = Math.max(1, columns - markBox);
   const showStatus = contentColumns >= 50;
   const statusWidth = showStatus ? Math.min(stringWidth(statusText), Math.max(14, contentColumns - 24)) : 0;
@@ -95,8 +85,8 @@ export function AgentHeader({state, columns, height = 3, palette}: {
     sessionLine,
   ] : height > 2 ? [workspaceAndModel, sessionLine] : height > 1 ? [workspaceAndModel] : [];
   return <Box width={columns} height={height} backgroundColor={palette.background} flexDirection="row" flexShrink={0} overflow="hidden">
-    {mark ? <Box width={markBox} height={height} flexDirection="column" flexShrink={0}>
-      {mark.map((line, index) => <Text key={index} bold color={palette.accent}>{line}</Text>)}
+    {markBox ? <Box width={markBox} height={height} flexDirection="column" flexShrink={0}>
+      <PixelMascot sprite={wideMark ? WIDE_MASCOT : COMPACT_MASCOT} palette={palette}/>
     </Box> : null}
     <Box width={contentColumns} height={height} flexDirection="column" flexShrink={0} overflow="hidden">
       <Box height={1} width={contentColumns} flexShrink={0}>
