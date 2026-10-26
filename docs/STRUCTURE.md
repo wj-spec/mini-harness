@@ -47,6 +47,7 @@ mini-harness/
       app.tsx           # 阅读焦点、滚动、输入、审批与取消
       view-state.ts     # 实际活动、最终状态、完整消息与工具记录
       mascot.tsx       # 彩色像素猫 Mini 的 sprite 与半格渲染
+      goal.ts          # /goal 目标状态、段决策、提示与上限
       skills-menu.ts    # /skills 的动态补全菜单（↑↓ 滚动、Tab 补全）
       agent-status.tsx  # 活动、任务、工具与真实资源预算分区
       workbench.tsx     # 全屏阅读、消息卡片、滚动条与详情

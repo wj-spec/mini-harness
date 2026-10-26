@@ -10,11 +10,11 @@ export type ApprovalDecision = 'once' | 'session' | 'workspace' | 'deny';
 export type SessionPurpose = 'user' | 'test';
 export const BACKEND_COMMANDS = ['resume', 'permissions', 'permissions_reset', 'cost', 'tools', 'diff', 'mcp', 'skills'] as const;
 export const COMMAND_COMPLETIONS = ['/help', '/resume', '/context', '/continue', '/cost', '/tools', '/diff', '/permissions',
-  '/permissions reset', '/mcp', '/skills', '/session', '/theme', '/followup', '/copy', '/project', '/about', '/sidebar', '/sidebar split', '/sidebar quick', '/sidebar window', '/sidebar setup', '/quit', '/exit'] as const;
+  '/permissions reset', '/mcp', '/skills', '/goal', '/session', '/theme', '/followup', '/copy', '/project', '/about', '/sidebar', '/sidebar split', '/sidebar quick', '/sidebar window', '/sidebar setup', '/quit', '/exit'] as const;
 export const COMMAND_DESCRIPTIONS: Record<string, string> = {
   '/help': '查看操作帮助', '/resume': '继续已保存的任务', '/context': '查看上下文与预算', '/continue': '同 /resume，继续任务',
   '/cost': '查看本轮与会话成本', '/tools': '查看工具调用统计', '/diff': '查看工作区改动', '/permissions': '查看审批规则',
-  '/permissions reset': '恢复默认审批规则', '/mcp': '查看 MCP 服务', '/skills': '技能菜单（↑↓ 选择，Tab 补全）', '/session': '查看会话路径',
+  '/permissions reset': '恢复默认审批规则', '/mcp': '查看 MCP 服务', '/skills': '技能菜单（↑↓ 选择，Tab 补全）', '/goal': '目标模式：长任务自动续段', '/session': '查看会话路径',
   '/theme': '切换主题', '/followup': '排队后续任务', '/copy': '复制最近回复', '/project': '管理项目背景',
   '/about': '管理个人偏好', '/sidebar': '打开右侧变更侧栏', '/sidebar split': '窗口内右侧分屏（跟随窗口）', '/sidebar quick': '屏幕右侧 quick terminal（不挤占）', '/sidebar window': '独立窗口模式（手动摆位）', '/sidebar setup': '写入 Ghostty 右侧配置', '/quit': '退出', '/exit': '退出',
 };

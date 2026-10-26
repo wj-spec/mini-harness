@@ -4,7 +4,8 @@ import {Box, Text, useApp, useInput, usePaste, useWindowSize} from 'ink';
 import type {BackendClient} from './backend.js';
 import {commandMatches} from './protocol.js';
 import {buildSkillMenu} from './skills-menu.js';
-import type {ApprovalDecision, BackendCommand, SkillsCommandArgs} from './protocol.js';
+import type {ApprovalDecision, BackendCommand, RunResult, SkillsCommandArgs} from './protocol.js';
+import {goalDecision, goalLabel, goalPrompt, goalStatusText, resumeGoal, startGoal as newGoal, type GoalMode} from './goal.js';
 import {initialState as emptyState, reduceView, resultReason, type ViewState} from './view-state.js';
 import {Composer} from './composer.js';
 import {fitText, textLines} from './markdown.js';
@@ -53,6 +54,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
   const [overlayScroll, setOverlayScroll] = useState({key: '', top: 0});
   const [reading, setReading] = useState(false);
   const [selection, setSelection] = useState<Selection | null>(null);
+  const [goal, setGoal] = useState<GoalMode | null>(null);
   const closing = useRef(false);
   const activeRun = useRef(state.activeId);
   const answeredApproval = useRef<string | null>(null);
@@ -60,6 +62,9 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
   const followups = useRef<string[]>([]);
   const sidebarWindow = useRef<{host: TerminalHost; windowId: string} | null>(null);
   const dragAnchor = useRef<SelectionPoint | null>(null);
+  const goalRef = useRef<GoalMode | null>(null);
+  goalRef.current = goal;
+  const goalDoneRef = useRef<((result: RunResult) => boolean) | null>(null);
   const latestState = useRef(state);
   latestState.current = state;
   const quittingRef = useRef(quitting);
@@ -179,6 +184,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
     if (event.type === 'closed') {activeRun.current = null; followups.current = [];}
     dispatch({type: 'event', event});
     if (finished && event.type === 'done') {
+      if (goalDoneRef.current?.(event.result)) return;
       if (event.result.status === 'cancelled') {
         const dropped = followups.current.length;
         followups.current = [];
@@ -209,6 +215,68 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
   const notice = (text: string) => {dispatch({type: 'notice', text}); setScroll({follow: true, top: 0});};
   const announce = (text: string) => {notice(text); setFeedback(text); setFeedbackTone('info');};
   const reportError = (text: string) => {notice(text); setFeedback(text); setFeedbackTone('error');};
+  const launchGoalSegment = (nextGoal: GoalMode, display: string) => {
+    try {
+      const id = client.run(goalPrompt(nextGoal));
+      goalRef.current = nextGoal;
+      setGoal(nextGoal);
+      activeRun.current = id;
+      dispatch({type: 'begin', id, text: display});
+      setFeedback(''); setScroll({follow: true, top: 0});
+      return true;
+    } catch (error) {
+      const paused = {...nextGoal, active: false, pausedReason: 'launch_failed'};
+      goalRef.current = paused; setGoal(paused);
+      dispatch({type: 'notice', text: `目标模式启动失败：${String(error)}`});
+      return false;
+    }
+  };
+  const handleGoalDone = (result: RunResult): boolean => {
+    const current = goalRef.current;
+    if (!current?.active) return false;
+    const decision = goalDecision(current, result);
+    goalRef.current = decision.goal;
+    setGoal(decision.goal);
+    dispatch({type: 'notice', text: decision.notice});
+    if (!decision.continue || !decision.prompt) return false;
+    return launchGoalSegment(decision.goal, `目标续段 · 第 ${decision.goal.segment} 段`);
+  };
+  goalDoneRef.current = handleGoalDone;
+  const handleGoalCommand = (rest: string) => {
+    const current = goalRef.current;
+    if (!rest) {
+      notice(current ? `${goalStatusText(current)}\n目标：${current.objective}` : '用法：/goal <目标>；/goal stop；/goal resume');
+      return;
+    }
+    if (rest === 'stop') {
+      if (!current) {notice('当前没有目标模式。'); return;}
+      const stopped = {...current, active: false, pausedReason: 'user_stopped'};
+      goalRef.current = stopped; setGoal(stopped);
+      notice('目标模式已停止；已开始的运行仍需核对。');
+      if (activeRun.current && state.phase !== 'idle' && state.phase !== 'closed') {
+        try {
+          const id = client.cancel(activeRun.current);
+          controlRequests.current.set(id, 'cancel');
+          dispatch({type: 'cancel'});
+        } catch (error) {dispatch({type: 'notice', text: `取消请求未送达：${String(error)}`});}
+      }
+      return;
+    }
+    if (rest === 'resume') {
+      if (!current) {notice('当前没有目标模式；先输入 /goal <目标>。'); return;}
+      if (current.active) {notice(`目标模式已在进行中 · ${goalLabel(current)}`); return;}
+      if (state.phase !== 'idle' || activeRun.current) {notice('当前任务运行中，结束后再 /goal resume。'); return;}
+      const resumed = resumeGoal(current);
+      notice(`恢复目标模式 · ${goalLabel(resumed)}`);
+      launchGoalSegment(resumed, `目标恢复 · 第 ${resumed.segment} 段`);
+      return;
+    }
+    if (current?.active) {notice('已有目标模式；先 /goal stop 或 /goal resume。'); return;}
+    if (state.phase !== 'idle' || activeRun.current) {notice('当前任务运行中，结束后再启动目标模式。'); return;}
+    const next = newGoal(rest);
+    notice(`目标模式启动 · ${goalLabel(next)} · 最多 ${next.maxSegments} 段`);
+    launchGoalSegment(next, next.objective);
+  };
   const usesDefaultLauncher = launchSidebar === launchSidebarForTui;
   const openSidebarPanel = (mode: SidebarMode = 'split') => {
     if (quitting) return;
@@ -467,9 +535,10 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
     if (text === '/sidebar') {setInput(''); openSidebarPanel(); return;}
     if (text === '/project' || text.startsWith('/project ')) {setInput(''); projectCommand(text.slice('/project'.length)); return;}
     if (text === '/about' || text.startsWith('/about ')) {setInput(''); aboutCommand(text.slice('/about'.length)); return;}
+    if (text === '/goal' || text.startsWith('/goal ')) {setInput(''); handleGoalCommand(text.slice('/goal'.length).trim()); return;}
     if (text === '/help') {
       setInput('');
-      notice('Enter 发送（运行中提交纠偏，下一次模型请求生效）；Ctrl+J 换行；输入焦点下 ↑↓ 编辑或浏览输入历史。滚轮 / 触控板在对话区回看；PgUp/PgDn 翻页，Ctrl+P/N 或 Ctrl+↑/↓ 逐行。Ctrl+R 切换阅读 / 输入焦点，阅读时 ↑↓ 滚动、空格下一页，Esc 回输入。Ctrl+Home/End 到首尾，End 恢复跟随最新；鼠标在对话区拖选，松开即复制所选文本。Tab 选择工具，Ctrl+O 查看全文。Ctrl+K 或 /context 查看上下文分区，←/→ 回放本轮快照，l 跟随最新，Esc 返回。Ctrl+Y 或 /copy 复制最近回复、工具详情或审批预览；Ctrl+G 或 /sidebar 打开右侧 Git 变更侧栏（Ghostty；Terminal 为独立窗口）；/sidebar window 独立窗口；/project 查看项目背景（add/remove/source）；/about 查看个人偏好（add/propose/confirm/remove/on/off）；Ctrl+C 取消当前操作，空闲时退出；Ctrl+Q 退出。审批时 y 单次、s 精确规则、p 工作区、n 拒绝，以面板选项为准。\n/resume 显式续做已保存任务；/permissions 查看授权，/permissions reset 撤销；/cost 会话花费；/tools 可用工具；/diff 工作区差异；/mcp 服务状态；/skills 技能菜单（↑↓ 选择，Tab 补全，Enter 执行；refresh 重扫，activate NAME 激活，unload NAME 卸载）；/followup TEXT 排队后续消息，本轮结束后自动继续；/session 会话路径；/sidebar 在窗口内右侧分屏（跟随窗口尺寸）；/sidebar quick 屏幕右侧 quick terminal（不挤占 TUI）；/sidebar setup 写入 Ghostty 右侧配置；/theme system|light|dark 主题。');
+      notice('Enter 发送（运行中提交纠偏，下一次模型请求生效）；Ctrl+J 换行；输入焦点下 ↑↓ 编辑或浏览输入历史。滚轮 / 触控板在对话区回看；PgUp/PgDn 翻页，Ctrl+P/N 或 Ctrl+↑/↓ 逐行。Ctrl+R 切换阅读 / 输入焦点，阅读时 ↑↓ 滚动、空格下一页，Esc 回输入。Ctrl+Home/End 到首尾，End 恢复跟随最新；鼠标在对话区拖选，松开即复制所选文本。Tab 选择工具，Ctrl+O 查看全文。Ctrl+K 或 /context 查看上下文分区，←/→ 回放本轮快照，l 跟随最新，Esc 返回。Ctrl+Y 或 /copy 复制最近回复、工具详情或审批预览；Ctrl+G 或 /sidebar 打开右侧 Git 变更侧栏（Ghostty；Terminal 为独立窗口）；/sidebar window 独立窗口；/project 查看项目背景（add/remove/source）；/about 查看个人偏好（add/propose/confirm/remove/on/off）；Ctrl+C 取消当前操作，空闲时退出；Ctrl+Q 退出。审批时 y 单次、s 精确规则、p 工作区、n 拒绝，以面板选项为准。\n/goal <目标> 目标模式（长任务自动续段，/goal stop 停止，/goal resume 恢复）；/resume 显式续做已保存任务；/permissions 查看授权，/permissions reset 撤销；/cost 会话花费；/tools 可用工具；/diff 工作区差异；/mcp 服务状态；/skills 技能菜单（↑↓ 选择，Tab 补全，Enter 执行；refresh 重扫，activate NAME 激活，unload NAME 卸载）；/followup TEXT 排队后续消息，本轮结束后自动继续；/session 会话路径；/sidebar 在窗口内右侧分屏（跟随窗口尺寸）；/sidebar quick 屏幕右侧 quick terminal（不挤占 TUI）；/sidebar setup 写入 Ghostty 右侧配置；/theme system|light|dark 主题。');
       return;
     }
     if (text.startsWith('/theme')) {
@@ -531,6 +600,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       return;
     }
     if (state.phase !== 'idle' || activeRun.current) return;
+    if (goalRef.current?.active) {notice('目标模式进行中；先 /goal stop 再开始新任务。'); return;}
     const task = followupText ?? text;
     try {
       const id = client.run(task);
@@ -543,8 +613,10 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
   const status = agentStatus(state);
   const phase = quitting ? '正在退出，等待后端清理' : status.label;
   const position = `${Math.min(top + 1, lines.length)}–${Math.min(top + bodyRows, lines.length)}/${lines.length}`;
-  const paneTitle = state.approval ? `等待审批 · ${position}` : contextOpen ? `上下文分区 · ${position}` : detailEntry ? `工具详情 · ${position}` : isEmpty ? '工作台首页 · 输入任务开始' : `对话 · ${reading ? '阅读焦点 · ' : ''}${scroll.follow ? '跟随最新' : `回看 · 下方 ${maximum-top} 行`} · ${position}`;
-  const hint = state.approval ? `${approvalHint} · 滚轮/PgUp/PgDn 翻页 · Ctrl+C 取消` : contextOpen ? '←/→ 选快照 · l 最新 · ↑↓/滚轮 翻阅 · Esc 返回' : detailEntry ? '滚轮/↑↓ 翻阅 · Home/End 首尾 · Esc 返回' :
+  const goalTitle = goal?.active ? `目标模式 · ${goalLabel(goal)} · ` : '';
+  const paneTitle = goalTitle + (state.approval ? `等待审批 · ${position}` : contextOpen ? `上下文分区 · ${position}` : detailEntry ? `工具详情 · ${position}` : isEmpty ? '工作台首页 · 输入任务开始' : `对话 · ${reading ? '阅读焦点 · ' : ''}${scroll.follow ? '跟随最新' : `回看 · 下方 ${maximum-top} 行`} · ${position}`);
+  const goalHint = goal ? `${goalStatusText(goal)} · ` : '';
+  const hint = goalHint + (state.approval ? `${approvalHint} · 滚轮/PgUp/PgDn 翻页 · Ctrl+C 取消` : contextOpen ? '←/→ 选快照 · l 最新 · ↑↓/滚轮 翻阅 · Esc 返回' : detailEntry ? '滚轮/↑↓ 翻阅 · Home/End 首尾 · Esc 返回' :
     reading ? '阅读焦点：↑↓滚动  空格翻页  End最新  Esc输入  Ctrl+Q退出' :
       state.phase === 'running' ? (columns < 60 ? 'Enter 纠偏 · /followup 排队 · Ctrl+C 停止' : 'Enter 提交纠偏  /followup 文本 排队后续  Ctrl+C 停止  Ctrl+Q 退出') :
         state.lastStatus === 'done' ? (columns < 60 ? '任务完成 · /diff 核对 · /resume 续做' : '任务完成  /diff 核对改动  /resume 续做  /copy 复制回复  Ctrl+Q 退出') :
@@ -552,7 +624,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
         state.lastStatus === 'error' ? (columns < 60 ? '运行失败 · /resume 重试' : '运行失败  查看错误与工具记录  /resume 重试  Ctrl+Q 退出') :
         state.lastStatus === 'stopped' ? (columns < 60 ? '任务已暂停 · /resume 续做' : '任务已暂停  /resume 续做  /context 查看进度  Ctrl+Q 退出') :
         isEmpty ? (columns < 60 ? '输入任务开始 · Ctrl+Q退出 · /help' : '直接描述任务开始  /help 命令  Ctrl+K 上下文  Ctrl+Q 退出') :
-        columns < 60 ? 'Ctrl+K上下文 · Ctrl+Q退出 · /help' : '拖选复制  Ctrl+R阅读  Ctrl+K上下文  Ctrl+Y复制回复  Ctrl+Q退出';
+        columns < 60 ? 'Ctrl+K上下文 · Ctrl+Q退出 · /help' : '拖选复制  Ctrl+R阅读  Ctrl+K上下文  Ctrl+Y复制回复  Ctrl+Q退出');
   const composerDisabled = quitting || state.phase === 'starting' || state.phase === 'stopping' || state.phase === 'waiting_approval' || state.phase === 'closed';
   const composerPlaceholder = state.approval ? '审批面板已聚焦，请选择授权范围' : contextOpen ? '上下文详情已聚焦，Esc 返回输入' : detailEntry ? '工具详情已聚焦，Esc 返回输入' : reading ? '正在阅读历史，Esc 返回输入' :
     state.phase === 'closed' ? '可以回看已有记录，退出后重新启动' : state.phase === 'starting' ? '可以先写下任务目标与约束' : state.phase === 'stopping' ? '正在停止 · 收到停止结果后可发送' :
@@ -561,6 +633,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
         state.lastStatus === 'cancelled' ? '已取消 · 核对修改后输入新任务，或 /resume 续做' :
         state.lastStatus === 'error' ? '运行失败 · 输入新任务，或 /resume 重试' :
         state.lastStatus === 'stopped' ? '任务已暂停 · 输入新任务，或 /resume 续做' : '描述任务，或输入 / 查看命令';
+  const effectivePlaceholder = goal?.active ? `目标模式 · ${goalLabel(goal)} · 输入纠偏，/goal stop` : composerPlaceholder;
   const unavailableHint = state.phase === 'closed' ? '连接已断开 · Ctrl+Q 退出后重启' : state.phase === 'starting' ? '可编辑草稿 · 后端就绪后可发送' :
     state.phase === 'stopping' ? '正在停止 · 收到停止结果后可发送' : undefined;
   // PM/UX: 完成/错误/暂停/取消后给出下一步引导，减少用户困惑。
@@ -579,7 +652,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       {sidebar ? <><Box width={1}/><StatusPanel state={state} columns={32} height={paneRows} palette={palette}/></> : null}
     </Box>
     <Box backgroundColor={state.approval ? palette.surfaces.warning : readerFocused ? palette.surface : palette.focus} height={composerRows + 2} width={columns} paddingX={2} paddingY={1} flexShrink={0}>
-      <Composer value={input} onChange={text => {setMenuIndex(0); setInput(text);}} onSubmit={submit} history={history} disabled={composerDisabled} disabledHint={unavailableHint} focused={!readerFocused && !quitting} placeholder={composerPlaceholder} columns={Math.max(1, columns - 4)} maxRows={composerRows} accentColor={palette.accent} warningColor={palette.warning} foregroundColor={palette.foreground} secondaryColor={palette.secondary}
+      <Composer value={input} onChange={text => {setMenuIndex(0); setInput(text);}} onSubmit={submit} history={history} disabled={composerDisabled} disabledHint={unavailableHint} focused={!readerFocused && !quitting} placeholder={effectivePlaceholder} columns={Math.max(1, columns - 4)} maxRows={composerRows} accentColor={palette.accent} warningColor={palette.warning} foregroundColor={palette.foreground} secondaryColor={palette.secondary}
         menu={menuRows ? {
           count: menuMatches.length,
           index: menuPosition,

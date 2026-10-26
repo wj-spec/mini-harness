@@ -18,7 +18,7 @@ test('every command carries an honest description', () => {
 
 test('menu shows descriptions and scrolls the window with the highlight', () => {
   const matches = [...COMMAND_COMPLETIONS];
-  const {lastFrame} = render(<CommandMenu matches={matches} index={11} rows={5} columns={80} accentColor="cyan" foregroundColor="white" secondaryColor="gray" surfaceColor="black"/>);
+  const {lastFrame} = render(<CommandMenu matches={matches} index={12} rows={5} columns={80} accentColor="cyan" foregroundColor="white" secondaryColor="gray" surfaceColor="black"/>);
   const frame = lastFrame() ?? '';
   assert.doesNotMatch(frame, /[┌┐└┘│─╭╮╰╯]/u);
   assert.match(frame, /› \/session/);
@@ -54,12 +54,12 @@ async function mountMenu() {
 test('slash opens the menu with guidance and arrows scroll the selection', async () => {
   const {key, lastFrame} = await mountMenu();
   await key('/');
-  assert.match(lastFrame() ?? '', /↑↓ 选择 · Tab 填充 · 1\/24/);
+  assert.match(lastFrame() ?? '', /↑↓ 选择 · Tab 填充 · 1\/25/);
   await key('\u001b[B');
   await key('\u001b[B');
-  assert.match(lastFrame() ?? '', /3\/24/);
+  assert.match(lastFrame() ?? '', /3\/25/);
   await key('\u001b[A');
-  assert.match(lastFrame() ?? '', /2\/24/);
+  assert.match(lastFrame() ?? '', /2\/25/);
 });
 
 test('Tab fills the highlighted command while scrolling', async () => {

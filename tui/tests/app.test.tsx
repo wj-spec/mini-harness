@@ -528,12 +528,12 @@ test('slash opens a scrollable command menu without overflowing the frame', asyn
   let frame = lastFrame() ?? '';
   assert.match(frame, /› \/help/);
   assert.match(frame, /查看操作帮助/);
-  assert.match(frame, /↑↓ 选择 · Tab 填充 · 1\/24/);
+  assert.match(frame, /↑↓ 选择 · Tab 填充 · 1\/25/);
   assert.ok(frame.split('\n').length <= 24);
   for (const line of frame.split('\n')) assert.ok(stringWidth(line) <= 80, line);
   stdin.write('\u001b[B');
   await pause(15);
-  assert.match(lastFrame() ?? '', /2\/24/);
+  assert.match(lastFrame() ?? '', /2\/25/);
   stdin.write('\t');
   await pause(15);
   frame = lastFrame() ?? '';
@@ -1108,4 +1108,52 @@ test('typing /skills opens a scrollable menu and Tab completes a skill action', 
   await pause(30);
   assert.deepEqual(client.commands, ['skills']);
   assert.deepEqual(client.commandArgs, [{action: 'activate', name: 'tdd'}]);
+});
+
+
+test('/goal automatically continues a long task across resource pauses', async () => {
+  const client = new MockClient();
+  const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}/>);
+  await pause(20);
+  client.emit({type: 'ready', workspace: '/repo', model: 'fake', session_id: 's', capabilities: []});
+  client.emit({type: 'status', phase: 'idle'});
+  await pause(20);
+  await enter(stdin, '/goal 完成跨文件重构');
+  await pause(30);
+  assert.equal(client.runs.length, 1);
+  assert.match(client.runs[0]!, /\[GOAL MODE\]/);
+  client.emit({type: 'done', id: 'run-1', result: {
+    text: 'checkpoint', steps: 3, status: 'stopped', stop_reason: 'max_run_seconds',
+    usage: {total_tokens: 100}, cost_usd: 0.01, run_id: 'run-1',
+  }});
+  await pause(30);
+  assert.equal(client.runs.length, 2);
+  assert.match(client.runs[1]!, /\[GOAL MODE · 第 2\/8 段\]/);
+  assert.match(lastFrame() ?? '', /目标续段/);
+  client.emit({type: 'done', id: 'run-2', result: {
+    text: '已完成', steps: 1, status: 'done', stop_reason: '',
+    usage: {total_tokens: 50}, cost_usd: 0.005, run_id: 'run-2',
+  }});
+  await pause(30);
+  assert.equal(client.runs.length, 2);
+  assert.match(lastFrame() ?? '', /目标模式.*完成|目标完成/u);
+});
+
+test('/goal stop pauses the active goal without starting another segment', async () => {
+  const client = new MockClient();
+  const {stdin} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}/>);
+  await pause(20);
+  client.emit({type: 'ready', workspace: '/repo', model: 'fake', session_id: 's', capabilities: []});
+  client.emit({type: 'status', phase: 'idle'});
+  await pause(20);
+  await enter(stdin, '/goal 长任务');
+  await pause(20);
+  await enter(stdin, '/goal stop');
+  await pause(20);
+  client.emit({type: 'done', id: 'run-1', result: {
+    text: 'checkpoint', steps: 1, status: 'stopped', stop_reason: 'max_run_seconds',
+    usage: {total_tokens: 10}, cost_usd: 0, run_id: 'run-1',
+  }});
+  await pause(20);
+  assert.equal(client.runs.length, 1);
 });
