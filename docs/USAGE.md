@@ -121,7 +121,7 @@ VIBE_MODEL=qwen2.5-coder:7b \
 - `/followup <内容>`：运行中排队为后续消息，本轮结束后自动继续；空闲时等同直接发送；
 - `/copy`：复制当前可见内容（工具详情优先，其次审批预览，否则最近一条 Agent 回复）；拖选后的文本也会在松开时自动复制；
 - `/project`：查看当前项目的背景条目与来源；`/project add <文本>` 添加，`/project remove <序号>` 删除，`/project source <序号> <来源>` 改来源；
-- `/about`：查看个人偏好与来源；`/about add/propose` 新增/观察，`/about observe` 从本会话提出待确认偏好，`/about edit` 修改文本，`/about triggers` 设置相关性触发词，`/about confirm/disable/enable/remove/on/off` 管理；
+- `/about`：查看个人偏好与来源；`/about add/propose` 新增/观察，`/about observe` 从本会话提出待确认偏好（`VIBE_AUTO_OBSERVE=1` 时任务结束自动观察），`/about edit` 修改文本，`/about triggers` 设置相关性触发词，`/about confirm/disable/enable/remove/on/off` 管理；
 - `/permissions`：查看当前工作区授权；`/permissions reset` 撤销本进程授权；
 - 写文件或执行命令会弹审批：`y/a` once、`s` session、`n/d` deny。
 

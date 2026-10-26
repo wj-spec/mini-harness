@@ -1236,3 +1236,25 @@ test('/about observe turns explicit session statements into proposed preferences
     await rm(directory, {recursive: true, force: true});
   }
 });
+
+
+test('auto-observation writes proposed preferences after a completed run when enabled', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'auto-observe-app-'));
+  const profile = path.join(directory, 'user-profile.json');
+  try {
+    await writeFile(path.join(directory, 'events.jsonl'), JSON.stringify({
+      type: 'message', message: {role: 'user', content: '每次修改前先说明影响文件。'},
+    }) + '\n', 'utf8');
+    const state = {...initialState, phase: 'running' as const, activeId: 'run-1', workspace: '/repo', sessionId: 's-auto', sessionPath: directory, sessionPurpose: 'user' as const};
+    const client = new MockClient();
+    render(<App client={client as unknown as BackendClient} initialState={state} windowSize={{columns: 100, rows: 30}} userProfilePath={profile} autoObserve/>);
+    await pause(20);
+    client.emit({type: 'done', id: 'run-1', result: {text: 'done', steps: 1, status: 'done', stop_reason: '', usage: {}, cost_usd: 0, run_id: 'run-1'}});
+    await pause(40);
+    const stored = JSON.parse(await readFile(profile, 'utf8')) as {entries: {status: string; text: string}[]};
+    assert.equal(stored.entries[0]?.status, 'proposed');
+    assert.match(stored.entries[0]?.text ?? '', /修改前先说明/u);
+  } finally {
+    await rm(directory, {recursive: true, force: true});
+  }
+});

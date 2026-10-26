@@ -9,6 +9,7 @@ const CUES = [
 ];
 const MAX_PROPOSALS = 2;
 const MAX_TEXT = 200;
+const PROPOSAL_TTL_DAYS = 30;
 
 /** 只读取用户消息；工具/助手/系统消息不作为偏好证据。 */
 export function readSessionUserMessages(sessionPath: string): {text: string; index: number}[] {
@@ -80,8 +81,50 @@ export function proposePreferences(
       confidence: 0.6,
       created_at: now.toISOString(),
       updated_at: now.toISOString(),
+      expires_at: new Date(now.getTime() + PROPOSAL_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString(),
     });
     if (proposals.length >= MAX_PROPOSALS) break;
   }
   return proposals;
+}
+
+
+export type MergeResult = {
+  entries: UserPreference[];
+  added: number;
+  updated: number;
+  skipped: number;
+};
+
+/** 只自动合并 proposed：confirmed/stale 不静默改写；相同文本 NOOP。 */
+export function mergeProposals(profile: UserProfile, proposals: UserPreference[], now = new Date()): MergeResult {
+  const entries = [...profile.entries];
+  let added = 0;
+  let updated = 0;
+  let skipped = 0;
+  for (const proposal of proposals) {
+    const normalized = normalize(proposal.text);
+    if (!normalized) {skipped += 1; continue;}
+    const exact = entries.findIndex(entry => normalize(entry.text) === normalized);
+    if (exact >= 0) {skipped += 1; continue;}
+    const similar = entries.findIndex(entry => {
+      if (entry.status !== 'proposed') return false;
+      const current = normalize(entry.text);
+      return current.includes(normalized) || normalized.includes(current);
+    });
+    if (similar >= 0) {
+      entries[similar] = {
+        ...entries[similar]!,
+        text: proposal.text,
+        triggers: [...new Set([...(entries[similar]!.triggers ?? []), ...(proposal.triggers ?? [])])].slice(0, 20),
+        evidence: [...new Set([...(entries[similar]!.evidence ?? []), ...(proposal.evidence ?? [])])].slice(0, 20),
+        updated_at: now.toISOString(),
+      };
+      updated += 1;
+      continue;
+    }
+    entries.push(proposal);
+    added += 1;
+  }
+  return {entries, added, updated, skipped};
 }

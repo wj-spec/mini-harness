@@ -20,7 +20,7 @@ import {copyToClipboard} from './clipboard.js';
 import {selectedText, type Selection, type SelectionPoint} from './selection.js';
 import {loadProfile, projectProfilePath, saveProfile} from './project-profile.js';
 import {loadUserProfile, saveUserProfile, userProfileFile, type UserPreference} from './user-profile.js';
-import {proposePreferences, readSessionUserMessages} from './preference-observer.js';
+import {mergeProposals, proposePreferences, readSessionUserMessages} from './preference-observer.js';
 import {adjustSidebarSplitForTui, closeSidebarWindowForTui, killSidebarForTui, launchSidebarForTui, runSidebarSetup} from './sidebar/launch.js';
 import {agentTouchedFiles} from './sidebar/agent-activity.js';
 import {writeSidebarSignal, type SidebarSignalInput} from './sidebar/signal.js';
@@ -34,12 +34,13 @@ const backendCommands: Record<string, BackendCommand> = {
 };
 const approvalKeys: Record<string, ApprovalDecision> = {y: 'once', s: 'session', p: 'workspace', n: 'deny'};
 
-export function App({client, initialState = emptyState, windowSize, initialTheme = 'system', copyText = copyToClipboard, profilePath, userProfilePath, launchSidebar = launchSidebarForTui, setupSidebar = runSidebarSetup, publishSidebarSignal = writeSidebarSignal}: {
+export function App({client, initialState = emptyState, windowSize, initialTheme = 'system', copyText = copyToClipboard, profilePath, userProfilePath, launchSidebar = launchSidebarForTui, setupSidebar = runSidebarSetup, publishSidebarSignal = writeSidebarSignal, autoObserve = process.env.VIBE_AUTO_OBSERVE === '1'}: {
   client: BackendClient; initialState?: ViewState; windowSize?: {columns: number; rows: number}; initialTheme?: ThemeName;
   copyText?: (text: string) => string | null; profilePath?: string; userProfilePath?: string;
   launchSidebar?: (workspace: string, mode?: SidebarMode, totalColumns?: number) => LaunchResult;
   setupSidebar?: () => SetupResult;
   publishSidebarSignal?: (workspace: string, input: SidebarSignalInput) => void;
+  autoObserve?: boolean;
 }) {
   const [state, dispatch] = useReducer(reduceView, initialState);
   const [input, setInput] = useState('');
@@ -69,6 +70,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
   const goalDoneRef = useRef<((result: RunResult) => boolean) | null>(null);
   const goalLoadedSession = useRef('');
   const goalSaveError = useRef(false);
+  const autoObserveRef = useRef<(() => void) | null>(null);
   const latestState = useRef(state);
   latestState.current = state;
   const quittingRef = useRef(quitting);
@@ -189,6 +191,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
     dispatch({type: 'event', event});
     if (finished && event.type === 'done') {
       if (goalDoneRef.current?.(event.result)) return;
+      if (event.result.status === 'done' || event.result.status === 'stopped') autoObserveRef.current?.();
       if (event.result.status === 'cancelled') {
         const dropped = followups.current.length;
         followups.current = [];
@@ -432,6 +435,24 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
     announce('用法：/project；/project add <文本>；/project remove <序号>；/project source <序号> <来源>');
   };
   const aboutFile = () => userProfilePath ?? userProfileFile();
+  const runAutoObserve = () => {
+    if (!autoObserve) return;
+    const current = latestState.current;
+    if (!current.sessionPath || current.sessionPurpose === 'test') return;
+    try {
+      const file = aboutFile();
+      const profile = loadUserProfile(file);
+      const proposals = proposePreferences(profile, readSessionUserMessages(current.sessionPath), current.sessionId);
+      if (!proposals.length) return;
+      const merged = mergeProposals(profile, proposals);
+      if (!merged.added && !merged.updated) return;
+      saveUserProfile(file, {...profile, entries: merged.entries});
+      dispatch({type: 'notice', text: `已自动提出 ${merged.added + merged.updated} 条待确认偏好（不会自动注入）；/about 查看`});
+    } catch {
+      // 自动观察是旁路能力，失败不能影响任务本身。
+    }
+  };
+  autoObserveRef.current = runAutoObserve;
   const aboutCommand = (argument: string) => {
     const file = aboutFile();
     const profile = loadUserProfile(file);
@@ -449,8 +470,10 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       try {
         const proposals = proposePreferences(profile, readSessionUserMessages(state.sessionPath), state.sessionId);
         if (!proposals.length) {announce('未从本会话发现新的明确长期偏好；proposed 不会自动注入。'); return;}
-        saveEntries([...profile.entries, ...proposals]);
-        announce(`已提出 ${proposals.length} 条待确认偏好（不会自动注入）：\n${proposals.map((entry, index) => `${profile.entries.length + index + 1}. ${entry.text}`).join('\n')}\n输入 /about 查看，/about confirm <序号> 确认`);
+        const merged = mergeProposals(profile, proposals);
+        if (!merged.added && !merged.updated) {announce('本会话偏好已存在，未新增 proposed。'); return;}
+        saveEntries(merged.entries);
+        announce(`已提出待确认偏好（不会自动注入）：新增 ${merged.added}、更新 ${merged.updated}、跳过 ${merged.skipped}；输入 /about 查看，/about confirm <序号> 确认`);
       } catch (error) {announce(`观察偏好失败：${String(error)}`);}
       return;
     }

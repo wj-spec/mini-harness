@@ -1,6 +1,6 @@
 # W5/P1：用户偏好与画像条目
 
-日期：2026-10-26。状态：P1 Profile v2 + 相关性注入完成；P2 手动观察→proposed 第一步完成；W6 v2 真实对照待跑。
+日期：2026-10-26。状态：P1 Profile v2 + 相关性注入完成；P2 观察→proposed（手动 + opt-in 自动）完成；W6 v2 真实对照待跑。
 
 ## 目标
 
@@ -80,7 +80,9 @@
 - `tui/src/preference-observer.ts` 读取 `<session>/events.jsonl` 的 user 消息；
 - 只匹配显式长期偏好线索，最多 2 条；生成 `status=proposed`、`source=observation`、`evidence=session:<id>`、建议 triggers 与置信度 0.6；
 - 与已有条目规范化文本去重；proposed 永不被后端注入，必须 `/about confirm`；
-- 当前由 `/about observe` 手动触发；任务结束自动观察、冲突判断与 NOOP 仍待 P2 后续。
+- 当前由 `/about observe` 手动触发；设置 `VIBE_AUTO_OBSERVE=1` 后，普通任务 done/stopped 结束会自动观察（默认关闭，cancelled/error 不触发）；
+- `mergeProposals`：相同文本 NOOP；相似 proposed 更新文本/触发词/证据；confirmed/stale 不静默改写；新 proposal 默认 30 天 expires_at；
+- 冲突升级（UPDATE/CONFLICT 到 confirmed）、A-MAC 准入和自动 TTL 清理仍待 P2 后续。
 
 ## 非目标
 
