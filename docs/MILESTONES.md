@@ -346,7 +346,7 @@ README「当前完善重点」六项已修复并附针对性回归，真实任�
 
 **P4 安全与审计第一版（2026-10-26）**：偏好写入前拒绝明显凭据（`sk-*`、GitHub/AWS token、私钥、`api_key/password/token=` 等），`/about observe` 自动跳过，Python 加载器再次过滤，防止手工 profile 中的凭据进入上下文；profile 以 `0600` 落盘；`/about export` 导出脱敏 JSON；`[USER PROFILE]` 明确声明偏好不能授予权限或改变审批边界；`user_profile_selection` trace 保留注入审计。回归：Python 凭据过滤/注入边界，TUI `looksSensitive`、`/about add` 拒绝、导出过滤；TUI 全量 **337 项、336 通过**（唯一失败为沙箱无 PTY 既有项），Python 全量收集 **936 项**退出 0。补 confirmed 冲突 proposal 保留展示、`/about resolve` 一键替换、`/about reset` 二次确认完整擦除与 `user-profile-audit.jsonl`/`/about audit`（只记动作/数量/id，不写正文）；后台审计、A-MAC 准入待后续。
 
-**P0 W6 v2 离线校验（2026-10-26）**：W6 v2 偏好夹具与任务抽到 `scripts/w6_preferences.py`，`scripts/w6_run.py` 复用；新增 `tests/test_w6_preferences.py` 验证三组任务的选择结果——task-a 只选“解释”，task-b 选“修改 + 测试”，task-c 选“测试”，并确认停用组为空。Python 全量收集 **938 项**退出 0。真实模型多次运行仍待用户执行。
+**P0 W6 v2 离线校验（2026-10-26）**：W6 v2 偏好夹具与任务抽到 `scripts/w6_preferences.py`，`scripts/w6_run.py` 复用；新增 `tests/test_w6_preferences.py` 验证三组任务的选择结果——task-a 只选“解释”，task-b 选“修改 + 测试”，task-c 选“测试”，并确认停用组为空。Python 全量收集 **938 项**退出 0。真实模型多次运行仍待用户执行；当前环境无可用 API key，P0/P5 受此外部条件阻塞。
 
 ## 当前下一步
 

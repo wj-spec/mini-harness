@@ -89,6 +89,18 @@ W4 项目背景与 W5 用户偏好已完成 MVP 与真实使用验收；W6 三�
 - P1 的 schema/迁移/选择器/UI 回归进入 `tests/test_user_profile.py`、`tui/tests/user-profile.test.ts`、`tests/test_stdio*.py` 与 `/about` 测试；
 - 不把“能存能读”当成个性化收益；只认重复说明/纠正减少且正确性不倒退。
 
+## 当前阻塞（2026-10-26）
+
+P0 W6 v2 需要真实模型、API key 和交互式任务运行；当前自动化环境没有 `VIBE_API_KEY`/`OPENAI_API_KEY`/`DEEPSEEK_API_KEY`，无法代替用户完成。P0 的真实收益结论与 P5 的触发条件因此未完成。实现侧 P1–P4 第一版、W6 v2 夹具/汇总/离线选择校验已完成；下一步由用户在本机执行：
+
+```bash
+.venv/bin/python3 scripts/w6_run.py task-a-on   # 每个 task-on/off ≥3 次
+.venv/bin/python3 scripts/w6_run.py task-a-off
+.venv/bin/python3 scripts/w6_report_v2.py
+```
+
+拿到分布后回到 `docs/MILESTONES.md` 记录真实结论，再决定是否进入 P5。
+
 ## 当前进行
 
 - 路线图记录完成；
