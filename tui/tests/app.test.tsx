@@ -75,7 +75,7 @@ for (const [columns, rows] of [[80, 24], [120, 24], [120, 40]]) {
     client.emit({type: 'status', phase: 'idle'});
     await pause(25);
     const frame = lastFrame() ?? '';
-    assert.match(frame, /上下文.*估算.*50\/900/);
+    assert.match(frame, /当前上下文.*50\/900/);
     assert.match(frame, /S20 M0 T30 H0/);
     assert.doesNotMatch(frame, /尚无用量记录/);
     assert.ok(frame.split('\n').every(line => stringWidth(line) <= columns!));
@@ -109,7 +109,7 @@ test('short sidebar keeps partition occupancy visible during a run with task, to
   const {lastFrame} = render(<App client={client as unknown as BackendClient} initialState={state} windowSize={{columns: 120, rows: 24}}/>);
   await pause(20);
   const frame = lastFrame() ?? '';
-  assert.match(frame, /上下文估算 100\/960k/);
+  assert.match(frame, /当前上下文 100\/960k/);
   assert.match(frame, /S20 M0 T30 H50/);
   assert.match(frame, /已用构成/);
   assert.match(frame, /━/);

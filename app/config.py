@@ -26,7 +26,7 @@ class Config:
     llm_retry_backoff: float = 0.5
     max_continuations: int = 2
     max_no_progress: int = 2
-    max_run_tokens: int = 1_000_000
+    max_run_tokens: int = 0
     compact_interval_tokens: int = 200_000
     max_run_cost_usd: float = 0.0
     tool_retries: int = 1

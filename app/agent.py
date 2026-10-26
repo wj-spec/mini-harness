@@ -627,26 +627,31 @@ class Agent:
             estimated_prompt = total_tokens(request_messages) + tool_tokens
             next_request = int(estimated_prompt * ratio) + output_reserve
             if next_request >= remaining_tokens and self.context is not None and not compacted_this_step:
-                await self._compact(
-                    run,
-                    self._automatic_history_target(
-                        run, tool_tokens, ratio, remaining_tokens, output_reserve,
-                    ),
-                    "request_budget",
-                )
-                ctx_result = await asyncio.to_thread(
-                    self.context.build, run.messages, tool_tokens, 0,
-                )
-                run.messages = ctx_result.messages
-                request_messages = run.messages
-                if run.correction_instruction:
-                    request_messages = list(request_messages) + [
-                        Message("system", run.correction_instruction),
-                    ]
-                if run.on_context:
-                    run.on_context(ctx_result)
-                estimated_prompt = total_tokens(request_messages) + tool_tokens
-                next_request = int(estimated_prompt * ratio) + output_reserve
+                prefix_tokens = total_tokens([Message("system", self.system), run.state_message])
+                affordable = int((remaining_tokens - output_reserve) / ratio)
+                # 余额连“固定前缀 + 工具定义 + 最小 history”都装不下时，
+                # 不再把上下文压到 1k 级别；直接进入收尾/暂停判断。
+                if affordable >= prefix_tokens + tool_tokens + 1024:
+                    await self._compact(
+                        run,
+                        self._automatic_history_target(
+                            run, tool_tokens, ratio, remaining_tokens, output_reserve,
+                        ),
+                        "request_budget",
+                    )
+                    ctx_result = await asyncio.to_thread(
+                        self.context.build, run.messages, tool_tokens, 0,
+                    )
+                    run.messages = ctx_result.messages
+                    request_messages = run.messages
+                    if run.correction_instruction:
+                        request_messages = list(request_messages) + [
+                            Message("system", run.correction_instruction),
+                        ]
+                    if run.on_context:
+                        run.on_context(ctx_result)
+                    estimated_prompt = total_tokens(request_messages) + tool_tokens
+                    next_request = int(estimated_prompt * ratio) + output_reserve
             finalizing = next_request >= remaining_tokens
             if finalizing:
                 self._budget_update(run, "finalizing")
@@ -1210,11 +1215,10 @@ class Agent:
         remaining_tokens: int,
         output_reserve: int,
     ) -> int:
+        # 上下文压缩只由单请求容量决定；累计任务预算不再反向挤压 history。
+        # remaining_tokens / output_reserve 保留为调用方已有的预算事实，不参与目标计算。
+        del remaining_tokens, output_reserve
         capacity = self._history_capacity(run, tool_tokens, prompt_ratio)
-        if self.max_run_tokens:
-            prefix_tokens = total_tokens([Message("system", self.system), run.state_message])
-            affordable = int((remaining_tokens - output_reserve) / prompt_ratio)
-            capacity = min(capacity, max(0, affordable - prefix_tokens - tool_tokens - 1))
         return min(8000, capacity)
 
     async def _compact(

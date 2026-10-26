@@ -64,3 +64,16 @@ VIBE_MAX_RUN_TOKENS=5000000 ./run_ink.sh   # 或 0 = 不限
 - 设置硬预算时，暂停前最后一次上下文目标不低于 floor，且 `stop_reason=token_budget` 可解释；
 - TUI 标签能区分两种预算；`/resume` 显示段计数（若做 3）；
 - 现有预算测试（`./run_eval.sh check-budget`、`tests/test_agent_budget.py`）保持通过或按新语义更新。
+
+
+## 实施记录（2026-10-26）
+
+按 1+2 实施：
+
+- 交互默认 `max_run_tokens=0`（不限）；评测/基准入口在未显式配置时保留 1M，维持分数可比；
+- `Agent._automatic_history_target` 移除“按剩余任务预算缩小 history”分支，只按单请求上下文容量计算；
+- 余额连最小请求都装不下时跳过 `request_budget` 压缩，直接进入收尾/暂停判断；`_checkpoint` 仍保留为恢复所需的持久化压缩；
+- TUI 标签改为“任务累计 Tokens / 当前上下文”；
+- 回归：`tests/test_agent_budget.py` 验证 history target 不随余额缩小；`tests/test_config.py` 验证交互默认 0；`tests/test_benchmark_budget_cli.py` 验证评测默认 1M；全量 Python 收集 917 项退出 0。
+
+第 3 项（分段预算 + 自动续做）尚未实施。

@@ -168,7 +168,7 @@ export function metricsText(state: ViewState): string {
   const metrics = state.metrics;
   const snapshot = state.contextSnapshots.at(-1);
   const parts: string[] = [];
-  if (metrics) parts.push(`任务 Tokens ${metrics.estimated ? '≈' : ''}${compactNumber(metrics.used_tokens)}/${metrics.limit_tokens ? compactNumber(metrics.limit_tokens) : '不限'}`);
+  if (metrics) parts.push(`任务累计 ${metrics.estimated ? '≈' : ''}${compactNumber(metrics.used_tokens)}/${metrics.limit_tokens ? compactNumber(metrics.limit_tokens) : '不限'}`);
   if (snapshot) parts.push(`上下文 ≈${compactNumber(snapshot.total_tokens)}/${compactNumber(snapshot.context_window)}`);
   else if (metrics?.context_tokens !== null && metrics?.context_tokens !== undefined) parts.push(`上下文 ${compactNumber(metrics.context_tokens)}/${compactNumber(metrics.context_window)}`);
   if (metrics?.planned) parts.push(`计划 ${metrics.done}/${metrics.planned}`);

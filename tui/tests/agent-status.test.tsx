@@ -12,13 +12,13 @@ test('context panel shows estimated partition occupancy before usage exists and 
   const snapshot = contextSnapshot();
   for (const metrics of [null, {used_tokens: 8000, limit_tokens: 10000, estimated: false, context_tokens: 100, context_window: 1000, done: 0, planned: 0, cost_usd: 0}]) {
     const output = renderToString(<StatusPanel state={{...initialState, phase: 'running', contextSnapshots: [snapshot], metrics}} columns={32} height={26} palette={themes.system}/>, {columns: 32});
-    assert.match(output, /上下文.*估算/);
+    assert.match(output, /当前上下文/);
     assert.match(output, /S20 M0 T30 H50/);
     assert.match(output, /100\/900/);
     assert.match(output, /Ctrl\+K/);
     assert.ok(output.split('\n').every(line => stringWidth(line) <= 32));
     if (metrics) assert.match(output, /8k\/10k/);
-    else assert.doesNotMatch(output, /任务 Tokens 0|尚无用量记录/);
+    else assert.doesNotMatch(output, /任务累计 0|尚无用量记录/);
   }
 });
 
@@ -100,7 +100,7 @@ test('panels retain terminal-cell bounds and meaningful labels at compact and wi
     assert.match(output, /工具/);
     assert.doesNotMatch(output, /任务完成|测试通过|思考中/);
     if (height! > 18) {
-      assert.match(output, /任务 Tokens/);
+      assert.match(output, /任务累计/);
       assert.match(output, /12%/);
       assert.match(output, /2\/4/);
     }

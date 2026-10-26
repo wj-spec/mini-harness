@@ -33,7 +33,7 @@ test('partition replay exposes budgets, compaction trends, and sources at narrow
     assert.match(text, /输入剩余 840/);
     assert.match(text, /history-1/);
     assert.match(text, /hash/);
-    assert.doesNotMatch(text, /任务 Tokens/);
+    assert.doesNotMatch(text, /任务累计/);
   }
   assert.match(contextLines([first, second], first.snapshot_id, 75).map(line => line.spans.map(span => span.text).join('')).join('\n'), /快照 1\/2 · 回看/);
   assert.equal(contextSummary(first), 'S20 M0 T30 H50');

@@ -57,5 +57,5 @@ test('a restored idle session at 200x84 keeps indexed panels visible without inv
   assert.match(lines.join('\n'), /未自动续跑/);
   assert.match(lines.join('\n'), /调用 0 · 待返回 0 · 异常 0/);
   assert.match(lines.join('\n'), /尚无用量记录/);
-  assert.doesNotMatch(lines.join('\n'), /任务 Tokens|运行中/);
+  assert.doesNotMatch(lines.join('\n'), /任务累计|运行中/);
 });

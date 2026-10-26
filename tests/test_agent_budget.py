@@ -1,4 +1,6 @@
 import asyncio
+from types import SimpleNamespace
+
 import pytest
 
 from app.agent import Agent
@@ -405,3 +407,16 @@ def test_oversized_pinned_task_never_sends_out_of_window_request(tmp_path):
     assert provider.seen == []
     assert result.status == "stopped" and result.stop_reason == "context_window"
     assert any(m.name == "context_stop" for m in agent.history)
+
+
+def test_history_target_does_not_shrink_with_remaining_task_budget(tmp_path):
+    context = ContextBuilder(
+        policy=BudgetPolicy(), offload_dir=tmp_path / ".vibe" / "offload",
+    )
+    agent = Agent(
+        FakeProvider([]), ToolRegistry(tmp_path), context=context, max_run_tokens=10_000,
+    )
+    run = SimpleNamespace(state_message=Message("system", "Goal: review"))
+    normal = agent._automatic_history_target(run, 0, 1.0, 9_000, 100)
+    low = agent._automatic_history_target(run, 0, 1.0, 10, 9_000)
+    assert normal == low > 0

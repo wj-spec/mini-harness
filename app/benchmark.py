@@ -447,6 +447,9 @@ def main(argv: list[str] | None = None) -> int:
             ("max_steps", args.max_steps), ("max_run_tokens", args.max_tokens),
             ("max_run_seconds", args.max_seconds),
         ) if value is not None}
+        # 交互默认不限累计 token；评测/基准保留 1M，只有显式 env / CLI 才改变。
+        if args.max_tokens is None and "VIBE_MAX_RUN_TOKENS" not in os.environ:
+            overrides["max_run_tokens"] = 1_000_000
         config = replace(Config.from_env(), **overrides)
         if (args.limit < 1 or config.max_steps < 0 or config.max_run_tokens < 0
                 or not math.isfinite(config.max_run_seconds) or config.max_run_seconds <= 0):

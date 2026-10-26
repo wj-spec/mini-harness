@@ -330,6 +330,8 @@ README「当前完善重点」六项已修复并附针对性回归，真实任�
 
 **技能选择菜单（2026-10-25）**：`/skills` 不再只是把长列表塞进对话；后端在 `ready` 与 `command_result(skills)` 中附带结构化 `{name, summary, active, source}` 目录，TUI 在输入 `/skills`、`/skills activate `、`/skills unload ` 时弹出动态菜单：`↑↓` 滚动、`Tab` 补全完整命令、`Enter` 执行；已激活技能显示卸载入口。菜单复用现有 CommandMenu 的滚动与宽度处理，未新增 IPC。回归：`tui/tests/skills-menu.test.ts`、`protocol.test.ts`、`app.test.tsx` 菜单/补全/执行，Python `test_skills.py` 与 `test_stdio.py` 的结构化目录事件；TUI 全量 **305 项、304 通过**（唯一失败为沙箱无 PTY 的既有项），Python 全量收集 **915 项**退出 0。
 
+**预算语义与压缩解耦（2026-10-26）**：按用户确认的 1+2 方案调整：交互默认 `max_run_tokens=0`（不限累计任务 token，评测/基准仍显式保留 1M）；`_automatic_history_target` 不再用剩余累计预算反推 history，目标只由单请求上下文容量决定；剩余累计预算装不下“固定前缀+工具定义+最小 history”时，不再把上下文压到 1k 级别，而是进入收尾/暂停判断；TUI 状态面板把“任务 Tokens”改为“任务累计 Tokens”、“上下文估算”改为“当前上下文”，避免把单请求容量与累计消耗混读。回归：`tests/test_agent_budget.py` 新增 history target 不受余额影响，`tests/test_config.py`/`test_benchmark_budget_cli.py` 覆盖交互不限与评测 1M，TUI 标签测试更新；TUI 全量 **305 项、304 通过**（唯一失败为沙箱无 PTY 的既有项），Python 全量 `./run_tests.sh -q` 退出 0（收集 917 项）。第 3 项（自动分段续做）留作下一片。
+
 ## 当前下一步
 
 W1–W5 已完成真实验收；W6 已按协议完成对照（2026-10-25），主假设未获支持。接下来：

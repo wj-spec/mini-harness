@@ -19,8 +19,8 @@ def test_config_uses_the_shared_budget_defaults(monkeypatch):
     clear_budget_env(monkeypatch)
     assert Config().budget_policy() == BudgetPolicy.for_context_window()
     assert Config.from_env().budget_policy() == BudgetPolicy.for_context_window()
-    assert Config().max_run_tokens == 1_000_000
-    assert Config.from_env().max_run_tokens == 1_000_000
+    assert Config().max_run_tokens == 0
+    assert Config.from_env().max_run_tokens == 0
     assert Config().compact_interval_tokens == 200_000
     assert Config.from_env().compact_interval_tokens == 200_000
 
@@ -41,7 +41,7 @@ def test_compaction_interval_can_be_disabled_without_disabling_task_limit(monkey
     monkeypatch.setenv("VIBE_COMPACT_INTERVAL_TOKENS", "0")
 
     assert Config.from_env().compact_interval_tokens == 0
-    assert Config.from_env().max_run_tokens == 1_000_000
+    assert Config.from_env().max_run_tokens == 0
 
 
 def test_context_window_env_takes_precedence_over_the_legacy_alias(monkeypatch):
@@ -93,7 +93,7 @@ def test_runtime_count_limits_are_disabled_by_default(monkeypatch):
         assert config.max_steps == 0
         assert not hasattr(config, "max_tool_calls")
         assert not hasattr(config, "max_repeats")
-        assert config.max_run_tokens == 1_000_000
+        assert config.max_run_tokens == 0
         assert config.max_run_seconds == 600.0
 
 

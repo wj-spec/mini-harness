@@ -182,3 +182,13 @@ def test_validate_limit_selects_multiple_tasks_from_the_manifest(monkeypatch, ca
     assert received["tasks"] == ["example__repo-0", "example__repo-1", "example__repo-2"]
     assert prepared
 
+
+
+def test_benchmark_keeps_a_one_million_default_when_no_budget_is_configured(monkeypatch, capsys):
+    monkeypatch.delenv("VIBE_MAX_RUN_TOKENS", raising=False)
+    monkeypatch.setattr(benchmark, "docker_ready", lambda host: False)
+
+    assert benchmark.main(["doctor"]) == 0
+
+    budget = json.loads(capsys.readouterr().out)["budget"]
+    assert budget["max_run_tokens"] == 1_000_000

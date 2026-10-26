@@ -88,7 +88,7 @@ function occupancyStatusLines(snapshot: ContextSnapshot, columns: number): Statu
   const prefix = `输入${inputPercentage(snapshot)} `;
   const main = contextLine(snapshot, columns, false, prefix);
   return [
-    {text: `上下文估算 ${compactNumber(snapshot.total_tokens)}/${compactNumber(snapshot.input_capacity)}`, tone: snapshot.over_budget ? 'warning' : undefined},
+    {text: `当前上下文 ${compactNumber(snapshot.total_tokens)}/${compactNumber(snapshot.input_capacity)}`, tone: snapshot.over_budget ? 'warning' : undefined},
     richStatusLine(contextSummarySpans(snapshot)),
     richStatusLine(main.spans),
     ...(needsContextComposition(snapshot, Math.max(1, columns - stringWidth(prefix) - 2)) ? [richStatusLine(contextLine(snapshot, columns, true, '已用构成 ').spans)] : []),
@@ -116,7 +116,7 @@ function statusLines(state: ViewState, columns: number, contextFirst = false, fr
     {text: '尚未请求模型', muted: true},
     separator,
     ...occupancyStatusLines(snapshot, columns),
-    ...(metrics ? [{text: `任务 Tokens ${metrics.used_tokens}（尚未开始）`}] : []),
+    ...(metrics ? [{text: `任务累计 ${metrics.used_tokens}（尚未开始）`}] : []),
     {text: task ? '历史任务已恢复' : '尚未提交任务', muted: true},
     {text: 'Ctrl+K 装载详情'},
     separator,
@@ -139,7 +139,7 @@ function statusLines(state: ViewState, columns: number, contextFirst = false, fr
   ];
   if (!metrics && !snapshot) return [...lines, {text: '尚无用量记录'}];
   if (metrics) {
-    lines.push({text: `任务 Tokens ${metrics.estimated ? '≈' : ''}${compactNumber(metrics.used_tokens)}/${metrics.limit_tokens ? compactNumber(metrics.limit_tokens) : '不限'}`});
+    lines.push({text: `任务累计 ${metrics.estimated ? '≈' : ''}${compactNumber(metrics.used_tokens)}/${metrics.limit_tokens ? compactNumber(metrics.limit_tokens) : '不限'}`});
     lines.push({text: budgetBar(metrics.used_tokens, metrics.limit_tokens, Math.min(12, Math.max(2, columns - 10)), frame),
       tone: metrics.limit_tokens && metrics.used_tokens / metrics.limit_tokens >= 0.8 ? 'warning' : undefined});
   }
@@ -174,7 +174,7 @@ export function StatusPanel({state, columns, height, palette}: {
   const lines: StatusLine[] = compact ? [
     {text: `${status.label}${snapshot?.phase === 'loaded' ? '  |  基础上下文已装载 · 尚未请求模型' : task ? `  |  ${task.text}` : `  |  ${status.detail}`}`, tone: status.tone, bold: true, highlighted: true},
     ...(snapshot ? [
-      {...richStatusLine([{text: `上下文估算 ${compactNumber(snapshot.total_tokens)}/${compactNumber(snapshot.input_capacity)} 输入${inputPercentage(snapshot)} · `}, ...contextSummarySpans(snapshot)]), tone: snapshot.over_budget ? 'warning' as const : undefined},
+      {...richStatusLine([{text: `当前上下文 ${compactNumber(snapshot.total_tokens)}/${compactNumber(snapshot.input_capacity)} 输入${inputPercentage(snapshot)} · `}, ...contextSummarySpans(snapshot)]), tone: snapshot.over_budget ? 'warning' as const : undefined},
       richStatusLine(contextLine(snapshot, available, compactComposition, compactComposition ? '已用构成 ' : compactInputPrefix).spans),
     ] : []),
   ] : statusLines(state, available, height < 24 && snapshot !== undefined, frame);

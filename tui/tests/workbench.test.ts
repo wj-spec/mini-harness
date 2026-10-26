@@ -11,9 +11,9 @@ import {contextSnapshot} from './context-fixture.js';
 test('context snapshot totals remain visible independently from task cumulative usage', () => {
   const state = {...initialState, contextSnapshots: [contextSnapshot()]};
   assert.match(metricsText(state), /上下文 ≈100\/1k/);
-  assert.doesNotMatch(metricsText(state), /任务 Tokens/);
+  assert.doesNotMatch(metricsText(state), /任务累计/);
   const text = metricsText({...state, metrics: {used_tokens: 8000, limit_tokens: 10000, estimated: false, context_tokens: null, context_window: 1000, done: 0, planned: 0, cost_usd: 0}});
-  assert.match(text, /任务 Tokens 8k\/10k/);
+  assert.match(text, /任务累计 8k\/10k/);
   assert.match(text, /上下文 ≈100\/1k/);
 });
 

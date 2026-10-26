@@ -201,7 +201,7 @@ history 实际额度 = 窗口 − 输出预留 − 安全余量 − 实际 syste
 
 ## 单次任务预算与暂停
 
-`VIBE_MAX_RUN_TOKENS` 默认 **1,000,000**，累计一次 run 中各轮请求的输入和输出；重复发送的历史也再次计入。一次 run 从输入指令开始，直到任务完成或停止。它与单请求上下文容量是独立限制，即使默认都为 1M。
+`VIBE_MAX_RUN_TOKENS` 默认 **0（不限）**，表示累计一次 run 中各轮请求的输入和输出不设硬上限；显式设置后按值暂停。重复发送的历史也再次计入。一次 run 从输入指令开始，直到任务完成、停止或时间上限。它与单请求上下文容量完全独立：上下文默认 1M，任务累计默认不限。评测/基准入口在未设置 `VIBE_MAX_RUN_TOKENS` 时仍固定 1M，保证分数可比。
 
 - 状态栏分行显示任务累计用量、上限和剩余、上下文容量及项目；`/cost` 查看输入和输出，估算值标“约”。
 - 独立的 `VIBE_COMPACT_INTERVAL_TOKENS` 默认 200,000：上次压缩后累计消耗达到其 80%（160k）时，自动压缩并继续当前任务；设为 0 关闭周期触发。history 达到实际容量的 80% 也会触发。
@@ -357,7 +357,7 @@ VIBE_OUTPUT_PRICE_PER_1M=1.10 \
 ./run_eval.sh check-budget --level total
 ```
 
-这些检查固定使用 fake 模型，无需 API Key 或 Docker；分别核对单请求容量、压缩后继续，以及累计预算耗尽后的暂停和工具副作用边界。默认依次执行全部层级，前层未通过时跳过后层。报告与逐层轨迹保存在 `.vibe/benchmarks/budget-checks/<timestamp>/`；已有一次实际 CLI 检查 3/3 层通过，见 [验证证据](specs/evaluation.md#已有验证证据2026-10-21)。预期暂停的用例通过表示预算机制正确，不表示编码任务完成。三种额度独立：`VIBE_CONTEXT_WINDOW` 默认 1M，`VIBE_COMPACT_INTERVAL_TOKENS` 默认 200k，`VIBE_MAX_RUN_TOKENS` 默认 1M；压缩不清零累计用量。
+这些检查固定使用 fake 模型，无需 API Key 或 Docker；分别核对单请求容量、压缩后继续，以及累计预算耗尽后的暂停和工具副作用边界。默认依次执行全部层级，前层未通过时跳过后层。报告与逐层轨迹保存在 `.vibe/benchmarks/budget-checks/<timestamp>/`；已有一次实际 CLI 检查 3/3 层通过，见 [验证证据](specs/evaluation.md#已有验证证据2026-10-21)。预期暂停的用例通过表示预算机制正确，不表示编码任务完成。三种额度独立：`VIBE_CONTEXT_WINDOW` 默认 1M，`VIBE_COMPACT_INTERVAL_TOKENS` 默认 200k，`VIBE_MAX_RUN_TOKENS` 交互默认 0（不限；评测/基准默认 1M）；压缩不清零累计用量，也不再用累计余额反推 history 目标。
 
 开发验收依次运行：离线预算自检 → 内部真实 eval `--eval-limit 1`、再 `3` → SWE 首题 → 固定 3 题。真实阶段仅在用户显式运行时调用模型，不因未解决自动提高预算或重新评测；已有模型请求重试仍受配置与当前 run 预算限制。每阶段分别保留成功、暂停与错误记录。
 
@@ -378,7 +378,7 @@ uv sync --extra test --extra eval
 
 公开评测需要可用的 Docker daemon，M 系列 Mac 需支持 amd64 模拟；首次拉取官方镜像可能较大。可用 `DOCKER_HOST` 或 `--docker-host` 指定 Colima 等实例的 socket，入口不会切换全局 context。
 
-`run` 与 `doctor` 默认继承 `Config.from_env()`：先使用环境变量，再取代码默认值。未配置时每题累计 token 预算 1M、运行时限 600 秒、模型轮数不限；压缩周期 200k、单请求上下文容量 1M。只有显式 `--max-steps`、`--max-tokens`、`--max-seconds` 覆盖对应值；`--max-steps 0` 和 `--max-tokens 0` 分别表示不限轮数和累计 token，时间必须大于 0。`doctor` 的 `budget` 会展示实际配置，先核对再运行。此入口每次创建新工作区，暂不支持从旧运行 `/resume`。
+`run` 与 `doctor` 默认继承 `Config.from_env()`：先使用环境变量，再取代码默认值。交互（Ink/run）未配置时任务累计 token 不限、运行时限 600 秒、模型轮数不限；评测/基准未配置时每题累计 token 预算 1M。压缩周期 200k、单请求上下文容量 1M。只有显式 `--max-steps`、`--max-tokens`、`--max-seconds` 覆盖对应值；`--max-steps 0` 和 `--max-tokens 0` 分别表示不限轮数和累计 token，时间必须大于 0。`doctor` 的 `budget` 会展示实际配置，先核对再运行。此入口每次创建新工作区，暂不支持从旧运行 `/resume`。
 
 token 上限累计每轮 prompt 与 completion，重复历史也计入；首轮累计 95,917 token 后为下一请求压缩，并非单次上下文长达 95,917 token。一次响应后才更新实际用量，因此最终响应仍可能越过余额。
 
@@ -458,7 +458,7 @@ Agent 从常驻目录判断哪些技能与当前工作有关，调用 `load_skil
 - LLM 流超时 + 瞬时错误重试：429/5xx/网络错误，指数退避；无输出才重试。
 - `finish_reason=length` 且无工具调用：自动注入 continuation，最多 `max_continuations` 次。
 - 无进展检测：比较实际返回证据，区分新结果、重复结果、连续失败和仅更新计划。默认连续 2 次停滞先提示换方法，再连续 2 次停滞才停止工具，进行一次无工具收尾并保存 `no_progress` 原因。新有效结果会解除纠偏阶段；相同参数但结果变化可以继续。
-- 单次 run 总预算：`max_run_tokens`（默认 1M）、`max_run_cost_usd`；自动压缩周期 `compact_interval_tokens`（默认 200k）独立计算。
+- 单次 run 累计预算：`max_run_tokens`（交互默认 0=不限，评测/基准默认 1M）、`max_run_cost_usd`；自动压缩周期 `compact_interval_tokens`（默认 200k）独立计算。
 - 只读工具 timeout 重试；写/执行不重试。
 - 写前新鲜度：读过之后文件被改，`edit_file/write_file` 拒绝，要求 re-read。
 - vibe prompt：先读后改、优先 `edit_file`、改完跑测试、不谎报测试通过。
