@@ -3,7 +3,7 @@ import test from 'node:test';
 import React from 'react';
 import {renderToString} from 'ink';
 import stringWidth from 'string-width';
-import {detailLines, metricsText, ReadingPane, toolState, toolTone, transcriptLines} from '../src/workbench.js';
+import {detailLines, metricsText, ReadingPane, toolState, toolTone, transcriptLines, welcomeLines} from '../src/workbench.js';
 import {initialState, type Entry} from '../src/view-state.js';
 import {themes} from '../src/theme.js';
 import {contextSnapshot} from './context-fixture.js';
@@ -108,4 +108,20 @@ test('transcript surfaces replace enclosing frames while preserving focus and fa
   assert.match(output, /› 工具.*等待返回/);
   assert.equal((output.match(/Ctrl\+O/g) ?? []).length, 1);
   assert.ok(lines.every(line => stringWidth(line.spans.map(span => span.text).join('')) <= 42));
+});
+
+
+test('home screen leads with project start prompts and keeps context discoverable', () => {
+  const state = {...initialState, phase: 'idle' as const, workspace: '/repo/mini-harness', model: 'deepseek-chat', provider: 'openai', sessionId: 's-1'};
+  const wide = welcomeLines(state, 80).map(line => line.spans.map(span => span.text).join('')).join('\n');
+  assert.match(wide, /mini-harness · 个人编码工作台/);
+  assert.match(wide, /描述任务/);
+  assert.match(wide, /从这些开始/);
+  assert.match(wide, /读 README/);
+  assert.match(wide, /\/repo\/mini-harness/);
+  assert.match(wide, /deepseek-chat/);
+  for (const columns of [24, 32, 64, 80, 120]) {
+    const lines = welcomeLines(state, columns);
+    assert.ok(lines.every(line => stringWidth(line.spans.map(span => span.text).join('')) <= columns), `overflow at ${columns}`);
+  }
 });

@@ -102,27 +102,61 @@ export function transcriptLines(state: ViewState, columns: number, selectedTool:
   return lines;
 }
 
-export function welcomeLines(columns: number): ReadingLine[] {
-  const bar = (text: string) => `▌ ${text}`;
-  return [
-    ...textLines(bar('开始一个真实编码任务'), columns, 'heading'),
-    ...textLines('   描述目标、项目范围与完成条件。工具动作会按权限审批。', columns),
-    {spans: [{text: ''}]},
-    ...textLines(bar('可以从这里开始'), columns, 'label'),
-    ...textLines('   • 读 README，解释这个项目的入口和运行流程', columns),
-    ...textLines('   • 定位一个可复现的小 bug，先说明判断，再修改和验证', columns),
-    ...textLines('   • 检查当前改动，列出风险与尚未验证的部分', columns),
-    {spans: [{text: ''}]},
-    ...textLines(bar('快捷键'), columns, 'label'),
-    ...textLines('   Enter 发送 · Ctrl+J 换行 · ↑↓ 浏览输入历史', columns),
-    ...textLines('   滚轮 / PgUp / PgDn 回看 · Ctrl+R 阅读模式', columns),
-    ...textLines('   阅读模式 ↑↓ 滚动 · Esc 回输入 · Ctrl+O 工具详情', columns),
-    {spans: [{text: ''}]},
-    ...textLines(bar('命令'), columns, 'label'),
-    ...textLines('   /help 操作帮助 · /theme system|light|dark 主题', columns),
-    ...textLines('   /resume 续做 · /permissions 权限 · /mcp 服务状态', columns),
-    ...textLines('   /context 或 Ctrl+K 上下文分区与本轮回放', columns),
-  ];
+export function welcomeLines(state: ViewState, columns: number): ReadingLine[] {
+  const compact = columns < 72;
+  const blank: ReadingLine = {spans: [{text: ''}]};
+  const lines: ReadingLine[] = [];
+  const workspace = state.workspace || '工作区待连接';
+  const model = state.model || '模型待连接';
+  const provider = state.provider || 'provider 待连接';
+  const session = state.sessionId || '待连接';
+
+  if (compact) {
+    lines.push(...textLines('▌ mini-harness · 个人编码工作台', columns, 'heading'));
+    lines.push(...textLines('  单 Agent · 先读后写 · 工具动作按权限审批', columns));
+    lines.push(...textLines('  描述任务、范围与完成条件，然后开始。', columns));
+    lines.push(blank);
+    lines.push(...textLines('▌ 从这些开始', columns, 'label'));
+    for (const prompt of [
+      '读 README，说明项目入口与运行流程',
+      '定位一个可复现 bug，先说明判断再修改验证',
+      '检查当前改动，列出风险与尚未验证的部分',
+    ]) lines.push(...textLines(`  • ${prompt}`, columns));
+    lines.push(blank);
+    lines.push(...textLines('▌ 当前工作区', columns, 'label'));
+    lines.push(...textLines(`  项目  ${workspace}`, columns));
+    lines.push(...textLines(`  模型  ${model}`, columns));
+    lines.push(...textLines(`  会话  ${session}`, columns));
+    lines.push(blank);
+    lines.push(...textLines('▌ 常用入口', columns, 'label'));
+    lines.push(...textLines('  /help 命令 · /skills 技能 · /sidebar 侧栏', columns));
+    lines.push(...textLines('  /context 上下文 · /resume 续做', columns));
+  } else {
+    lines.push(...cardLines('mini-harness · 个人编码工作台', [
+      ...textLines('先读后写 · 每一步都有证据 · 工具动作按权限审批', columns - 4),
+      ...textLines('描述任务、范围与完成条件，然后按 Enter 开始。', columns - 4),
+    ], columns, 'accent', false, 'task'));
+    lines.push(blank);
+    lines.push(...cardLines('从这些开始', [
+      ...textLines('• 读 README，说明项目入口与运行流程', columns - 4),
+      ...textLines('• 定位一个可复现 bug，先说明判断，再修改验证', columns - 4),
+      ...textLines('• 检查当前改动，列出风险与尚未验证的部分', columns - 4),
+    ], columns, 'accent', false, 'task'));
+    lines.push(blank);
+    lines.push(...cardLines('当前工作区', [
+      ...textLines(`项目  ${workspace}`, columns - 4),
+      ...textLines(`模型  ${model} · ${provider}`, columns - 4),
+      ...textLines(`会话  ${session}${state.resumed ? ' · 已恢复' : ''}`, columns - 4),
+    ], columns, undefined, false, 'agent'));
+    lines.push(blank);
+    lines.push(...cardLines('常用入口', [
+      ...textLines('/help 帮助    /context 上下文与预算    /diff 工作区改动', columns - 4),
+      ...textLines('/skills 技能菜单    /sidebar Git 变更侧栏    /resume 续做', columns - 4),
+    ], columns, undefined, false, 'agent'));
+  }
+  lines.push(blank);
+  lines.push(...textLines('输入框直接描述任务；Enter 发送，Ctrl+J 换行，输入 / 查看命令。', columns, 'notice'));
+  return lines;
 }
 
 export function detailLines(entry: Entry, columns: number): ReadingLine[] {

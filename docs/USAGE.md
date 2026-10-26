@@ -252,7 +252,7 @@ Agent 新增两个**只读、无需审批**的工具，用于在报告工作区�
 - 命令输出和结构化执行状态同时回灌并保存：零退出、非零退出、超时、取消、未知；非零退出和超时令工具 `ok=False`。模型用 `verification:true` 明确测试、构建或检查用途，普通命令不自动计作测试。
 - 超时用进程组 kill；输出只保留最后 10k 字符。
 - 危险命令黑名单：`rm -rf /`、`mkfs`、`dd if=`、fork bomb、`sudo`、`git push --force`、`git reset --hard`、`curl|sh` 等。
-- 运行预算：任务累计 tokens、费用与 `max_run_seconds=600`（排除人工审批等待）仍生效。工具次数只用于统计；无进展通过结果检测、纠偏和降级处理。命令执行超时与模型超时仍独立生效。
+- 运行预算：任务累计 tokens、费用与运行时限仍生效；交互默认 `max_run_seconds=1800`（30 分钟，排除人工审批等待），评测/基准保留 600 秒。工具次数只用于统计；无进展通过结果检测、纠偏和降级处理。命令执行超时与模型超时仍独立生效。
 - **这不是沙箱**：命令仍以你的用户权限运行，`cwd` 只是起点，命令可以 `cd` 到别处。审批 + 黑名单 + 超时是当前边界；VM/seatbelt/landlock 是后续。
 
 可调：`VIBE_MAX_RUN_SECONDS`。旧 `VIBE_MAX_TOOL_CALLS`、`VIBE_MAX_REPEATS` 已不再读取。
@@ -378,7 +378,7 @@ uv sync --extra test --extra eval
 
 公开评测需要可用的 Docker daemon，M 系列 Mac 需支持 amd64 模拟；首次拉取官方镜像可能较大。可用 `DOCKER_HOST` 或 `--docker-host` 指定 Colima 等实例的 socket，入口不会切换全局 context。
 
-`run` 与 `doctor` 默认继承 `Config.from_env()`：先使用环境变量，再取代码默认值。交互（Ink/run）未配置时任务累计 token 不限、运行时限 600 秒、模型轮数不限；评测/基准未配置时每题累计 token 预算 1M。压缩周期 200k、单请求上下文容量 1M。只有显式 `--max-steps`、`--max-tokens`、`--max-seconds` 覆盖对应值；`--max-steps 0` 和 `--max-tokens 0` 分别表示不限轮数和累计 token，时间必须大于 0。`doctor` 的 `budget` 会展示实际配置，先核对再运行。此入口每次创建新工作区，暂不支持从旧运行 `/resume`。
+`run` 与 `doctor` 默认继承 `Config.from_env()`：先使用环境变量，再取代码默认值。交互（Ink/run）未配置时任务累计 token 不限、运行时限 1800 秒、模型轮数不限；评测/基准未配置时每题累计 token 预算 1M、运行时限 600 秒。压缩周期 200k、单请求上下文容量 1M。只有显式 `--max-steps`、`--max-tokens`、`--max-seconds` 覆盖对应值；`--max-steps 0` 和 `--max-tokens 0` 分别表示不限轮数和累计 token，时间必须大于 0。`doctor` 的 `budget` 会展示实际配置，先核对再运行。此入口每次创建新工作区，暂不支持从旧运行 `/resume`。
 
 token 上限累计每轮 prompt 与 completion，重复历史也计入；首轮累计 95,917 token 后为下一请求压缩，并非单次上下文长达 95,917 token。一次响应后才更新实际用量，因此最终响应仍可能越过余额。
 

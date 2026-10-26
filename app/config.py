@@ -20,7 +20,7 @@ class Config:
     base_url: str = "https://api.deepseek.com/v1"
     workspace: Path = field(default_factory=Path.cwd)
     max_steps: int = 0
-    max_run_seconds: float = 600.0
+    max_run_seconds: float = 1800.0
     llm_timeout: float = 120.0
     llm_retries: int = 1
     llm_retry_backoff: float = 0.5
@@ -73,7 +73,7 @@ class Config:
             ),
             workspace=Path(os.getenv("VIBE_WORKSPACE", Path.cwd())),
             max_steps=int(os.getenv("VIBE_MAX_STEPS", str(cls.max_steps))),
-            max_run_seconds=float(os.getenv("VIBE_MAX_RUN_SECONDS", "600")),
+            max_run_seconds=float(os.getenv("VIBE_MAX_RUN_SECONDS", "1800")),
             llm_timeout=float(os.getenv("VIBE_LLM_TIMEOUT", "120")),
             llm_retries=int(os.getenv("VIBE_LLM_RETRIES", "1")),
             llm_retry_backoff=float(os.getenv("VIBE_LLM_RETRY_BACKOFF", "0.5")),

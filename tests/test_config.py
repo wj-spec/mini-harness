@@ -113,7 +113,7 @@ def test_runtime_count_limits_are_disabled_by_default(monkeypatch):
         assert not hasattr(config, "max_tool_calls")
         assert not hasattr(config, "max_repeats")
         assert config.max_run_tokens == 0
-        assert config.max_run_seconds == 600.0
+        assert config.max_run_seconds == 1800.0
 
 
 def test_removed_tool_count_env_is_ignored(monkeypatch):

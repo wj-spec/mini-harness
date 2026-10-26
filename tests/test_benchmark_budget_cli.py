@@ -192,3 +192,13 @@ def test_benchmark_keeps_a_one_million_default_when_no_budget_is_configured(monk
 
     budget = json.loads(capsys.readouterr().out)["budget"]
     assert budget["max_run_tokens"] == 1_000_000
+
+
+def test_benchmark_keeps_a_ten_minute_default_when_no_time_budget_is_configured(monkeypatch, capsys):
+    monkeypatch.delenv("VIBE_MAX_RUN_SECONDS", raising=False)
+    monkeypatch.setattr(benchmark, "docker_ready", lambda host: False)
+
+    assert benchmark.main(["doctor"]) == 0
+
+    budget = json.loads(capsys.readouterr().out)["budget"]
+    assert budget["max_run_seconds"] == 600.0
