@@ -1185,3 +1185,27 @@ test('a goal is saved in the session and restored as paused after restart', asyn
     await rm(dir, {recursive: true, force: true});
   }
 });
+
+test('edits, tags and disables a user preference', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'user-profile-edit-'));
+  const file = path.join(directory, 'user-profile.json');
+  type Stored = {version: number; entries: {text: string; status: string; triggers?: string[]}[]};
+  try {
+    const {stdin} = await mount(undefined, undefined, {columns: 100, rows: 30}, undefined, file);
+    await enter(stdin, '/about add 回答先给结论');
+    await pause(20);
+    await enter(stdin, '/about triggers 1 解释,说明');
+    await pause(20);
+    await enter(stdin, '/about edit 1 解释代码时先给结论');
+    await pause(20);
+    await enter(stdin, '/about disable 1');
+    await pause(20);
+    const payload = JSON.parse(await readFile(file, 'utf8')) as Stored;
+    assert.equal(payload.version, 2);
+    assert.equal(payload.entries[0]?.text, '解释代码时先给结论');
+    assert.deepEqual(payload.entries[0]?.triggers, ['解释', '说明']);
+    assert.equal(payload.entries[0]?.status, 'stale');
+  } finally {
+    await rm(directory, {recursive: true, force: true});
+  }
+});

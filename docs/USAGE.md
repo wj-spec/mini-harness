@@ -121,7 +121,7 @@ VIBE_MODEL=qwen2.5-coder:7b \
 - `/followup <内容>`：运行中排队为后续消息，本轮结束后自动继续；空闲时等同直接发送；
 - `/copy`：复制当前可见内容（工具详情优先，其次审批预览，否则最近一条 Agent 回复）；拖选后的文本也会在松开时自动复制；
 - `/project`：查看当前项目的背景条目与来源；`/project add <文本>` 添加，`/project remove <序号>` 删除，`/project source <序号> <来源>` 改来源；
-- `/about`：查看个人偏好与来源；`/about add` 已确认偏好、`/about propose` 待确认观察、`/about confirm/remove/on/off` 管理；
+- `/about`：查看个人偏好与来源；`/about add/propose` 新增/观察，`/about edit` 修改文本，`/about triggers` 设置相关性触发词，`/about confirm/disable/enable/remove/on/off` 管理；
 - `/permissions`：查看当前工作区授权；`/permissions reset` 撤销本进程授权；
 - 写文件或执行命令会弹审批：`y/a` once、`s` session、`n/d` deny。
 
@@ -147,7 +147,7 @@ python3 scripts/bench_local.py --tasks recall-guard --timeout 600
 
 ## 个人偏好（W5）
 
-用户级文件默认 `~/.vibe/user-profile.json`（可用 `VIBE_USER_PROFILE` 覆盖）。只有 `status: confirmed` 且整体 `enabled: true` 的条目会注入，并且只注入用户会话；测试/基准会话不加载。当前明确指令优先于历史偏好，项目规则与审批约束优先于个人偏好。每次任务前重读，`/about` 的增删/停用下一次任务生效。
+用户级文件默认 `~/.vibe/user-profile.json`（可用 `VIBE_USER_PROFILE` 覆盖）。v2 条目带来源、触发词、置信度与时间；只有 `confirmed`、未过期且与当前任务相关的条目会注入（最多 3 条 / 800 字符），无触发词的旧条目按通用偏好兼容注入。只注入用户会话；测试/基准会话不加载。当前明确指令优先于历史偏好，项目规则与审批约束优先于个人偏好。每次任务前重读，`/about` 的增删/停用下一次任务生效。
 
 ```bash
 /about                                   # 查看状态、条目与来源

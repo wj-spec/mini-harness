@@ -63,7 +63,7 @@ Ctrl+C 取消任务或 MCP 初始化，空闲时退出；Ctrl+Q 退出。
   /followup TEXT                运行中排队为后续消息，结束后自动继续
   /copy                         复制最近回复、工具详情或审批预览（Ctrl+Y）
   /project                     查看项目背景；/project add 文本、/project remove 序号、/project source 序号 来源
-  /about                       查看个人偏好；/about add/propose/confirm/remove/on/off
+  /about                       查看个人偏好；/about add/propose/edit/triggers/confirm/disable/enable/remove/on/off
   /theme system|light|dark       切换主题
   /quit 或 /exit                 退出工作台
 

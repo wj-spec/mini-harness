@@ -1,55 +1,79 @@
-# W5：关于你——个人偏好
+# W5/P1：用户偏好与画像条目
 
-日期：2026-10-23。状态：MVP 实现完成；真实使用验收待做。
+日期：2026-10-26。状态：P1 Profile v2 + 相关性注入实现完成；W6 v2 真实对照待跑，画像/长期记忆未实现。
 
 ## 目标
 
-提供一个用户级、可查看、可确认/修正/停用/删除的个人偏好入口；只有**用户已确认**且**启用**的条目进入新任务，项目规则与当前明确指令优先。
+提供用户级、可查看、可确认/修正/停用/删除的个人偏好入口；只有**已确认、未过期且与当前任务相关**的条目进入新任务。项目规则、安全/审批约束和当前明确指令优先。
 
-边界：W5 不自动从聊天提取画像；先显式确认，验证价值后再考虑观察与提议机制。项目事实在 W4，个人偏好在 W5，二者分开管理。
+边界：
+- 不自动从聊天提取并生效；观察只以 `proposed` 保存，永不自动注入；
+- W4 项目背景独立管理；本文件只存个人偏好/画像候选；
+- 不引入向量库/知识图谱；当前是结构化 JSON + 标签匹配。
 
 ## 存储
 
-- 默认路径：`~/.vibe/user-profile.json`；可用 `VIBE_USER_PROFILE` 覆盖（Ink 与 Python 后端读取同一环境变量）。
-- 格式：
+- 默认：`~/.vibe/user-profile.json`；`VIBE_USER_PROFILE` 可覆盖（Ink 与 Python 后端共用）。
+- v2 格式：
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "enabled": true,
   "entries": [
-    {"text": "回答先给结论，再给细节", "source": "user", "status": "confirmed"},
-    {"text": "可能偏好简短回复", "source": "observation", "status": "proposed"}
+    {
+      "id": "pref-...",
+      "kind": "preference",
+      "text": "解释代码时先给结论，再给细节",
+      "scope": "workflow",
+      "triggers": ["解释", "说明"],
+      "source": "user",
+      "evidence": [],
+      "status": "confirmed",
+      "confidence": 0.9,
+      "created_at": "2026-10-26T00:00:00Z",
+      "updated_at": "2026-10-26T00:00:00Z",
+      "last_confirmed_at": "2026-10-26T00:00:00Z",
+      "expires_at": ""
+    }
   ]
 }
 ```
 
-- `status`: `confirmed`（用户已确认，会注入）或 `proposed`（待确认观察，不注入）。
-- 损坏、版本不匹配或缺失时按空偏好处理，不阻塞任务。
+- `status`: `confirmed`（已确认，可注入）、`proposed`（待确认观察，不注入）、`stale`（已停用/冲突，不注入）。
+- `triggers`：任务文本匹配词；有 triggers 的条目只在命中时注入，无 triggers 的旧条目按“通用偏好”兼容注入。
+- 损坏、未知版本、非法字段按空/默认降级，不阻塞任务；v1 自动迁移并保留 confirmed 状态。
+- 过期条目在读取时过滤，不依赖后台清理。
 
 ## 注入
 
-- stdio 后端在**每次 run 前**读取；仅当会话 purpose 为 `user` 且 `enabled=true` 时，把已确认条目作为独立 `[USER PROFILE]` system 段注入（逐条带来源，最多 3000 字符）。
-- 测试/基准会话（`--test-session`、fake provider 会话）不注入，避免污染对照和泄露画像。
-- 当前明确指令优先于历史偏好；项目规则、安全与审批约束优先于个人偏好。
+- stdio 在每次 run 前读取，仅用户会话且 `enabled=true`；
+- 先过滤 `confirmed` 与未过期，再用 `select_user_preferences` 按 triggers 匹配当前 task：
+  - 命中条目优先；最多 **3 条 / 800 字符**；
+  - 无 triggers 的旧条目作为兼容兜底，但相关命中条目优先；
+  - 测试/基准会话不注入；
+- 独立 `[USER PROFILE]` system 段，逐条带来源；不改变权限、项目规则和当前指令的优先级。
 
 ## 管理（Ink）
 
-- `/about`：查看启用状态与条目（`[已确认]` / `[待确认]`、来源）；
-- `/about add <文本>`：添加已确认偏好（来源 user）；
-- `/about propose <文本>`：记录待确认观察（来源 observation，不注入）；
-- `/about confirm <序号>`：把待确认观察转为已确认；
-- `/about remove <序号>`：删除；
-- `/about on|off`：启用/停用全部个人偏好。
+- `/about`：查看状态与条目；显示 `[已确认]/[待确认]/[已停用]`、来源、触发词；
+- `/about add <文本>` / `/about propose <文本>`：确认偏好 / 待确认观察；
+- `/about edit <序号> <文本>`：修改文本；
+- `/about triggers <序号> <词1,词2|->`：设置/清除触发词；
+- `/about confirm|disable|enable <序号>`：确认、停用、重新启用单条；
+- `/about remove <序号>` / `/about on|off`：删除单条 / 启停全部；
+- 下一次任务前重读，修改即时生效。
 
 ## 验收
 
-1. 新增“回答先给结论”等偏好，新会话任务中实际体现；
-2. `/about propose` 的待确认观察不注入，`confirm` 后新会话生效；
-3. `/about off` 后新会话不再使用；`remove` 后不再出现；
-4. 项目规则与审批约束不被个人偏好覆盖（例如仍要求审批）；
-5. 记录哪些重复说明/纠正因偏好而减少（W6 做三组对照）。
+1. v1 profile 升级后 confirmed 条目不丢失，旧行为不阻塞；
+2. 有 triggers 的条目只在相关任务注入；无关条目不进入 system；
+3. 无 triggers 的旧条目仍兼容注入；
+4. `/about edit/triggers/disable` 落盘后下一次任务生效；
+5. 过期条目不再注入；损坏文件不阻塞；
+6. 项目规则、审批边界与当前指令不被偏好覆盖；
+7. W6 v2 多次运行验证重复说明/纠正是否减少（P0）。
 
 ## 非目标
 
-自动从对话推断并持久化、跨用户共享、替代项目背景、替代当前指令。
+自动写入并注入画像、向量/图谱检索、跨用户共享、替代项目背景、替代 AGENTS.md/当前指令。

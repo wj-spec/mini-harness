@@ -24,7 +24,7 @@ test('user profile round-trips confirmed and proposed entries', async () => {
       ['可能偏好简短回复', 'observation', 'proposed'],
     ]);
     const payload = JSON.parse(await readFile(file, 'utf8')) as {version: number; enabled: boolean};
-    assert.equal(payload.version, 1);
+    assert.equal(payload.version, 2);
     assert.equal(payload.enabled, true);
   } finally {
     await rm(directory, {recursive: true, force: true});
@@ -37,8 +37,10 @@ test('broken or wrong-version user profiles are empty and enabled', async () => 
   try {
     await writeFile(file, 'not json', 'utf8');
     assert.deepEqual(loadUserProfile(file), {enabled: true, entries: []});
-    await writeFile(file, JSON.stringify({version: 2, enabled: false, entries: []}), 'utf8');
+    await writeFile(file, JSON.stringify({version: 99, enabled: false, entries: []}), 'utf8');
     assert.deepEqual(loadUserProfile(file), {enabled: true, entries: []});
+    await writeFile(file, JSON.stringify({version: 2, enabled: false, entries: []}) + '\n', 'utf8');
+    assert.deepEqual(loadUserProfile(file), {enabled: false, entries: []});
   } finally {
     await rm(directory, {recursive: true, force: true});
   }
@@ -52,5 +54,26 @@ test('default user profile path honors VIBE_USER_PROFILE', () => {
   } finally {
     if (previous === undefined) delete process.env.VIBE_USER_PROFILE;
     else process.env.VIBE_USER_PROFILE = previous;
+  }
+});
+
+
+test('user profile v2 round-trips triggers, status and metadata', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'user-profile-'));
+  const file = path.join(directory, 'user-profile.json');
+  try {
+    saveUserProfile(file, {enabled: true, entries: [{
+      text: '解释代码时先给结论', source: 'user', status: 'confirmed',
+      id: 'pref-1', kind: 'preference', scope: 'workflow', triggers: ['解释', '说明'],
+      confidence: 0.9, created_at: '2026-10-26T00:00:00Z', updated_at: '2026-10-26T00:00:00Z',
+      last_confirmed_at: '2026-10-26T00:00:00Z',
+    }]});
+    const loaded = loadUserProfile(file);
+    assert.equal(loaded.entries[0]?.id, 'pref-1');
+    assert.deepEqual(loaded.entries[0]?.triggers, ['解释', '说明']);
+    assert.equal(loaded.entries[0]?.scope, 'workflow');
+    assert.equal(loaded.entries[0]?.last_confirmed_at, '2026-10-26T00:00:00Z');
+  } finally {
+    await rm(directory, {recursive: true, force: true});
   }
 });

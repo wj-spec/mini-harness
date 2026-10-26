@@ -435,11 +435,21 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
     const file = aboutFile();
     const profile = loadUserProfile(file);
     const rest = argument.trim();
+    const now = new Date().toISOString();
+    const newId = () => `pref-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const statusLabel = (status: string) => status === 'confirmed' ? '已确认' : status === 'proposed' ? '待确认' : '已停用';
+    const saveEntries = (entries: UserPreference[]) => saveUserProfile(file, {...profile, entries});
+    const indexOf = (value: string) => {
+      const index = Number(value);
+      return Number.isInteger(index) && index >= 1 && index <= profile.entries.length ? index : null;
+    };
     if (!rest) {
       const stateText = profile.enabled ? '已启用' : '已停用';
       if (!profile.entries.length) {announce(`关于你（${stateText}）：暂无条目。用 /about add <文本> 添加，/about propose <文本> 记录待确认观察`); return;}
-      const lines = profile.entries.map((entry, index) =>
-        `${index + 1}. [${entry.status === 'confirmed' ? '已确认' : '待确认'}] ${entry.text}（来源：${entry.source}）`);
+      const lines = profile.entries.map((entry, index) => {
+        const triggers = entry.triggers?.length ? `；触发：${entry.triggers.join(',')}` : '';
+        return `${index + 1}. [${statusLabel(entry.status)}] ${entry.text}（来源：${entry.source}${triggers}）`;
+      });
       announce(`关于你（${stateText}，${profile.entries.length} 条）：\n${lines.join('\n')}`);
       return;
     }
@@ -452,29 +462,69 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       const proposed = rest.startsWith('propose ');
       const text = rest.slice(proposed ? 8 : 4).trim();
       if (!text) {announce(`用法：/about ${proposed ? 'propose' : 'add'} <文本>`); return;}
-      const entry: UserPreference = {text, source: proposed ? 'observation' : 'user', status: proposed ? 'proposed' : 'confirmed', updated_at: new Date().toISOString()};
-      saveUserProfile(file, {...profile, entries: [...profile.entries, entry]});
+      const entry: UserPreference = {
+        text, source: proposed ? 'observation' : 'user', status: proposed ? 'proposed' : 'confirmed',
+        id: newId(), kind: 'preference', scope: 'global', triggers: [],
+        confidence: proposed ? 0.5 : 1.0, created_at: now, updated_at: now,
+        ...(proposed ? {} : {last_confirmed_at: now}),
+      };
+      saveEntries([...profile.entries, entry]);
       announce(`${proposed ? '已记录待确认观察' : '已添加已确认偏好'}：${text}`);
       return;
     }
+    if (rest.startsWith('edit ')) {
+      const match = /^edit\s+(\d+)\s+(.+)$/s.exec(rest);
+      const index = match ? indexOf(match[1]!) : null;
+      if (index === null) {announce(`用法：/about edit <1-${profile.entries.length}> <新文本>`); return;}
+      const text = match![2]!.trim();
+      if (!text) {announce('新文本不能为空'); return;}
+      saveEntries(profile.entries.map((entry, position) => position === index - 1 ? {...entry, text, updated_at: now} : entry));
+      announce(`已修改第 ${index} 条偏好；新任务生效`);
+      return;
+    }
+    if (rest.startsWith('triggers ')) {
+      const match = /^triggers\s+(\d+)\s+(.+)$/s.exec(rest);
+      const index = match ? indexOf(match[1]!) : null;
+      if (index === null) {announce(`用法：/about triggers <1-${profile.entries.length}> <词1,词2|->`); return;}
+      const raw = match![2]!.trim();
+      const triggers = raw === '-' ? [] : raw.split(/[,，\s]+/u).map(item => item.trim()).filter(Boolean).slice(0, 20);
+      saveEntries(profile.entries.map((entry, position) => position === index - 1 ? {...entry, triggers, updated_at: now} : entry));
+      announce(triggers.length ? `已设置第 ${index} 条触发词：${triggers.join(', ')}` : `已清除第 ${index} 条触发词（作为通用偏好）`);
+      return;
+    }
+    if (rest.startsWith('disable ') || rest.startsWith('enable ')) {
+      const disable = rest.startsWith('disable ');
+      const rawIndex = rest.slice(disable ? 8 : 7).trim();
+      const index = indexOf(rawIndex);
+      if (index === null) {announce(`用法：/about ${disable ? 'disable' : 'enable'} <1-${profile.entries.length}>`); return;}
+      saveEntries(profile.entries.map((entry, position) => position === index - 1 ? {
+        ...entry, status: disable ? 'stale' : 'confirmed', updated_at: now,
+        ...(disable ? {} : {last_confirmed_at: now}),
+      } : entry));
+      announce(`已${disable ? '停用' : '启用'}第 ${index} 条偏好；新任务生效`);
+      return;
+    }
     if (rest.startsWith('confirm ')) {
-      const index = Number(rest.slice(8).trim());
-      if (!Number.isInteger(index) || index < 1 || index > profile.entries.length) {announce(`用法：/about confirm <1-${profile.entries.length}>`); return;}
-      const entries = profile.entries.map((entry, position) => position === index - 1 ? {...entry, status: 'confirmed' as const} : entry);
-      saveUserProfile(file, {...profile, entries});
+      const index = indexOf(rest.slice(8).trim());
+      if (index === null) {announce(`用法：/about confirm <1-${profile.entries.length}>`); return;}
+      const entries = profile.entries.map((entry, position) => position === index - 1 ? {
+        ...entry, status: 'confirmed' as const, last_confirmed_at: now, updated_at: now,
+      } : entry);
+      saveEntries(entries);
       announce(`已确认第 ${index} 条偏好，将在下一次任务生效`);
       return;
     }
     if (rest.startsWith('remove ')) {
-      const index = Number(rest.slice(7).trim());
-      if (!Number.isInteger(index) || index < 1 || index > profile.entries.length) {announce(`用法：/about remove <1-${profile.entries.length}>`); return;}
+      const index = indexOf(rest.slice(7).trim());
+      if (index === null) {announce(`用法：/about remove <1-${profile.entries.length}>`); return;}
       const removed = profile.entries[index - 1];
-      saveUserProfile(file, {...profile, entries: profile.entries.filter((_, position) => position !== index - 1)});
+      saveEntries(profile.entries.filter((_, position) => position !== index - 1));
       announce(`已删除偏好：${removed?.text ?? ''}`);
       return;
     }
-    announce('用法：/about；/about add <文本>；/about propose <文本>；/about confirm <序号>；/about remove <序号>；/about on|off');
+    announce('用法：/about；/about add|propose <文本>；/about edit <序号> <文本>；/about triggers <序号> <词1,词2|->；/about confirm|disable|enable <序号>；/about remove <序号>；/about on|off');
   };
+
   const copyCurrent = () => {
     const target = copyTarget();
     if (!target) {announce('没有可复制的 Agent 回复'); return;}
@@ -561,7 +611,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
     if (text === '/goal' || text.startsWith('/goal ')) {setInput(''); handleGoalCommand(text.slice('/goal'.length).trim()); return;}
     if (text === '/help') {
       setInput('');
-      notice('Enter 发送（运行中提交纠偏，下一次模型请求生效）；Ctrl+J 换行；输入焦点下 ↑↓ 编辑或浏览输入历史。滚轮 / 触控板在对话区回看；PgUp/PgDn 翻页，Ctrl+P/N 或 Ctrl+↑/↓ 逐行。Ctrl+R 切换阅读 / 输入焦点，阅读时 ↑↓ 滚动、空格下一页，Esc 回输入。Ctrl+Home/End 到首尾，End 恢复跟随最新；鼠标在对话区拖选，松开即复制所选文本。Tab 选择工具，Ctrl+O 查看全文。Ctrl+K 或 /context 查看上下文分区，←/→ 回放本轮快照，l 跟随最新，Esc 返回。Ctrl+Y 或 /copy 复制最近回复、工具详情或审批预览；Ctrl+G 或 /sidebar 打开右侧 Git 变更侧栏（Ghostty；Terminal 为独立窗口）；/sidebar window 独立窗口；/project 查看项目背景（add/remove/source）；/about 查看个人偏好（add/propose/confirm/remove/on/off）；Ctrl+C 取消当前操作，空闲时退出；Ctrl+Q 退出。审批时 y 单次、s 精确规则、p 工作区、n 拒绝，以面板选项为准。\n/goal <目标> 目标模式（长任务自动续段，/goal stop 停止，/goal resume 恢复）；/resume 显式续做已保存任务；/permissions 查看授权，/permissions reset 撤销；/cost 会话花费；/tools 可用工具；/diff 工作区差异；/mcp 服务状态；/skills 技能菜单（↑↓ 选择，Tab 补全，Enter 执行；refresh 重扫，activate NAME 激活，unload NAME 卸载）；/followup TEXT 排队后续消息，本轮结束后自动继续；/session 会话路径；/sidebar 在窗口内右侧分屏（跟随窗口尺寸）；/sidebar quick 屏幕右侧 quick terminal（不挤占 TUI）；/sidebar setup 写入 Ghostty 右侧配置；/theme system|light|dark 主题。');
+      notice('Enter 发送（运行中提交纠偏，下一次模型请求生效）；Ctrl+J 换行；输入焦点下 ↑↓ 编辑或浏览输入历史。滚轮 / 触控板在对话区回看；PgUp/PgDn 翻页，Ctrl+P/N 或 Ctrl+↑/↓ 逐行。Ctrl+R 切换阅读 / 输入焦点，阅读时 ↑↓ 滚动、空格下一页，Esc 回输入。Ctrl+Home/End 到首尾，End 恢复跟随最新；鼠标在对话区拖选，松开即复制所选文本。Tab 选择工具，Ctrl+O 查看全文。Ctrl+K 或 /context 查看上下文分区，←/→ 回放本轮快照，l 跟随最新，Esc 返回。Ctrl+Y 或 /copy 复制最近回复、工具详情或审批预览；Ctrl+G 或 /sidebar 打开右侧 Git 变更侧栏（Ghostty；Terminal 为独立窗口）；/sidebar window 独立窗口；/project 查看项目背景（add/remove/source）；/about 查看个人偏好（add/propose/edit/triggers/confirm/disable/enable/remove/on/off）；Ctrl+C 取消当前操作，空闲时退出；Ctrl+Q 退出。审批时 y 单次、s 精确规则、p 工作区、n 拒绝，以面板选项为准。\n/goal <目标> 目标模式（长任务自动续段，/goal stop 停止，/goal resume 恢复）；/resume 显式续做已保存任务；/permissions 查看授权，/permissions reset 撤销；/cost 会话花费；/tools 可用工具；/diff 工作区差异；/mcp 服务状态；/skills 技能菜单（↑↓ 选择，Tab 补全，Enter 执行；refresh 重扫，activate NAME 激活，unload NAME 卸载）；/followup TEXT 排队后续消息，本轮结束后自动继续；/session 会话路径；/sidebar 在窗口内右侧分屏（跟随窗口尺寸）；/sidebar quick 屏幕右侧 quick terminal（不挤占 TUI）；/sidebar setup 写入 Ghostty 右侧配置；/theme system|light|dark 主题。');
       return;
     }
     if (text.startsWith('/theme')) {

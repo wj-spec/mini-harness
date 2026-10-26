@@ -14,7 +14,7 @@ from dataclasses import asdict, replace
 from app.agent import Agent, AgentResult
 from app.config import Config
 from app.project_profile import load_project_background
-from app.user_profile import load_user_profile
+from app.user_profile import load_user_profile, select_user_preferences
 from app.context_snapshot_display import snapshot_for_display
 from app.mcp import McpManager
 from app.policy import ApprovalDecision, ApprovalGate
@@ -397,7 +397,7 @@ class _Connection:
                 [entry for entry in user_profile.entries if entry.status == "confirmed"]
                 if user_profile.enabled and self.session.purpose == "user" else []
             )
-            self.agent.set_user_background(user_entries)
+            self.agent.set_user_background(select_user_preferences(user_entries, text))
             publish_metrics()
             result = await self.agent.run(
                 text,
