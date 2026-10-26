@@ -92,7 +92,7 @@
   - profile 超过 50 条时优先淘汰低置信/旧的 `proposed`，不自动删除 confirmed；
 - `/about expire <序号> <天数|ISO|->`：设置或清除过期时间；
 - `/about clear proposed|stale`：清理对应状态条目，confirmed 不受影响；
-- `mergeProposals` 将相似 confirmed 保留为带 `conflict:<id>` 证据的 proposed，不自动改写；`/about` 显示“与已确认偏好冲突待确认”，用户可先 disable 旧条再 confirm 新条；
+- `mergeProposals` 将相似 confirmed 保留为带 `conflict:<id>` 证据的 proposed，不自动改写；`/about` 显示“与已确认偏好冲突待确认”，用 `/about resolve <序号>` 一次完成：旧条转 stale、冲突 proposal 转 confirmed；也可手动 disable/confirm；
 - 后台自动清理、confirmed 冲突交互式替换、A-MAC 准入仍待后续。
 
 ## 安全与审计（P4 第一版）

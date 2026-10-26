@@ -1335,3 +1335,24 @@ test('/about reset requires confirmation and removes the profile', async () => {
     await rm(directory, {recursive: true, force: true});
   }
 });
+
+test('/about resolve replaces a conflicted confirmed preference', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'user-profile-resolve-'));
+  const file = path.join(directory, 'user-profile.json');
+  try {
+    await writeFile(file, JSON.stringify({version: 2, enabled: true, entries: [
+      {id: 'pref-old', text: '回答先给结论', source: 'user', status: 'confirmed'},
+      {id: 'pref-new', text: '回答先给结论再给细节', source: 'observation', status: 'proposed', evidence: ['conflict:pref-old']},
+    ]}), 'utf8');
+    const {stdin, lastFrame} = await mount(undefined, undefined, {columns: 100, rows: 30}, undefined, file);
+    await enter(stdin, '/about');
+    await pause(20);
+    assert.match(lastFrame() ?? '', /冲突待确认/u);
+    await enter(stdin, '/about resolve 2');
+    await pause(30);
+    const payload = JSON.parse(await readFile(file, 'utf8')) as {entries: {status: string}[]};
+    assert.deepEqual(payload.entries.map(entry => entry.status), ['stale', 'confirmed']);
+  } finally {
+    await rm(directory, {recursive: true, force: true});
+  }
+});

@@ -57,7 +57,7 @@ W4 项目背景与 W5 用户偏好已完成 MVP 与真实使用验收；W6 三�
 - confirmed 不静默删除；冲突标记 stale 并请求重确认；
 - profile 容量上限（默认 50 条），优先淘汰低置信/未使用的 proposed；
 - 完整删除/导出/清空。
-- 已实现：读取路径清理过期 proposed、confirmed 过期标记 stale、50 条容量淘汰 proposed、`/about expire` 与 `clear proposed|stale`、confirmed 相似冲突跳过并计数；后台清理与导出待后续。
+- 已实现：读取路径清理过期 proposed、confirmed 过期标记 stale、50 条容量淘汰 proposed、`/about expire` 与 `clear proposed|stale`、confirmed 相似冲突保留为冲突 proposal 并支持 `/about resolve` 替换旧条；后台清理待后续，导出/完整擦除已实现。
 
 ### P4：安全与审计（第一版已实现）
 

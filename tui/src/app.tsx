@@ -507,7 +507,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       const lines = profile.entries.map((entry, index) => {
         const triggers = entry.triggers?.length ? `；触发：${entry.triggers.join(',')}` : '';
         const expiry = entry.expires_at ? `；过期：${entry.expires_at.slice(0, 10)}` : '';
-        const conflict = entry.evidence?.some(value => value.startsWith('conflict:')) ? '；与已确认偏好冲突待确认' : '';
+        const conflict = entry.status === 'proposed' && entry.evidence?.some(value => value.startsWith('conflict:')) ? '；与已确认偏好冲突待确认' : '';
         return `${index + 1}. [${statusLabel(entry.status)}] ${entry.text}（来源：${entry.source}${triggers}${expiry}${conflict}）`;
       });
       announce(`关于你（${stateText}，${profile.entries.length} 条）：\n${lines.join('\n')}`);
@@ -596,6 +596,26 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       announce(`已清理 ${before - entries.length} 条 ${target === 'proposed' ? '待确认' : '已停用'}偏好；已确认条目不受影响`);
       return;
     }
+    if (rest.startsWith('resolve ')) {
+      const index = indexOf(rest.slice(8).trim());
+      if (index === null) {announce(`用法：/about resolve <1-${profile.entries.length}>`); return;}
+      const replacement = profile.entries[index - 1];
+      const conflictEvidence = replacement?.status === 'proposed'
+        ? replacement.evidence?.find(value => value.startsWith('conflict:')) : undefined;
+      if (!replacement || !conflictEvidence) {announce('该条不是待处理的冲突 proposal；先 /about observe 或检查条目状态'); return;}
+      const key = conflictEvidence.slice('conflict:'.length);
+      const oldIndex = profile.entries.findIndex((entry, position) =>
+        position !== index - 1 && entry.status !== 'proposed' &&
+        (entry.id === key || entry.text.slice(0, 24) === key || entry.text.startsWith(key)));
+      if (oldIndex < 0) {announce('找不到冲突对应的旧偏好；请用 /about disable 手动处理'); return;}
+      saveEntries(profile.entries.map((entry, position) => {
+        if (position === oldIndex) return {...entry, status: 'stale', updated_at: now};
+        if (position !== index - 1) return entry;
+        return {...entry, status: 'confirmed', last_confirmed_at: now, updated_at: now};
+      }));
+      announce(`已用第 ${index} 条替换冲突旧偏好；旧条目已停用，新条目已确认`);
+      return;
+    }
     if (rest.startsWith('confirm ')) {
       const index = indexOf(rest.slice(8).trim());
       if (index === null) {announce(`用法：/about confirm <1-${profile.entries.length}>`); return;}
@@ -614,7 +634,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       announce(`已删除偏好：${removed?.text ?? ''}`);
       return;
     }
-    announce('用法：/about；/about add|propose <文本>；/about observe 观察本会话；/about export 导出；/about edit <序号> <文本>；/about triggers <序号> <词1,词2|->；/about expire <序号> <天数|ISO|->；/about confirm|disable|enable <序号>；/about clear proposed|stale；/about export；/about reset confirm；/about remove <序号>；/about on|off');
+    announce('用法：/about；/about add|propose <文本>；/about observe 观察本会话；/about export 导出；/about edit <序号> <文本>；/about triggers <序号> <词1,词2|->；/about expire <序号> <天数|ISO|->；/about confirm|disable|enable <序号>；/about clear proposed|stale；/about resolve <序号>；/about export；/about reset confirm；/about remove <序号>；/about on|off');
   };
 
   const copyCurrent = () => {
