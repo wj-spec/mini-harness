@@ -114,7 +114,6 @@ export function welcomeLines(state: ViewState, columns: number): ReadingLine[] {
   if (compact) {
     lines.push(...textLines('▌ 开始一次编码任务', columns, 'heading'));
     lines.push(...textLines('  描述任务、范围与完成条件。', columns));
-    lines.push(...textLines('  Enter 开始 · 输入 / 查看命令', columns));
     lines.push(blank);
     lines.push(...textLines('▌ 从这些开始', columns, 'label'));
     for (const prompt of [

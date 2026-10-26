@@ -91,7 +91,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
   const detailEntry = state.entries.find(entry => entry.id === detail);
   const overlayKey = state.approval ? `approval-${state.approval.id}` : contextOpen ? 'context' : detailEntry ? `tool-${detailEntry.id}` : '';
   const composerRows = rows >= 32 ? 5 : rows >= 18 ? 3 : 1;
-  const headerRows = rows >= 18 ? 3 : 2;
+  const headerRows = rows >= 26 && columns >= 96 ? 5 : rows >= 18 ? 3 : 2;
   const sidebar = columns >= 118 && rows >= 24;
   const readerColumns = sidebar ? columns - 33 : columns;
   const compactRows = !sidebar && rows >= 24 && !overlayKey ? 3 : 0;

@@ -65,27 +65,46 @@ export function AgentHeader({state, columns, height = 3, palette}: {
   const spinning = state.phase === 'running' || state.phase === 'starting' || state.phase === 'stopping';
   const spinner = useSpinner(spinning);
   const statusText = spinning ? `◀ ${spinner} ${status.label} ▶` : `◀ ${status.label} ▶`;
-  const showMark = columns >= 60 && height >= 3;
-  const markWidth = showMark ? 5 : 0;
-  const contentColumns = Math.max(1, columns - markWidth);
+  const wideMark = height >= 5 && columns >= 80;
+  const compactMark = !wideMark && height >= 3 && columns >= 60;
+  const mark = wideMark ? [
+    '   ▄   ',
+    '  ▐█▌  ',
+    ' ▟▀▀▀▙ ',
+    ' █◉ ◉█ ',
+    ' ▜▄▄▄▛ ',
+  ] : compactMark ? [
+    '▗▄▄▄▖',
+    '▐◉ ◉▌',
+    '▝▀▀▀▘',
+  ] : null;
+  const markWidth = mark ? Math.max(...mark.map(line => stringWidth(line))) : 0;
+  const markBox = mark ? markWidth + 2 : 0;
+  const contentColumns = Math.max(1, columns - markBox);
   const showStatus = contentColumns >= 50;
   const statusWidth = showStatus ? Math.min(stringWidth(statusText), Math.max(14, contentColumns - 24)) : 0;
   const titleWidth = Math.max(1, contentColumns - (showStatus ? statusWidth + 1 : 0));
   const title = state.sessionPurpose === 'test' ? '测试会话 · mini-harness' : contentColumns >= 65 ? 'mini-harness / 个人编码工作台' : 'mini-harness';
   const badgeBackground = status.tone === 'warning' || status.tone === 'error' ? palette.surfaces[status.tone] : palette.raised;
+  const workspaceAndModel = `${state.workspace || '工作区待连接'}  ·  ${state.model || '模型待连接'}`;
+  const sessionLine = `会话 ${state.sessionId || '待连接'}${state.resumed ? ' · 已恢复' : ''}  |  ${state.provider || 'provider 待连接'}`;
+  const details = height >= 5 ? [
+    '先读后写 · 每一步都有证据',
+    `工作区 ${state.workspace || '待连接'}`,
+    `模型 ${state.model || '待连接'} · ${state.provider || 'provider 待连接'}`,
+    sessionLine,
+  ] : height > 2 ? [workspaceAndModel, sessionLine] : height > 1 ? [workspaceAndModel] : [];
   return <Box width={columns} height={height} backgroundColor={palette.background} flexDirection="row" flexShrink={0} overflow="hidden">
-    {showMark ? <Box width={markWidth} height={height} flexDirection="column" flexShrink={0}>
-      <Text bold color={palette.accent}>▗▄▖</Text>
-      <Text bold color={palette.accent}>▐◉▌</Text>
-      <Text bold color={palette.accent}>▝▀▘</Text>
+    {mark ? <Box width={markBox} height={height} flexDirection="column" flexShrink={0}>
+      {mark.map((line, index) => <Text key={index} bold color={palette.accent}>{line}</Text>)}
     </Box> : null}
     <Box width={contentColumns} height={height} flexDirection="column" flexShrink={0} overflow="hidden">
       <Box height={1} width={contentColumns} flexShrink={0}>
         <Box width={titleWidth}><Text bold color={palette.accent}>{fitText(title, titleWidth)}</Text></Box>
         {showStatus ? <Box width={statusWidth + 1} justifyContent="flex-end"><Text bold color={palette[status.tone]} backgroundColor={badgeBackground}>{fitText(statusText, statusWidth)}</Text></Box> : null}
       </Box>
-      {height > 1 ? <Text color={palette.secondary}>{fitText(`${state.workspace || '工作区待连接'}  ·  ${state.model || '模型待连接'}`, contentColumns, true)}</Text> : null}
-      {height > 2 ? <Text color={palette.secondary}>{fitText(`会话 ${state.sessionId || '待连接'}${state.resumed ? ' · 已恢复' : ''}  |  ${state.provider || 'provider 待连接'}`, contentColumns)}</Text> : null}
+      {details.slice(0, Math.max(0, height - 1)).map((line, index) =>
+        <Text key={index} color={palette.secondary}>{fitText(line, contentColumns, index === 0 && height >= 5)}</Text>)}
     </Box>
   </Box>;
 }
