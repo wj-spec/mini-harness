@@ -149,3 +149,35 @@ def test_zero_threshold_disables_progress_guard():
     monitor = ProgressMonitor(threshold=0)
     for _ in range(10):
         assert monitor.observe(call(path="missing"), False, "ERROR denied_by_user").action == "continue"
+
+
+def test_same_file_reads_with_changing_ranges_are_capped():
+    monitor = ProgressMonitor(threshold=2, max_reads_per_file=3, max_warnings=2)
+    actions = []
+    for index in range(10):
+        decision = monitor.observe(call(path="large.py", start=index + 1, end=index + 10), True, f"slice {index}")
+        actions.append(decision.action)
+        if index >= 3:
+            assert decision.reason == "repeated_read"
+    assert actions[:4] == ["continue", "continue", "continue", "continue"]
+    assert "warn" in actions and "stop" in actions
+
+
+def test_mutation_resets_repeated_read_budget():
+    monitor = ProgressMonitor(threshold=2, max_reads_per_file=2)
+    assert monitor.observe(call(path="a.py"), True, "content").action == "continue"
+    assert monitor.observe(call(path="a.py", start=2), True, "content").action == "continue"
+    assert monitor.observe(call(path="a.py", start=3), True, "content").action == "continue"
+    assert monitor.observe(call("edit_file", path="a.py", old="a", new="b"), True, "edited").action == "continue"
+    assert monitor.observe(call(path="a.py"), True, "new content").action == "continue"
+
+
+def test_warning_budget_stops_after_repeated_stall_cycles():
+    monitor = ProgressMonitor(threshold=1, max_warnings=2)
+    for index, path in enumerate(["a.py", "b.py", "c.py"]):
+        monitor.observe(call(path=path), True, f"content {index}")
+        decision = monitor.observe(call(path=path), True, f"content {index}")
+        if index < 2:
+            assert decision.action == "warn"
+        else:
+            assert decision.action == "stop"

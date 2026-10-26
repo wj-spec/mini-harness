@@ -220,6 +220,8 @@ class Agent:
         llm_retry_backoff: float = 0.5,
         max_continuations: int = 2,
         max_no_progress: int = 2,
+        max_reads_per_file: int = 5,
+        max_progress_warnings: int = 4,
         max_run_tokens: int = 0,
         compact_interval_tokens: int = 200_000,
         max_run_cost_usd: float = 0.0,
@@ -250,6 +252,8 @@ class Agent:
         self.llm_retry_backoff = llm_retry_backoff
         self.max_continuations = max_continuations
         self.max_no_progress = max_no_progress
+        self.max_reads_per_file = max_reads_per_file
+        self.max_progress_warnings = max_progress_warnings
         self.max_run_tokens = max_run_tokens
         self.compact_interval_tokens = max(0, compact_interval_tokens)
         self.max_run_cost_usd = max_run_cost_usd
@@ -533,7 +537,10 @@ class Agent:
             raw_history=raw_history,
         )
         self._budget_update(run, "running")
-        run.progress = ProgressMonitor(self.max_no_progress)
+        run.progress = ProgressMonitor(
+            self.max_no_progress, max_reads_per_file=self.max_reads_per_file,
+            max_warnings=self.max_progress_warnings,
+        )
         run.started = time.monotonic()
         self._active_steering = run.pending_steering
         try:

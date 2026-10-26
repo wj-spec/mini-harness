@@ -45,3 +45,15 @@
 使用本地 Fake 验证，不调用真实模型或修改原会话。真实编码任务仍需使用验收。
 
 2026-10-20：完整回归 **299 项通过**；fake CLI 启动、对话和退出通过，核对默认无工具次数限制、max_steps=0、任务总预算仍为 1M。60 次不同调用可完成；变化结果可继续；持续停滞先纠偏、再仅一次无工具收尾；用户拒绝与批次尾部不执行，所有调用配对；降级压缩期间取消后不新增模型请求。运行产物仅在 `.vibe/smoke-progress/`，原真实会话未修改。
+
+
+## 2026-10-26 加固：重复读取与停滞警告预算
+
+在原有“同参数结果重复/失败/仅更新计划”检测上补两类 harness 级护栏：
+
+- **同一文件重复读取**：`read_file` 的 `path` 在两次成功修改（`write_file` / `edit_file` / `apply_patch`）之间累计读取超过 `max_reads_per_file`（默认 5）次，按 `repeated_read` 停滞处理。不同文件读取不受影响，修改成功后计数清零。
+- **停滞警告预算**：`ProgressMonitor` 累计 `max_warnings`（默认 4）次停滞警告后直接 `stop`，即使中途出现新结果；避免“读一下新文件 → 再回到旧循环”的交替空转。
+- 两者通过 `Config.max_reads_per_file` / `Config.max_progress_warnings` 暴露，对应 `VIBE_MAX_READS_PER_FILE` / `VIBE_MAX_PROGRESS_WARNINGS`，由 Ink、`run` 与 benchmark 共用。
+- 仍保留原有停止边界：工具错误、审批拒绝、context_window、`max_run_seconds`、取消与错误；本轮不改变预算默认值。
+
+测试：`tests/test_progress.py` 新增同文件不同范围读取、修改后重置、累计警告停止；`tests/test_config.py` 覆盖默认与 env；全量 Python 收集 921 项退出 0；TUI 305 项、304 通过（唯一失败为沙箱无 PTY 的既有项）。

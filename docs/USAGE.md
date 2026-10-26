@@ -458,13 +458,14 @@ Agent 从常驻目录判断哪些技能与当前工作有关，调用 `load_skil
 - LLM 流超时 + 瞬时错误重试：429/5xx/网络错误，指数退避；无输出才重试。
 - `finish_reason=length` 且无工具调用：自动注入 continuation，最多 `max_continuations` 次。
 - 无进展检测：比较实际返回证据，区分新结果、重复结果、连续失败和仅更新计划。默认连续 2 次停滞先提示换方法，再连续 2 次停滞才停止工具，进行一次无工具收尾并保存 `no_progress` 原因。新有效结果会解除纠偏阶段；相同参数但结果变化可以继续。
+- 额外防止“反复读文件”：同一 `read_file` 路径在两次成功写操作之间读取超过 `VIBE_MAX_READS_PER_FILE`（默认 5）次会按停滞处理；每轮累计超过 `VIBE_MAX_PROGRESS_WARNINGS`（默认 4）次停滞警告后直接停止，即使中途夹有新结果。
 - 单次 run 累计预算：`max_run_tokens`（交互默认 0=不限，评测/基准默认 1M）、`max_run_cost_usd`；自动压缩周期 `compact_interval_tokens`（默认 200k）独立计算。
 - 只读工具 timeout 重试；写/执行不重试。
 - 写前新鲜度：读过之后文件被改，`edit_file/write_file` 拒绝，要求 re-read。
 - vibe prompt：先读后改、优先 `edit_file`、改完跑测试、不谎报测试通过。
 - 工作台 `/diff`：看当前 git diff，不发给模型。
 
-可调：`VIBE_LLM_TIMEOUT`、`VIBE_LLM_RETRIES`、`VIBE_LLM_RETRY_BACKOFF`、`VIBE_MAX_CONTINUATIONS`、`VIBE_MAX_NO_PROGRESS`、`VIBE_MAX_RUN_TOKENS`、`VIBE_COMPACT_INTERVAL_TOKENS`、`VIBE_MAX_RUN_COST_USD`、`VIBE_TOOL_RETRIES`。
+可调：`VIBE_LLM_TIMEOUT`、`VIBE_LLM_RETRIES`、`VIBE_LLM_RETRY_BACKOFF`、`VIBE_MAX_CONTINUATIONS`、`VIBE_MAX_NO_PROGRESS`、`VIBE_MAX_READS_PER_FILE`、`VIBE_MAX_PROGRESS_WARNINGS`、`VIBE_MAX_RUN_TOKENS`、`VIBE_COMPACT_INTERVAL_TOKENS`、`VIBE_MAX_RUN_COST_USD`、`VIBE_TOOL_RETRIES`。
 
 ## 右侧 Git 变更侧栏（Ghostty / macOS Terminal）
 

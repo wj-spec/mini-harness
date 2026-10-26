@@ -220,6 +220,8 @@ def _run(config, session, tools, approval, provider, context, state, history, ar
         llm_retry_backoff=config.llm_retry_backoff,
         max_continuations=config.max_continuations,
         max_no_progress=config.max_no_progress,
+        max_reads_per_file=config.max_reads_per_file,
+        max_progress_warnings=config.max_progress_warnings,
         max_run_tokens=config.max_run_tokens,
         compact_interval_tokens=config.compact_interval_tokens,
         max_run_cost_usd=config.max_run_cost_usd,
