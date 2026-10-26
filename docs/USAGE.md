@@ -460,13 +460,14 @@ Agent 从常驻目录判断哪些技能与当前工作有关，调用 `load_skil
 - 无进展检测：比较实际返回证据，区分新结果、重复结果、连续失败和仅更新计划。默认连续 2 次停滞先提示换方法，再连续 2 次停滞才停止工具，进行一次无工具收尾并保存 `no_progress` 原因。新有效结果会解除纠偏阶段；相同参数但结果变化可以继续。
 - 额外防止“反复读文件/重复调用”：同一 `read_file` 路径在两次成功写操作之间读取超过 `VIBE_MAX_READS_PER_FILE`（默认 5）次会按停滞处理；同一工具名+参数哈希重复达到 `VIBE_MAX_REPEATED_CALLS`（默认 6）次也会触发 `repeated_call`，即使输出发生变化。每轮累计超过 `VIBE_MAX_PROGRESS_WARNINGS`（默认 4）次停滞警告后直接停止，即使中途夹有新结果。
 - 工具状态引导：报错、超时、重复调用、审批拒绝、只更新计划等会向模型注入针对性的纠偏提示（读错误后改参数、拆分/加大 timeout、换工具或说明阻塞），不会把失败包装成成功。
+- 真实进展（动作任务）：目标被判定为 action 时，连续 `VIBE_MAX_CALLS_WITHOUT_PROGRESS`（默认 20）次工具调用没有**文件内容变化**或**验证结果变化**，会提示模型落到具体修改/验证；再一个窗口仍无进展则按 `no_progress` 停止。纯审查/问答任务不启用该门槛，避免误伤只读调研。
 - 单次 run 累计预算：`max_run_tokens`（交互默认 0=不限，评测/基准默认 1M）、`max_run_cost_usd`；自动压缩周期 `compact_interval_tokens`（默认 200k）独立计算。
 - 只读工具 timeout 重试；写/执行不重试。
 - 写前新鲜度：读过之后文件被改，`edit_file/write_file` 拒绝，要求 re-read。
 - vibe prompt：先读后改、优先 `edit_file`、改完跑测试、不谎报测试通过。
 - 工作台 `/diff`：看当前 git diff，不发给模型。
 
-可调：`VIBE_LLM_TIMEOUT`、`VIBE_LLM_RETRIES`、`VIBE_LLM_RETRY_BACKOFF`、`VIBE_MAX_CONTINUATIONS`、`VIBE_MAX_NO_PROGRESS`、`VIBE_MAX_READS_PER_FILE`、`VIBE_MAX_REPEATED_CALLS`、`VIBE_MAX_PROGRESS_WARNINGS`、`VIBE_MAX_RUN_TOKENS`、`VIBE_COMPACT_INTERVAL_TOKENS`、`VIBE_MAX_RUN_COST_USD`、`VIBE_TOOL_RETRIES`。
+可调：`VIBE_LLM_TIMEOUT`、`VIBE_LLM_RETRIES`、`VIBE_LLM_RETRY_BACKOFF`、`VIBE_MAX_CONTINUATIONS`、`VIBE_MAX_NO_PROGRESS`、`VIBE_MAX_CALLS_WITHOUT_PROGRESS`、`VIBE_MAX_READS_PER_FILE`、`VIBE_MAX_REPEATED_CALLS`、`VIBE_MAX_PROGRESS_WARNINGS`、`VIBE_MAX_RUN_TOKENS`、`VIBE_COMPACT_INTERVAL_TOKENS`、`VIBE_MAX_RUN_COST_USD`、`VIBE_TOOL_RETRIES`。
 
 ## 右侧 Git 变更侧栏（Ghostty / macOS Terminal）
 

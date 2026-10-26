@@ -16,6 +16,53 @@ class ProgressDecision:
     streak: int
 
 
+@dataclass(frozen=True)
+class ArtifactDecision:
+    action: Literal["continue", "warn", "stop"]
+    reason: str
+    count: int
+
+
+class ArtifactProgress:
+    """动作任务的真实进展：只有文件内容变化或验证结果变化才清零停滞计数。"""
+
+    def __init__(self, threshold: int = 20, max_warnings: int = 2):
+        self.threshold = max(1, threshold)
+        self.max_warnings = max(1, max_warnings)
+        self._files: dict[str, str] = {}
+        self._verifications: dict[str, str] = {}
+        self._calls = 0
+        self._warnings = 0
+
+    def observe(
+        self,
+        fingerprint: dict[str, str] | None = None,
+        verification: tuple[str, str] | None = None,
+    ) -> ArtifactDecision:
+        self._calls += 1
+        changed = False
+        if fingerprint:
+            for path, digest in fingerprint.items():
+                if self._files.get(path) != digest:
+                    self._files[path] = digest
+                    changed = True
+        if verification:
+            key, digest = verification
+            if self._verifications.get(key) != digest:
+                self._verifications[key] = digest
+                changed = True
+        if changed:
+            self._calls = 0
+            self._warnings = 0
+            return ArtifactDecision("continue", "artifact_progress", 0)
+        if self._calls < self.threshold:
+            return ArtifactDecision("continue", "no_artifact_progress", self._calls)
+        self._calls = 0
+        self._warnings += 1
+        action = "stop" if self._warnings >= self.max_warnings else "warn"
+        return ArtifactDecision(action, "no_artifact_progress", self._warnings)
+
+
 class ProgressMonitor:
     """识别工具停滞信号；新结果不代表任务已经完成。"""
 

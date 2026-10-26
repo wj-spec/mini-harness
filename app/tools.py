@@ -605,6 +605,38 @@ class ToolRegistry:
         header = f"git {' '.join(args)} (cwd={self.root})"
         return header + "\n" + (rendered if rendered.strip() else "(no differences)")
 
+    def mutation_fingerprint(self, call: ToolCall) -> dict[str, str] | None:
+        """成功修改后的目标文件内容指纹；供 ArtifactProgress 判断真实变化。"""
+        paths: list[str] = []
+        if call.name in {"write_file", "edit_file"}:
+            path = call.args.get("path")
+            if isinstance(path, str) and path:
+                paths = [path]
+        elif call.name == "apply_patch":
+            patch = call.args.get("patch")
+            if not isinstance(patch, str):
+                return None
+            try:
+                paths = [file.target for file in parse_patch(patch)]
+            except (ValueError, TypeError):
+                return None
+        if not paths:
+            return None
+        fingerprints: dict[str, str] = {}
+        for path in paths:
+            try:
+                target = self._resolve(path)
+            except (ValueError, OSError):
+                continue
+            if not target.exists():
+                fingerprints[path] = "missing"
+                continue
+            try:
+                fingerprints[path] = hashlib.sha256(target.read_bytes()).hexdigest()
+            except OSError:
+                continue
+        return fingerprints or None
+
     def apply_patch(self, patch: str) -> str:
         files = parse_patch(patch)
         planned: list[tuple[FilePatch, Path, str | None, str | None]] = []

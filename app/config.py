@@ -26,6 +26,7 @@ class Config:
     llm_retry_backoff: float = 0.5
     max_continuations: int = 2
     max_no_progress: int = 2
+    max_calls_without_progress: int = 20
     max_reads_per_file: int = 5
     max_progress_warnings: int = 4
     max_repeated_calls: int = 6
@@ -78,6 +79,7 @@ class Config:
             llm_retry_backoff=float(os.getenv("VIBE_LLM_RETRY_BACKOFF", "0.5")),
             max_continuations=int(os.getenv("VIBE_MAX_CONTINUATIONS", "2")),
             max_no_progress=int(os.getenv("VIBE_MAX_NO_PROGRESS", "2")),
+            max_calls_without_progress=int(os.getenv("VIBE_MAX_CALLS_WITHOUT_PROGRESS", "20")),
             max_reads_per_file=int(os.getenv("VIBE_MAX_READS_PER_FILE", "5")),
             max_progress_warnings=int(os.getenv("VIBE_MAX_PROGRESS_WARNINGS", "4")),
             max_repeated_calls=int(os.getenv("VIBE_MAX_REPEATED_CALLS", "6")),

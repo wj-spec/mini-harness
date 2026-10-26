@@ -54,8 +54,9 @@
 - **同一文件重复读取**：`read_file` 的 `path` 在两次成功修改（`write_file` / `edit_file` / `apply_patch`）之间累计读取超过 `max_reads_per_file`（默认 5）次，按 `repeated_read` 停滞处理。不同文件读取不受影响，修改成功后计数清零。
 - **停滞警告预算**：`ProgressMonitor` 累计 `max_warnings`（默认 4）次停滞警告后直接 `stop`，即使中途出现新结果；避免“读一下新文件 → 再回到旧循环”的交替空转。
 - **调用哈希**：对 `工具名 + canonical JSON 参数` 计数；同一哈希成功调用达到 `max_repeated_calls`（默认 6）即触发 `repeated_call`，即使每次输出不同，仍提示模型换参数/换方法。
+- **真实进展（ArtifactProgress）**：动作任务中，工具调用累计 20 次（`max_calls_without_progress`）没有文件内容指纹变化或验证命令结果变化，先提示模型落到修改/验证；再一个窗口仍无进展则停止为 `no_progress`。文件指纹取自成功 `write_file`/`edit_file`/`apply_patch` 后的内容 hash；验证结果取自 `bash` 的 `verification=true` 执行状态/exit/output。QA/审查任务不启用，避免误伤只读调研。
 - **工具状态引导**：`_tool_guidance()` 把 `tool_error` / 超时 / `duplicate_call` / `repeated_call` / `repeated_read` / `state_only` / 审批拒绝转成具体纠偏指令；普通首次错误也会在下一请求前注入“读错误、改参数、不要原样重试”；批量内完全相同的调用不会执行第二次。
-- 两者通过 `Config.max_reads_per_file` / `max_progress_warnings` / `max_repeated_calls` 暴露，对应 `VIBE_MAX_READS_PER_FILE` / `VIBE_MAX_PROGRESS_WARNINGS` / `VIBE_MAX_REPEATED_CALLS`，由 Ink、`run` 与 benchmark 共用。
+- 阈值通过 `Config.max_reads_per_file` / `max_progress_warnings` / `max_repeated_calls` / `max_calls_without_progress` 暴露，对应 `VIBE_MAX_READS_PER_FILE` / `VIBE_MAX_PROGRESS_WARNINGS` / `VIBE_MAX_REPEATED_CALLS` / `VIBE_MAX_CALLS_WITHOUT_PROGRESS`，由 Ink、`run` 与 benchmark 共用。
 - 仍保留原有停止边界：工具错误、审批拒绝、context_window、`max_run_seconds`、取消与错误；本轮不改变预算默认值。
 
 测试：`tests/test_progress.py` 新增同文件不同范围读取、修改后重置、累计警告停止；`tests/test_config.py` 覆盖默认与 env；全量 Python 收集 925 项退出 0；TUI 305 项、304 通过（唯一失败为沙箱无 PTY 的既有项）。

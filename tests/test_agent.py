@@ -956,3 +956,31 @@ def test_tool_guidance_distinguishes_timeout_and_duplicate_states(tmp_path):
     )
     assert "timed out" in timeout and "split" in timeout
     assert "duplicate" in duplicate and "skipped" in duplicate
+
+
+def test_action_tasks_require_file_or_verification_progress(tmp_path):
+    registry = ToolRegistry(tmp_path)
+    registry.register(ToolSpec("inspect", "Inspect", {"type": "object"}, lambda **_: "same shape"))
+    provider = FakeProvider([
+        Response(tool_calls=[ToolCall("inspect", {"item": 1}, id="c1")]),
+        Response(tool_calls=[ToolCall("inspect", {"item": 2}, id="c2")]),
+        Response("done"),
+    ])
+    result = run(Agent(provider, registry, max_calls_without_progress=2).run("修改代码"))
+
+    assert result.status == "done"
+    assert any("No real progress" in message.content for message in provider.seen[2])
+
+
+def test_qa_tasks_do_not_require_artifact_progress(tmp_path):
+    registry = ToolRegistry(tmp_path)
+    registry.register(ToolSpec("inspect", "Inspect", {"type": "object"}, lambda **_: "same shape"))
+    provider = FakeProvider([
+        Response(tool_calls=[ToolCall("inspect", {"item": 1}, id="c1")]),
+        Response(tool_calls=[ToolCall("inspect", {"item": 2}, id="c2")]),
+        Response("done"),
+    ])
+    result = run(Agent(provider, registry, max_calls_without_progress=2).run("审查当前代码"))
+
+    assert result.status == "done"
+    assert not any("No real progress" in message.content for message in provider.seen[2])

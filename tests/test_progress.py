@@ -190,3 +190,26 @@ def test_repeated_call_hash_warns_even_when_output_changes():
     assert decisions[2].reason == "repeated_call" and decisions[2].action == "continue"
     assert decisions[3].action == "warn"
     assert decisions[5].action == "stop"
+
+
+def test_artifact_progress_only_resets_on_file_or_verification_change():
+    from core.progress import ArtifactProgress
+    monitor = ArtifactProgress(threshold=2, max_warnings=2)
+    none = monitor.observe()
+    assert (none.action, none.count) == ("continue", 1)
+    assert monitor.observe().action == "warn"
+    assert monitor.observe(verification=("pytest", "exit=0")) .action == "continue"
+
+    monitor = ArtifactProgress(threshold=2, max_warnings=2)
+    monitor.observe()
+    assert monitor.observe(fingerprint={"a.py": "hash-1"}).action == "continue"
+    assert monitor.observe(fingerprint={"a.py": "hash-1"}).count == 1
+    assert monitor.observe(fingerprint={"a.py": "hash-2"}).action == "continue"
+    assert monitor.observe(fingerprint={"a.py": "hash-2"}).action == "continue"
+
+
+def test_artifact_progress_stops_after_repeated_no_progress_windows():
+    from core.progress import ArtifactProgress
+    monitor = ArtifactProgress(threshold=2, max_warnings=2)
+    actions = [monitor.observe().action for _ in range(4)]
+    assert actions == ["continue", "warn", "continue", "stop"]

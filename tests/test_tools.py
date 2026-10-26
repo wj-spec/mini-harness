@@ -486,3 +486,15 @@ def test_recall_still_resolves_saved_offload_file(tmp_path):
     output = registry.recall("off-12345678")
 
     assert "original request" in output
+
+
+def test_mutation_fingerprint_tracks_file_content(tmp_path):
+    target = tmp_path / "a.txt"
+    registry = ToolRegistry(tmp_path)
+    registry.write_file("a.txt", "one")
+    before = registry.mutation_fingerprint(ToolCall("write_file", {"path": "a.txt", "content": "one"}))
+    registry.write_file("a.txt", "two")
+    after = registry.mutation_fingerprint(ToolCall("write_file", {"path": "a.txt", "content": "two"}))
+    assert before is not None and after is not None
+    assert before["a.txt"] != after["a.txt"]
+    assert registry.mutation_fingerprint(ToolCall("read_file", {"path": "a.txt"})) is None

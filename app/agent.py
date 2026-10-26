@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import time
 import re
@@ -11,7 +12,7 @@ from itertools import count
 from typing import Callable
 
 from core.models import ExecutionOutcome, Message, ToolCall
-from core.progress import ProgressMonitor
+from core.progress import ArtifactProgress, ProgressMonitor
 
 from app.events import ReasoningDelta, StreamDone, StreamError, TextDelta, ToolCallsReady
 from app.policy import ApprovalGate
@@ -143,6 +144,8 @@ class _RunContext:
     previous_completion_tokens: int = 0
     previous_prompt_estimate: int = 0
     progress: ProgressMonitor | None = None
+    artifact_progress: ArtifactProgress | None = None
+    task_kind: str = ""
     progress_stop: str = ""
     correction_instruction: str = ""
     pending_steering: deque[str] = field(default_factory=deque)
@@ -220,6 +223,7 @@ class Agent:
         llm_retry_backoff: float = 0.5,
         max_continuations: int = 2,
         max_no_progress: int = 2,
+        max_calls_without_progress: int = 20,
         max_reads_per_file: int = 5,
         max_progress_warnings: int = 4,
         max_repeated_calls: int = 6,
@@ -253,6 +257,7 @@ class Agent:
         self.llm_retry_backoff = llm_retry_backoff
         self.max_continuations = max_continuations
         self.max_no_progress = max_no_progress
+        self.max_calls_without_progress = max_calls_without_progress
         self.max_reads_per_file = max_reads_per_file
         self.max_progress_warnings = max_progress_warnings
         self.max_repeated_calls = max_repeated_calls
@@ -543,6 +548,11 @@ class Agent:
             self.max_no_progress, max_reads_per_file=self.max_reads_per_file,
             max_warnings=self.max_progress_warnings,
             max_repeated_calls=self.max_repeated_calls,
+        )
+        run.task_kind = classify_task(state.goal)
+        run.artifact_progress = (
+            ArtifactProgress(self.max_calls_without_progress)
+            if run.task_kind == "action" else None
         )
         run.started = time.monotonic()
         self._active_steering = run.pending_steering
@@ -1089,6 +1099,33 @@ class Agent:
                     run.correction_instruction = ""
                 elif progress_decision.reason in {"tool_error", "repeated_call", "repeated_read", "state_only"}:
                     run.correction_instruction = guidance
+                if run.artifact_progress is not None:
+                    fingerprint = self.tools.mutation_fingerprint(call) if ok else None
+                    verification = self._verification_evidence(call, str(output), execution) if ok else None
+                    artifact = run.artifact_progress.observe(fingerprint, verification)
+                    if artifact.action in {"warn", "stop"}:
+                        run.recorder.event(
+                            "no_progress", action=artifact.action,
+                            reason="no_artifact_progress", count=artifact.count,
+                            tool=call.name,
+                        )
+                    if artifact.action == "warn":
+                        artifact_evidence = (
+                            f"no_artifact_progress; tool={call.name}; count={artifact.count}"
+                        )
+                        self._record_message(run, Message(
+                            "assistant", "工具调用缺少真实进展：" + artifact_evidence + "。下一步需要落到修改或验证。",
+                            name="progress_warning",
+                        ))
+                        run.correction_instruction = self._tool_guidance(
+                            call, artifact, str(output), execution,
+                        )
+                    elif artifact.action == "stop":
+                        self._skip_tools(run, calls[call_index + 1:], "no_artifact_progress")
+                        run.progress_stop = (
+                            f"no_artifact_progress; tool={call.name}; count={artifact.count}"
+                        )
+                        break
                 continue
             evidence = (
                 f"{progress_decision.reason}; tool={call.name}; "
@@ -1114,12 +1151,30 @@ class Agent:
             break
         return None
 
+    @staticmethod
+    def _verification_evidence(
+        call: ToolCall, output: str, execution: dict | None,
+    ) -> tuple[str, str] | None:
+        if call.name != "bash" or call.args.get("verification") is not True or not execution:
+            return None
+        command = str(call.args.get("command", ""))
+        digest = hashlib.sha256(
+            f"{execution.get('status')}|{execution.get('exit_code')}|{output}".encode("utf-8")
+        ).hexdigest()
+        return command, digest
+
     def _tool_guidance(
         self, call: ToolCall, decision, output: str, execution: dict | None,
     ) -> str:
         """把工具状态转成模型可执行的纠偏提示；不把错误伪装成成功。"""
         reason = decision.reason
         tool = call.name
+        if reason == "no_artifact_progress":
+            return (
+                "No real progress for multiple tool calls: there was no file content change and no "
+                "changed verification result. Stop exploring; make a concrete edit/apply_patch, run a "
+                "verification command, or report the blocker with the missing information."
+            )
         if reason == "repeated_call":
             return (
                 f"Repeated call hash: you called {tool} with identical arguments multiple times. "
