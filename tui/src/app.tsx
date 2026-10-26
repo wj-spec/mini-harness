@@ -19,7 +19,7 @@ import {contextLines} from './context-view.js';
 import {copyToClipboard} from './clipboard.js';
 import {selectedText, type Selection, type SelectionPoint} from './selection.js';
 import {loadProfile, projectProfilePath, saveProfile} from './project-profile.js';
-import {loadUserProfile, pruneUserProfile, saveUserProfile, userProfileFile, type UserPreference} from './user-profile.js';
+import {exportUserProfile, loadUserProfile, looksSensitive, pruneUserProfile, saveUserProfile, userProfileFile, type UserPreference} from './user-profile.js';
 import {mergeProposals, proposePreferences, readSessionUserMessages} from './preference-observer.js';
 import {adjustSidebarSplitForTui, closeSidebarWindowForTui, killSidebarForTui, launchSidebarForTui, runSidebarSetup} from './sidebar/launch.js';
 import {agentTouchedFiles} from './sidebar/agent-activity.js';
@@ -467,6 +467,11 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       const index = Number(value);
       return Number.isInteger(index) && index >= 1 && index <= profile.entries.length ? index : null;
     };
+    if (rest === 'export') {
+      const exported = exportUserProfile(profile, file);
+      announce(`已导出 ${exported.count} 条偏好到 ${exported.path}；疑似凭据条目未导出`);
+      return;
+    }
     if (rest === 'observe') {
       if (!state.sessionPath) {announce('当前会话还没有可读取的会话目录；无法观察偏好。'); return;}
       try {
@@ -499,6 +504,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       const proposed = rest.startsWith('propose ');
       const text = rest.slice(proposed ? 8 : 4).trim();
       if (!text) {announce(`用法：/about ${proposed ? 'propose' : 'add'} <文本>`); return;}
+      if (looksSensitive(text)) {announce('这段内容疑似密钥/凭据，未写入偏好，请先脱敏'); return;}
       const entry: UserPreference = {
         text, source: proposed ? 'observation' : 'user', status: proposed ? 'proposed' : 'confirmed',
         id: newId(), kind: 'preference', scope: 'global', triggers: [],
@@ -515,6 +521,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       if (index === null) {announce(`用法：/about edit <1-${profile.entries.length}> <新文本>`); return;}
       const text = match![2]!.trim();
       if (!text) {announce('新文本不能为空'); return;}
+      if (looksSensitive(text)) {announce('新文本疑似密钥/凭据，未写入偏好，请先脱敏'); return;}
       saveEntries(profile.entries.map((entry, position) => position === index - 1 ? {...entry, text, updated_at: now} : entry));
       announce(`已修改第 ${index} 条偏好；新任务生效`);
       return;
@@ -589,7 +596,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       announce(`已删除偏好：${removed?.text ?? ''}`);
       return;
     }
-    announce('用法：/about；/about add|propose <文本>；/about observe 观察本会话；/about edit <序号> <文本>；/about triggers <序号> <词1,词2|->；/about expire <序号> <天数|ISO|->；/about confirm|disable|enable <序号>；/about clear proposed|stale；/about remove <序号>；/about on|off');
+    announce('用法：/about；/about add|propose <文本>；/about observe 观察本会话；/about export 导出；/about edit <序号> <文本>；/about triggers <序号> <词1,词2|->；/about expire <序号> <天数|ISO|->；/about confirm|disable|enable <序号>；/about clear proposed|stale；/about remove <序号>；/about on|off');
   };
 
   const copyCurrent = () => {

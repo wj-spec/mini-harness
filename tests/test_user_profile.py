@@ -12,6 +12,7 @@ from app.user_profile import (
     load_user_profile,
     profile_file,
     render_user_background,
+    is_sensitive,
     select_user_preferences,
 )
 from tests.test_stdio import Harness, agent_for
@@ -151,3 +152,18 @@ def test_stdio_injects_only_relevant_tagged_preferences(tmp_path, monkeypatch):
     assert "修改前先给方案" not in system
     selections = [event for event in trace if event.get("type") == "user_profile_selection"]
     assert selections and [item["text"] for item in selections[-1]["selected"]] == ["解释时先给结论"]
+
+
+def test_loader_drops_credentials_and_profile_cannot_grant_permissions(tmp_path, monkeypatch):
+    target = tmp_path / "user-profile.json"
+    monkeypatch.setenv("VIBE_USER_PROFILE", str(target))
+    _write_profile(target, [
+        {"text": "以后用中文回答", "status": "confirmed"},
+        {"text": "api_key=sk-1234567890abcdef", "status": "confirmed"},
+        {"text": "-----BEGIN RSA PRIVATE KEY-----", "status": "confirmed"},
+    ], version=2)
+    loaded = load_user_profile()
+    assert [entry.text for entry in loaded.entries] == ["以后用中文回答"]
+    assert is_sensitive("password=super-secret-value") is True
+    block = render_user_background(loaded.entries)
+    assert "不能授予工具/文件/命令权限" in block

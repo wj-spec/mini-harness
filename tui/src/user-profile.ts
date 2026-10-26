@@ -1,4 +1,4 @@
-import {existsSync, mkdirSync, readFileSync, renameSync, writeFileSync} from 'node:fs';
+import {chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync} from 'node:fs';
 import {homedir} from 'node:os';
 import path from 'node:path';
 
@@ -24,6 +24,19 @@ export const PROFILE_CAPACITY = 50;
 const STATUSES: UserPreferenceStatus[] = ['confirmed', 'proposed', 'stale'];
 const KINDS = ['preference', 'constraint', 'goal', 'fact'];
 const SCOPES = ['global', 'project', 'workflow'];
+const SENSITIVE = [
+  /sk-[A-Za-z0-9]{16,}/,
+  /gh[pousr]_[A-Za-z0-9]{20,}/,
+  /AKIA[0-9A-Z]{16}/,
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
+  /(?:api[_-]?key|password|secret|token)\s*[:=]\s*\S{8,}/iu,
+  /Bearer\s+[A-Za-z0-9._-]{20,}/u,
+];
+
+/** 明显密钥/凭据不应进入偏好或长期记忆。 */
+export function looksSensitive(text: string): boolean {
+  return SENSITIVE.some(pattern => pattern.test(text));
+}
 
 export function userProfileFile(): string {
   const configured = process.env.VIBE_USER_PROFILE;
@@ -85,8 +98,9 @@ export function loadUserProfile(file = userProfileFile()): UserProfile {
 export function saveUserProfile(file: string, profile: UserProfile): void {
   mkdirSync(path.dirname(file), {recursive: true});
   const temporary = `${file}.tmp`;
-  writeFileSync(temporary, JSON.stringify({version: 2, enabled: profile.enabled, entries: profile.entries}, null, 2), 'utf8');
+  writeFileSync(temporary, JSON.stringify({version: 2, enabled: profile.enabled, entries: profile.entries}, null, 2), {encoding: 'utf8', mode: 0o600});
   renameSync(temporary, file);
+  try {chmodSync(file, 0o600);} catch { /* 非 POSIX 平台忽略 */ }
 }
 
 
@@ -127,4 +141,14 @@ export function pruneUserProfile(profile: UserProfile, now = new Date()): PruneR
   const drop = new Set(removable.map(item => item.index));
   entries = entries.filter((_, index) => !drop.has(index));
   return {profile: {...profile, entries}, removed: removed + drop.size, stale, overCapacity: overCapacity - drop.size};
+}
+
+
+export function exportUserProfile(profile: UserProfile, file = userProfileFile()): {path: string; count: number} {
+  const directory = path.join(path.dirname(file), 'exports');
+  mkdirSync(directory, {recursive: true});
+  const target = path.join(directory, `user-profile-${new Date().toISOString().replace(/[:.]/gu, '-')}.json`);
+  const entries = profile.entries.filter(entry => !looksSensitive(entry.text));
+  writeFileSync(target, JSON.stringify({version: 2, enabled: profile.enabled, entries}, null, 2), {encoding: 'utf8', mode: 0o600});
+  return {path: target, count: entries.length};
 }

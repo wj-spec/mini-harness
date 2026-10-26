@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {mkdtemp, readFile, readdir, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {afterEach, test} from 'node:test';
@@ -1281,6 +1281,31 @@ test('sets expiry and clears proposed or stale entries without touching confirme
     await pause(20);
     payload = JSON.parse(await readFile(file, 'utf8')) as Stored;
     assert.deepEqual(payload.entries.map(entry => entry.text), ['保留的确认偏好']);
+  } finally {
+    await rm(directory, {recursive: true, force: true});
+  }
+});
+
+
+test('rejects sensitive preference text and omits it from export', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'user-profile-secret-'));
+  const file = path.join(directory, 'user-profile.json');
+  try {
+    await writeFile(file, JSON.stringify({version: 2, enabled: true, entries: [
+      {text: '以后用中文回答', source: 'user', status: 'confirmed'},
+      {text: 'api_key=sk-1234567890abcdef', source: 'user', status: 'confirmed'},
+    ]}), 'utf8');
+    const {stdin, lastFrame} = await mount(undefined, undefined, {columns: 100, rows: 30}, undefined, file);
+    await enter(stdin, '/about add password=super-secret-value');
+    await pause(20);
+    assert.match(lastFrame() ?? '', /疑似密钥|凭据/u);
+    await enter(stdin, '/about export');
+    await pause(30);
+    const exportedDir = path.join(directory, 'exports');
+    const exportedFiles = await readdir(exportedDir);
+    assert.equal(exportedFiles.length, 1);
+    const payload = JSON.parse(await readFile(path.join(exportedDir, exportedFiles[0]!), 'utf8')) as {entries: {text: string}[]};
+    assert.deepEqual(payload.entries.map(entry => entry.text), ['以后用中文回答']);
   } finally {
     await rm(directory, {recursive: true, force: true});
   }

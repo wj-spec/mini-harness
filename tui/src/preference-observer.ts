@@ -1,6 +1,6 @@
 import {readFileSync} from 'node:fs';
 import path from 'node:path';
-import type {UserPreference, UserProfile} from './user-profile.js';
+import {looksSensitive, type UserPreference, type UserProfile} from './user-profile.js';
 
 const CUES = [
   /以后/u, /今后/u, /下次/u, /每次/u, /记住/u, /始终/u, /一向/u, /习惯/u,
@@ -67,7 +67,7 @@ export function proposePreferences(
   const proposals: UserPreference[] = [];
   for (const message of messages) {
     const text = cueSentence(message.text);
-    if (!text || seen.has(normalize(text))) continue;
+    if (!text || looksSensitive(text) || seen.has(normalize(text))) continue;
     seen.add(normalize(text));
     proposals.push({
       text,

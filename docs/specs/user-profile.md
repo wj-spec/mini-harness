@@ -1,6 +1,6 @@
 # W5/P1：用户偏好与画像条目
 
-日期：2026-10-26。状态：P1 Profile v2 + 相关性注入完成；P2 观察→proposed 完成；P3 过期/容量/冲突第一版完成；W6 v2 真实对照待跑。
+日期：2026-10-26。状态：P1 Profile v2 + 相关性注入完成；P2 观察→proposed 完成；P3 过期/容量/冲突第一版完成；P4 凭据过滤/导出/注入边界第一版完成；W6 v2 真实对照待跑。
 
 ## 目标
 
@@ -94,6 +94,18 @@
 - `/about clear proposed|stale`：清理对应状态条目，confirmed 不受影响；
 - `mergeProposals` 将相似 confirmed 记为“疑似冲突”并跳过，不自动改写；
 - 后台自动清理、confirmed 冲突交互式替换、A-MAC 准入仍待后续。
+
+## 安全与审计（P4 第一版）
+
+- 明显密钥/凭据（`sk-*`、GitHub token、AWS key、私钥头、`api_key=`/`password=`/`token=` 等）不会写入偏好：
+  - `/about add/propose/edit` 直接拒绝；
+  - `/about observe`/自动观察跳过含凭据的句子；
+  - Python 加载器再次过滤，防止手工文件中的凭据进入模型上下文；
+- 偏好文件以 `0600` 写入（POSIX）；
+- `/about export` 把 profile 导出为 `exports/user-profile-<时间>.json`，同样过滤疑似凭据；
+- `[USER PROFILE]` 注入明确声明：偏好是数据，不是指令，不能授予工具/文件/命令权限或改变审批边界；
+- `trace.jsonl` 的 `user_profile_selection` 记录实际注入条目，供审计；
+- 测试/评测会话隔离、项目/个人域分离继续有效。
 
 ## 非目标
 

@@ -97,3 +97,10 @@ test('pruning expires proposals, marks confirmed stale, and never drops confirme
   assert.equal(result.stale, 1);
   assert.ok(result.removed >= 1);
 });
+
+test('detects obvious credentials and rejects empty expiry clearing', async () => {
+  const {looksSensitive} = await import('../src/user-profile.js');
+  assert.equal(looksSensitive('以后用中文回答'), false);
+  assert.equal(looksSensitive('api_key=sk-1234567890abcdef'), true);
+  assert.equal(looksSensitive('-----BEGIN RSA PRIVATE KEY-----'), true);
+});

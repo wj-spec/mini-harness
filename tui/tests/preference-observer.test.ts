@@ -73,3 +73,12 @@ test('proposals similar to a confirmed preference are reported as conflicts and 
   assert.equal(conflicting.conflicts, 1);
   assert.equal(conflicting.entries.length, 1);
 });
+
+
+test('credential-like statements are never proposed', () => {
+  const proposals = proposePreferences(profile, [
+    {text: '以后 api_key=sk-1234567890abcdef 都用这个'},
+    {text: '以后回答一律用中文'},
+  ], 's');
+  assert.deepEqual(proposals.map(entry => entry.text), ['以后回答一律用中文']);
+});
