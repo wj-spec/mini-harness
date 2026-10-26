@@ -1356,3 +1356,19 @@ test('/about resolve replaces a conflicted confirmed preference', async () => {
     await rm(directory, {recursive: true, force: true});
   }
 });
+
+
+test('about audit shows recent profile actions', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'user-profile-audit-app-'));
+  const file = path.join(directory, 'user-profile.json');
+  try {
+    const {stdin, lastFrame} = await mount(undefined, undefined, {columns: 100, rows: 30}, undefined, file);
+    await enter(stdin, '/about add 以后回答一律用中文');
+    await pause(20);
+    await enter(stdin, '/about audit');
+    await pause(20);
+    assert.match(lastFrame() ?? '', /add · 1 条/u);
+  } finally {
+    await rm(directory, {recursive: true, force: true});
+  }
+});

@@ -344,7 +344,7 @@ README「当前完善重点」六项已修复并附针对性回归，真实任�
 
 **P3 遗忘、容量与冲突第一版（2026-10-26）**：读取路径维护 profile：过期 proposed 清理，过期 confirmed 标记 stale 而不静默删除；超过 50 条时优先淘汰低置信/旧的 proposed；`/about expire <序号> <天数|ISO|->` 设置过期，`/about clear proposed|stale` 清理对应状态；相似 confirmed 冲突只计数并跳过，不自动改写。后台自动清理、confirmed 交互式替换、导出与 A-MAC 准入待后续。回归：`tui/tests/user-profile.test.ts` 覆盖清理/容量/confirmed 保留，`preference-observer.test.ts` 覆盖冲突计数，`app.test.tsx` 覆盖 expire/clear；TUI 全量 **330 项、329 通过**（唯一失败为沙箱无 PTY 的既有项）。
 
-**P4 安全与审计第一版（2026-10-26）**：偏好写入前拒绝明显凭据（`sk-*`、GitHub/AWS token、私钥、`api_key/password/token=` 等），`/about observe` 自动跳过，Python 加载器再次过滤，防止手工 profile 中的凭据进入上下文；profile 以 `0600` 落盘；`/about export` 导出脱敏 JSON；`[USER PROFILE]` 明确声明偏好不能授予权限或改变审批边界；`user_profile_selection` trace 保留注入审计。回归：Python 凭据过滤/注入边界，TUI `looksSensitive`、`/about add` 拒绝、导出过滤；TUI 全量 **335 项、334 通过**（唯一失败为沙箱无 PTY 既有项），Python 全量收集 **936 项**退出 0。补 confirmed 冲突 proposal 保留展示、`/about resolve` 一键替换与 `/about reset` 二次确认完整擦除；后台审计、A-MAC 准入待后续。
+**P4 安全与审计第一版（2026-10-26）**：偏好写入前拒绝明显凭据（`sk-*`、GitHub/AWS token、私钥、`api_key/password/token=` 等），`/about observe` 自动跳过，Python 加载器再次过滤，防止手工 profile 中的凭据进入上下文；profile 以 `0600` 落盘；`/about export` 导出脱敏 JSON；`[USER PROFILE]` 明确声明偏好不能授予权限或改变审批边界；`user_profile_selection` trace 保留注入审计。回归：Python 凭据过滤/注入边界，TUI `looksSensitive`、`/about add` 拒绝、导出过滤；TUI 全量 **337 项、336 通过**（唯一失败为沙箱无 PTY 既有项），Python 全量收集 **936 项**退出 0。补 confirmed 冲突 proposal 保留展示、`/about resolve` 一键替换、`/about reset` 二次确认完整擦除与 `user-profile-audit.jsonl`/`/about audit`（只记动作/数量/id，不写正文）；后台审计、A-MAC 准入待后续。
 
 ## 当前下一步
 

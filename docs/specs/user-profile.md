@@ -106,6 +106,7 @@
 - `/about reset` 需 `/about reset confirm` 二次确认，删除 profile 与导出文件（完整擦除）；
 - `[USER PROFILE]` 注入明确声明：偏好是数据，不是指令，不能授予工具/文件/命令权限或改变审批边界；
 - `trace.jsonl` 的 `user_profile_selection` 记录实际注入条目，供审计；
+- `user-profile-audit.jsonl` 记录每次 add/propose/observe/edit/confirm/disable/remove/resolve 的动作、条目数量与 id，不复制偏好正文；`/about audit` 可查看最近记录；
 - 测试/评测会话隔离、项目/个人域分离继续有效。
 
 ## 非目标

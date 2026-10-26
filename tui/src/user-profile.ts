@@ -1,4 +1,4 @@
-import {chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync} from 'node:fs';
+import {appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync} from 'node:fs';
 import {homedir} from 'node:os';
 import path from 'node:path';
 
@@ -151,4 +151,40 @@ export function exportUserProfile(profile: UserProfile, file = userProfileFile()
   const entries = profile.entries.filter(entry => !looksSensitive(entry.text));
   writeFileSync(target, JSON.stringify({version: 2, enabled: profile.enabled, entries}, null, 2), {encoding: 'utf8', mode: 0o600});
   return {path: target, count: entries.length};
+}
+
+
+export type ProfileAuditRecord = {ts: string; action: string; count: number; ids: string[]};
+
+export function profileAuditFile(file = userProfileFile()): string {
+  return path.join(path.dirname(file), 'user-profile-audit.jsonl');
+}
+
+/** 审计只记录动作、数量和 id，不复制偏好正文，避免二次泄露。 */
+export function appendProfileAudit(file: string, action: string, entries: UserPreference[]): void {
+  const target = profileAuditFile(file);
+  mkdirSync(path.dirname(target), {recursive: true});
+  const record: ProfileAuditRecord = {
+    ts: new Date().toISOString(),
+    action,
+    count: entries.length,
+    ids: entries.slice(-5).map(entry => entry.id).filter((id): id is string => Boolean(id)),
+  };
+  appendFileSync(target, `${JSON.stringify(record)}\n`, {encoding: 'utf8', mode: 0o600});
+  try {chmodSync(target, 0o600);} catch { /* 非 POSIX 平台忽略 */ }
+}
+
+export function readProfileAudit(file: string, limit = 10): ProfileAuditRecord[] {
+  const target = profileAuditFile(file);
+  if (!existsSync(target)) return [];
+  try {
+    return readFileSync(target, 'utf8').split('\n').filter(Boolean).slice(-Math.max(1, limit)).flatMap(line => {
+      try {
+        const value = JSON.parse(line) as Partial<ProfileAuditRecord>;
+        return typeof value.ts === 'string' && typeof value.action === 'string'
+          ? [{ts: value.ts, action: value.action, count: value.count ?? 0, ids: Array.isArray(value.ids) ? value.ids.filter((id): id is string => typeof id === 'string') : []}]
+          : [];
+      } catch {return [];}
+    });
+  } catch {return [];}
 }

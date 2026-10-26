@@ -3,7 +3,7 @@ import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import {loadUserProfile, PROFILE_CAPACITY, pruneUserProfile, saveUserProfile, userProfileFile} from '../src/user-profile.js';
+import {appendProfileAudit, loadUserProfile, PROFILE_CAPACITY, pruneUserProfile, readProfileAudit, saveUserProfile, userProfileFile} from '../src/user-profile.js';
 
 test('user profile round-trips confirmed and proposed entries', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'user-profile-'));
@@ -103,4 +103,20 @@ test('detects obvious credentials and rejects empty expiry clearing', async () =
   assert.equal(looksSensitive('以后用中文回答'), false);
   assert.equal(looksSensitive('api_key=sk-1234567890abcdef'), true);
   assert.equal(looksSensitive('-----BEGIN RSA PRIVATE KEY-----'), true);
+});
+
+
+test('profile audit stores actions and ids without preference text', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'user-profile-audit-'));
+  const file = path.join(directory, 'user-profile.json');
+  try {
+    appendProfileAudit(file, 'add', [{text: '敏感正文不应进入审计', id: 'pref-1', source: 'user', status: 'confirmed'}]);
+    const records = readProfileAudit(file);
+    assert.equal(records.length, 1);
+    assert.equal(records[0]?.action, 'add');
+    assert.deepEqual(records[0]?.ids, ['pref-1']);
+    assert.equal(JSON.stringify(records).includes('敏感正文'), false);
+  } finally {
+    await rm(directory, {recursive: true, force: true});
+  }
 });

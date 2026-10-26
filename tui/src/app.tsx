@@ -21,7 +21,7 @@ import {contextLines} from './context-view.js';
 import {copyToClipboard} from './clipboard.js';
 import {selectedText, type Selection, type SelectionPoint} from './selection.js';
 import {loadProfile, projectProfilePath, saveProfile} from './project-profile.js';
-import {exportUserProfile, loadUserProfile, looksSensitive, pruneUserProfile, saveUserProfile, userProfileFile, type UserPreference} from './user-profile.js';
+import {appendProfileAudit, exportUserProfile, loadUserProfile, looksSensitive, pruneUserProfile, readProfileAudit, saveUserProfile, userProfileFile, type UserPreference} from './user-profile.js';
 import {mergeProposals, proposePreferences, readSessionUserMessages} from './preference-observer.js';
 import {adjustSidebarSplitForTui, closeSidebarWindowForTui, killSidebarForTui, launchSidebarForTui, runSidebarSetup} from './sidebar/launch.js';
 import {agentTouchedFiles} from './sidebar/agent-activity.js';
@@ -450,6 +450,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       const merged = mergeProposals(profile, proposals);
       if (!merged.added && !merged.updated) return;
       saveUserProfile(file, {...profile, entries: merged.entries});
+      appendProfileAudit(file, 'auto-observe', merged.entries);
       dispatch({type: 'notice', text: `已自动提出 ${merged.added + merged.updated} 条待确认偏好（不会自动注入）；/about 查看`});
     } catch {
       // 自动观察是旁路能力，失败不能影响任务本身。
@@ -460,12 +461,18 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
     const file = aboutFile();
     const maintained = pruneUserProfile(loadUserProfile(file));
     const profile = maintained.profile;
-    if (maintained.removed || maintained.stale) saveUserProfile(file, profile);
+    if (maintained.removed || maintained.stale) {
+      saveUserProfile(file, profile);
+      appendProfileAudit(file, 'prune', profile.entries);
+    }
     const rest = argument.trim();
     const now = new Date().toISOString();
     const newId = () => `pref-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     const statusLabel = (status: string) => status === 'confirmed' ? '已确认' : status === 'proposed' ? '待确认' : '已停用';
-    const saveEntries = (entries: UserPreference[]) => saveUserProfile(file, {...profile, entries});
+    const saveEntries = (entries: UserPreference[], action = 'update') => {
+      saveUserProfile(file, {...profile, entries});
+      appendProfileAudit(file, action, entries);
+    };
     const indexOf = (value: string) => {
       const index = Number(value);
       return Number.isInteger(index) && index >= 1 && index <= profile.entries.length ? index : null;
@@ -481,7 +488,14 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       aboutResetPending.current = false;
       rmSync(file, {force: true});
       rmSync(path.join(path.dirname(file), 'exports'), {recursive: true, force: true});
+      rmSync(path.join(path.dirname(file), 'user-profile-audit.jsonl'), {force: true});
       announce('已删除全部个人偏好与导出文件；新任务不会再注入历史偏好');
+      return;
+    }
+    if (rest === 'audit') {
+      const records = readProfileAudit(file);
+      if (!records.length) {announce('暂无偏好审计记录'); return;}
+      announce(`偏好审计（最近 ${records.length} 条）：\n${records.map(record => `${record.ts.slice(0, 19)} · ${record.action} · ${record.count} 条`).join('\n')}`);
       return;
     }
     if (rest === 'export') {
@@ -496,7 +510,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
         if (!proposals.length) {announce('未从本会话发现新的明确长期偏好；proposed 不会自动注入。'); return;}
         const merged = mergeProposals(profile, proposals);
         if (!merged.added && !merged.updated) {announce('本会话偏好已存在，未新增 proposed。'); return;}
-        saveEntries(merged.entries);
+        saveEntries(merged.entries, 'observe');
         announce(`已提出待确认偏好（不会自动注入）：新增 ${merged.added}、更新 ${merged.updated}、跳过 ${merged.skipped}、疑似冲突 ${merged.conflicts}；输入 /about 查看，/about confirm <序号> 确认`);
       } catch (error) {announce(`观察偏好失败：${String(error)}`);}
       return;
@@ -515,6 +529,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
     }
     if (rest === 'on' || rest === 'off') {
       saveUserProfile(file, {...profile, enabled: rest === 'on'});
+      appendProfileAudit(file, rest === 'on' ? 'enable-all' : 'disable-all', profile.entries);
       announce(`个人偏好已${rest === 'on' ? '启用' : '停用'}；新任务${rest === 'on' ? '会' : '不会'}注入`);
       return;
     }
@@ -529,7 +544,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
         confidence: proposed ? 0.5 : 1.0, created_at: now, updated_at: now,
         ...(proposed ? {} : {last_confirmed_at: now}),
       };
-      saveEntries([...profile.entries, entry]);
+      saveEntries([...profile.entries, entry], proposed ? 'propose' : 'add');
       announce(`${proposed ? '已记录待确认观察' : '已添加已确认偏好'}：${text}`);
       return;
     }
@@ -540,7 +555,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       const text = match![2]!.trim();
       if (!text) {announce('新文本不能为空'); return;}
       if (looksSensitive(text)) {announce('新文本疑似密钥/凭据，未写入偏好，请先脱敏'); return;}
-      saveEntries(profile.entries.map((entry, position) => position === index - 1 ? {...entry, text, updated_at: now} : entry));
+      saveEntries(profile.entries.map((entry, position) => position === index - 1 ? {...entry, text, updated_at: now} : entry), 'edit');
       announce(`已修改第 ${index} 条偏好；新任务生效`);
       return;
     }
@@ -550,7 +565,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       if (index === null) {announce(`用法：/about triggers <1-${profile.entries.length}> <词1,词2|->`); return;}
       const raw = match![2]!.trim();
       const triggers = raw === '-' ? [] : raw.split(/[,，\s]+/u).map(item => item.trim()).filter(Boolean).slice(0, 20);
-      saveEntries(profile.entries.map((entry, position) => position === index - 1 ? {...entry, triggers, updated_at: now} : entry));
+      saveEntries(profile.entries.map((entry, position) => position === index - 1 ? {...entry, triggers, updated_at: now} : entry), 'triggers');
       announce(triggers.length ? `已设置第 ${index} 条触发词：${triggers.join(', ')}` : `已清除第 ${index} 条触发词（作为通用偏好）`);
       return;
     }
@@ -562,7 +577,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       saveEntries(profile.entries.map((entry, position) => position === index - 1 ? {
         ...entry, status: disable ? 'stale' : 'confirmed', updated_at: now,
         ...(disable ? {} : {last_confirmed_at: now}),
-      } : entry));
+      } : entry), disable ? 'disable' : 'enable');
       announce(`已${disable ? '停用' : '启用'}第 ${index} 条偏好；新任务生效`);
       return;
     }
@@ -583,7 +598,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
         if (expires) return {...entry, expires_at: expires, updated_at: now};
         const {expires_at: _ignored, ...rest} = entry;
         return {...rest, updated_at: now};
-      }));
+      }), 'expire');
       announce(expires ? `已设置第 ${index} 条过期时间：${expires.slice(0, 10)}` : `已清除第 ${index} 条过期时间`);
       return;
     }
@@ -592,7 +607,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       if (target !== 'proposed' && target !== 'stale') {announce('用法：/about clear proposed|stale'); return;}
       const before = profile.entries.length;
       const entries = profile.entries.filter(entry => entry.status !== target);
-      saveEntries(entries);
+      saveEntries(entries, 'clear');
       announce(`已清理 ${before - entries.length} 条 ${target === 'proposed' ? '待确认' : '已停用'}偏好；已确认条目不受影响`);
       return;
     }
@@ -612,7 +627,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
         if (position === oldIndex) return {...entry, status: 'stale', updated_at: now};
         if (position !== index - 1) return entry;
         return {...entry, status: 'confirmed', last_confirmed_at: now, updated_at: now};
-      }));
+      }), 'resolve');
       announce(`已用第 ${index} 条替换冲突旧偏好；旧条目已停用，新条目已确认`);
       return;
     }
@@ -622,7 +637,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       const entries = profile.entries.map((entry, position) => position === index - 1 ? {
         ...entry, status: 'confirmed' as const, last_confirmed_at: now, updated_at: now,
       } : entry);
-      saveEntries(entries);
+      saveEntries(entries, 'confirm');
       announce(`已确认第 ${index} 条偏好，将在下一次任务生效`);
       return;
     }
@@ -630,11 +645,11 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       const index = indexOf(rest.slice(7).trim());
       if (index === null) {announce(`用法：/about remove <1-${profile.entries.length}>`); return;}
       const removed = profile.entries[index - 1];
-      saveEntries(profile.entries.filter((_, position) => position !== index - 1));
+      saveEntries(profile.entries.filter((_, position) => position !== index - 1), 'remove');
       announce(`已删除偏好：${removed?.text ?? ''}`);
       return;
     }
-    announce('用法：/about；/about add|propose <文本>；/about observe 观察本会话；/about export 导出；/about edit <序号> <文本>；/about triggers <序号> <词1,词2|->；/about expire <序号> <天数|ISO|->；/about confirm|disable|enable <序号>；/about clear proposed|stale；/about resolve <序号>；/about export；/about reset confirm；/about remove <序号>；/about on|off');
+    announce('用法：/about；/about add|propose <文本>；/about observe 观察本会话；/about export 导出；/about edit <序号> <文本>；/about triggers <序号> <词1,词2|->；/about expire <序号> <天数|ISO|->；/about confirm|disable|enable <序号>；/about clear proposed|stale；/about resolve <序号>；/about audit；/about export；/about reset confirm；/about remove <序号>；/about on|off');
   };
 
   const copyCurrent = () => {

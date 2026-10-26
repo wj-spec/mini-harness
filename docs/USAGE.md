@@ -159,6 +159,7 @@ python3 scripts/bench_local.py --tasks recall-guard --timeout 600
 /about expire 1 30                      # 30 天后过期
 /about clear proposed                    # 清理待确认观察
 /about resolve 2                        # 用冲突 proposal 替换旧确认条
+/about audit                            # 查看偏好变更审计
 /about export                           # 导出脱敏后的 profile
 /about reset                            # 输入后再确认，删除全部偏好与导出
 /about disable 1                         # 停用单条
