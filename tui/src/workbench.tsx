@@ -112,9 +112,9 @@ export function welcomeLines(state: ViewState, columns: number): ReadingLine[] {
   const session = state.sessionId || '待连接';
 
   if (compact) {
-    lines.push({spans: [{text: '▗▄▖ ', code: true}, {text: 'mini-harness', bold: true}]});
-    lines.push(...textLines('  个人编码工作台 · 描述任务与完成条件', columns));
-    lines.push(...textLines('  单 Agent · 先读后写 · 动作按权限审批', columns));
+    lines.push(...textLines('▌ 开始一次编码任务', columns, 'heading'));
+    lines.push(...textLines('  描述任务、范围与完成条件。', columns));
+    lines.push(...textLines('  Enter 开始 · 输入 / 查看命令', columns));
     lines.push(blank);
     lines.push(...textLines('▌ 从这些开始', columns, 'label'));
     for (const prompt of [
@@ -132,14 +132,10 @@ export function welcomeLines(state: ViewState, columns: number): ReadingLine[] {
     lines.push(...textLines('  /help 命令 · /skills 技能 · /sidebar 侧栏', columns));
     lines.push(...textLines('  /context 上下文 · /resume 续做', columns));
   } else {
-    const brand = [
-      ['  ▗▄▖  ', 'mini-harness'],
-      ['  ▐◉▌  ', '个人编码工作台'],
-      ['  ▝▀▘  ', '先读后写 · 描述任务与完成条件'],
-    ];
-    for (const [mark, text] of brand) {
-      lines.push({spans: [{text: mark, code: true}, {text, bold: text === 'mini-harness'}], surface: 'task'});
-    }
+    lines.push(...cardLines('开始一次编码任务', [
+      ...textLines('描述任务、范围与完成条件；工具动作按权限审批。', columns - 4),
+      ...textLines('Enter 发送 · Ctrl+J 换行 · 输入 / 查看命令。', columns - 4),
+    ], columns, 'accent', false, 'task'));
     lines.push(blank);
     lines.push(...cardLines('从这些开始', [
       ...textLines('• 读 README，说明项目入口与运行流程', columns - 4),

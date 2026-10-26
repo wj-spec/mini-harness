@@ -65,18 +65,28 @@ export function AgentHeader({state, columns, height = 3, palette}: {
   const spinning = state.phase === 'running' || state.phase === 'starting' || state.phase === 'stopping';
   const spinner = useSpinner(spinning);
   const statusText = spinning ? `◀ ${spinner} ${status.label} ▶` : `◀ ${status.label} ▶`;
-  const showStatus = columns >= 50;
-  const statusWidth = showStatus ? Math.min(stringWidth(statusText), Math.max(14, columns - 24)) : 0;
-  const titleWidth = Math.max(1, columns - (showStatus ? statusWidth + 1 : 0));
-  const title = state.sessionPurpose === 'test' ? '测试会话 · mini-harness' : columns >= 65 ? 'mini-harness / 个人编码工作台' : 'mini-harness';
+  const showMark = columns >= 60 && height >= 3;
+  const markWidth = showMark ? 5 : 0;
+  const contentColumns = Math.max(1, columns - markWidth);
+  const showStatus = contentColumns >= 50;
+  const statusWidth = showStatus ? Math.min(stringWidth(statusText), Math.max(14, contentColumns - 24)) : 0;
+  const titleWidth = Math.max(1, contentColumns - (showStatus ? statusWidth + 1 : 0));
+  const title = state.sessionPurpose === 'test' ? '测试会话 · mini-harness' : contentColumns >= 65 ? 'mini-harness / 个人编码工作台' : 'mini-harness';
   const badgeBackground = status.tone === 'warning' || status.tone === 'error' ? palette.surfaces[status.tone] : palette.raised;
-  return <Box width={columns} height={height} backgroundColor={palette.background} flexDirection="column" flexShrink={0} overflow="hidden">
-    <Box height={1} width={columns} flexShrink={0}>
-      <Box width={titleWidth}><Text bold color={palette.accent}>{fitText(title, titleWidth)}</Text></Box>
-      {showStatus ? <Box width={statusWidth + 1} justifyContent="flex-end"><Text bold color={palette[status.tone]} backgroundColor={badgeBackground}>{fitText(statusText, statusWidth)}</Text></Box> : null}
+  return <Box width={columns} height={height} backgroundColor={palette.background} flexDirection="row" flexShrink={0} overflow="hidden">
+    {showMark ? <Box width={markWidth} height={height} flexDirection="column" flexShrink={0}>
+      <Text bold color={palette.accent}>▗▄▖</Text>
+      <Text bold color={palette.accent}>▐◉▌</Text>
+      <Text bold color={palette.accent}>▝▀▘</Text>
+    </Box> : null}
+    <Box width={contentColumns} height={height} flexDirection="column" flexShrink={0} overflow="hidden">
+      <Box height={1} width={contentColumns} flexShrink={0}>
+        <Box width={titleWidth}><Text bold color={palette.accent}>{fitText(title, titleWidth)}</Text></Box>
+        {showStatus ? <Box width={statusWidth + 1} justifyContent="flex-end"><Text bold color={palette[status.tone]} backgroundColor={badgeBackground}>{fitText(statusText, statusWidth)}</Text></Box> : null}
+      </Box>
+      {height > 1 ? <Text color={palette.secondary}>{fitText(`${state.workspace || '工作区待连接'}  ·  ${state.model || '模型待连接'}`, contentColumns, true)}</Text> : null}
+      {height > 2 ? <Text color={palette.secondary}>{fitText(`会话 ${state.sessionId || '待连接'}${state.resumed ? ' · 已恢复' : ''}  |  ${state.provider || 'provider 待连接'}`, contentColumns)}</Text> : null}
     </Box>
-    {height > 1 ? <Text color={palette.secondary}>{fitText(`${state.workspace || '工作区待连接'}  ·  ${state.model || '模型待连接'}`, columns, true)}</Text> : null}
-    {height > 2 ? <Text color={palette.secondary}>{fitText(`会话 ${state.sessionId || '待连接'}${state.resumed ? ' · 已恢复' : ''}  |  ${state.provider || 'provider 待连接'}`, columns)}</Text> : null}
   </Box>;
 }
 

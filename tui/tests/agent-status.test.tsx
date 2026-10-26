@@ -118,3 +118,14 @@ test('budget and plan remain unknown when the backend has not supplied metrics',
   assert.match(output, /尚无用量记录/);
   assert.doesNotMatch(output, /0%|0\/0|任务完成|测试通过/);
 });
+
+
+test('wide headers carry the compact product mark and narrow headers stay text-first', () => {
+    const wide = renderToString(<AgentHeader state={ready} columns={80} height={3} palette={themes.system}/>, {columns: 80});
+    assert.match(wide, /▗▄▖/);
+    assert.match(wide, /mini-harness/);
+    assert.ok(wide.split('\n').every(line => stringWidth(line) <= 80));
+    const narrow = renderToString(<AgentHeader state={ready} columns={32} height={3} palette={themes.system}/>, {columns: 32});
+    assert.doesNotMatch(narrow, /▗▄▖/);
+    assert.match(narrow, /mini-harness/);
+});
