@@ -16,7 +16,7 @@
 | task-b | 给 `/about` 增加 `/about edit <序号> <新文本>` 并补测试 | 改动前先给方案、注释简洁 |
 | task-c | 检查 `load_user_profile` 对重复/空白条目的处理，有问题就修并补测试 | 根因定位、验证 |
 
-启用组：工作区带项目背景（`.vibe/project-profile.json`），`VIBE_USER_PROFILE` 指向 3 条 v2 已确认偏好（解释、修改、测试三类触发词）；由 `scripts/w6_run.py` 生成。
+启用组：工作区带项目背景（`.vibe/project-profile.json`），`VIBE_USER_PROFILE` 指向 3 条 v2 已确认偏好（解释、修改、测试三类触发词）；夹具与任务定义在 `scripts/w6_preferences.py`，由 `scripts/w6_run.py` 生成，`tests/test_w6_preferences.py` 离线验证每个任务只选匹配条目。
 停用组：工作区无项目背景，`VIBE_USER_PROFILE` 指向空且 `enabled: false` 的 profile。
 
 ## 运行

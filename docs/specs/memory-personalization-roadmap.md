@@ -93,4 +93,4 @@ W4 项目背景与 W5 用户偏好已完成 MVP 与真实使用验收；W6 三�
 
 - 路线图记录完成；
 - P1 已完成 schema v2 + 迁移 + 相关性选择器 + `/about` 编辑/触发词/单条停用；
-- P0 的 W6 v2 夹具已升级为带触发词的 v2 偏好，并新增 `scripts/w6_report_v2.py` 多次运行分布汇总；真实模型运行待用户执行（每个 task-on/off ≥3 次）。
+- P0 的 W6 v2 夹具已升级为带触发词的 v2 偏好（`scripts/w6_preferences.py`），并新增 `scripts/w6_report_v2.py` 多次运行分布汇总与 `tests/test_w6_preferences.py` 离线选择校验；真实模型运行待用户执行（每个 task-on/off ≥3 次）。
