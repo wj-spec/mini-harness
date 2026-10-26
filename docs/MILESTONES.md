@@ -17,7 +17,7 @@
 | 个人上下文 | W6：验证个性化的实际收益 | 重复说明和反复纠正确实减少 | 已按协议完成对照，主假设未获支持（见 W6） |
 | 工作台扩展 | W7：承接第二种常用工作流 | 编码之外的一项真实工作也能持续开展 | 条件性方向，出现明确使用需求后细化 |
 
-**当前开发主线推进 W1：可信的执行结果与真实任务闭环。** 用户已确认文件操作可用；W0 的回退和学习记录随使用补齐。W0–W3 是当前阶段的交付范围；W4–W6 根据真实使用反馈推进；W7 保持方向，不提前拆成平台功能清单。
+**阶段状态（2026-10-26）**：W1–W5 已通过真实验收，W6 已完成对照（主假设未获支持）；当前重点是把 `/goal` 长任务、个性化精细化与评测扩题做成可验收闭环。W0 的回退与学习记录随使用补齐；W7 保持方向，不提前拆成平台功能清单。
 
 ## 界面迁移与全栈学习切片
 
@@ -318,7 +318,7 @@ README「当前完善重点」六项已修复并附针对性回归，真实任�
 - 无改测试、无隐藏泄漏、无越界；`valid`/`comparable`/`verified_fix` 均为真；
 - 报告成本口径已修正为 `phase_totals`：**12 步 / 167,389 tokens**（此前只记续做阶段 7 步 / 107,216，低估 36%）。
 
-**仍待做**：前三题参考补丁自检与 `--limit 3` 扩题；W6 三组收益对照。
+**仍待做**：前三题参考补丁自检与 `--limit 3` 扩题；`/goal` 真实长任务验收。
 
 **执行隔离评估（2026-10-25）**：新增 [执行隔离评估](specs/execution-isolation.md)，梳理当前边界（审批 + 12 条正则黑名单 + 超时 + 进程组回收）与六类可绕过点（工作区外读写、黑名单绕过、网络外发、workspace 授权窗口、子进程逃逸），列出 A–D 四项方案与建议顺序（先护栏与授权语义，再环境收敛实测，最后可选 OS 沙箱）。随后实施了选项 B 的第一小步：`bash` 显式写/删工作区外路径（绝对、家目录、`..` 逃逸与重定向）被 `PermissionError` 拦截，`/tmp` 与相对路径放行；回归见 `tests/test_sandbox.py`，限制（`cd` 后相对写入、嵌套 shell、`.venv` 符号链接等仍可绕过）已写入评估文档。用户决定保留 workspace 级永久授权（选项 A 否决）。沙箱方向完成 GitHub 调研（[沙箱调研](research/sandbox-research-2026-10-25.md)）：Codex 与 Anthropic sandbox-runtime 均不用容器做默认隔离。随后实现 macOS Seatbelt 可选沙箱：`--sandbox` / `VIBE_SANDBOX=1` 写入限工作区与临时目录、默认断网、敏感读取拒绝、拒绝标注 `sandbox_denied`、启动探针失败直接拒绝；回归 `tests/test_sandbox_seatbelt.py`（集成部分在嵌套沙箱环境跳过，用户实机 8 通过/1 跳过）。Ink 入口已支持 `--sandbox`/`--sandbox-network` 转发。补充：`.git/hooks` 与 `.git/config*` 写入拒绝；Linux bubblewrap 后端已接入（argv 单测，实机待验）；macOS 网络白名单已实现（本地代理 + 域名放行，HTTP/CONNECT 按域名判定，未列出返回 403 并标注 `sandbox_denied`），实机集成用例待用户环境确认。
 
@@ -336,7 +336,7 @@ README「当前完善重点」六项已修复并附针对性回归，真实任�
 
 **首屏与单轮时限（2026-10-26）**：交互默认 `max_run_seconds` 从 600 秒提高到 **1800 秒**（30 分钟，审批等待不计入），评测/基准仍在未配置时保留 600 秒，保证分数可比；`VIBE_MAX_RUN_SECONDS` / `--max-seconds` 可覆盖。TUI 首屏改为“工作台首页”：顶部 header 彩色像素猫 Mini（12×10 宽屏猫头、8×6 窄屏脸部、无彩色保留剪影、过窄隐藏）与三条 starter prompt、当前工作区/模型/会话、常用入口与输入提示；≤72 列用纯文本分区，宽屏用现有卡片表面，首屏标题与底部 hint 同步。新增 `tui/tests/workbench.test.ts` 首屏内容/宽度回归；TUI 全量 **309 项、308 通过**（唯一失败为沙箱无 PTY 的既有项），Python 全量 `./run_tests.sh -q` 退出 0（收集 931 项）。设计见 [TUI 首屏](specs/home-screen.md)。
 
-**/goal 目标模式（2026-10-26）**：TUI 编排长任务目标：`/goal <目标>` 第 1 段开始；当段因 `max_run_seconds` / token / cost / steps 资源停止时，自动核对并开启第 N 段（默认最多 8 段、总 4 小时，可调），`done` 完成；`no_progress`、`context_window`、`error`、`cancelled` 暂停而不续段。`/goal` 查看、`/goal stop` 停止、`/goal resume` 恢复。每段仍走普通 run 的审批/工具/会话边界；目标状态写入 `<session>/goal.json`，重启/`--continue` 恢复为 paused，显式 `/goal resume` 续段。回归：`tui/tests/goal.test.ts` 纯函数与 `app.test.tsx` 自动续段/停止；TUI 全量 **319 项、318 通过**（唯一失败为沙箱无 PTY 的既有项）。真实长任务成本与跨段效果待验收；后续可把目标状态持久化到 session。
+**/goal 目标模式（2026-10-26）**：TUI 编排长任务目标：`/goal <目标>` 第 1 段开始；当段因 `max_run_seconds` / token / cost / steps 资源停止时，自动核对并开启第 N 段（默认最多 8 段、总 4 小时，可调），`done` 完成；`no_progress`、`context_window`、`error`、`cancelled` 暂停而不续段。`/goal` 查看、`/goal stop` 停止、`/goal resume` 恢复。每段仍走普通 run 的审批/工具/会话边界；目标状态写入 `<session>/goal.json`，重启/`--continue` 恢复为 paused，显式 `/goal resume` 续段。回归：`tui/tests/goal.test.ts` 纯函数与 `app.test.tsx` 自动续段/停止；TUI 全量 **319 项、318 通过**（唯一失败为沙箱无 PTY 的既有项）。真实长任务成本与跨段效果待验收。
 
 ## 当前下一步
 
@@ -346,4 +346,4 @@ W1–W5 已完成真实验收；W6 已按协议完成对照（2026-10-25），�
 2. **评测扩题**：固定前三题参考补丁自检与 `--limit 3` 扩题，并用 `--runs` 多次运行建立基线；
 3. **W7 启动条件**：出现第二个高频非编码工作流后再细化，不提前拆平台功能。
 
-评测侧：README 六项完善已通过保留题真实核对（2026-10-25）；`validate` 已支持 `--limit`，可用 `./run_eval.sh validate --limit 3` 做前三题参考补丁自检（真实 Docker 自检待跑）；新增 `execution-chain` 跨层压测题（5 文件注入 + 双端隐藏检查，真实模型 3/3 通过）；`bench_local.py` 新增 `--pause-tokens` 暂停/续做压测（首轮低预算暂停 → `--continue` 重开续做，fake 冒烟通过），真实暂停续做运行待跑。W0 剩入口/循环代码走查与学习记录。
+评测侧：README 六项完善已通过保留题真实核对（2026-10-25）；`validate` 已支持 `--limit`，可用 `./run_eval.sh validate --limit 3` 做前三题参考补丁自检（真实 Docker 自检待跑）；新增 `execution-chain` 跨层压测题（5 文件注入 + 双端隐藏检查，真实模型 3/3 通过）；`bench_local.py` 新增 `--pause-tokens` 暂停/续做压测（首轮低预算暂停 → `--continue` 重开续做，fake 冒烟与真实运行均已通过）。W0 剩入口/循环代码走查与学习记录。
