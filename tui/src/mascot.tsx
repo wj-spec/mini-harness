@@ -2,31 +2,32 @@ import React from 'react';
 import {Box, Text} from 'ink';
 import type {Palette} from './theme.js';
 
-const BODY = '#E8835A';
-const INK = '#1B1F24';
-const CREAM = '#F8E8D8';
+const BODY = '#E8A15A';
+const INK = '#2A2320';
+const CREAM = '#F5E6CF';
+const NOSE = '#D96C6C';
 
-/** 10x10 pixel robot; two sprite rows share one terminal cell via ▀. */
+/** 10x10 pixel cat head; two sprite rows share one terminal cell via ▀. */
 export const WIDE_MASCOT = [
-  '....BB....',
-  '....BB....',
-  '...BBBB...',
+  '..B....B..',
+  '..BB..BB..',
   '..BBBBBB..',
-  '..BDBBDB..',
-  '..BBBBBB..',
-  '..BBLLBB..',
   '.BBBBBBBB.',
-  '.BB.BB.BB.',
-  '...B..B...',
+  '.BDBBBDBB.',
+  '.BBBNNBBB.',
+  '.BBBLLBBB.',
+  '..BBLLBB..',
+  '...BBBB...',
+  '..........',
 ] as const;
 
-/** 8x6 compact face for the three-row header. */
+/** 8x6 compact cat face for the three-row header. */
 export const COMPACT_MASCOT = [
-  '..BBBB..',
+  '..B..B..',
   '.BBBBBB.',
   '.BDBBDB.',
   '.BBBBBB.',
-  '.BBLLBB.',
+  '.BBNNBB.',
   '..BBBB..',
 ] as const;
 
@@ -34,6 +35,7 @@ function color(cell: string): string | null {
   if (cell === 'B') return BODY;
   if (cell === 'D') return INK;
   if (cell === 'L') return CREAM;
+  if (cell === 'N') return NOSE;
   return null;
 }
 
