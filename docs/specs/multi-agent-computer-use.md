@@ -1,0 +1,562 @@
+# Multi-Agent 与 Computer Use：调研与实施规格
+
+日期：2026-10-26。状态：方向调研与规格完成；**未实现**，等待按切片实施。本文合并两件事的调研、架构取舍、MVP 规格和验收门槛；实现时再拆成独立任务。
+
+## 0. 结论摘要
+
+1. **Computer Use 先做，Multi-Agent 后做**，不要同时铺开。
+2. Computer Use 的第一版不做“视觉点击”，先做**只读观察**：窗口列表 + macOS Accessibility 树。原因是当前 Agent 的模型/协议不保证支持图像输入，而 Accessibility 文本可以直接进入现有上下文；截图放到 C1.1，作为独立产物/审批通道。
+3. Multi-Agent 的第一版不做“主 Agent 随意派生子 Agent 并行写代码”，而做**只读探索/审查子 Agent**：独立上下文、受限工具、只返回结论与证据，不写文件、不审批、不嵌套。
+4. 两者共享同一套前置能力：**按任务收窄的工具权限、可聚合预算、父/子 trace、审批不继承、产物存储**。这些不先做，功能会变成不可审计的越权入口。
+5. 默认关闭：`VIBE_COMPUTER_USE`、`VIBE_MULTI_AGENT` 未显式启用时不暴露工具/不启动服务。所有 GUI 输入动作默认逐次审批；子 Agent 默认没有审批权。
+
+推荐顺序：
+
+```text
+G0 权限/预算/trace 基础
+  → C1 Computer Use 只读观察（MCP）
+  → M1 只读子 Agent（内部 delegate）
+  → C2 Computer Use 受控输入
+  → M2 可写子 Agent（worktree + 审批代理）
+  → M3 并行/A2A（条件触发）
+```
+
+任一阶段没有达到验收指标，就停在原地，不把“能跑”当收益。
+
+---
+
+## 1. 当前项目约束
+
+### 1.1 已有可复用基础
+
+| 能力 | 位置 | 现状 |
+|---|---|---|
+| Agent loop | `app/agent.py` | 单进程、单 run；阶段化 `_loop` 已拆分 |
+| 工具 | `app/tools.py` | `ToolRegistry` + `ToolSpec`，全部工具对一次 run 暴露 |
+| 审批 | `app/policy.py` | `ApprovalGate`；once/session/workspace；无 handler fail closed |
+| MCP | `app/mcp.py` | FastMCP stdio 客户端；启动和调用都审批；**server 级 risk** |
+| 会话/trace | `app/session.py`、`app/stdio.py` | 单会话 JSONL + trace；单 active run |
+| UI | `tui/src/app.tsx`、`tui/src/protocol.ts` | 单 run 的审批、工具卡片、done 事件 |
+| 隔离 | `docs/specs/execution-isolation.md` | 审批 + 危险命令黑名单 + 可选 Seatbelt；不是 GUI/系统级隔离 |
+| 目标模式 | `docs/specs/goal-mode.md` | 单 Agent 多段续跑，不是多 Agent |
+
+### 1.2 必须先补的缺口
+
+1. **工具权限不可收窄**：`ToolRegistry` 没有 per-run allowlist/subset；子 Agent 会继承全部工具。
+2. **MCP risk 是 server 级**：同一 server 的只读截图和点击都会标成同一 risk；无法做到“观察免审批、输入审批”。需要拆 server 或扩展 tool-level risk。
+3. **工具结果只有文本**：`tui/src/protocol.ts` 的 tool result 是 string；没有图像内容通道。截图只能作为文件产物，不能直接进多模态消息。
+4. **Provider 不保证视觉能力**：当前是 OpenAI-compatible 文本接口；Computer Use 若依赖截图，必须显式声明 `vision` 能力并单独验收。
+5. **审批没有父/子作用域**：`ApprovalGate` 是单对象；子 Agent 不能直接共享，否则会话级授权会被子 Agent 继承。
+6. **TUI 没有子 run**：一个 active run、一套状态；M1 可以让子 Agent 作为一次工具调用出现，M3 才需要子 run 展示。
+7. **预算没有子 run 聚合**：`Agent` 的 token/time/cost 是单 run 统计；子 Agent 成本必须计入父预算，否则是绕过预算的后门。
+
+这些缺口不解决，先做 Computer Use 会变成“有审批但没有权限模型”，先做 Multi-Agent 会变成“多个 Agent 共享同一把万能钥匙”。
+
+---
+
+### 1.3 调研方法与证据等级
+
+- 优先使用第一方文档、官方 quickstart 源码、协议规范和论文摘要；二手博客只用于补充经验判断；
+- 本仓库结论基于当前代码与文档，不把厂商 demo 当生产能力；
+- 未在本次调研中运行 Computer Use/多 Agent benchmark，也没有真实 macOS GUI 验收；所有“收益”都只是待验证假设；
+- 厂商 API 多为 beta/预发布，实施前必须按当时的官方文档重新核对动作名、模型、计费和安全检查；
+- 无法第一方核实的 Codex/其他产品特定说法不写入硬结论。
+
+## 2. Computer Use 调研
+
+### 2.1 三种控制路径
+
+| 路径 | 优点 | 缺点 | 适用 |
+|---|---|---|---|
+| 截图 + 视觉 → 坐标动作 | 通用，能操作任意界面 | 需要视觉模型；坐标/缩放/focus 易错；token 贵；prompt injection | 桌面/Canvas |
+| Accessibility / DOM 树 → 元素动作 | 文本、可定位、便宜、可测试 | 依赖 app/页面可访问性；自定义控件可能缺失 | 原生桌面、网页 |
+| App-specific API | 最可靠、语义清晰 | 每个 app 单独适配 | 高频固定工作流 |
+
+我们的第一版采用**Accessibility 优先**，截图只作为产物/兜底；不把视觉模型作为前置条件。
+
+### 2.2 厂商实现给我们的约束
+
+**Anthropic computer use**：官方 quickstart 把动作定义成 dated tool 版本，包含 `key`、`type`、`mouse_move`、`left_click`、`left_click_drag`、`right_click`、`middle_click`、`double_click`、`triple_click`、`screenshot`、`cursor_position`、`left_mouse_down/up`、`scroll`、`hold_key`、`wait`、`zoom` 等；后续 toolset 版本把每个动作作为 member tool。截图是 base64 图像，坐标要按目标分辨率缩放；官方建议把高分辨率截图缩到 XGA/WXGA，再按比例映射坐标。参考：[computer.py](https://raw.githubusercontent.com/anthropics/claude-quickstarts/main/computer-use-demo/computer_use_demo/tools/computer.py)、[README](https://github.com/anthropics/claude-quickstarts/tree/main/computer-use-demo)。
+
+**安全警告**：同一 README 明确说 computer use 是 beta，风险高于普通 API；建议用专用 VM/容器、限制敏感数据、域名 allowlist、对现实后果动作要求人工确认；并明确存在“页面/图片中的指令覆盖用户指令”的 prompt injection 风险。参考：[computer-use-demo README](https://github.com/anthropics/claude-quickstarts/tree/main/computer-use-demo)。
+
+**OpenAI CUA / computer-use-preview**：官方示例把流程定为 `screenshot → computer_call → 应用执行动作 → computer_call_output(screenshot)`；动作包括 click/type/keypress/scroll 等；模型返回 `pending_safety_checks`（如 malicious instructions、irrelevant domain、sensitive domain），应用必须暂停并让用户确认，不能自行 acknowledge。`computer-use-preview` 是受限模型；微软文档明确建议在隔离 VM/沙箱中运行。参考：[OpenAI computer use 指南](https://developers.openai.com/api/docs/guides/tools-computer-use)、[Microsoft Foundry computer use 文档](https://learn.microsoft.com/en-us/azure/ai-foundry/agents/how-to/tools/computer-use)。
+
+**浏览器自动化 vs Computer Use**：微软文档把浏览器自动化（DOM/HTML/XML）和 computer use（原始像素 + 虚拟键鼠）分开；网页任务优先 browser automation，桌面/Canvas 才用 computer use。这支持我们先做“桌面 Accessibility/窗口观察”，而不是一上来做通用视觉控制。
+
+**Google Gemini computer use**：Google 也提供 computer use preview，支持截图到动作的循环；实施前要按其当前文档核对动作名、模型和限制。参考：[Gemini computer use](https://ai.google.dev/gemini-api/docs/computer-use)。
+
+### 2.3 macOS 现实
+
+- 读取 UI 需要 **Accessibility** 权限；截屏需要 **Screen Recording**；驱动 AppleScript/System Events 还涉及 **Automation** 权限。三者都是 TCC 权限，必须由用户在系统设置中手动授予，不能由程序静默获得。
+- 原生入口是 `AXUIElement`：`AXUIElementCreateSystemWide`、`AXUIElementCreateApplication(pid)`，再读 attributes/actions/children。参考：[AXUIElement.h](https://developer.apple.com/documentation/applicationservices/axuielement_h)、[AXUIElementCreateApplication](https://developer.apple.com/documentation/applicationservices/1459374-axuielementcreateapplication)。
+- 文本优先的原因：我们现有消息是纯文本；Accessibility 树可以直接变成文本，截图则要额外图像通道/视觉模型。先把窗口、应用、控件、可执行 action 读出来，就能完成“看见并报告”的任务。
+- 现实限制：Electron/游戏/Canvas/部分 Java 应用的 AX 树可能不完整；某些控件只有坐标没有语义；窗口 focus、全屏、多显示器会让坐标和截图边界复杂。第一版必须允许“无法观察”并明确报错，不能假装成功。
+
+### 2.4 MCP 作为边界
+
+现有 `app/mcp.py` 已经支持 stdio server、启动审批、工具映射和超时。把 Computer Use 放在独立 MCP server 中，有几个好处：
+
+- GUI 依赖不进入 `core/`，也不污染主 Python 环境；
+- server 进程可以单独授予 TCC 权限；
+- MCP 工具调用沿用现有审批/审计/trace；
+- 先只读、后输入，可以用两个 server 分离 risk。
+
+限制：当前 MCP 的 `risk` 是 **server 级**（`app/mcp.py` 注册时用 `connection.server.risk`），一个 server 内所有工具同一 risk。因此 C1/C2 必须：
+
+- 方案 A：拆成 `computer-observe`（read）和 `computer-control`（exec）两个 server；
+- 方案 B：扩展 MCP 配置，支持 per-tool risk override；这需要改 `app/mcp.py` 并加测试。
+
+建议 C1 用方案 A，保持服务边界清晰；如果后续工具数量多，再引入 per-tool risk。
+
+MCP 本身不是安全边界：官方 security best practices 提到 confused deputy、token passthrough、SSRF、session hijacking、local MCP server compromise、scope minimization 等。参考：[MCP Security Best Practices](https://modelcontextprotocol.io/docs/2025-11-25/tutorials/security/security_best_practices)。GUI server 必须默认只读、最小权限、不能把系统凭据传给模型。
+
+### 2.5 安全与可靠性要求
+
+**必须**：
+
+- 每个输入动作逐次审批；GUI 动作不允许 `workspace` 级永久授权；
+- 应用/窗口 allowlist；默认拒绝密码管理器、钱包、银行、系统设置等敏感 app；
+- 敏感输入检测：secure text field、密码提示、支付/登录页面；命中时暂停并要求人工接管；
+- prompt injection 防护：把截图/网页/AX 文本都当不可信数据；模型不能因页面文字获得新工具或审批权；
+- 前后截图/动作日志写入 `.vibe/computer/`，但默认不把截图放进会话/上下文；
+- 明确停止键，取消要能终止当前 GUI 动作；
+- 禁止自动点击“同意条款/付款/删除/发送”等外部后果动作；
+- 专用 macOS 用户/VM/测试机是推荐运行环境；至少不能在有敏感凭据的工作机上无隔离地跑输入动作。
+- 训练/测试会话绝不能启用 Computer Use；`session.purpose == "user"` 也要显式开关。
+
+**可靠性**：
+
+- 截图分辨率控制在 XGA/WXGA（Anthropic quickstart 推荐 1024×768 附近），坐标按实际显示尺寸缩放；
+- 每次动作后重新截图/AX 树，禁止在旧状态上连续下动作；
+- 动作超时、无变化检测、最大动作数、循环终止；
+- 网络/页面内容不可信，不据此自动放行。
+
+### 2.6 C1 只读观察 MVP
+
+**目标**：让 Agent 能回答“当前前台是什么、这个窗口有哪些可见控件/文本”，但不点击、不输入。
+
+工具（`computer-observe` MCP server，`risk=read`；**C1 首版可先不提供截图**，因为当前 MCP 是 server 级 risk，截图很难在同一 server 里单独审批）：
+
+```jsonc
+{
+  "name": "computer_list_windows",
+  "description": "列出当前可见窗口：app、pid、title、bounds、前台状态。只读。",
+  "parameters": {"type": "object", "properties": {}}
+}
+{
+  "name": "computer_accessibility_tree",
+  "description": "读取指定 app/window 的 Accessibility 树摘要，最多 N 个节点、M 层。只读。",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "app": {"type": "string", "description": "应用名或 bundle id"},
+      "window": {"type": "string", "description": "可选窗口标题/序号"},
+      "max_depth": {"type": "integer", "minimum": 1, "maximum": 8},
+      "max_nodes": {"type": "integer", "minimum": 1, "maximum": 300}
+    },
+    "required": ["app"]
+  }
+}
+}
+```
+
+**截图的处理**：当前 `app/mcp.py` 的 `risk` 是 server 级，`computer-observe` 为 read 时无法让截图单独走审批。C1 首版建议**不提供 screenshot**；C1.1 再二选一：
+
+- 单独的 `computer-capture` server 设 `risk=exec`，截图逐次审批；或
+- 扩展 `app/mcp.py` 支持 per-tool risk override，并补测试。
+
+这样不会出现“只读观察 server 实际上可以无审批截取敏感屏幕”的漏洞。
+
+- 输出结构化摘要：app/window/role/title/value/enabled/actions；过滤超长文本，默认不读 secure 内容；
+- 首版无截图；C1.1 若增加截图，存 `.vibe/computer/artifacts/<run-id>/<n>.png`，只返回路径与尺寸；若未来有视觉能力，再单独加 `include_image` 开关；
+- 第一版不暴露坐标点击，避免“只读 server 被诱导为控制 server”；
+- 启动 MCP server 需要一次审批；AX 树本身可能含敏感文本，必须默认过滤 secure field、密码框、令牌字段，并在工具预览中说明读取范围；
+- 失败模式：权限缺失、app 无 AX 支持、窗口消失、屏幕锁定；都返回可读错误，不重试危险动作。
+
+**验收**：
+
+- 无 Accessibility 权限时明确提示，不崩；授权后可读取 Finder/TextEdit 的窗口与文本控件；
+- 不点击、不输入、不修改文件；工具输出可追溯到窗口/app；
+- 首版无截图；未来截图路径可访问，默认不出现在模型上下文；
+- 取消/超时可回收；`--test-session` 下 server 不启动；
+- 测试用 fake AX driver（固定窗口树）覆盖权限、空树、超长树、截断、窗口消失。
+
+### 2.7 C2 受控输入（C1 通过后再做）
+
+工具（独立 `computer-control`，`risk=exec`）：
+
+```jsonc
+{"name": "computer_click", "parameters": {"app": "string", "element_id": "string?", "x": "integer?", "y": "integer?"}}
+{"name": "computer_type", "parameters": {"app": "string", "element_id": "string?", "text": "string"}}
+{"name": "computer_key", "parameters": {"app": "string", "keys": "string"}}
+{"name": "computer_scroll", "parameters": {"app": "string", "direction": "up|down|left|right", "amount": "integer?"}}
+```
+
+- 优先 `element_id`，坐标只作 fallback；元素 id 来自 C1 树并在短时间内有效；
+- 每次调用预览显示 app/window/元素/动作/文本长度（不默认显示敏感全文）；
+- 审批只允许 `once` 或显式 `session` 单条规则；不允许全局 workspace 授权；
+- 动作后强制重新观察；输入失败不自动重试；
+- 支持 `computer_stop`/全局 Ctrl+C 取消；
+- 第一版不做拖拽、跨应用批量操作、登录/支付流程。
+
+---
+
+## 3. Multi-Agent 调研
+
+### 3.1 先区分 workflow 与 agent
+
+Anthropic《Building effective agents》把系统分成：
+
+- **workflow**：LLM + 工具，由预定义代码路径编排；
+- **agent**：LLM 自主决定流程和工具。
+
+常见 workflow：prompt chaining、routing、parallelization、orchestrator-workers、evaluator-optimizer。多 Agent 并不自动等于更强；应先用最简单的 workflow/单 Agent，只有 demonstrably 提升时才加复杂度。参考：[Building effective agents](https://www.anthropic.com/research/building-effective-agents)。
+
+### 3.2 两种主流编排形态
+
+OpenAI Agents SDK 文档给了一个清晰区分：
+
+- **Agents as tools**：管理者保持对话控制权，把专家 Agent 当工具调用，适合“专家做有界子任务，管理者汇总”；
+- **Handoffs**：triage agent 把对话交给专家，专家接管当前回合，适合路由后由专家直接面向用户。
+
+也可以用代码编排（固定 chain/parallel/evaluator loop），或用 LLM 决策。参考：[OpenAI Agents SDK orchestration](https://openai.github.io/openai-agents-python/multi_agent/)。
+
+对本地编码 Agent，**agents-as-tools** 更合适：主 Agent 保留最终答复、审批和任务状态；子 Agent 只做受限子任务，返回结果。
+
+### 3.3 证据：什么时候值得
+
+**Anthropic 多 Agent Research 系统**（官方工程博客）：
+
+- 内部 research eval 上，多 Agent 比单 Agent Claude Opus 4 高 90.2%；
+- 但多 Agent 大约使用 **15×** 聊天 token，普通 Agent 约 4×；必须有高价值任务才划算；
+- 优势集中在 breadth-first、可并行、超出单上下文的任务；
+- 作者明确说：**大多数 coding 任务真正可并行的部分比研究少**，且当前 LLM 在实时协调/委派上仍不够强。
+
+参考：[Anthropic multi-agent research system](https://www.anthropic.com/engineering/multi-agent-research-system)。
+
+**Cognition《Don't Build Multi-Agents》** 给出反方约束：
+
+- 两个原则：**共享上下文/完整 trace**；**动作携带隐含决策，冲突决策会带来坏结果**；
+- 子 Agent 各自看到不同上下文时，容易做出互不一致的实现；
+- Claude Code 在 2025 年的 subagent 例子：不与子 Agent 并行写，子 Agent 通常只回答问题，不写代码；
+- 多 Agent “互相讨论”在当前可靠性下很脆弱；单线程线性 Agent 往往更可靠。
+
+参考：[Don't Build Multi-Agents](https://cognition.com/blog/dont-build-multi-agents)。
+
+**补充的反方证据**：
+
+- MAST 对 1600+ 条 multi-agent trace、7 个框架的标注分析，把失败归为系统设计、agent 间错位、任务验证三类，共 14 种模式；说明多数失败不是“模型不够强”，而是编排/协调/验证设计问题。参考：[Why Do Multi-Agent LLM Systems Fail?](https://arxiv.org/abs/2503.13657)。
+- Agentless 在 SWE-bench Lite 上用 localization → repair → patch validation 的简单三阶段流程取得 32.00%（96 个修复）和 $0.70 成本，超过当时多个复杂开源 Agent；说明“更多 Agent/更多工具”不是自动更强。参考：[Agentless](https://arxiv.org/abs/2407.01489)。
+
+**综合**：多 Agent 适合“并行信息收集/独立审查”，不适合“多个 Agent 同时改同一工作区”。编码 Agent 的第一版应是**只读、串行、有界**的子 Agent。
+
+### 3.4 编码场景的失败模式
+
+| 失败 | 原因 | 对策 |
+|---|---|---|
+| 重复工作 | 子任务描述模糊 | 明确目标、输出格式、边界、不要做什么 |
+| 实现不一致 | 子 Agent 不共享决策/风格 | 共享任务上下文/约束；M2 才并行写 |
+| 合并冲突 | 多个写者同文件 | worktree 隔离 + 父级串行审查 |
+| 审批越权 | 子 Agent 继承 session/workspace 授权 | 子无审批权；父代理审批；默认只读 |
+| 成本失控 | 子 Agent 递归/过度派生 | 最大深度/数量/token/time；不嵌套 |
+| 错误传播 | 父 Agent 直接信任子摘要 | 父要求证据/文件行号/测试；必要时复核 |
+| 无法调试 | 子 run 无独立 trace | 父子 run id、独立 trace 文件、聚合摘要 |
+| UI 混乱 | 多 run 事件抢同一状态 | M1 仅作为 tool result；M3 才加子 run 面板 |
+
+### 3.5 M1 只读子 Agent 规格
+
+**形态**：父 Agent 内部工具 `delegate`，不新增后端协议；子 Agent 在同进程运行，独立 history/context，受限工具集。
+
+```jsonc
+{
+  "name": "delegate",
+  "description": "把只读探索/审查子任务交给独立子 Agent，返回结论和证据；子 Agent 不能写文件或执行命令。",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "role": {"type": "string", "enum": ["explore", "review"]},
+      "task": {"type": "string", "minLength": 1, "maxLength": 4000},
+      "paths": {"type": "array", "items": {"type": "string"}, "maxItems": 20},
+      "max_steps": {"type": "integer", "minimum": 1, "maximum": 20}
+    },
+    "required": ["role", "task"]
+  }
+}
+```
+
+**子 Agent 工具白名单**：
+
+- `read_file`, `grep`, `list_files`, `git_status`, `git_diff`；
+- 明确禁止：`write_file`, `edit_file`, `apply_patch`, `bash`, Web 搜索, MCP 写工具, `delegate`（不嵌套）。
+
+**上下文**：
+
+- 子 Agent 独立 history，不继承父的完整对话；
+- 系统提示包含父任务摘要、允许的路径、输出 schema、只读约束；
+- 不注入用户个人偏好/敏感 profile（减少泄露与噪声）；项目背景可传递但需裁剪；
+- 输出：
+
+```jsonc
+{
+  "summary": "≤800 字结论",
+  "findings": [{"path": "app/x.py", "start_line": 10, "end_line": 20, "note": "..."}],
+  "open_questions": ["..."],
+  "evidence": ["命令/文件读取摘要"],
+  "confidence": "low|medium|high"
+}
+```
+
+**预算/权限**：
+
+- 子 run 独立 max_steps/time/token；硬上限；
+- 子 usage 计入父 run 的 metrics/trace（不能绕过 token/cost 上限）；
+- 子 Agent 的 `ApprovalGate` 为 `None` 或 deny-all；任何非只读工具直接拒绝；
+- 父取消时通过 `asyncio.Event` 终止子 run；
+- 子 run 不写 session 主日志；写 `.vibe/subagents/<parent-run-id>/<child-id>/trace.jsonl`，父 trace 记录 `subagent_start/end`。
+
+**TUI**：M1 仅显示 `delegate` 工具卡片和结果摘要，不新增子 run 协议；用户可展开查看摘要/证据；不显示子模型流。
+
+**验收**：
+
+- fake provider 场景：父调用 delegate，子只读并返回结构化结果；父最终答复包含子结果；
+- 子尝试写文件/执行命令失败且不弹审批；不嵌套 delegate；
+- 预算/步数/取消能终止子；父 token 统计包含子；
+- 真实任务对照：同一任务单 Agent vs 一次 delegate，记录成功率、父上下文 token、总 token、耗时、纠正次数；
+- 没有可测量收益就不进入 M2。
+
+### 3.6 M2/M3 概要
+
+- **M2 可写子 Agent**：每个子 Agent 一个 git worktree；子不能直接审批；父接收 diff，运行测试，串行合并；冲突人工/父级处理；子只能修改自己 worktree。
+- **M3 并行/多角色**：planner/worker/reviewer、并行探索/串行合并；需要子 run UI、事件协议、A2A 或远程 Agent；只有 M1/M2 指标通过才做。
+- A2A 是“Agent 之间互操作”的协议（Task/Message/Artifact、Agent Card、流式/推送），MCP 是“Agent 到工具”；当前本地单机不需要 A2A。参考：[A2A specification](https://a2a-protocol.org/latest/specification/)。
+
+---
+
+## 4. 两方向对比与顺序
+
+| 维度 | Computer Use | Multi-Agent |
+|---|---|---|
+| 本质 | 新工具/执行器 | 编排/委派 |
+| 主要风险 | OS 权限、GUI 误操作、截图泄露、prompt injection | 上下文分裂、写冲突、审批越权、成本 |
+| 第一版 | 只读 AX/窗口观察 | 只读 explore/review 子 Agent |
+| 是否需要新协议 | C1 不需要；C2 沿用工具审批；MCP 足够 | M1 不需要；M3 才需要子 run 协议 |
+| 可测性 | fake AX driver + macOS 手工 | fake provider + 单/多 Agent 对照 |
+| 失败代价 | 用户桌面被误操作 | 代码被错误合并/成本翻倍 |
+| 依赖 | MCP、TCC、产物存储 | 工具收窄、预算、trace、审批代理 |
+| 收益证据 | 任务覆盖/观察准确率 | 成功率和成本对照 |
+
+**顺序理由**：
+
+1. Computer Use C1 是只读单工具，能在现有 loop/审批里验证权限、trace、取消和测试模式；不引入子 Agent 编排。
+2. M1 只读子 Agent 不写文件，风险低；可以验证“委派是否真的有价值”。
+3. C2 输入动作风险高，放在 C1/M1 的权限和审计基础之后。
+4. M2 写子 Agent 需要 worktree/审批代理/合并审查；必须等 M1 证明收益。
+5. M3 并行是最后一步；Anthropic 自己也指出同步瓶颈和 coding 并行度有限。
+
+---
+
+## 5. 共享基础设施（G0）
+
+在 C1/M1 之前或同时实现最小版本：
+
+### 5.1 工具能力收窄
+
+- `ToolSpec` 增加 capability metadata（`read`, `write`, `exec`, `gui-observe`, `gui-control`）或至少 `risk` 已有；
+- `ToolRegistry` 支持 `subset(names)` / `allowed_tools`；子 Agent 构造独立 registry，不修改父 registry；
+- 系统提示按实际工具集生成，避免“工具列表说有写但实际没有”。
+
+### 5.2 父/子 run 与 trace
+
+- `run_id`、`parent_run_id`、`agent_id`；
+- 子 trace 独立文件；父 trace 写 `subagent_start` / `subagent_end`（状态、usage、摘要 hash）；
+- TUI 暂不解析子事件；M3 再扩展 `protocol.ts`。
+
+### 5.3 预算聚合
+
+- 父 `RunContext` 记录子 usage；子有独立硬上限，但必须计入父 token/cost/time；
+- 子最大数量/深度/并发为 1（M1）；
+- 超限时父返回明确 `stop_reason`/错误，不静默继续。
+
+### 5.4 审批模型
+
+- 子 Agent：无 handler / deny-all；只读工具不需要审批；其他直接拒绝；
+- Computer Use：读与输入分 server；输入逐次审批；**不接受 workspace 级授权**；
+- 审批预览必须显示 app/window/元素/动作，不能只显示“computer action”；
+- 审批记录写到既有 audit path + computer artifact log。
+
+### 5.5 产物与脱敏
+
+- `.vibe/computer/`：截图、动作日志、AX 快照；
+- `.vibe/subagents/`：子 trace/摘要；
+- 默认不把截图/子上下文放进父上下文；只放路径/摘要；
+- 敏感信息过滤与删除入口。
+
+---
+
+## 6. 分阶段实施计划
+
+### G0：基础（必须先做）
+
+- [ ] `ToolRegistry` 支持 per-run subset，测试子 Agent 看不到写工具；
+- [ ] `RunContext`/trace 增加 parent/child id 与 usage 聚合；
+- [ ] 明确 `SecurityPolicy`/审批规则：GUI 输入、子 Agent 权限；
+- [ ] fake driver / fake provider 测试夹具。
+
+验收：单 Agent 行为不变；现有审批/预算/取消回归通过。
+
+### C1：Computer Use 只读观察
+
+- [ ] 独立 `computer-observe` MCP server（Python + PyObjC 或 Swift helper，实施前做 1 天 spike 选型）；
+- [ ] `computer_list_windows` / `computer_accessibility_tree`（C1 首版不含 screenshot）；
+- [ ] TCC 权限探测和清晰错误；
+- [ ] 截图产物 + 默认不入上下文；
+- [ ] fake AX driver 回归 + macOS 手工验收。
+
+验收：能正确观察 Finder/TextEdit；无写/输入；测试会话禁用；取消可回收。
+
+### M1：只读子 Agent
+
+- [ ] `delegate` 工具 + 受限 registry + 独立 history；
+- [ ] 输出 schema、证据、预算、父取消；
+- [ ] 子 trace 目录、父 trace 事件；
+- [ ] fake provider 回归；
+- [ ] 单 Agent vs delegate 的真实任务小样本对照。
+
+验收：正确性不降；父上下文/总 token/耗时有可解释收益，或明确停止不进入 M2。
+
+### C2：Computer Use 受控输入
+
+- [ ] `computer-control` MCP server；
+- [ ] click/type/key/scroll + element-id 优先；
+- [ ] 逐次审批、敏感 app/字段拦截、动作日志、stop；
+- [ ] fake input driver + macOS 手工验收。
+
+验收：审批/停止/敏感场景通过；无一次未审批动作；输入错误不自动重试。
+
+### M2/M3：条件触发
+
+- M2：worktree 子 Agent、审批代理、diff 审查、串行合并；
+- M3：并行编排、子 run UI、A2A/远程；只有 M2 有收益才做。
+
+---
+
+## 7. 评估设计
+
+### Computer Use
+
+- **离线/headless**：fake AX 树/窗口 fixture；工具输出、截断、权限失败、取消、无输入副作用；
+- **macOS 手工**：真实 TCC 权限、Finder/TextEdit/Safari 观察；只读阶段不点击；
+- **指标**：观察准确率、窗口/控件召回、错误权限提示、动作数、审批数、截图 token/尺寸、恢复时间；
+- **注入测试**：页面/AX 文本含恶意指令时，模型不能获得新工具或自动执行输入动作。
+
+### Multi-Agent
+
+- 同一任务单 Agent vs 一次 delegate：
+  - 任务成功/正确性（测试、diff、人工 rubric）；
+  - 父上下文 token、总 token、耗时、工具调用；
+  - 子结果采纳率、重复工作、遗漏、纠正次数；
+- 至少 5–10 个任务的小样本，先看 effect size；不追求大规模；
+- 评估 end-state（测试/文件状态）而不是固定步骤；review 类用 rubric/LLM judge + 人工 spot check；
+- 如果只增加 token 不改善正确性/速度，判定失败，不进入 M2。
+
+### 反指标
+
+- 子 Agent 数量/嵌套深度/审批绕过次数；
+- 未授权 GUI 动作数（必须为 0）；
+- 截图进入上下文的次数（C1 应为 0，除非显式 vision 模式）；
+- 任何“记忆/偏好”注入进入测试会话（必须为 0）。
+
+---
+
+## 8. 风险与缓解
+
+| 风险 | 影响 | 缓解 |
+|---|---|---|
+| GUI 误点击/误输入 | 真实后果 | 逐次审批、敏感 app 拦截、专用环境、stop |
+| 截图含密码/隐私 | 泄露 | 默认不传给模型、敏感字段遮罩、产物权限、删除 |
+| Prompt injection | 越权动作 | 内容视为不可信；动作审批；不因页面文字改变权限 |
+| TCC 权限摩擦 | 体验差 | 清晰引导、只读先做、权限失败不重试 |
+| AX 树不可用 | 任务失败 | 明确错误、app allowlist、必要时后续 vision/专用 adapter |
+| MCP server 被攻破 | 本机控制 | 独立最小权限、只读默认、启动审批、审计 |
+| 子 Agent 越权 | 写文件/泄露 | 子 registry 白名单、deny gate、不嵌套 |
+| 子 Agent 上下文冲突 | 质量下降 | M1 只读；M2 worktree + 父审查 |
+| 成本失控 | 费用 | 父预算聚合、子硬上限、数量/深度限制 |
+| 多 Agent 剧场 | 复杂度无收益 | 单/多对照、停止门槛 |
+
+---
+
+## 9. 明确非目标
+
+- 不做无人审批的桌面控制；
+- 不做远程 VM/云桌面管理（后续单独评估）；
+- 不做视觉优先的通用 computer-use（除非 Provider 明确支持并有真实收益）；
+- 不做并行写代码 Agent（M2 也先串行合并）；
+- 不做嵌套子 Agent、Agent 间自由聊天、A2A 远程互操作；
+- 不把 GUI 依赖塞进 `core/`；
+- 不在测试/评测会话启用任何 Computer Use/子 Agent；
+- 不因为“能演示”就宣称可靠性或收益。
+
+---
+
+## 10. 待确认问题
+
+1. C1 辅助进程用 **Python + PyObjC** 还是 **Swift helper**？两者都需要 TCC 权限；建议先做 1 天 spike 比较依赖、权限归属、打包和测试成本。
+2. 截图是否需要默认审批？建议需要，因为屏幕可能含敏感信息；若用户选择“只读观察免审批”，必须显式配置并显示状态。
+3. 子 Agent 是否注入项目背景/技能？MVP 建议传裁剪后的任务上下文，不注入个人偏好。
+4. 子 Agent 是否使用同一模型/更便宜模型？MVP 先用同一 provider，避免引入模型路由；成本对照后再决定。
+5. M2 的 worktree 合并由父 Agent 还是用户审批？建议父生成 diff+测试证据，用户最终批准合并。
+6. 是否需要 A2A？当前单机不需要；等出现跨进程/远程 Agent 需求再评估。
+
+---
+
+## 11. 参考来源
+
+访问日期：2026-10-26。厂商 API 更新快，实施前要重新核对当前版本。
+
+**Computer Use**
+
+- Anthropic computer use 文档：<https://docs.claude.com/en/docs/agents-and-tools/computer-use>
+- Anthropic computer-use demo（动作/编码/截图缩放）：<https://github.com/anthropics/claude-quickstarts/tree/main/computer-use-demo>，[computer.py raw](https://raw.githubusercontent.com/anthropics/claude-quickstarts/main/computer-use-demo/computer_use_demo/tools/computer.py)
+- Anthropic computer use best practices：<https://claude.com/blog/best-practices-for-computer-and-browser-use-with-claude>
+- OpenAI computer use 指南：<https://developers.openai.com/api/docs/guides/tools-computer-use>
+- Microsoft Foundry computer use（含 screenshot→action、safety checks、CUA 风险）：<https://learn.microsoft.com/en-us/azure/ai-foundry/agents/how-to/tools/computer-use>
+- Google Gemini computer use：<https://ai.google.dev/gemini-api/docs/computer-use>
+- Apple AXUIElement：<https://developer.apple.com/documentation/applicationservices/axuielement_h>
+- MCP Security Best Practices：<https://modelcontextprotocol.io/docs/2025-11-25/tutorials/security/security_best_practices>
+- OSWorld（computer use 评测）：<https://arxiv.org/abs/2404.07972>
+- WebArena（web agent 评测）：<https://arxiv.org/abs/2307.13854>
+
+**Multi-Agent**
+
+- Anthropic multi-agent research system：<https://www.anthropic.com/engineering/multi-agent-research-system>
+- Cognition《Don't Build Multi-Agents》：<https://cognition.com/blog/dont-build-multi-agents>
+- Anthropic《Building effective agents》：<https://www.anthropic.com/research/building-effective-agents>
+- OpenAI Agents SDK orchestration：<https://openai.github.io/openai-agents-python/multi_agent/>
+- MAST（multi-agent failure taxonomy）：<https://arxiv.org/abs/2503.13657>
+- Agentless（简单三阶段 SWE-bench 对照）：<https://arxiv.org/abs/2407.01489>
+- A2A protocol specification：<https://a2a-protocol.org/latest/specification/>
+- MCP introduction：<https://modelcontextprotocol.io/>
+
+**本仓库**
+
+- [Roadmap](../roadmap.md)
+- [执行隔离评估](execution-isolation.md)
+- [Agent loop 拆分](agent-loop-refactor.md)
+- [TUI 协议](../../tui/src/protocol.ts)
+- [工具注册表](../../app/tools.py)
+- [审批闸](../../app/policy.py)
+- [MCP 客户端](../../app/mcp.py)
+
+---
+
+## 12. 建议的下一步
+
+按本文门槛，先做 **G0 + C1**：
+
+1. 确认 C1 辅助进程技术选型（PyObjC vs Swift）和 TCC 权限体验；
+2. 实现 `computer-observe` MCP server + fake AX driver + 手工 macOS 验收；
+3. 不实现点击/输入，不实现子 Agent；
+4. C1 通过后做 M1 只读子 Agent 对照；没有收益就停止，不进入 M2/M3。
+
+这个顺序的风险最低，也能把 `Multi-Agent + Computer Use` 的共同基础（权限、预算、trace、产物）先打牢。

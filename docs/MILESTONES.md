@@ -350,6 +350,8 @@ README「当前完善重点」六项已修复并附针对性回归，真实任�
 
 **W6 v2 对照结论（2026-10-26）**：三组任务均未观察到重复说明/纠正下降，主假设未获支持。过滤 v1 与失败运行后：task-a 3/3 有效，用户消息 1/1/1 两侧相同，tokens 中位 260,704 vs 173,872；task-b 3/2 有效（各 1 失败），中位 tokens 245,304 vs 211,745；task-c 2/2 有效，中位 tokens 783,473 vs 527,780。相关性选择正常（task-a 解释、task-b 修改+测试、task-c 测试），停用组从未选中。结论：不进入 P5，不扩自动画像；用户决定停止 P0 扩张，不再补跑剩余样本，保留显式偏好管理。报告已修复为排除旧 v1 与失败运行。
 
+**多 Agent 与 Computer Use 方向调研（2026-10-26）**：按用户要求完成两方向调研与实施规格 [multi-agent-computer-use](specs/multi-agent-computer-use.md)：比较 Anthropic/OpenAI/Google computer use、macOS Accessibility/TCC、MCP 安全、Claude Code/Cognition/OpenAI Agents SDK 多 Agent 经验；结论是先做只读 GUI 观察（C1）与只读子 Agent（M1），再考虑受控输入/可写子 Agent/并行。当前未实现，所有开关默认关闭。
+
 ## 当前下一步
 
 W1–W5 已完成真实验收；W6 v2 三组对照完成，主假设未获支持。2026-10-26 用户决定停止 P0 扩张、不进入 P5，保留显式偏好管理能力；后续只有新证据/新评估方法才重新评估个性化。接下来：
