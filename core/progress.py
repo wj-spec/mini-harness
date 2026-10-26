@@ -24,11 +24,14 @@ class ProgressMonitor:
     def __init__(
         self, threshold: int = 2, max_entries: int = 128,
         max_reads_per_file: int = 5, max_warnings: int = 4,
+        max_repeated_calls: int = 6,
     ):
         self.threshold = threshold
         self.max_entries = max(1, max_entries)
         self.max_reads_per_file = max(1, max_reads_per_file)
         self.max_warnings = max(1, max_warnings)
+        self.max_repeated_calls = max(1, max_repeated_calls)
+        self._call_counts: dict[tuple[str, str], int] = {}
         self._observations: OrderedDict[tuple[str, str], tuple[bool, str]] = OrderedDict()
         self._denials: OrderedDict[tuple[str, str], None] = OrderedDict()
         self._read_counts: dict[str, int] = {}
@@ -59,6 +62,9 @@ class ProgressMonitor:
 
         if failed:
             return self._stalled("tool_error")
+        self._call_counts[key] = self._call_counts.get(key, 0) + 1
+        if self._call_counts[key] >= self.max_repeated_calls:
+            return self._stalled("repeated_call")
         if call.name == "update_task":
             return self._stalled("state_only")
         if call.name == "read_file":
@@ -72,8 +78,12 @@ class ProgressMonitor:
             return self._stalled("repeated_result")
 
         if call.name in self._MUTATIONS:
-            # 成功修改后允许重新读取；同时保留写入指纹，清除修改前的读取和测试结果。
+            # 成功修改后允许重新读取；同时保留写入指纹，其他调用计数清零。
             self._read_counts.clear()
+            self._call_counts = {
+                observed_key: count for observed_key, count in self._call_counts.items()
+                if observed_key[0] in self._MUTATIONS
+            }
             for observed_key in list(self._observations):
                 if observed_key[0] not in self._MUTATIONS:
                     del self._observations[observed_key]

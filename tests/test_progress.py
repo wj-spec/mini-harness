@@ -181,3 +181,12 @@ def test_warning_budget_stops_after_repeated_stall_cycles():
             assert decision.action == "warn"
         else:
             assert decision.action == "stop"
+
+
+def test_repeated_call_hash_warns_even_when_output_changes():
+    monitor = ProgressMonitor(threshold=2, max_repeated_calls=3)
+    request = call(path="a.py")
+    decisions = [monitor.observe(request, True, f"output {index}") for index in range(6)]
+    assert decisions[2].reason == "repeated_call" and decisions[2].action == "continue"
+    assert decisions[3].action == "warn"
+    assert decisions[5].action == "stop"

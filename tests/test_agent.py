@@ -910,3 +910,49 @@ def test_receipt_records_verified_command_exit_codes(tmp_path):
     assert "实际验证（含退出码）：true [succeeded, exit=0]" in result.receipt
     assert "[任务验收] 有验证证据" in result.receipt
 
+
+
+def test_tool_error_adds_actionable_guidance_for_the_next_request(tmp_path):
+    provider = FakeProvider([
+        Response(tool_calls=[ToolCall("read_file", {"path": "missing.txt"}, id="c1")]),
+        Response("done"),
+    ])
+    result = run(Agent(provider, ToolRegistry(tmp_path)).run("read"))
+
+    assert result.status == "done"
+    assert any("failed. Read the error output" in message.content for message in provider.seen[1])
+
+
+def test_duplicate_calls_in_one_batch_are_skipped_with_guidance(tmp_path):
+    executed = []
+    registry = ToolRegistry(tmp_path)
+    registry.register(ToolSpec("probe", "Probe", {"type": "object"}, lambda **_: executed.append(1) or "ok"))
+    provider = FakeProvider([
+        Response(tool_calls=[
+            ToolCall("probe", {"value": 1}, id="c1"),
+            ToolCall("probe", {"value": 1}, id="c2"),
+        ]),
+        Response("done"),
+    ])
+    result = run(Agent(provider, registry).run("probe"))
+
+    assert result.status == "done"
+    assert len(executed) == 1
+    assert any("duplicate_call" in message.content for message in provider.seen[1])
+
+
+def test_tool_guidance_distinguishes_timeout_and_duplicate_states(tmp_path):
+    agent = Agent(FakeProvider([]), ToolRegistry(tmp_path))
+    from core.progress import ProgressDecision
+    timeout = agent._tool_guidance(
+        ToolCall("bash", {"command": "sleep 10"}),
+        ProgressDecision("continue", "tool_error", 1),
+        "ERROR timeout after 30s", {"status": "timed_out"},
+    )
+    duplicate = agent._tool_guidance(
+        ToolCall("read_file", {"path": "a.py"}),
+        ProgressDecision("continue", "tool_error", 1),
+        "ERROR duplicate_call: already executed", None,
+    )
+    assert "timed out" in timeout and "split" in timeout
+    assert "duplicate" in duplicate and "skipped" in duplicate

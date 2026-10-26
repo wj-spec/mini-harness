@@ -28,6 +28,7 @@ class Config:
     max_no_progress: int = 2
     max_reads_per_file: int = 5
     max_progress_warnings: int = 4
+    max_repeated_calls: int = 6
     max_run_tokens: int = 0
     compact_interval_tokens: int = 200_000
     max_run_cost_usd: float = 0.0
@@ -79,6 +80,7 @@ class Config:
             max_no_progress=int(os.getenv("VIBE_MAX_NO_PROGRESS", "2")),
             max_reads_per_file=int(os.getenv("VIBE_MAX_READS_PER_FILE", "5")),
             max_progress_warnings=int(os.getenv("VIBE_MAX_PROGRESS_WARNINGS", "4")),
+            max_repeated_calls=int(os.getenv("VIBE_MAX_REPEATED_CALLS", "6")),
             max_run_tokens=int(os.getenv("VIBE_MAX_RUN_TOKENS", str(cls.max_run_tokens))),
             compact_interval_tokens=int(os.getenv(
                 "VIBE_COMPACT_INTERVAL_TOKENS", str(cls.compact_interval_tokens),

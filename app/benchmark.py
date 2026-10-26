@@ -249,6 +249,7 @@ async def run_swebench(
                 max_continuations=config.max_continuations, max_no_progress=config.max_no_progress,
                 max_reads_per_file=config.max_reads_per_file,
                 max_progress_warnings=config.max_progress_warnings,
+                max_repeated_calls=config.max_repeated_calls,
                 project_instructions=(
                     "Evaluation workspace corresponds to /testbed inside an offline container. "
                     "All bash commands execute there with the repository test environment active. "

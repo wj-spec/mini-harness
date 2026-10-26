@@ -10,7 +10,7 @@ def clear_budget_env(monkeypatch):
     for name in (
         "CONTEXT_WINDOW", "MAX_TOKENS", "RESERVE_OUTPUT", "SYSTEM_CAP",
         "MEMORY_CAP", "TOOLS_CAP", "HISTORY_CAP", "SCRATCH_CAP",
-        "MAX_RUN_TOKENS", "COMPACT_INTERVAL_TOKENS", "MAX_READS_PER_FILE", "MAX_PROGRESS_WARNINGS",
+        "MAX_RUN_TOKENS", "COMPACT_INTERVAL_TOKENS", "MAX_READS_PER_FILE", "MAX_PROGRESS_WARNINGS", "MAX_REPEATED_CALLS",
     ):
         monkeypatch.delenv("VIBE_" + name, raising=False)
 
@@ -26,6 +26,7 @@ def test_config_uses_the_shared_budget_defaults(monkeypatch):
     assert Config().max_reads_per_file == 5
     assert Config.from_env().max_reads_per_file == 5
     assert Config().max_progress_warnings == 4
+    assert Config().max_repeated_calls == 6
 
 
 def test_task_budget_and_compaction_interval_are_independent(monkeypatch):
@@ -43,9 +44,11 @@ def test_progress_guards_are_configurable(monkeypatch):
     clear_budget_env(monkeypatch)
     monkeypatch.setenv("VIBE_MAX_READS_PER_FILE", "3")
     monkeypatch.setenv("VIBE_MAX_PROGRESS_WARNINGS", "2")
+    monkeypatch.setenv("VIBE_MAX_REPEATED_CALLS", "3")
     config = Config.from_env()
     assert config.max_reads_per_file == 3
     assert config.max_progress_warnings == 2
+    assert config.max_repeated_calls == 3
 
 
 def test_compaction_interval_can_be_disabled_without_disabling_task_limit(monkeypatch):

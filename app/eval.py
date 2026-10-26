@@ -286,7 +286,7 @@ def run_eval(
     pricing = pricing or Pricing(effective.input_price_per_1m, effective.output_price_per_1m)
     agent_options = {key: getattr(effective, key) for key in (
         "max_run_seconds", "llm_timeout", "llm_retries", "llm_retry_backoff", "max_continuations",
-        "max_no_progress", "max_reads_per_file", "max_progress_warnings",
+        "max_no_progress", "max_reads_per_file", "max_progress_warnings", "max_repeated_calls",
         "max_run_tokens", "compact_interval_tokens", "max_run_cost_usd", "tool_retries",
     )}
     agent_options["require_tool_use"] = True

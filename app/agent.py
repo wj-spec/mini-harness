@@ -222,6 +222,7 @@ class Agent:
         max_no_progress: int = 2,
         max_reads_per_file: int = 5,
         max_progress_warnings: int = 4,
+        max_repeated_calls: int = 6,
         max_run_tokens: int = 0,
         compact_interval_tokens: int = 200_000,
         max_run_cost_usd: float = 0.0,
@@ -254,6 +255,7 @@ class Agent:
         self.max_no_progress = max_no_progress
         self.max_reads_per_file = max_reads_per_file
         self.max_progress_warnings = max_progress_warnings
+        self.max_repeated_calls = max_repeated_calls
         self.max_run_tokens = max_run_tokens
         self.compact_interval_tokens = max(0, compact_interval_tokens)
         self.max_run_cost_usd = max_run_cost_usd
@@ -540,6 +542,7 @@ class Agent:
         run.progress = ProgressMonitor(
             self.max_no_progress, max_reads_per_file=self.max_reads_per_file,
             max_warnings=self.max_progress_warnings,
+            max_repeated_calls=self.max_repeated_calls,
         )
         run.started = time.monotonic()
         self._active_steering = run.pending_steering
@@ -1000,6 +1003,7 @@ class Agent:
         self, run: _RunContext, step: int, calls: list[ToolCall],
     ) -> AgentResult | None:
         """执行这一批工具调用（审批、结果回灌、进展检测）；None 表示继续下一步。"""
+        batch_seen: set[tuple[str, str]] = set()
         for call_index, call in enumerate(calls):
             if run.cancel is not None and run.cancel.is_set():
                 return self._cancel_pending(run, step, calls[call_index:])
@@ -1013,10 +1017,17 @@ class Agent:
                 run.on_tool(call)
 
             risk = self.tools.risk(call.name)
-            run.recorder.tool_start(call, step=step)
             key = (call.name, json.dumps(call.args, sort_keys=True, ensure_ascii=False,
                                         separators=(",", ":")))
-            if risk != "read":
+            duplicate = key in batch_seen
+            batch_seen.add(key)
+            run.recorder.tool_start(call, step=step)
+            if duplicate:
+                ok, output = False, (
+                    "ERROR duplicate_call: an identical tool call (same name and arguments) "
+                    "was already executed in this batch; this duplicate was not executed"
+                )
+            elif risk != "read":
                 if key in run.denied_requests:
                     ok, output = False, "ERROR denied_by_user: already denied in this run"
                 elif self.approval is None:
@@ -1072,9 +1083,12 @@ class Agent:
             if run.cancel is not None and run.cancel.is_set():
                 return self._cancel_pending(run, step, calls[call_index + 1:])
             progress_decision = run.progress.observe(call, ok, output)
+            guidance = self._tool_guidance(call, progress_decision, str(output), execution)
             if progress_decision.action == "continue":
                 if progress_decision.reason == "new_result":
                     run.correction_instruction = ""
+                elif progress_decision.reason in {"tool_error", "repeated_call", "repeated_read", "state_only"}:
+                    run.correction_instruction = guidance
                 continue
             evidence = (
                 f"{progress_decision.reason}; tool={call.name}; "
@@ -1093,14 +1107,71 @@ class Agent:
                 ))
                 run.correction_instruction = (
                     "Harness feedback for this next request: tools have produced no progress. "
-                    f"Evidence: {evidence}. Change the method, inspect new evidence, or ask for "
-                    "the missing information; do not repeat unchanged requests. Never retry "
-                    "a denied operation. Tools remain available for a different useful action."
+                    f"Evidence: {evidence}. {guidance} Tools remain available for a different useful action."
                 )
             else:
-                run.progress_stop = evidence
+                run.progress_stop = evidence + "\nGuidance: " + guidance
             break
         return None
+
+    def _tool_guidance(
+        self, call: ToolCall, decision, output: str, execution: dict | None,
+    ) -> str:
+        """把工具状态转成模型可执行的纠偏提示；不把错误伪装成成功。"""
+        reason = decision.reason
+        tool = call.name
+        if reason == "repeated_call":
+            return (
+                f"Repeated call hash: you called {tool} with identical arguments multiple times. "
+                "The harness treats this as a loop. Change the arguments or method, gather different "
+                "evidence, or report what blocks progress; do not submit the same call again."
+            )
+        if reason == "repeated_result":
+            return (
+                f"{tool} was called with identical arguments and returned unchanged output. "
+                "Do not repeat it. Change the method, inspect a different file/range, or state the blocker."
+            )
+        if reason == "repeated_read":
+            path = call.args.get("path", "the file")
+            return (
+                f"read_file for {path} has been repeated without an intervening successful edit. "
+                "Stop re-reading it: use a different file/range, grep, or make the needed change."
+            )
+        if reason == "state_only":
+            return (
+                "update_task only records plans and is not execution evidence. "
+                "Use file/test tools or ask for missing information instead of updating state again."
+            )
+        if reason == "permission_denied":
+            return (
+                "The user denied this operation. Never retry a denied operation; "
+                "explain the blocker or choose a different approved approach."
+            )
+        if reason == "tool_error":
+            status = (execution or {}).get("status")
+            if output.startswith("ERROR duplicate_call"):
+                return (
+                    "An identical call in this batch was already executed, so the duplicate was skipped. "
+                    "Do not repeat it; continue with distinct work or explain the blocker."
+                )
+            if status == "timed_out" or "ERROR timeout" in output:
+                return (
+                    f"{tool} timed out. Reduce the scope, split the command, or raise the timeout "
+                    "before retrying; do not repeat the unchanged call."
+                )
+            if output.startswith(("ERROR denied_by_user", "ERROR approval_required")):
+                return (
+                    "The operation is not authorized. Do not retry it unchanged; "
+                    "explain the blocker or ask the user for a different approved action."
+                )
+            return (
+                f"{tool} failed. Read the error output, fix the arguments, path, or environment, "
+                "then retry with a changed request; do not retry it identically."
+            )
+        return (
+            f"The harness detected stalled tool progress ({reason}). "
+            "Change the approach instead of repeating the same action."
+        )
 
     # ---- 一次 run 的收尾与记录 ----
 
