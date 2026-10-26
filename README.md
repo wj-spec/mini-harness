@@ -119,7 +119,7 @@ flowchart TD
 - **长任务可靠性**：`/goal` 的真实长任务与跨段成本验收。
 - **个性化精细化**：W6 v2 未观察到重复说明减少；已停止 P0 扩张、不进入 P5，保留显式偏好管理；后续只有新证据/新评估方法才重新评估。
 - **评测扩题**：固定前三题参考补丁自检与 `--limit 3` 扩题，建立多次运行基线。
-- **方向探索**：MCP HTTP transport / 资源与 prompt、LSP、多 Agent 主 / 子编排、Computer Use、W7 第二种工作流，按实际需求再评估；两方向调研与规格见 [Multi-Agent 与 Computer Use](docs/specs/multi-agent-computer-use.md)。
+- **方向探索**：MCP HTTP transport / 资源与 prompt、LSP、多 Agent 主 / 子编排、Computer Use、W7 第二种工作流，按实际需求再评估；两方向调研与规格见 [Multi-Agent 与 Computer Use](docs/specs/multi-agent-computer-use.md)；Computer Use 先收窄为 [Browser Use](docs/specs/browser-use.md)。
 - **体验补齐**：Git 侧栏与拖选复制在真实终端中的打开 / 切换 / 授权 / 视觉体验验收。
 
 ## 快速开始

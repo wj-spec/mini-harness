@@ -1,6 +1,6 @@
 # Multi-Agent 与 Computer Use：调研与实施规格
 
-日期：2026-10-26。状态：方向调研与规格完成；**未实现**，等待按切片实施。本文合并两件事的调研、架构取舍、MVP 规格和验收门槛；实现时再拆成独立任务。
+日期：2026-10-26。状态：方向调研与规格完成；**未实现**。2026-10-26 用户进一步收窄 Computer Use：**先做 Browser Use，桌面 AX/视觉 Computer Use 延后**，详见 [browser-use.md](browser-use.md)。本文保留两方向完整调研与桌面路径，实施顺序以 browser-use 文档为准。
 
 ## 0. 结论摘要
 
@@ -10,16 +10,18 @@
 4. 两者共享同一套前置能力：**按任务收窄的工具权限、可聚合预算、父/子 trace、审批不继承、产物存储**。这些不先做，功能会变成不可审计的越权入口。
 5. 默认关闭：`VIBE_COMPUTER_USE`、`VIBE_MULTI_AGENT` 未显式启用时不暴露工具/不启动服务。所有 GUI 输入动作默认逐次审批；子 Agent 默认没有审批权。
 
-推荐顺序：
+推荐顺序（2026-10-26 收窄后）：
 
 ```text
 G0 权限/预算/trace 基础
-  → C1 Computer Use 只读观察（MCP）
+  → B1 Browser Use 只读观察（Playwright MCP）
+  → B2 Browser Use 受控动作
   → M1 只读子 Agent（内部 delegate）
-  → C2 Computer Use 受控输入
-  → M2 可写子 Agent（worktree + 审批代理）
-  → M3 并行/A2A（条件触发）
+  → 桌面 C1/C2（条件触发）
+  → M2/M3（条件触发）
 ```
+
+Browser Use 的详细规格见 [browser-use.md](browser-use.md)；桌面 AX 路线保留为后续，不并行开工。
 
 任一阶段没有达到验收指标，就停在原地，不把“能跑”当收益。
 
@@ -635,11 +637,11 @@ M3 write child：patch accepted/merged rate ≥ 单 Agent 直接实现的成功�
 
 ## 12. 建议的下一步
 
-按本文门槛，先做 **G0 + C1**：
+2026-10-26 收窄后，先做 **G0 + Browser Use B1**，桌面 C1 延后：
 
-1. 确认 C1 AX helper 技术选型（Swift/ObjC helper vs 隔离 PyObjC）和 TCC 权限归属；
-2. 实现 `gui-observe` MCP server + fake AX driver + 手工 macOS 验收；
-3. 不实现点击/输入，不实现子 Agent；
-4. C1 通过后做 M1 只读子 Agent 对照；没有收益就停止，不进入 M2/M3。
+1. G0：`McpServer.allowed_tools` + `tool_risks`，并补测试；
+2. 固定 Playwright MCP 版本，配置 B1 只读工具集；
+3. 本地 fixture HTTP server + headless B1 验收；
+4. B1 通过后再评估 B2 和 M1 只读子 Agent；桌面 C1/C2 保持延后。
 
-这个顺序的风险最低，也能把 `Multi-Agent + Computer Use` 的共同基础（权限、预算、trace、产物）先打牢。
+详细规格见 [browser-use.md](browser-use.md)。这个顺序风险最低，也能把 `Multi-Agent + Computer Use` 的共同基础（权限、预算、trace、产物）先打牢。

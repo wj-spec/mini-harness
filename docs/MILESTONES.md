@@ -352,6 +352,8 @@ README「当前完善重点」六项已修复并附针对性回归，真实任�
 
 **多 Agent 与 Computer Use 方向调研（2026-10-26）**：按用户要求完成两方向调研与实施规格 [multi-agent-computer-use](specs/multi-agent-computer-use.md)：比较 Anthropic/OpenAI/Google computer use、macOS Accessibility/TCC、MCP 安全、Claude Code/Cognition/OpenAI Agents SDK 多 Agent 经验；结论是先做只读 GUI 观察（C1）与只读子 Agent（M1），再考虑受控输入/可写子 Agent/并行。当前未实现，所有开关默认关闭。
 
+**Computer Use 收窄为 Browser Use（2026-10-26）**：用户决定先做浏览器自动化，暂缓桌面 AX/视觉 Computer Use。新增 [Browser Use 规格](specs/browser-use.md)：用 Playwright MCP 只读观察（navigate/snapshot/console/network），再做受控 click/type/select；不登录、不付账、不上传下载、不读 cookies/storage、不执行任意 JS；先补 G0 的 MCP tool-level allowlist/risk。桌面路线仍保留在 [multi-agent-computer-use](specs/multi-agent-computer-use.md)，不并行开工。
+
 ## 当前下一步
 
 W1–W5 已完成真实验收；W6 v2 三组对照完成，主假设未获支持。2026-10-26 用户决定停止 P0 扩张、不进入 P5，保留显式偏好管理能力；后续只有新证据/新评估方法才重新评估个性化。接下来：
