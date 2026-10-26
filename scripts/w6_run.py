@@ -22,15 +22,36 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 W6_TEST_PREFERENCES = {
-    "version": 1,
+    "version": 2,
     "enabled": True,
     "entries": [
-        {"text": "回答先给结论，再给细节", "source": "user", "status": "confirmed"},
-        {"text": "代码解释用中文，注释简洁", "source": "user", "status": "confirmed"},
-        {"text": "改动前先给出方案", "source": "user", "status": "confirmed"},
+        {
+            "id": "w6-explain", "kind": "preference", "scope": "workflow",
+            "text": "解释代码时：先给结论，再给细节；用中文，注释简洁。",
+            "triggers": ["解释", "说明", "实现", "怎么", "如何"],
+            "source": "user", "status": "confirmed", "confidence": 1.0,
+            "created_at": "2026-10-26T00:00:00Z", "updated_at": "2026-10-26T00:00:00Z",
+            "last_confirmed_at": "2026-10-26T00:00:00Z",
+        },
+        {
+            "id": "w6-change", "kind": "preference", "scope": "workflow",
+            "text": "修改代码前：先说明方案、影响文件和验证方式。",
+            "triggers": ["修改", "增加", "新增", "实现", "重构", "修复", "改造", "edit"],
+            "source": "user", "status": "confirmed", "confidence": 1.0,
+            "created_at": "2026-10-26T00:00:00Z", "updated_at": "2026-10-26T00:00:00Z",
+            "last_confirmed_at": "2026-10-26T00:00:00Z",
+        },
+        {
+            "id": "w6-test", "kind": "preference", "scope": "workflow",
+            "text": "测试/诊断时：先复现失败，再改代码，最后重新运行验证。",
+            "triggers": ["测试", "诊断", "验证", "失败", "复现", "bug"],
+            "source": "user", "status": "confirmed", "confidence": 1.0,
+            "created_at": "2026-10-26T00:00:00Z", "updated_at": "2026-10-26T00:00:00Z",
+            "last_confirmed_at": "2026-10-26T00:00:00Z",
+        },
     ],
 }
-EMPTY_PROFILE = {"version": 1, "enabled": False, "entries": []}
+EMPTY_PROFILE = {"version": 2, "enabled": False, "entries": []}
 
 TASKS = {
     "task-a": {
@@ -97,7 +118,7 @@ def main() -> int:
     task = TASKS[task_name]
     workspace = ROOT / ".vibe" / "w6" / f"workspace-{args.part}"
     user_profile = build_workspace(workspace, mode)
-    personalization_text = "启用（项目背景 + 3 条偏好）" if mode == "on" else "停用（无背景、无偏好）"
+    personalization_text = "启用（项目背景 + 3 条带触发词的偏好）" if mode == "on" else "停用（无背景、无偏好）"
     print("=" * 64)
     print(f"W6 对照：{args.part}")
     print(f"个性化：{personalization_text}")

@@ -1,6 +1,6 @@
 # W6：验证个性化的实际收益
 
-日期：2026-10-24。状态：对照实验工具就绪；三组任务 × 启用/停用 待用户跑。
+日期：2026-10-26。状态：v1 对照已完成（主假设未获支持）；v2 触发词偏好与多次运行聚合工具就绪，待用户跑。
 
 ## 目标
 
@@ -16,7 +16,7 @@
 | task-b | 给 `/about` 增加 `/about edit <序号> <新文本>` 并补测试 | 改动前先给方案、注释简洁 |
 | task-c | 检查 `load_user_profile` 对重复/空白条目的处理，有问题就修并补测试 | 根因定位、验证 |
 
-启用组：工作区带项目背景（`.vibe/project-profile.json`），`VIBE_USER_PROFILE` 指向 3 条已确认偏好（结论先行 / 中文简洁 / 先给方案）。
+启用组：工作区带项目背景（`.vibe/project-profile.json`），`VIBE_USER_PROFILE` 指向 3 条 v2 已确认偏好（解释、修改、测试三类触发词）；由 `scripts/w6_run.py` 生成。
 停用组：工作区无项目背景，`VIBE_USER_PROFILE` 指向空且 `enabled: false` 的 profile。
 
 ## 运行
@@ -34,7 +34,7 @@ cd /Users/endless/Desktop/self_project/mini-harness
 .venv/bin/python3 scripts/w6_report.py           # 汇总对照表
 ```
 
-每条结束后自动取证到 `.vibe/w6/evidence/`：run 状态/步数/tokens/工具调用、测试通过命令、用户消息数、git 状态、实际注入的背景与偏好。
+每条结束后自动取证到 `.vibe/w6/evidence/`：run 状态/步数/tokens/工具调用、测试通过命令、用户消息数、git 状态、实际注入的背景与偏好；`trace.jsonl` 的 `user_profile_selection` 记录本轮实际选中的偏好。建议每个 task-on/off 各跑 **3 次**，用 `scripts/w6_report_v2.py` 看 min/median/max 分布，不用单次 token 差异下结论。
 
 ## 记录指标
 

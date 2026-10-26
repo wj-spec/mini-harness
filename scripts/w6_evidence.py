@@ -74,6 +74,10 @@ def main() -> None:
             {key: event.get(key) for key in ("command", "status", "exit_code")}
             for event in trace if event.get("type") == "command_result"
         ]
+        evidence["profile_selections"] = [
+            {key: event.get(key) for key in ("run_id", "task", "confirmed", "selected")}
+            for event in trace if event.get("type") == "user_profile_selection"
+        ]
         events = json_lines(session / "events.jsonl")
         messages = [event["message"] for event in events if isinstance(event.get("message"), dict)]
         user_messages = [m for m in messages if m.get("role") == "user"]

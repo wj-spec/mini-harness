@@ -397,7 +397,20 @@ class _Connection:
                 [entry for entry in user_profile.entries if entry.status == "confirmed"]
                 if user_profile.enabled and self.session.purpose == "user" else []
             )
-            self.agent.set_user_background(select_user_preferences(user_entries, text))
+            selected_preferences = select_user_preferences(user_entries, text)
+            self.agent.set_user_background(selected_preferences)
+            try:
+                self.session.append_trace({
+                    "type": "user_profile_selection", "run_id": request_id,
+                    "task": text[:500],
+                    "confirmed": len(user_entries),
+                    "selected": [
+                        {"text": entry.text, "source": entry.source, "triggers": list(entry.triggers)}
+                        for entry in selected_preferences
+                    ],
+                })
+            except OSError:
+                pass
             publish_metrics()
             result = await self.agent.run(
                 text,

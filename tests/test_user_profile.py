@@ -143,8 +143,11 @@ def test_stdio_injects_only_relevant_tagged_preferences(tmp_path, monkeypatch):
         harness.send("run", "r1", text="解释 /about 的实现")
         await harness.until("done", "r1")
         await harness.close()
-        return agent.system
+        trace = [json.loads(line) for line in session.trace_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        return agent.system, trace
 
-    system = asyncio.run(scenario())
+    system, trace = asyncio.run(scenario())
     assert "解释时先给结论" in system
     assert "修改前先给方案" not in system
+    selections = [event for event in trace if event.get("type") == "user_profile_selection"]
+    assert selections and [item["text"] for item in selections[-1]["selected"]] == ["解释时先给结论"]
