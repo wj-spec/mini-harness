@@ -16,12 +16,6 @@ EVIDENCE = ROOT / ".vibe" / "w6" / "evidence"
 TASKS = ("task-a", "task-b", "task-c")
 
 
-def percentile(values: list[int], part: float) -> int:
-    ordered = sorted(values)
-    index = min(len(ordered) - 1, max(0, round((len(ordered) - 1) * part)))
-    return ordered[index]
-
-
 def summary(runs: list[dict]) -> dict:
     user_messages = [int(run.get("user_message_count") or 0) for run in runs]
     steps = [sum(event.get("steps") or 0 for event in run.get("run_ends", [])) for run in runs]
