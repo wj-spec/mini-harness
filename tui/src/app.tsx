@@ -19,7 +19,7 @@ import {contextLines} from './context-view.js';
 import {copyToClipboard} from './clipboard.js';
 import {selectedText, type Selection, type SelectionPoint} from './selection.js';
 import {loadProfile, projectProfilePath, saveProfile} from './project-profile.js';
-import {loadUserProfile, saveUserProfile, userProfileFile, type UserPreference} from './user-profile.js';
+import {loadUserProfile, pruneUserProfile, saveUserProfile, userProfileFile, type UserPreference} from './user-profile.js';
 import {mergeProposals, proposePreferences, readSessionUserMessages} from './preference-observer.js';
 import {adjustSidebarSplitForTui, closeSidebarWindowForTui, killSidebarForTui, launchSidebarForTui, runSidebarSetup} from './sidebar/launch.js';
 import {agentTouchedFiles} from './sidebar/agent-activity.js';
@@ -455,7 +455,9 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
   autoObserveRef.current = runAutoObserve;
   const aboutCommand = (argument: string) => {
     const file = aboutFile();
-    const profile = loadUserProfile(file);
+    const maintained = pruneUserProfile(loadUserProfile(file));
+    const profile = maintained.profile;
+    if (maintained.removed || maintained.stale) saveUserProfile(file, profile);
     const rest = argument.trim();
     const now = new Date().toISOString();
     const newId = () => `pref-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -473,7 +475,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
         const merged = mergeProposals(profile, proposals);
         if (!merged.added && !merged.updated) {announce('本会话偏好已存在，未新增 proposed。'); return;}
         saveEntries(merged.entries);
-        announce(`已提出待确认偏好（不会自动注入）：新增 ${merged.added}、更新 ${merged.updated}、跳过 ${merged.skipped}；输入 /about 查看，/about confirm <序号> 确认`);
+        announce(`已提出待确认偏好（不会自动注入）：新增 ${merged.added}、更新 ${merged.updated}、跳过 ${merged.skipped}、疑似冲突 ${merged.conflicts}；输入 /about 查看，/about confirm <序号> 确认`);
       } catch (error) {announce(`观察偏好失败：${String(error)}`);}
       return;
     }
@@ -482,7 +484,8 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       if (!profile.entries.length) {announce(`关于你（${stateText}）：暂无条目。用 /about add <文本> 添加，/about propose <文本> 记录待确认观察`); return;}
       const lines = profile.entries.map((entry, index) => {
         const triggers = entry.triggers?.length ? `；触发：${entry.triggers.join(',')}` : '';
-        return `${index + 1}. [${statusLabel(entry.status)}] ${entry.text}（来源：${entry.source}${triggers}）`;
+        const expiry = entry.expires_at ? `；过期：${entry.expires_at.slice(0, 10)}` : '';
+        return `${index + 1}. [${statusLabel(entry.status)}] ${entry.text}（来源：${entry.source}${triggers}${expiry}）`;
       });
       announce(`关于你（${stateText}，${profile.entries.length} 条）：\n${lines.join('\n')}`);
       return;
@@ -538,6 +541,36 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       announce(`已${disable ? '停用' : '启用'}第 ${index} 条偏好；新任务生效`);
       return;
     }
+    if (rest.startsWith('expire ')) {
+      const match = /^expire\s+(\d+)\s+(.+)$/s.exec(rest);
+      const index = match ? indexOf(match[1]!) : null;
+      if (index === null) {announce(`用法：/about expire <1-${profile.entries.length}> <天数|ISO 时间|->`); return;}
+      const raw = match![2]!.trim();
+      let expires = '';
+      if (raw !== '-') {
+        const days = Number(raw);
+        const parsed = Number.isFinite(days) && days > 0 ? new Date(Date.now() + days * 86_400_000) : new Date(raw);
+        if (Number.isNaN(parsed.getTime())) {announce('过期时间必须是正天数、ISO 时间或 -'); return;}
+        expires = parsed.toISOString();
+      }
+      saveEntries(profile.entries.map((entry, position) => {
+        if (position !== index - 1) return entry;
+        if (expires) return {...entry, expires_at: expires, updated_at: now};
+        const {expires_at: _ignored, ...rest} = entry;
+        return {...rest, updated_at: now};
+      }));
+      announce(expires ? `已设置第 ${index} 条过期时间：${expires.slice(0, 10)}` : `已清除第 ${index} 条过期时间`);
+      return;
+    }
+    if (rest.startsWith('clear ')) {
+      const target = rest.slice(6).trim();
+      if (target !== 'proposed' && target !== 'stale') {announce('用法：/about clear proposed|stale'); return;}
+      const before = profile.entries.length;
+      const entries = profile.entries.filter(entry => entry.status !== target);
+      saveEntries(entries);
+      announce(`已清理 ${before - entries.length} 条 ${target === 'proposed' ? '待确认' : '已停用'}偏好；已确认条目不受影响`);
+      return;
+    }
     if (rest.startsWith('confirm ')) {
       const index = indexOf(rest.slice(8).trim());
       if (index === null) {announce(`用法：/about confirm <1-${profile.entries.length}>`); return;}
@@ -556,7 +589,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       announce(`已删除偏好：${removed?.text ?? ''}`);
       return;
     }
-    announce('用法：/about；/about add|propose <文本>；/about observe 观察本会话；/about edit <序号> <文本>；/about triggers <序号> <词1,词2|->；/about confirm|disable|enable <序号>；/about remove <序号>；/about on|off');
+    announce('用法：/about；/about add|propose <文本>；/about observe 观察本会话；/about edit <序号> <文本>；/about triggers <序号> <词1,词2|->；/about expire <序号> <天数|ISO|->；/about confirm|disable|enable <序号>；/about clear proposed|stale；/about remove <序号>；/about on|off');
   };
 
   const copyCurrent = () => {

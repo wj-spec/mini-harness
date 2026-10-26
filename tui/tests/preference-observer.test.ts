@@ -62,3 +62,14 @@ test('merge proposals adds new items, skips duplicates, updates similar proposed
   assert.equal(merged.entries.length, 3);
   assert.ok(merged.entries.some(entry => entry.text === '记住：测试失败先复现'));
 });
+
+test('proposals similar to a confirmed preference are reported as conflicts and skipped', () => {
+  const existing = {enabled: true, entries: [{text: '回答先给结论', source: 'user', status: 'confirmed' as const}]};
+  const merged = mergeProposals(existing, [{text: '回答先给结论', source: 'observation', status: 'proposed' as const}]);
+  assert.equal(merged.added, 0);
+  assert.equal(merged.conflicts, 0, 'exact duplicate is NOOP, not a conflict');
+  assert.equal(merged.entries.length, 1);
+  const conflicting = mergeProposals(existing, [{text: '回答先给结论再补充例子', source: 'observation', status: 'proposed' as const}]);
+  assert.equal(conflicting.conflicts, 1);
+  assert.equal(conflicting.entries.length, 1);
+});

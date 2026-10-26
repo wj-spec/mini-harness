@@ -19,6 +19,7 @@ export type UserPreference = {
   expires_at?: string;
 };
 export type UserProfile = {enabled: boolean; entries: UserPreference[]};
+export const PROFILE_CAPACITY = 50;
 
 const STATUSES: UserPreferenceStatus[] = ['confirmed', 'proposed', 'stale'];
 const KINDS = ['preference', 'constraint', 'goal', 'fact'];
@@ -86,4 +87,44 @@ export function saveUserProfile(file: string, profile: UserProfile): void {
   const temporary = `${file}.tmp`;
   writeFileSync(temporary, JSON.stringify({version: 2, enabled: profile.enabled, entries: profile.entries}, null, 2), 'utf8');
   renameSync(temporary, file);
+}
+
+
+function expired(entry: UserPreference, now: Date): boolean {
+  if (!entry.expires_at) return false;
+  const value = Date.parse(entry.expires_at);
+  return Number.isFinite(value) && value <= now.getTime();
+}
+
+export type PruneResult = {profile: UserProfile; removed: number; stale: number; overCapacity: number};
+
+/** 读取路径维护：过期 proposed 清理，过期 confirmed 标记 stale；容量优先淘汰低价值 proposed，绝不静默删 confirmed。 */
+export function pruneUserProfile(profile: UserProfile, now = new Date()): PruneResult {
+  let removed = 0;
+  let stale = 0;
+  let entries = profile.entries.filter(entry => {
+    if (entry.status === 'proposed' && expired(entry, now)) {removed += 1; return false;}
+    return true;
+  });
+  entries = entries.map(entry => {
+    if (entry.status === 'confirmed' && expired(entry, now)) {
+      stale += 1;
+      return {...entry, status: 'stale' as const, updated_at: now.toISOString()};
+    }
+    return entry;
+  });
+  const overCapacity = Math.max(0, entries.length - PROFILE_CAPACITY);
+  if (!overCapacity) return {profile: {...profile, entries}, removed, stale, overCapacity: 0};
+  const removable = entries
+    .map((entry, index) => ({entry, index}))
+    .filter(item => item.entry.status === 'proposed')
+    .sort((left, right) => {
+      const confidence = (left.entry.confidence ?? 0) - (right.entry.confidence ?? 0);
+      if (confidence) return confidence;
+      return (left.entry.updated_at ?? '').localeCompare(right.entry.updated_at ?? '');
+    })
+    .slice(0, overCapacity);
+  const drop = new Set(removable.map(item => item.index));
+  entries = entries.filter((_, index) => !drop.has(index));
+  return {profile: {...profile, entries}, removed: removed + drop.size, stale, overCapacity: overCapacity - drop.size};
 }

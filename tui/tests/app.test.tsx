@@ -1258,3 +1258,30 @@ test('auto-observation writes proposed preferences after a completed run when en
     await rm(directory, {recursive: true, force: true});
   }
 });
+
+test('sets expiry and clears proposed or stale entries without touching confirmed ones', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'user-profile-expire-'));
+  const file = path.join(directory, 'user-profile.json');
+  type Stored = {entries: {text: string; status: string; expires_at?: string}[]};
+  try {
+    const {stdin} = await mount(undefined, undefined, {columns: 100, rows: 30}, undefined, file);
+    await enter(stdin, '/about add 保留的确认偏好');
+    await pause(20);
+    await enter(stdin, '/about propose 待清理观察');
+    await pause(20);
+    await enter(stdin, '/about expire 1 1');
+    await pause(20);
+    let payload = JSON.parse(await readFile(file, 'utf8')) as Stored;
+    assert.ok(payload.entries[0]?.expires_at);
+    await enter(stdin, '/about expire 1 -');
+    await pause(20);
+    payload = JSON.parse(await readFile(file, 'utf8')) as Stored;
+    assert.equal(payload.entries[0]?.expires_at, undefined);
+    await enter(stdin, '/about clear proposed');
+    await pause(20);
+    payload = JSON.parse(await readFile(file, 'utf8')) as Stored;
+    assert.deepEqual(payload.entries.map(entry => entry.text), ['保留的确认偏好']);
+  } finally {
+    await rm(directory, {recursive: true, force: true});
+  }
+});

@@ -94,6 +94,7 @@ export type MergeResult = {
   added: number;
   updated: number;
   skipped: number;
+  conflicts: number;
 };
 
 /** 只自动合并 proposed：confirmed/stale 不静默改写；相同文本 NOOP。 */
@@ -102,6 +103,7 @@ export function mergeProposals(profile: UserProfile, proposals: UserPreference[]
   let added = 0;
   let updated = 0;
   let skipped = 0;
+  let conflicts = 0;
   for (const proposal of proposals) {
     const normalized = normalize(proposal.text);
     if (!normalized) {skipped += 1; continue;}
@@ -123,8 +125,18 @@ export function mergeProposals(profile: UserProfile, proposals: UserPreference[]
       updated += 1;
       continue;
     }
+    const confirmedConflict = entries.some(entry => {
+      if (entry.status === 'proposed') return false;
+      const current = normalize(entry.text);
+      return current === normalized || current.includes(normalized) || normalized.includes(current);
+    });
+    if (confirmedConflict) {
+      conflicts += 1;
+      skipped += 1;
+      continue;
+    }
     entries.push(proposal);
     added += 1;
   }
-  return {entries, added, updated, skipped};
+  return {entries, added, updated, skipped, conflicts};
 }

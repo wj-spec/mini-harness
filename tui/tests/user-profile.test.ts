@@ -3,7 +3,7 @@ import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import {loadUserProfile, saveUserProfile, userProfileFile} from '../src/user-profile.js';
+import {loadUserProfile, PROFILE_CAPACITY, pruneUserProfile, saveUserProfile, userProfileFile} from '../src/user-profile.js';
 
 test('user profile round-trips confirmed and proposed entries', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'user-profile-'));
@@ -76,4 +76,24 @@ test('user profile v2 round-trips triggers, status and metadata', async () => {
   } finally {
     await rm(directory, {recursive: true, force: true});
   }
+});
+
+
+test('pruning expires proposals, marks confirmed stale, and never drops confirmed for capacity', () => {
+  const now = new Date('2026-11-01T00:00:00Z');
+  const entries = [
+    {text: '旧确认偏好', source: 'user', status: 'confirmed' as const, expires_at: '2026-10-01T00:00:00Z'},
+    {text: '过期观察', source: 'observation', status: 'proposed' as const, expires_at: '2026-10-01T00:00:00Z'},
+    ...Array.from({length: PROFILE_CAPACITY}, (_, index) => ({
+      text: `观察 ${index}`, source: 'observation', status: 'proposed' as const,
+      confidence: 0.5, updated_at: '2026-10-01T00:00:00Z',
+    })),
+  ];
+  const result = pruneUserProfile({enabled: true, entries}, now);
+  assert.equal(result.profile.entries.length, PROFILE_CAPACITY);
+  assert.equal(result.profile.entries.some(entry => entry.text === '旧确认偏好'), true);
+  assert.equal(result.profile.entries.find(entry => entry.text === '旧确认偏好')?.status, 'stale');
+  assert.equal(result.profile.entries.some(entry => entry.text === '过期观察'), false);
+  assert.equal(result.stale, 1);
+  assert.ok(result.removed >= 1);
 });

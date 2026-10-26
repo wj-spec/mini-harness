@@ -156,6 +156,8 @@ python3 scripts/bench_local.py --tasks recall-guard --timeout 600
 /about observe                           # 从本会话用户消息提出 proposed
 /about edit 1 解释代码时先给结论          # 修改第 1 条
 /about triggers 1 解释,说明               # 只在相关任务注入
+/about expire 1 30                      # 30 天后过期
+/about clear proposed                    # 清理待确认观察
 /about disable 1                         # 停用单条
 /about confirm 2                        # 确认第 2 条
 /about off                              # 停用全部个人偏好

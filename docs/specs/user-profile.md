@@ -1,6 +1,6 @@
 # W5/P1：用户偏好与画像条目
 
-日期：2026-10-26。状态：P1 Profile v2 + 相关性注入完成；P2 观察→proposed（手动 + opt-in 自动）完成；W6 v2 真实对照待跑。
+日期：2026-10-26。状态：P1 Profile v2 + 相关性注入完成；P2 观察→proposed 完成；P3 过期/容量/冲突第一版完成；W6 v2 真实对照待跑。
 
 ## 目标
 
@@ -82,7 +82,18 @@
 - 与已有条目规范化文本去重；proposed 永不被后端注入，必须 `/about confirm`；
 - 当前由 `/about observe` 手动触发；设置 `VIBE_AUTO_OBSERVE=1` 后，普通任务 done/stopped 结束会自动观察（默认关闭，cancelled/error 不触发）；
 - `mergeProposals`：相同文本 NOOP；相似 proposed 更新文本/触发词/证据；confirmed/stale 不静默改写；新 proposal 默认 30 天 expires_at；
-- 冲突升级（UPDATE/CONFLICT 到 confirmed）、A-MAC 准入和自动 TTL 清理仍待 P2 后续。
+- 冲突升级（UPDATE/CONFLICT 到 confirmed）、A-MAC 准入和自动清理后台任务仍待后续。
+
+## 过期、容量与冲突（P3 第一版）
+
+- 读取路径维护（打开 `/about`、执行 about 命令时）：
+  - 过期 `proposed` 直接清理；
+  - 过期 `confirmed` 标记 `stale`，不静默删除；
+  - profile 超过 50 条时优先淘汰低置信/旧的 `proposed`，不自动删除 confirmed；
+- `/about expire <序号> <天数|ISO|->`：设置或清除过期时间；
+- `/about clear proposed|stale`：清理对应状态条目，confirmed 不受影响；
+- `mergeProposals` 将相似 confirmed 记为“疑似冲突”并跳过，不自动改写；
+- 后台自动清理、confirmed 冲突交互式替换、A-MAC 准入仍待后续。
 
 ## 非目标
 

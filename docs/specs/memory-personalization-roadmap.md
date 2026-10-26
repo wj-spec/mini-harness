@@ -1,6 +1,6 @@
 # 用户偏好、画像与记忆路线图
 
-日期：2026-10-26。状态：P1 Profile v2 + 相关性注入已实现；P2 手动/opt-in 自动观察→proposed 已实现；P0 W6 v2 待跑。
+日期：2026-10-26。状态：P1 Profile v2 + 相关性注入已实现；P2 观察→proposed 已实现；P3 过期/容量/冲突第一版已实现；P0 W6 v2 待跑。
 
 ## 背景
 
@@ -51,12 +51,13 @@ W4 项目背景与 W5 用户偏好已完成 MVP 与真实使用验收；W6 三�
 - 一次性要求、无证据、低未来效用 → NOOP；
 - 先规则 + 小模型，不上 RL；当前 `/about observe` 与 `VIBE_AUTO_OBSERVE=1` 已实现确定性观察、NOOP/相似 proposed 更新，confirmed 冲突升级与 A-MAC 准入待后续。
 
-### P3：遗忘、冲突与容量
+### P3：遗忘、冲突与容量（第一版已实现）
 
 - proposed TTL（默认 30 天）；读取路径过滤过期；
 - confirmed 不静默删除；冲突标记 stale 并请求重确认；
 - profile 容量上限（默认 50 条），优先淘汰低置信/未使用的 proposed；
 - 完整删除/导出/清空。
+- 已实现：读取路径清理过期 proposed、confirmed 过期标记 stale、50 条容量淘汰 proposed、`/about expire` 与 `clear proposed|stale`、confirmed 相似冲突跳过并计数；后台清理与导出待后续。
 
 ### P4：安全与审计
 
