@@ -5,7 +5,10 @@ from app.tools import ToolRegistry
 from core.models import ToolCall
 
 
-def test_workspace_write_guard_blocks_explicit_escapes(tmp_path):
+def test_workspace_write_guard_blocks_explicit_escapes(tmp_path, monkeypatch):
+    # Linux 的 pytest tmp_path 位于 /tmp，而 /tmp 是命令写保护放行的安全根；
+    # 这里关掉安全根，验证“工作区外”路径确实被拦截。
+    monkeypatch.setattr("app.sandbox.SAFE_WRITE_ROOTS", ())
     for command in (
         "echo hi > ~/outside.txt",
         "rm -r -f ~/outside.txt",

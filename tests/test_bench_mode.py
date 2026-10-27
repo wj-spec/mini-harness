@@ -82,7 +82,9 @@ def test_oneshot_without_bench_fails_closed(tmp_path):
     assert "deny_no_handler" in (session_dir / "audit.jsonl").read_text(encoding="utf-8")
 
 
-def test_bench_mode_relaxes_workspace_paths_only_when_enabled(tmp_path):
+def test_bench_mode_relaxes_workspace_paths_only_when_enabled(tmp_path, monkeypatch):
+    # Linux 的 tmp_path 在 /tmp 下，属于安全写根；关闭它才能验证普通模式拦截。
+    monkeypatch.setattr("app.sandbox.SAFE_WRITE_ROOTS", ())
     workspace = tmp_path / "repo"
     workspace.mkdir()
     outside = tmp_path / "outside"
