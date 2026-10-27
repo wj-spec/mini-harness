@@ -1,0 +1,48 @@
+{
+  "mcpServers": {
+    "browser": {
+      "command": "npx",
+      "args": [
+        "--yes",
+        "@playwright/mcp@0.0.83",
+        "--headless",
+        "--no-sandbox",
+        "--browser",
+        "chromium",
+        "--user-data-dir",
+        ".vibe/browser/profile",
+        "--image-responses",
+        "omit",
+        "--snapshot-mode",
+        "full",
+        "--output-dir",
+        ".vibe/browser/artifacts"
+      ],
+      "env": {
+        "NPM_CONFIG_CACHE": ".vibe/npm-cache",
+        "PLAYWRIGHT_BROWSERS_PATH": ".vibe/ms-playwright",
+        "HOME": ".vibe/browser/home",
+        "XDG_CACHE_HOME": ".vibe/browser/cache",
+        "TMPDIR": ".vibe/browser/tmp",
+        "PWTEST_SOCKETS_DIR": "/tmp/vibe-browser-sockets"
+      },
+      "cwd": ".",
+      "timeout": 60,
+      "risk": "read",
+      "allowed_tools": [
+        "browser_navigate",
+        "browser_snapshot",
+        "browser_console_messages",
+        "browser_network_requests",
+        "browser_close"
+      ],
+      "tool_risks": {
+        "browser_navigate": "write"
+      },
+      "allowed_origins": [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000"
+      ]
+    }
+  }
+}

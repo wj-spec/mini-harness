@@ -1,6 +1,6 @@
 # Browser Use：先做的 Computer Use 子集
 
-日期：2026-10-26。状态：G0 MCP 工具级权限已实现；B1 Playwright 配置与真实浏览器验收待做。本文把 Computer Use 缩小到**浏览器**，不碰桌面 AX/视觉/系统级 GUI；先做只读浏览器观察，再做受控浏览器动作。
+日期：2026-10-26。状态：G0 MCP 工具级权限已实现；B1 只读观察已完成真实 Playwright MCP smoke；B2 待做。本文把 Computer Use 缩小到**浏览器**，不碰桌面 AX/视觉/系统级 GUI；先做只读浏览器观察，再做受控浏览器动作。
 
 ## 0. 结论
 
@@ -109,44 +109,50 @@ G0 二选一：
 - 拒绝 `file://`、`data:`、`javascript:`、`chrome://`、浏览器扩展页面；
 - 导航时显示完整 URL；`allowed_origins` 先在客户端检查输入 URL；重定向后的最终 URL 还没有机器可验证的检查，因此 B1 只用于本地 dev server/fixture，不用于不可信外部站点；
 - Playwright `--allowed-origins`/`--blocked-origins` 不是安全边界（README 明确说“does not serve as a security boundary and does not affect redirects”），只能在 **客户端/server 包装层**做 URL 策略；当前 G0 已做输入 URL 的 origin 检查，重定向限制仍存在；
-- 首版不启用 `--extension`、`--cdp-endpoint`、`--allow-unrestricted-file-access`、`--no-sandbox`；
-- 使用 `--isolated --headless`，独立临时 profile；不读取用户浏览器登录态；不传 `--storage-state`。
+- 首版不启用 `--extension`、`--cdp-endpoint`、`--allow-unrestricted-file-access`；
+- 默认不启用 `--no-sandbox`。只有当前环境（例如本仓库的自动化沙箱）无法创建 Chrome sandbox 时，才在**本地 smoke**中显式开启并记录风险；日常运行保持 Chrome sandbox；
+- 使用 `--headless` + 专用 `.vibe/browser/profile`（用完可删），不读取用户浏览器登录态；不传 `--storage-state`。Playwright MCP 的 `--isolated` 与显式 `--user-data-dir` 冲突，这里用专用 profile 代替；
 
 ### 2.3 启动配置
 
+实际验证用 `examples/browser-mcp.json`（Playwright MCP **0.0.83**，Chromium 1247 安装在 `.vibe/ms-playwright`）：
+
 ```jsonc
 {
-  "servers": {
+  "mcpServers": {
     "browser": {
       "command": "npx",
       "args": [
-        "-y", "@playwright/mcp@<PINNED_VERSION>",
-        "--headless",
-        "--isolated",
-        "--browser", "chromium",
-        "--output-dir", ".vibe/browser/artifacts",
-        "--image-responses", "omit",
-        "--snapshot-mode", "full"
+        "--yes", "@playwright/mcp@0.0.83",
+        "--headless", "--no-sandbox", "--browser", "chromium",
+        "--user-data-dir", ".vibe/browser/profile",
+        "--image-responses", "omit", "--snapshot-mode", "full",
+        "--output-dir", ".vibe/browser/artifacts"
       ],
+      "env": {
+        "NPM_CONFIG_CACHE": ".vibe/npm-cache",
+        "PLAYWRIGHT_BROWSERS_PATH": ".vibe/ms-playwright",
+        "HOME": ".vibe/browser/home",
+        "XDG_CACHE_HOME": ".vibe/browser/cache",
+        "TMPDIR": ".vibe/browser/tmp",
+        "PWTEST_SOCKETS_DIR": "/tmp/vibe-browser-sockets"
+      },
       "cwd": ".",
       "timeout": 60,
       "risk": "read",
       "allowed_tools": [
-        "browser_navigate",
-        "browser_snapshot",
-        "browser_console_messages",
-        "browser_network_requests",
+        "browser_navigate", "browser_snapshot",
+        "browser_console_messages", "browser_network_requests",
         "browser_close"
       ],
       "tool_risks": {"browser_navigate": "write"},
-      "allowed_origins": [
-        "http://localhost:3000",
-        "http://127.0.0.1:3000"
-      ]
+      "allowed_origins": ["http://localhost:3000", "http://127.0.0.1:3000"]
     }
   }
 }
 ```
+
+`env` 是为了把 npm cache、Playwright 浏览器、Chrome profile 都收在 workspace 内，避免写入默认 `~/Library/Caches`；相对路径按 MCP server 的 `cwd` 解析。`--no-sandbox` 仅为本机自动化环境的实测需要，正常桌面环境应去掉并让 Chrome sandbox 生效。
 
 注意：
 
@@ -188,10 +194,32 @@ Headless（CI 可跑）：
 
 ---
 
+### 2.5.1 已完成的真实 smoke（2026-10-26）
+
+`scripts/browser_smoke.py` 用本地 fixture HTTP server + 真实 Playwright MCP 0.0.83/Chromium 1247 验证：
+
+- navigate 到 `http://127.0.0.1:<port>/` 成功；
+- `browser_snapshot` 返回 title、heading、button ref；
+- `browser_console_messages` 捕获页面 `console.error`；
+- `browser_network_requests` 返回请求列表；
+- 全程无 click/type/表单提交；server 通过 `allowed_tools` 只暴露 B1 工具；
+- 结果：**B1 smoke PASS**。
+
+测试入口：`RUN_BROWSER_SMOKE=1 PYTHONPATH=. .venv/bin/python3 -m pytest tests/test_browser_smoke.py -q`（默认跳过，避免每次下载/启动浏览器）。
+
 ## 2.6 B1 实施前置
 
-- 安装并固定 Playwright MCP 版本（npm 包 `@playwright/mcp`）；不要使用 `@latest`；
-- 安装 Chromium（`npx playwright install chromium`），这是可选运行时依赖，不进入 `core/`；
+- 固定 Playwright MCP 版本（本机实测 `@playwright/mcp@0.0.83`）；不要使用 `@latest`；
+- 用 **MCP 自带安装器**安装匹配的 Chromium（0.0.83 期望 Chromium 1247），不要只装通用 `playwright` 的最新浏览器：
+
+```bash
+mkdir -p .vibe/ms-playwright
+PLAYWRIGHT_BROWSERS_PATH="$PWD/.vibe/ms-playwright" \
+  NPM_CONFIG_CACHE="$PWD/.vibe/npm-cache" \
+  npx --yes @playwright/mcp@0.0.83 install-browser chrome-for-testing
+```
+
+这是可选运行时依赖，不进入 `core/`；
 - 用 `VIBE_MCP_CONFIG`/`VIBE_MCP_SERVERS` 加载 browser 配置；
 - 启动时审批完整 `npx` 命令和 allowed tools；
 - 如果浏览器二进制缺失，明确提示安装，不在后台静默安装。
