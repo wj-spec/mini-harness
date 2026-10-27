@@ -51,6 +51,7 @@ class ToolSpec:
     timeout: float = 10.0
     risk: str = "read"
     retryable: bool = False
+    preview_fn: Callable[[ToolCall], str] | None = None
 
 
 class CommandOutput(str):
@@ -98,8 +99,11 @@ class ToolRegistry:
         sandbox: bool = False,
         sandbox_network: bool = False,
         sandbox_network_allow: str = "",
+        bench_mode: bool = False,
     ):
         self.root = Path(workspace).resolve()
+        # 跑分模式：容器本身是一次性沙箱，放宽路径与命令边界（仍保留危险命令拦截）。
+        self.bench_mode = bench_mode
         if sandbox:
             if not sandbox_available():
                 raise ValueError(
@@ -115,10 +119,12 @@ class ToolRegistry:
         if allowlist and not sandbox_network:
             if self._sandbox is None or self._sandbox.kind != "seatbelt":
                 raise ValueError("sandbox network allowlist requires --sandbox on macOS")
-            from dataclasses import replace
-
             self._proxy = AllowlistProxy(allowlist).start()
-            self._sandbox = replace(self._sandbox, proxy_port=self._proxy.port)
+            try:
+                self._sandbox = build_sandbox(self.root, proxy_port=self._proxy.port)
+            except Exception:
+                self._proxy.close()
+                raise
         self._sandbox_env = sandbox_env(self._sandbox)
         if self._sandbox_env is None and allowlist and not sandbox_network:
             raise ValueError("sandbox network allowlist could not start a local proxy")
@@ -295,10 +301,18 @@ class ToolRegistry:
             "list_skills": ToolSpec(
                 name="list_skills",
                 description=(
-                    "Refresh and discover configured skills with summaries and active status. "
-                    "Call load_skill to activate a matching procedure."
+                    "Rescan skill directories and search names/descriptions with short keywords "
+                    "(try English if needed). Returns bounded summaries, not full instructions. "
+                    "Call load_skill(name) to activate a matching procedure."
                 ),
-                parameters={"type": "object", "properties": {}},
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "maxLength": 200, "default": ""},
+                        "limit": {"type": "integer", "minimum": 1, "maximum": 10, "default": 5},
+                    },
+                    "additionalProperties": False,
+                },
                 fn=self.list_skills,
                 retryable=True,
             ),
@@ -380,7 +394,7 @@ class ToolRegistry:
         target = self._resolve(cwd)
         if not target.is_dir():
             raise NotADirectoryError(cwd)
-        check_command(command, self.root)
+        check_command(command, None if self.bench_mode else self.root)
         code, output, timed_out = run_command(
             command, target, float(timeout),
             **({"sandbox": self._sandbox, "env_extra": self._sandbox_env} if self._sandbox else {}),
@@ -392,7 +406,7 @@ class ToolRegistry:
         target = self._resolve(cwd)
         if not target.is_dir():
             raise NotADirectoryError(cwd)
-        check_command(command, self.root)
+        check_command(command, None if self.bench_mode else self.root)
         try:
             code, output, timed_out = await run_command_async(
                 command, target, float(timeout),
@@ -403,6 +417,9 @@ class ToolRegistry:
         return _command_output(command, cwd, timeout, code, output, timed_out=timed_out)
 
     def preview(self, call: ToolCall) -> str:
+        spec = self._tools.get(call.name)
+        if spec is not None and spec.preview_fn is not None:
+            return spec.preview_fn(call)
         if call.name == "apply_patch":
             patch = call.args.get("patch")
             if not isinstance(patch, str):
@@ -430,7 +447,7 @@ class ToolRegistry:
             return unified_diff(old, content, path)
         if call.name == "bash":
             command = str(call.args.get("command", ""))
-            check_command(command, self.root)
+            check_command(command, None if self.bench_mode else self.root)
             timeout = call.args.get("timeout", 30)
             cwd = call.args.get("cwd", ".")
             return f"$ {command}\ncwd: {cwd}\ntimeout: {timeout}s\n\n[risk] exec — approval required"
@@ -887,7 +904,7 @@ class ToolRegistry:
 
     def _resolve(self, path: str) -> Path:
         candidate = (self.root / path).resolve()
-        if candidate != self.root and self.root not in candidate.parents:
+        if not self.bench_mode and candidate != self.root and self.root not in candidate.parents:
             raise ValueError(f"path outside workspace: {path}")
         return candidate
 
@@ -967,9 +984,12 @@ class ToolRegistry:
     def skills(self) -> list[Skill]:
         return self.skill_manager.available
 
-    def list_skills(self) -> str:
-        self.skill_manager.refresh()
-        return self.skill_manager.format_status()
+    def list_skills(self, query: str = "", limit: int = 5) -> str:
+        try:
+            self.skill_manager.refresh()
+        except (OSError, ValueError) as exc:
+            raise ValueError("skill discovery failed; use /skills refresh for full diagnostics") from exc
+        return self.skill_manager.format_matches(query, limit)
 
     def load_skill(self, name: str) -> str:
         skill = self.skill_manager.activate(name)
@@ -1001,7 +1021,8 @@ class ToolRegistry:
             return self.load_skill(name) if action == "activate" else self.unload_skill(name)
         if name is not None:
             raise ValueError(f"skills {action} does not accept a name")
-        return self.list_skills()
+        self.skill_manager.refresh()
+        return self.skill_manager.format_status()
 
     def list_files(self, path: str = ".", depth: int = 2) -> str:
         target = self._resolve(path)

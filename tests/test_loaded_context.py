@@ -71,6 +71,56 @@ def test_loaded_snapshot_refreshes_registered_tools_without_calling_model(tmp_pa
     asyncio.run(scenario())
 
 
+def test_loaded_context_does_not_grow_with_inactive_skill_catalog(tmp_path):
+    async def scenario():
+        agent = agent_for(tmp_path)
+        before = await agent.loaded_context_snapshot("same-session")
+        entrypoint = next(block for block in before["blocks"] if block["kind"] == "skills")
+        assert entrypoint["label"] == "技能入口" and entrypoint["tokens"] <= 100
+        assert "list_skills" in agent.system and "load_skill" in agent.system
+        for index in range(40):
+            path = tmp_path / ".cursor" / "skills" / f"private-procedure-{index}" / "SKILL.md"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"description: PRIVATE_SUMMARY_{index}\n\nPRIVATE_BODY_{index}", encoding="utf-8")
+        catalog = agent.manage_skills("refresh")
+        assert "private-procedure-39" in catalog
+        after = await agent.loaded_context_snapshot("same-session")
+        assert after["total_tokens"] == before["total_tokens"]
+        assert after["sections"]["system"] == before["sections"]["system"]
+        assert "private-procedure-" not in agent.system
+        assert "PRIVATE_SUMMARY_" not in agent.system and "PRIVATE_BODY_" not in agent.system
+        assert str(tmp_path / ".cursor" / "skills") not in agent.system
+        assert len(agent.tools.skill_entries()) == 40
+        assert agent.provider.seen == []
+
+    asyncio.run(scenario())
+
+
+def test_skill_details_are_loaded_only_while_a_procedure_is_active(tmp_path):
+    path = tmp_path / ".vibe" / "skills" / "guide" / "SKILL.md"
+    path.parent.mkdir(parents=True)
+    path.write_text("description: A guide\n\nPRIVATE_PROCEDURE", encoding="utf-8")
+    agent = agent_for(tmp_path)
+    bootstrap = agent.system
+    assert "Relative resource paths" not in bootstrap
+    agent.manage_skills("activate", "guide")
+    assert "PRIVATE_PROCEDURE" in agent.system and str(path) in agent.system
+    assert "Relative resource paths" in agent.system
+    assert "Reload" in agent.system and "cancelled" in agent.system
+    agent.manage_skills("unload", "guide")
+    assert agent.system == bootstrap
+    assert agent.provider.seen == []
+
+
+def test_removed_skill_tools_do_not_advertise_a_skill_entrypoint(tmp_path):
+    registry = ToolRegistry(tmp_path)
+    for name in ("list_skills", "load_skill", "unload_skill"):
+        registry._tools.pop(name)
+    agent = Agent(FakeProvider([]), registry)
+    assert "[SKILL LIFECYCLE]" not in agent.system
+    assert not any(part["kind"] == "skills" for part in agent.system_parts)
+
+
 def test_cancelling_initial_snapshot_cleans_up_stdio_startup(tmp_path):
     async def scenario():
         agent = agent_for(tmp_path)

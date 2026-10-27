@@ -57,10 +57,15 @@ class SessionStore:
     @classmethod
     def new(
         cls, workspace: str | Path, model: str, *, purpose: SessionPurpose = "user",
+        sessions_root: str | Path | None = None,
     ) -> "SessionStore":
         _validate_purpose(purpose)
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-        root = Path(workspace) / ".vibe" / "sessions" / stamp
+        base = (
+            Path(sessions_root).expanduser()
+            if sessions_root is not None else Path(workspace) / ".vibe" / "sessions"
+        )
+        root = base / stamp
         root.mkdir(parents=True, exist_ok=True)
         store = cls(root)
         store.meta_path.write_text(

@@ -180,6 +180,18 @@ Agent 导出的 Git diff 写成官方格式 `predictions.jsonl`：`instance_id`�
 - **预算继承核对（2026-10-23）**：`./run_eval.sh doctor` 输出 `.vibe/w0/doctor.json`，确认每题继承 `max_run_tokens=1,000,000`、`max_steps=0`、`max_run_seconds=600`、`compact_interval_tokens=200,000`；对比旧入口写死的 50 步 / 100,000 tokens，两轮旧失败分别停在 95,917 与 100,711 tokens。本次核对环境没有 API key 与 Docker（`api_key_configured=false`、`docker_ready=false`），因此没有重跑首题，旧报告保持原始记录。
 - 固定前三题及清单 10 题没有整体完成环境验收。
 
+## 外部评测（Harbor，可选）
+
+内部 eval 与 SWE-bench Lite 之外，新增 Harbor 跑分入口，用于 SWE-bench Verified / Terminal-Bench 2.1：
+
+```bash
+python -m app --task "..." --bench --telemetry-out /logs/agent/telemetry.json --runtime-dir /logs/agent/vibe
+```
+
+`--bench` 是无人值守模式（自动审批、放宽容器内路径、禁用技能/搜索/个人偏好），只用于一次性容器。Harbor adapter 见 `bench/adapter.py`，用法与限制见 [Benchmark 适配](../../bench/README.md) 与 [Harbor 跑分规格](harbor-benchmark.md)。
+
+当前状态：非交互入口 / adapter / telemetry 与离线测试已实现；真实 Docker + 模型单题与全量运行待验收。
+
 ## 后续验收
 
 - [x] 完成离线预算层级检查，保留逐层证据。

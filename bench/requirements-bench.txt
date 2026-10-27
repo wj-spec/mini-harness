@@ -1,0 +1,4 @@
+# 与 pyproject.toml 的运行依赖保持一致；容器内由 uv pip install 安装。
+ddgs==9.16.0
+fastmcp==4.1.1
+httpx==0.28.1

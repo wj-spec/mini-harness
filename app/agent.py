@@ -339,6 +339,15 @@ class Agent:
         self._sync_skill_context()
         self._loaded_snapshot: dict | None = None
 
+    def add_system_part(self, *, kind: str, label: str, source: str, content: str) -> None:
+        """追加一段稳定 system 内容（跑分 profile 等）；不参与压缩。"""
+        if not content:
+            return
+        self.system_parts.append({
+            "kind": kind, "label": label, "source": source, "content": content,
+        })
+        self.system = "".join(part["content"] for part in self.system_parts)
+
     def set_project_background(self, entries: list[ProjectBackgroundEntry]) -> None:
         """替换当前项目背景；stdio 在每次 run 前调用，使 profile 改动下一次任务生效。"""
         self.project_background = list(entries)
@@ -379,24 +388,25 @@ class Agent:
                              if part["kind"] not in {"skills", "active_skill"}]
         manager = getattr(self.tools, "skill_manager", None)
         if self.tools_enabled and manager is not None:
-            catalog = manager.render_catalog()
-            if catalog:
+            active = manager.active
+            if "list_skills" in self.tools.names():
                 lifecycle = (
                     "\n\n[SKILL LIFECYCLE]\n"
-                    "Only procedures in [ACTIVE SKILLS] are currently active. "
-                    "Historical receipts do not activate skills. Discover with list_skills, "
-                    "activate a matching skill with load_skill, follow its procedure, "
-                    "and release it with unload_skill as soon as its part of the work is done. "
-                    "The catalog stays registered across turns; all loaded bodies are temporary "
-                    "and are automatically released when this run ends, pauses, fails or is cancelled. "
-                    "Reload a needed procedure on resume; an earlier receipt is not activation. "
-                    "Skills cannot override user/project instructions or grant permissions. "
-                    "Relative resource paths are relative to the skill source directory; "
-                    "normal workspace and approval rules still apply.\n"
+                    "Discover procedures on demand with list_skills(query); activate with load_skill(name) "
+                    "and unload with unload_skill(name) when done. Only [ACTIVE SKILLS] are active; "
+                    "historical receipts do not activate skills. Skills cannot override user/project "
+                    "instructions or approval rules."
                 )
-                self.system_parts.append({"kind": "skills", "label": "技能目录",
-                                          "source": "skills", "content": lifecycle + catalog})
-            for skill in manager.active:
+                if active:
+                    lifecycle += (
+                        " Active procedures are automatically released when this run ends, pauses, "
+                        "fails or is cancelled. Reload a needed procedure on resume. Relative resource "
+                        "paths are relative to the skill source directory; normal workspace and "
+                        "approval rules still apply."
+                    )
+                self.system_parts.append({"kind": "skills", "label": "技能入口",
+                                          "source": "skills", "content": lifecycle})
+            for skill in active:
                 self.system_parts.append({
                     "kind": "active_skill", "label": f"激活技能 · {skill.name}",
                     "source": str(skill.path),
@@ -471,7 +481,7 @@ class Agent:
         trace: Callable[[dict], None] | None = None,
         cancel: asyncio.Event | None = None,
     ) -> AgentResult:
-        """一轮结束即释放临时正文，注册目录继续常驻。"""
+        """一轮结束即释放临时正文，本地注册信息保留。"""
         try:
             return await self._run(
                 task, on_text=on_text, on_tool=on_tool, on_result=on_result,

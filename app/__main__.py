@@ -66,6 +66,10 @@ def main() -> None:
     parser.add_argument("--eval", action="store_true", help="跑 eval 任务并退出")
     parser.add_argument("--eval-limit", type=int, default=None)
     parser.add_argument("--eval-tasks", default=None)
+    parser.add_argument("--task", default=None, help="非交互跑一个任务后退出（跑分/CI 用）")
+    parser.add_argument("--bench", action="store_true", help="跑分模式：自动批准、放宽容器内路径限制；只用于一次性环境")
+    parser.add_argument("--telemetry-out", default=None, help="跑分结果 JSON 路径")
+    parser.add_argument("--runtime-dir", default=None, help="跑分会话/offload/telemetry 的运行时目录")
     args = parser.parse_args()
 
     if args.stdio and (
@@ -77,7 +81,16 @@ def main() -> None:
         parser.error("--list-sessions cannot be combined with --stdio or --eval")
     if args.eval_limit is not None and args.eval_limit < 1:
         parser.error("--eval-limit must be positive")
-    if not args.stdio and not args.eval and not args.list_sessions:
+    if args.task is not None:
+        if args.stdio or args.eval or args.list_sessions or args.continue_session or args.session is not None:
+            parser.error("--task cannot be combined with --stdio/--eval/--list-sessions/--continue/--session")
+        if not args.task.strip():
+            parser.error("--task must not be empty")
+    if args.bench and args.task is None:
+        parser.error("--bench requires --task")
+    if args.telemetry_out and args.task is None:
+        parser.error("--telemetry-out requires --task")
+    if not args.stdio and not args.eval and not args.list_sessions and args.task is None:
         print(
             "Textual 入口已退役。交互界面请运行 ./run_ink.sh（例如 ./run_ink.sh --fake）；"
             "后端与 eval 分别使用 --stdio / --eval。",
@@ -103,6 +116,23 @@ def main() -> None:
     if args.sandbox_network_allow:
         config.sandbox = True
         config.sandbox_network_allow = args.sandbox_network_allow
+
+    if args.task is not None:
+        from app.oneshot import OneShotOptions, run_oneshot
+
+        provider = build_provider(config, args.fake)
+        options = OneShotOptions(
+            task=args.task,
+            telemetry_out=Path(args.telemetry_out) if args.telemetry_out else None,
+            runtime_dir=Path(args.runtime_dir) if args.runtime_dir else None,
+            bench=args.bench,
+        )
+        try:
+            _, exit_code = run_oneshot(config, provider, options)
+        except (OSError, ValueError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            raise SystemExit(2)
+        raise SystemExit(exit_code)
 
     session_purpose = "test" if args.test_session or args.fake or config.provider == "fake" else "user"
 

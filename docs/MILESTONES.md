@@ -356,11 +356,30 @@ README「当前完善重点」六项已修复并附针对性回归，真实任�
 
 **Browser Use G0：MCP 工具级权限（2026-10-26）**：按 [Browser Use 规格](specs/browser-use.md) 先实现 G0：`McpServer` 新增 `allowed_tools`、`tool_risks`、`allowed_origins`；注册时只暴露白名单工具、按工具覆盖 risk，白名单工具缺失时 fail closed；`allowed_origins` 在调用 MCP server 前检查 `url` 参数（非 http(s) / 非 allowlist 拒绝）。启动预览显示 allowed tools。回归：`tests/test_mcp.py` 覆盖解析校验、白名单过滤、risk 覆盖、缺失工具 fail closed、origin 守卫不触达 server。Python 全量 **946 项**退出 0；TUI 337 项、336 通过（既有 PTY 失败）。B1 真实 Playwright MCP smoke 已通过（0.0.83 + Chromium 1247，本地 fixture：navigate/snapshot/console/network 均正确，无 click/type）。配置见 `examples/browser-mcp.json`，脚本见 `scripts/browser_smoke.py`，默认跳过的 opt-in 测试见 `tests/test_browser_smoke.py`。B2 待做。
 
+**Browser Use B2：本地受控动作（2026-10-27）**：按 [Browser Use 3.0](specs/browser-use.md#30-本轮实施切片2026-10-27) 新增独立 `browser-actions-mcp.json` 与受控适配器，开放 click/type/select；动作与导航强制 write、只允许 once/deny，不复用 session/workspace 授权。快照绑定页面代次与元素身份，执行前重检，失败不重试；默认不提交，导航之外新网络请求阻断（含 GET fetch），敏感页面动作拒绝、快照与独立日志脱敏，会话限 20 次动作。临时 context，POSIX 取消/超时/关闭回收 Node 与 Chromium 后代，扫描不可用时明确报告清理受限。真实 Chromium + 脚本模型经过 Agent/ApprovalGate/MCP 完整 smoke **PASS：17 次审批、0 次提交**（`.vibe/browser/b2-smoke.log`）；独立 worker 回归覆盖 reload、同 markup 替换、敏感值、GET fetch 与 20 次动作上限。最终 Python 全量 **980 项：976 通过、3 跳过、1 既有失败**（Seatbelt 本地代理连接；在干净 HEAD 副本同样复现，`.vibe/browser/b2-baseline-seatbelt.log`），报告 `.vibe/browser/b2-python-tests.xml`；Ink **337/337 通过**。工程实现完成，真实模型与用户 Ink 使用体验待验收；press_key、显式提交、远程站点、真实账户仍不开放，桌面 Computer Use / Multi-Agent 保持延后。
+
+**B2 真实模型与 Ink 验收入口（2026-10-27）**：新增 `python -m scripts.browser_acceptance`，自动准备本地 fixture、专用端口 MCP 配置与独立测试工作区，继承用户 CLI 的模型环境，逐次审批仍由用户决定；两段任务分别核对 click/type/select 和拒绝后的新快照。退出后从新建会话的 events/trace 取证；多会话不猜测、缺失终态/动作结果不复用旧快照、模型自述不计完成，`passed` 仅表示自动证据通过，模型身份与界面体验保留人工确认。新增真实 Ink PTY + 本地模型 stub + 真实 Chromium 回归，验证 `s/p` 无法越过 once-only、`y/n`、拒绝后草稿保留与退出恢复终端；明确不是外部真实模型验收。完整 Python **1006 项：1001 通过、4 跳过、1 既有 Seatbelt 失败**，报告 `.vibe/browser/b2-acceptance-tests.xml`。用户确认 key 仅在自己的 CLI 中配置；本进程无凭据，因此真实模型调用与用户体验仍待在该终端执行入口后核对。
+
+Ink 两轮实际日志补充：`.vibe/browser/ink-smoke/309dc558d44d/report.json`；与手工入口共用的 `collect_report` 17 项自动检查全部通过，提交数 0，真实模型与人工体验仍未标记通过。
+
+**B2 首次用户手工验收复核（2026-10-27）**：用户提供 `.vibe/browser/acceptance/20261027-053631-49027d87/report.json`，复核结果保持 **incomplete**。13:37:00 的唯一审批审计为 `mcp_start deny`；会话 events 为 0 字节，trace 仅两条 loaded context，无任务、模型请求或浏览器动作，因此 0 提交不能作为默认不提交的验收证据。启动拒绝后未启动 MCP，审批边界成立；`deny` 也可能由取消/退出产生，不能据此认定用户按错键。附近会话未找到另一次对应任务。原报告与证据哈希保留，独立复核见同目录 `review.json`；待启动审批放行、MCP 就绪后分两次发送任务补跑，不将本轮记作真实模型或动作验收通过。
+
+**B2 后续用户场次与验收脚本修正（2026-10-27）**：用户提供的 `20261027-055037-a94533e4` 仍为空启动 deny；用户确认已见 8 工具后，按修改时间/任务内容核对发现另两场真实操作，分别保留来源，不自动替换或合并报告。`20261027-055548-5bcfab6f` 的 startup/navigate/click/type/select 均 once 审批，最终快照为 count 1、Note=`B2 验收草稿`、Shade=`green`，第一段动作与页面值可独立确认；用户消息是任务一及两次继续，无任务二、无拒绝记录，整体仍 incomplete。前两轮分别因 token_budget 停止（24481 / 30347 tokens），第三轮 done（25068）；原 30k 上限是验收脚本设置过紧，已用真实请求用量回放复现并将本入口改为有界 100k。另修第一段判定依赖未来拒绝记录的问题；完整验收仍要求第二段拒绝与新快照。各自 `review.json` 保留分段结论及原证据哈希，原 report 未覆盖。修正后全量 **1008 项：1003 通过、4 跳过、1 项既有 Seatbelt 失败**（`.vibe/browser/b2-acceptance-review-tests.xml`）；不把第一段通过扩写成 B2 整体验收通过。
+
+**B2 任务二跨窗口诊断（2026-10-27）**：用户粘贴的任务一回复属于 `055548`（端口 63847），任务二来自新建 `055740` / `055904`（端口 64124 / 64269），每个新场次都有独立 MCP 启动审批，首个读取前均无导航。临时 context 从 `about:blank` 开始，旧页面/Note 值已不在该上下文；`055740` 尝试默认 3000 与旧 63847 也被正确拦截。任务一通过结论保留；任务二没有 type 调用或拒绝审批，仍未验收。已改善空白页诊断为 `browser_not_navigated`，保留 origin/审批边界；手工入口、第二段提示词和使用指南明确在同一 Ink 窗口分两次发送，任务二完成后才退出。真实 Chromium 回归先红后绿（`.vibe/browser/b2-blank-page-{red,green}.log`）；两次全量均为 **1008 项：1002 通过、4 跳过、2 失败**，包括既有 Seatbelt 代理项和各一次命令取消超时（不同用例，首个单项复跑通过；记录 `.vibe/browser/b2-session-continuity-tests.xml` 与 `b2-session-continuity-recheck.xml`），未在本片修改命令执行模块。各任务二目录已保留独立 review，不合并不同浏览器上下文的证据。
+
+**B2 用户真实模型与 Ink 本地功能验收通过（2026-10-27）**：场次 `20261027-062108-b00a93af`、会话 `20261027-142127-403528`、端口 51901。用户 CLI 使用 `openai` 兼容 provider / `deepseek-chat`，两段任务在同一窗口完成，均 done（80676 / 53034 tokens，每任务限额 100k）。navigate/click/type/select 均逐次 once 审批；第一次最终值为 count 1、Note=`B2 验收草稿`、Shade=`green`。第二次仅一次输入尝试被拒，无重试，后续新快照 `cb282d1d-636c-4bf7-90ee-ec5710dd5bc4` 确认状态保持；fixture 提交计数 0、Ink 退出码 0。最终 `report.json` 17 项检查全部通过，原始日志哈希与重新计算一致，独立复核也一致。原报告保留，人工确认结论写同目录 `review.json`；认定本地 B2 功能场景通过，主观可读性/审批负担继续收集反馈。范围仍为本地不提交，未自动开放远程站点、登录、上传或桌面操作；Seatbelt/命令取消回归失败继续保留，不标记全项目测试已通过。
+
+**原生命令取消竞态修复（2026-10-27）**：复现取消时 shell leader 已退出、同组 `sleep` 仍持有输出管道，补发组终止信号后约 0.4ms 结束。`run_command_async` 的取消与超时改用同一清理任务：保留原输出读取，回收期间补发组信号，EOF 后仍终止剩余组成员；重复取消不能打断回收。新增三项回归，分别覆盖首发信号遗漏子进程、子进程已关闭管道、重复取消；旧实现先红，当前实现六项取消回归全绿，未放宽既有时限。100 次真实命令立即取消全部保留部分输出、返回结构化 cancelled，核对无残留进程组，最长约 12ms（`.vibe/cancel-debug/stress-summary.json`）。两次 Python 全量均为 **1011 项：1006 通过、4 跳过、1 项既有 Seatbelt 代理失败**，取消与命令结果相关 23 项均通过；报告 `.vibe/cancel-debug/full-green.xml`、`full-recheck.xml`，红绿说明见同目录 `regression-evidence.md`。本片未修改审批边界、Docker 或 MCP 清理；下一片定位 Seatbelt 代理连接。
+
+**Seatbelt 代理连接修复（2026-10-27）**：根因是代理启动后仅替换内存中的 `proxy_port`，实际执行仍使用先前生成的全断网策略。现在端口确定后重新构建沙箱配置，策略文件按代理端口区分，避免同一工作区的两个会话相互覆盖；生成策略失败时关闭已启动的代理并保留错误。同步/异步代理连接、其他本地端口与外网直连拒绝、同工作区代理隔离、启动失败清理均有回归；旧行为先红，修复后沙箱相关 **28 项：27 通过、1 条件跳过**，完整 Python **1014 项：1010 通过、4 条件跳过、0 失败**（`.vibe/seatbelt-debug/targeted.xml`、`full.xml`）。同一代理换策略的根因对照见 `profile-probe.log`，失败证据见 `red.log`、`profile-binding-red.log`。全量跳过项为三项 opt-in 浏览器 smoke 与当前环境不适用的“沙箱不可用”测试；本片未重跑外部真实模型或浏览器人工验收。命令取消与 Seatbelt 两项已知回归失败均已消除。
+
 ## 当前下一步
 
 W1–W5 已完成真实验收；W6 v2 三组对照完成，主假设未获支持。2026-10-26 用户决定停止 P0 扩张、不进入 P5，保留显式偏好管理能力；后续只有新证据/新评估方法才重新评估个性化。接下来：
 
-1. **评测扩题**：固定前三题参考补丁自检与 `--limit 3` 扩题，并用 `--runs` 多次运行建立基线；
+1. **B2 收尾与日常反馈**：本地功能验收已通过，命令取消与 Seatbelt 回归问题均已修复；接下来审查并建立可恢复的 B2 基线。继续记录阅读体验与审批负担，扩展浏览器范围或 M1/桌面方向按实际需求再评估；
+2. **评测扩题**：固定前三题参考补丁自检与 `--limit 3` 扩题，并用 `--runs` 多次运行建立基线；
 3. **W7 启动条件**：出现第二个高频非编码工作流后再细化，不提前拆平台功能。
 
 评测侧：README 六项完善已通过保留题真实核对（2026-10-25）；`validate` 已支持 `--limit`，可用 `./run_eval.sh validate --limit 3` 做前三题参考补丁自检（真实 Docker 自检待跑）；新增 `execution-chain` 跨层压测题（5 文件注入 + 双端隐藏检查，真实模型 3/3 通过）；`bench_local.py` 新增 `--pause-tokens` 暂停/续做压测（首轮低预算暂停 → `--continue` 重开续做，fake 冒烟与真实运行均已通过）。W0 剩入口/循环代码走查与学习记录。

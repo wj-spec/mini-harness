@@ -1,6 +1,6 @@
 # 执行隔离评估
 
-状态：评估（2026-10-25）；选项 B 第一小步与 macOS Seatbelt 可选沙箱已实施，Linux 后端与网络白名单待做。当前边界是**审批 + 危险命令黑名单 + 超时 + 进程组回收**，不是操作系统级沙箱。本文记录现状、可绕过点、选项与验收口径，供后续按真实风险决定实现顺序。
+状态：选项 B 第一小步、macOS Seatbelt 可选沙箱与网络白名单已实施；Linux 后端已接线，实机验收待做。默认边界是**审批 + 危险命令黑名单 + 超时 + 进程组回收**；启用 `--sandbox` 后增加操作系统级隔离。本文记录现状、可绕过点、选项与验收口径，供后续按真实风险决定实现顺序。
 
 ## 当前机制
 
@@ -45,10 +45,11 @@
 - 审批、黑名单与写路径护栏保持生效；沙箱是兜底，不替代审批。
 - 保护 `.git/hooks` 与 `.git/config*` 不被写入（防止钩子/配置成为沙箱外的持久化执行入口）；提交所需的 `.git/index`、对象与 refs 仍可写。
 - 网络白名单（macOS）：`--sandbox-network-allow github.com,*.npmjs.org`（或 `VIBE_SANDBOX_NETWORK_ALLOW`）启动本地代理，Seatbelt 只允许连 `localhost:<proxy_port>`；HTTP 绝对 URI 与 CONNECT 按域名放行，未列出的域名返回 403 并在工具输出标注 `sandbox_denied`。`--sandbox-network` 全开优先于白名单。设计与取舍见 [网络白名单设计](../research/sandbox-network-allowlist.md)。
+- 代理端口确定后生成对应执行策略，文件按端口区分，防止同一工作区的多个会话相互覆盖；策略生成失败时关闭代理并报错。同步与异步命令均验证代理端口可达、非代理端口被拒绝。
 - Linux 对齐：同一接口支持 `bubblewrap`（`--ro-bind / /` + `--bind` 工作区与临时目录、`--unshare-net` 默认断网），`probe_sandbox` 会先验证 bwrap 可用；Linux 实机验证待做。
 - 测试：`tests/test_sandbox_seatbelt.py` 覆盖策略生成、bwrap argv、配置解析、启动拒绝、错误标注、`.git` 保护，以及（在可应用环境下）工作区写放行/外部写拒绝/断网/工具链可用/提交可用；无 seatbelt 或嵌套沙箱环境自动跳过集成部分。
 
-**限制**：仅 macOS；`sandbox-exec` 已被标记 deprecated 但 Codex、Anthropic sandbox-runtime、Gemini CLI 仍在用，需保留探测与降级错误。Linux 待用 bubblewrap 对齐。
+**验证范围**：macOS Seatbelt 已实机验证；Linux bubblewrap 实机验收待做。保留启动探测，沙箱无法应用时明确报错。
 
 ## 已实施（2026-10-25，选项 B 的第一小步）
 

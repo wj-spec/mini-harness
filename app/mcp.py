@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from app.policy import ApprovalGate
+from app.browser_policy import BROWSER_READS, BROWSER_WRITES, BrowserPolicy, local_origin, normalized_origin
 from app.tools import ToolRegistry, ToolSpec
 from core.models import ToolCall
 
@@ -52,6 +53,7 @@ class McpServer:
     allowed_tools: tuple[str, ...] = ()
     tool_risks: dict[str, str] = field(default_factory=dict)
     allowed_origins: tuple[str, ...] = ()
+    browser_actions: bool = False
 
 
 def _valid_origin(value: str) -> bool:
@@ -85,6 +87,9 @@ def parse_servers(raw: dict[str, Any] | None) -> dict[str, McpServer]:
         allowed_tools = item.get("allowed_tools", [])
         tool_risks = item.get("tool_risks", {})
         allowed_origins = item.get("allowed_origins", [])
+        browser_actions = item.get("browser_actions", False)
+        if not isinstance(browser_actions, bool):
+            raise ValueError(f"mcp server {name!r} browser_actions must be boolean")
         if not isinstance(command, str) or not command.strip():
             raise ValueError(f"mcp server {name!r} missing command")
         if not isinstance(args, list) or not all(isinstance(a, str) for a in args):
@@ -121,9 +126,16 @@ def parse_servers(raw: dict[str, Any] | None) -> dict[str, McpServer]:
         normalized_origins = tuple(dict.fromkeys(origin.strip().rstrip("/") for origin in allowed_origins))
         if any(not _valid_origin(origin) for origin in normalized_origins):
             raise ValueError(f"mcp server {name!r} allowed_origins must be http(s) origins")
+        if browser_actions:
+            if not normalized_origins or not all(local_origin(origin) for origin in normalized_origins):
+                raise ValueError("controlled browser requires explicit loopback origins")
+            normalized_origins = tuple(dict.fromkeys(normalized_origin(origin) for origin in normalized_origins))
+            if (not normalized_allowed or "browser_snapshot" not in normalized_allowed
+                    or set(normalized_allowed) - BROWSER_READS - BROWSER_WRITES):
+                raise ValueError("controlled browser requires a restricted browser tool allowlist")
         servers[name] = McpServer(
             name, command, list(args), dict(env), cwd, timeout, risk,
-            normalized_allowed, dict(tool_risks), normalized_origins,
+            normalized_allowed, dict(tool_risks), normalized_origins, browser_actions,
         )
     return servers
 
@@ -174,6 +186,7 @@ class _Connection:
         self.client = None
         self.transport = None
         self.broken: str | None = None
+        self.browser = BrowserPolicy(root, server.allowed_origins) if server.browser_actions else None
         stem = root / ".vibe" / "mcp" / f"{_slug(server.name)[:40]}-{uuid.uuid4().hex}"
         self.log_path = stem.with_suffix(".stderr.log")
         self.group_path = stem.with_suffix(".pgid")
@@ -187,8 +200,11 @@ class _Connection:
         if os.name == "posix":
             args = ["-c", _RECORD_GROUP_AND_EXEC, str(self.group_path), command, *args]
             command = sys.executable
+        env = dict(self.server.env)
+        if self.browser is not None:
+            env["VIBE_BROWSER_ORIGINS"] = json.dumps(self.server.allowed_origins)
         self.transport = StdioTransport(
-            command=command, args=args, env=self.server.env,
+            command=command, args=args, env=env,
             cwd=str((self.root / (self.server.cwd or ".")).resolve()),
             keep_alive=False, log_file=self.log_path,
         )
@@ -305,11 +321,15 @@ class McpManager:
             call = ToolCall("mcp_start", {
                 "server": name, "command": server.command, "args": server.args,
                 "cwd": cwd, "env_keys": sorted(server.env), "env_hash": env_hash,
+                "allowed_tools": list(server.allowed_tools),
+                "allowed_origins": list(server.allowed_origins), "browser_actions": server.browser_actions,
             })
             preview = (
                 f"MCP server: {name}\ncommand: {json.dumps([server.command, *server.args], ensure_ascii=False)}"
                 f"\ncwd: {cwd}\nenv keys: {', '.join(sorted(server.env)) or '(none)'}"
                 f"\nallowed tools: {', '.join(server.allowed_tools) or '(all)'}"
+                f"\nallowed origins: {', '.join(server.allowed_origins) or '(unrestricted)'}"
+                f"\ncontrolled browser actions: {server.browser_actions}"
                 "\n\n[risk] exec — 启动外部服务，需要审批；工具调用另行审批。"
             )
             if approval is None or not (await approval.request(call, preview, self.root)).allowed:
@@ -352,10 +372,15 @@ class McpManager:
                 raise McpError(f"duplicate exposed MCP tool: {exposed}")
             used.add(exposed)
 
+            browser = getattr(connection, "browser", None)
+            controlled_write = browser is not None and tool.name in BROWSER_WRITES
+            if controlled_write and approval is not None:
+                approval.require_once(exposed, browser.audit)
             registry.register(ToolSpec(
                 exposed, tool.description or f"MCP {name}:{tool.name}",
                 tool.input_schema, self._make_fn(connection, tool.name, connection.server.allowed_origins), timeout=connection.server.timeout,
-                risk=connection.server.tool_risks.get(tool.name, connection.server.risk),
+                risk="write" if controlled_write else connection.server.tool_risks.get(tool.name, connection.server.risk),
+                preview_fn=(lambda call, b=browser, remote=tool.name: b.preview(remote, call)) if controlled_write else None,
             ))
             self.tools[exposed] = (name, tool.name)
         return sorted(self.tools)
@@ -363,9 +388,24 @@ class McpManager:
     @staticmethod
     def _make_fn(connection: _Connection, name: str, allowed_origins: tuple[str, ...] = ()):
         async def invoke(**kwargs):
-            if allowed_origins and isinstance(kwargs.get("url"), str):
+            browser = getattr(connection, "browser", None)
+            if browser is None and allowed_origins and isinstance(kwargs.get("url"), str):
                 _check_origin(name, str(kwargs["url"]), allowed_origins)
-            return await connection.call(name, kwargs)
+            if browser is None:
+                return await connection.call(name, kwargs)
+            if name in BROWSER_WRITES:
+                browser.validate(name, kwargs)
+            refresh = name in BROWSER_WRITES or name in {"browser_snapshot", "browser_close"}
+            if refresh:
+                browser.invalidate()
+            try:
+                output = await connection.call(name, kwargs)
+                if refresh and name != "browser_close":
+                    browser.observe(output)
+                return "[untrusted browser data]\n" + output
+            except BaseException:
+                browser.invalidate()
+                raise
 
         return invoke
 

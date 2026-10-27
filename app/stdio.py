@@ -131,10 +131,7 @@ class _Connection:
             return ApprovalDecision(False, "deny")
         approval_id = uuid.uuid4().hex
         future = asyncio.get_running_loop().create_future()
-        decisions = ["once", "session"]
-        if call.name in ApprovalGate.WORKSPACE_TOOLS:
-            decisions.append("workspace")
-        decisions.append("deny")
+        decisions = self.agent.approval.decisions_for(call)
         self.pending = (approval_id, future, decisions)
         self.send("status", self.active_id, phase="waiting_approval")
         self.send("approval_request", self.active_id, approval_id=approval_id,

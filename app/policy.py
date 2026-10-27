@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from dataclasses import dataclass
@@ -33,6 +34,17 @@ class ApprovalGate:
         self.audit_path = Path(audit_path) if audit_path else None
         self.session_allowed: set[tuple[str | None, str, str]] = set()
         self.workspace_allowed: set[str] = set()
+        self.once_only: set[str] = set()
+        self._auditors: dict[str, Callable[[ToolCall, str], None]] = {}
+
+    def require_once(self, name: str, audit: Callable[[ToolCall, str], None]) -> None:
+        self.once_only.add(name)
+        self._auditors[name] = audit
+
+    def decisions_for(self, call: ToolCall) -> list[str]:
+        if call.name in self.once_only:
+            return ["once", "deny"]
+        return ["once", "session", *(["workspace"] if call.name in self.WORKSPACE_TOOLS else []), "deny"]
 
     @staticmethod
     def _workspace(workspace: str | Path | None) -> str | None:
@@ -81,7 +93,7 @@ class ApprovalGate:
             return ApprovalDecision(True, "workspace")
 
         key = self._key(call, root)
-        if key in self.session_allowed:
+        if call.name not in self.once_only and key in self.session_allowed:
             self._audit(call, "session_allow", preview, root)
             return ApprovalDecision(True, "session")
 
@@ -89,9 +101,15 @@ class ApprovalGate:
             self._audit(call, "deny_no_handler", preview, root)
             return ApprovalDecision(False, "deny")
 
-        decision = await self.handler(call, preview)
+        try:
+            decision = await self.handler(call, preview)
+        except asyncio.CancelledError:
+            self._audit(call, "cancelled", preview, root)
+            raise
         if decision.allowed:
-            if decision.scope == "workspace":
+            if call.name in self.once_only and decision.scope != "once":
+                decision = ApprovalDecision(False, "deny")
+            elif decision.scope == "workspace":
                 if not workspace_scope:
                     self._audit(call, "deny_workspace_scope", preview, root)
                     return ApprovalDecision(False, "deny")
@@ -106,6 +124,8 @@ class ApprovalGate:
     def _audit(
         self, call: ToolCall, decision: str, preview: str, workspace: str | None,
     ) -> None:
+        if call.name in self._auditors:
+            self._auditors[call.name](call, decision)
         if self.audit_path is None:
             return
         self.audit_path.parent.mkdir(parents=True, exist_ok=True)

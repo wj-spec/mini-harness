@@ -34,7 +34,7 @@ def test_model_activation_and_unload_replace_prompt_without_history_body(tmp_pat
         "完成",
     ])
     agent = Agent(provider, ToolRegistry(tmp_path))
-    assert "review" in agent.system and "PRIVATE_SKILL_STEPS" not in agent.system
+    assert "review" not in agent.system and "PRIVATE_SKILL_STEPS" not in agent.system
     result = asyncio.run(agent.run("检查这个修改"))
     assert result.status == "done"
     assert "PRIVATE_SKILL_STEPS" not in sent_text(provider.seen[0])
@@ -49,7 +49,7 @@ def test_manual_discovery_activation_and_unload_take_effect_without_model_calls(
     agent = Agent(provider, ToolRegistry(tmp_path))
     path = skill_file(tmp_path)
     assert "review" in agent.manage_skills()
-    assert "review" in agent.system
+    assert "review" not in agent.system
     assert "PRIVATE_SKILL_STEPS" not in agent.system
     agent.manage_skills("activate", "review")
     assert provider.seen == []
@@ -61,7 +61,7 @@ def test_manual_discovery_activation_and_unload_take_effect_without_model_calls(
     assert path.exists()
 
 
-def test_refreshed_catalog_and_active_body_match_context_snapshot(tmp_path):
+def test_refreshed_active_body_matches_context_snapshot_without_catalog(tmp_path):
     async def scenario():
         path = skill_file(tmp_path)
         agent = Agent(FakeProvider([]), ToolRegistry(tmp_path),
@@ -77,6 +77,7 @@ def test_refreshed_catalog_and_active_body_match_context_snapshot(tmp_path):
         agent.manage_skills("unload", "review")
         snapshot = await agent.loaded_context_snapshot("test")
         assert not any(block["kind"] == "active_skill" for block in snapshot["blocks"])
+        assert "New summary" not in agent.system and "review" not in agent.system
         assert agent.provider.seen == [] and agent.history == []
 
     asyncio.run(scenario())
@@ -120,6 +121,7 @@ def test_chat_only_skips_catalog_and_rejects_activation(tmp_path):
     agent = Agent(FakeProvider([]), ToolRegistry(tmp_path), tools_enabled=False)
     assert "PRIVATE_SKILL_STEPS" not in agent.system
     assert "[SKILLS]" not in agent.system
+    assert "[SKILL LIFECYCLE]" not in agent.system
     with pytest.raises(ValueError, match="chat-only"):
         agent.manage_skills("activate", "review")
 
@@ -251,11 +253,11 @@ def test_temporary_body_is_automatically_released_but_registration_stays(tmp_pat
     assert "PRIVATE_SKILL_STEPS" in provider.seen[1][0].content
     assert not agent.tools.skill_manager.active
     assert "PRIVATE_SKILL_STEPS" not in agent.system
-    assert "review: Review a change" in agent.system
+    assert "review: Review a change" not in agent.system
     assert [skill.name for skill in agent.tools.skills] == ["review"]
     assert asyncio.run(agent.run("普通任务")).status == "done"
     assert "PRIVATE_SKILL_STEPS" not in sent_text(provider.seen[2])
-    assert "review: Review a change" in provider.seen[2][0].content
+    assert "review: Review a change" not in provider.seen[2][0].content
 
 
 @pytest.mark.parametrize("outcome", ["error", "cancel", "max_steps", "exception"])
@@ -287,7 +289,7 @@ def test_temporary_skills_are_released_on_all_run_exits(tmp_path, outcome):
         assert result.status == {"error": "error", "cancel": "cancelled", "max_steps": "stopped"}[outcome]
     assert not agent.tools.skill_manager.active
     assert "PRIVATE_SKILL_STEPS" not in agent.system
-    assert "review: Review a change" in agent.system
+    assert "review: Review a change" not in agent.system
 
 
 @pytest.mark.parametrize("failure", ["config", "message_callback", "trace_callback"])
@@ -307,7 +309,7 @@ def test_initialization_failures_also_release_temporary_skills(tmp_path, failure
             asyncio.run(agent.run("任务", **kwargs))
     assert not agent.tools.skill_manager.active
     assert "PRIVATE_SKILL_STEPS" not in agent.system
-    assert "review: Review a change" in agent.system
+    assert "review: Review a change" not in agent.system
 
 
 def test_budget_pause_releases_temporary_body_and_resume_can_reload(tmp_path):
@@ -322,7 +324,7 @@ def test_budget_pause_releases_temporary_body_and_resume_can_reload(tmp_path):
     result = asyncio.run(agent.run("任务"))
     assert result.status == "stopped" and result.stop_reason == "token_budget"
     assert not agent.tools.skill_manager.active
-    assert "review: Review a change" in agent.system
+    assert "review: Review a change" not in agent.system
     agent.max_run_tokens = 0
     provider.i = 1
     assert asyncio.run(agent.run("继续任务")).status == "done"
@@ -330,7 +332,7 @@ def test_budget_pause_releases_temporary_body_and_resume_can_reload(tmp_path):
     assert not agent.tools.skill_manager.active
 
 
-def test_loaded_snapshot_after_run_keeps_only_registered_catalog(tmp_path):
+def test_loaded_snapshot_after_run_keeps_only_skill_entrypoint(tmp_path):
     async def scenario():
         skill_file(tmp_path)
         provider = FakeProvider([
@@ -344,7 +346,9 @@ def test_loaded_snapshot_after_run_keeps_only_registered_catalog(tmp_path):
         requests = [event for event in events if event["type"] == "context_snapshot"]
         assert any(block["kind"] == "active_skill" for block in requests[-1]["blocks"])
         snapshot = await agent.loaded_context_snapshot("test")
-        assert any(block["kind"] == "skills" for block in snapshot["blocks"])
+        entrypoint = next(block for block in snapshot["blocks"] if block["kind"] == "skills")
+        assert entrypoint["label"] == "技能入口"
         assert not any(block["kind"] == "active_skill" for block in snapshot["blocks"])
+        assert "Review a change" not in agent.system and "review" not in agent.system
 
     asyncio.run(scenario())

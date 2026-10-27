@@ -31,7 +31,7 @@ Agent 执行的步骤一多，最终回答就不足以说明它依据了什么�
 | 方向 | 已交付能力 |
 | --- | --- |
 | 编码工具 | 读取 / 搜索 / 列目录、`write_file` / `edit_file`、`apply_patch`（多文件多 hunk）、`bash`、免费 Web 搜索、stdio MCP 外部工具；`git_status` / `git_diff` 只读免审批 |
-| 技能 | 项目 / 本机 Skill 自动发现；正文按需加载与卸载，加载不授予额外工具权限；`/skills` 菜单支持滚动与 Tab 补全 |
+| 技能 | 项目 / 本机 Skill 自动发现；启动仅提供简短技能入口，目录按需关键词检索，正文按需加载与卸载；加载不授予额外工具权限，Ink `/skills` 保留完整菜单与 Tab 补全 |
 | 执行边界 | 写文件、命令、Web 搜索与 MCP 调用均经 `ApprovalGate` 预览审批（单次 / 精确规则 / 工作区授权，工作区授权仅限内置写入与命令；可撤销、有审计）；无审批处理器时 fail closed；可选 macOS Seatbelt 沙箱与网络白名单 |
 | 过程控制 | 运行中纠偏、排队后续任务、取消与超时回收；重复调用 / 重复读取 / 无产物进展的空转护栏；交互单轮默认 30 分钟 |
 | 上下文 | 1M 上下文窗口、预算分区、80% 主动压缩、原文 offload + `recall` 回取、请求前上下文快照与 `/context` |
@@ -164,6 +164,7 @@ npm --prefix tui test       # TypeScript / Ink 测试
 | [建设方向](docs/roadmap.md) | 长期方向、阶段取舍与界面 / 全栈学习路径 |
 | [文件规划](docs/STRUCTURE.md) | 目录职责、依赖方向与新增文件约定 |
 | [规格](docs/specs/) | 每个功能切片的 spec、边界与验收口径 |
+| [Benchmark 适配（Harbor）](bench/README.md) | SWE-bench Verified / Terminal-Bench 2.1 的 Harbor 接入、单题 smoke 与限制 |
 | [调研](docs/research/) | TUI、评测、沙箱、上下文等选型记录 |
 
 ## 使用边界

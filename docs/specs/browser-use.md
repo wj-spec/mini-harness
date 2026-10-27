@@ -1,6 +1,6 @@
 # Browser Use：先做的 Computer Use 子集
 
-日期：2026-10-26。状态：G0 MCP 工具级权限已实现；B1 只读观察已完成真实 Playwright MCP smoke；B2 待做。本文把 Computer Use 缩小到**浏览器**，不碰桌面 AX/视觉/系统级 GUI；先做只读浏览器观察，再做受控浏览器动作。
+日期：2026-10-27。状态：G0 MCP 工具级权限已实现；B1 只读观察已完成真实 Playwright MCP smoke；B2 本地受控动作已通过用户 CLI 真实模型与 Ink 两段功能验收，证据见 3.7；主观可读性与审批负担继续收集反馈。本文把 Computer Use 缩小到**浏览器**，不碰桌面 AX/视觉/系统级 GUI。
 
 ## 0. 结论
 
@@ -17,7 +17,7 @@
 范围限制：
 
 - 只做 **Chromium + Playwright**；
-- 第一版 **只读观察 + 导航**，不做点击/输入/提交；
+- B1 为 **只读观察 + 导航**；B2 独立配置开放本地 click/type/select，不开放提交；
 - 不登录、不付款、不上传/下载文件、不读 Cookie/Storage；
 - 不接用户现有浏览器 profile，不使用扩展、CDP 远端、`browser_run_code_unsafe`/`browser_evaluate` 等任意代码工具；
 - 不做桌面 GUI、视觉截图 agent、移动端自动化。
@@ -181,7 +181,7 @@ Headless（CI 可跑）：
 4. `browser_run_code_unsafe`、`browser_click` 等未暴露；`specs()` 不含；
 5. 超长 snapshot 被截断并标记；
 6. 未审批的 `browser_navigate` 不执行（ApprovalGate 行为）；
-8. 测试会话（`--test-session`）不挂载 browser server；
+8. `--test-session` 隔离会话范围与个人偏好；只有显式配置 browser MCP 才挂载，启动和动作仍分别审批；
 9. MCP 启动审批显示完整命令和 allowed tools。
 
 真实 macOS/Linux smoke（手工）：
@@ -226,14 +226,25 @@ PLAYWRIGHT_BROWSERS_PATH="$PWD/.vibe/ms-playwright" \
 
 ## 3. B2：浏览器受控动作（B1 通过后）
 
+### 3.0 本轮实施切片（2026-10-27）
+
+- B1 配置保持只读；新增独立受控 MCP 适配器与 `examples/browser-actions-mcp.json`，只用于显式允许的本地 loopback origin。复用固定版本 Playwright 运行时，不开放上游任意代码工具。
+- 本轮开放 navigate/snapshot/console/network/close 与 click/type/select；暂不开放 press_key 和提交工具。动作要求最新 `snapshot_id` + `ref`；输入仅 fill，`submit` 只能为 false，select 只能选择快照中存在且可用的 value。
+- 通过现有 ToolRegistry / Agent / ApprovalGate 验证：导航和动作固定 write、只允许 once/deny，不复用 session/workspace 授权；预览显示缓存的 URL/title/role/name、输入长度或选项，不输出输入正文。
+- worker 在执行前再次核对当前 URL、DOM 快照和目标；审批期间变化、失败、超时、取消均使旧快照失效，无自动重试。动作后返回新快照、changed、console/network；每个浏览器会话最多 20 次动作。
+- 独立无持久化 browser context；固定的可信 DOM 检查用于读取控件类型/选项和敏感页面判断，不向模型开放 JS。拒绝登录/支付/验证码/文件控件；拦截提交事件、动作触发的文档导航、非 GET/HEAD 请求、所有重定向、越域请求、下载、弹窗和权限请求。导航窗口之外的新网络请求也拒绝，覆盖 GET fetch 等发送路径；这是离线 UI 草稿模式，会影响后台轮询、懒加载和联网交互。重定向保守拒绝，不能仅依赖最终 URL 的事后检查。
+- 页面文本仍是不可信数据；上述边界服务于本地开发页面，不能把 DOM 启发式识别当成对恶意网站的隔离保证。真实账户、外部站点和显式提交留待后续单独切片。
+- 所有动作审批另外写 `.vibe/browser/audit.jsonl`：origin、tool、args hash、decision、snapshot_id，不保存输入正文；运行时及验证日志统一留在 `.vibe/`。
+- 超时/取消后 worker 不重启；POSIX 在关闭前扫描并回收 Node/Chromium 后代，进程扫描不可用时仍终止 Node 并明确报告清理受限。非 POSIX 的强杀后代回收未提供同等保证，当前真实验收范围为 macOS 本地 fixture。
+
 ### 3.1 新增工具
 
 | 工具 | risk | 约束 |
 |---|---|---|
-| `browser_click` | write | 只接受 B1 snapshot 的 element ref；逐次审批 |
-| `browser_type` | write | 只接受 ref；默认 `submit=false` |
-| `browser_select_option` | write | 只接受 ref + 允许的选项 |
-| `browser_press_key` | write | 只允许非破坏性键；Enter 不自动提交 |
+| `browser_click` | write | 最新 snapshot_id + element ref；逐次审批 |
+| `browser_type` | write | snapshot_id + ref；仅 `submit=false` |
+| `browser_select_option` | write | snapshot_id + ref + 已观察到的可用选项 |
+| `browser_press_key` | write | 后续方向，本轮不暴露 |
 | `browser_navigate` | write | 已有，继续 origin allowlist |
 
 **不新增**：`browser_run_code_unsafe`/`evaluate`、file upload、download、cookies/storage、PDF/video、坐标鼠标、`browser_tabs` 新建/关闭（除非后续单独评审）。
@@ -247,13 +258,13 @@ PLAYWRIGHT_BROWSERS_PATH="$PWD/.vibe/ms-playwright" \
 - 动作后读取 snapshot/console/network，返回 `changed`/diff；无变化显式提示；
 - 每个动作有 budget/次数上限，防止循环点击；
 - 取消立即停止；浏览器进程/上下文清理；
-- 不在页面注入 JS（除 Playwright 自身 snapshot 外），不读 cookies/localStorage。
+- 模型不能提供 JS；适配器只执行固定的 DOM 检查/提交拦截与 Playwright snapshot，不读 cookies/localStorage。
 
 ### 3.3 安全
 
 - Web 内容是 **untrusted data**；prompt injection 防护：不因页面文本改变工具/权限/审批；
 - 不允许页面触发的下载、弹窗、文件选择、权限请求；拦截并报告；
-- 不保存登录态；`--isolated`；关闭时清 profile；
+- 不保存登录态；B2 使用临时 browser context，关闭时释放；
 - 浏览器进程的网络不受 Python sandbox 保护；首版默认 localhost/allowlist；远程 origin 显式 opt-in；
 - 失败/取消/超时后杀浏览器进程组，避免孤儿进程；
 - 所有动作写 `.vibe/browser/audit.jsonl`（origin、tool、args hash、decision、snapshot id），不记录敏感正文。
@@ -264,6 +275,37 @@ PLAYWRIGHT_BROWSERS_PATH="$PWD/.vibe/ms-playwright" \
 - stale ref、页面跳转、元素消失、超时、取消都有明确状态；
 - 未审批动作数 = 0；不允许的 origin/敏感页面/文件上传被拒绝；
 - headless 测试全部可重复；手工只做本地 fixture。
+
+### 3.5 本轮工程验证（2026-10-27）
+
+- `scripts/browser_actions_smoke.py` 使用脚本模型，经过真实 Agent → ApprovalGate → FastMCP → Playwright/Chromium：click/type/select 成功，17 次审批，fixture 提交数 0；拒绝、旧快照、submit=true、GET/POST 表单、越域、重定向、敏感页面及审批期间 DOM 改变均明确失败。日志 `.vibe/browser/b2-smoke.log`。
+- `tests/browser_worker.test.cjs` 的 opt-in 真实浏览器回归补充同 URL reload、同 markup 替换、GET fetch 零发送、敏感值脱敏；单元回归覆盖固定 write、once-only、审批取消、失败失效、stdio 菜单及 worker 中断清理。
+- 当前环境的 Chromium smoke 需要显式关闭 Chrome sandbox；日常 B2 配置默认启用。发现相对 HOME/TMPDIR 会导致点击等待稳定超时，worker 启动前会将运行时路径转换为绝对路径。
+- 最终 Python 全量 980 项：976 通过、3 跳过、1 项既有 Seatbelt 代理连接失败；干净 HEAD 副本同样失败，证据 `.vibe/browser/b2-baseline-seatbelt.log`。完整报告 `.vibe/browser/b2-python-tests.xml`；Ink 337/337 通过。
+- 工程验证不等同于真实模型任务完成或用户 Ink 体验验收；press_key、显式提交、远程站点和真实账户仍不开放。
+
+### 3.6 真实模型与 Ink 验收入口（已交付，本地功能验收通过）
+
+- 新增单一手工验收入口：自动启动本地 fixture、生成仅允许该端口的 MCP 配置，再启动现有 Ink；沿用用户 CLI 环境中的模型/key，不读写或保存凭据。
+- 任务一要求点击 Increment、Note 填入固定草稿、Shade 选 Green，观察最终快照；随后在同一 Ink/MCP 生命周期中单独发送任务二，更改 Note 时由用户拒绝审批，再观察原草稿仍在。两段完成后才退出；新 MCP 的临时 context 从空白页开始，不继承旧页面或表单值，也不通过恢复聊天历史恢复页面。所有审批仍由 Ink 用户逐次决定。
+- 退出后基于本次新建会话的 events/trace、快照和 fixture 提交计数生成报告；通过必须同时满足动作成功、最终值正确、拒绝后没有对应执行、提交数为 0。模型口头声称完成不计证据。
+- 不因多个旧会话或多个新会话猜测当前会话；多候选时报告 ambiguous，缺证据报告 incomplete。报告区分工程检查与真实模型/用户体验；人工可读性和审批负担由用户反馈，不能自动标记通过。
+- 无 key 时不启动付费调用，说明需要在用户已配置 key 的终端启动；可选择仅运行 fixture 并输出现有 Ink 命令。运行产物放 `.vibe/browser/acceptance/`，无需新前端入口或协议。
+- 入口：在仓库根目录执行 `.venv/bin/python3 -m scripts.browser_acceptance`；`--serve-only` 可供另一个已配置 key 的终端启动 Ink。缺 key 默认退出 2；缺证据或失败退出 1。报告 `real_model_verified=false` 与 `user_experience=pending` 需人工核对，自动检查不代替真实体验。
+- 本切片完整 Python 1006 项：1001 通过、4 跳过、1 项既有 Seatbelt 失败（`.vibe/browser/b2-acceptance-tests.xml`）；opt-in Ink PTY 冒烟另行使用真实 Ink/MCP/Chromium 与本地模型 stub 验证，不调用外部模型。
+- 两轮 PTY 场景与手工入口对齐，实际会话日志由同一 `collect_report` 核对，17 项自动检查全部通过、提交数 0；`s/p` 不放行、拒绝后草稿保留、终端恢复也通过。证据 `.vibe/browser/ink-smoke/309dc558d44d/report.json`，模型明确标记 `b2-ink-scripted`，`real_model_verified=false`。
+- 真实使用修正：原 30k 任务预算导致每次约 10k–14.5k tokens 的模型请求只能执行少量动作就暂停；验收入口提高为有界 100k（12 步、180 秒保持）。用实际请求用量回放先复现 `token_budget`，修正后同一动作链正常完成。第一段的动作/值检查独立于第二段拒绝是否出现；缺第二段仍为 incomplete。历史原报告保留，重算与人工分段核对放各自 `review.json`，不跨场次拼接证据。
+- 会话连续性修正：用户任务一在 `055548` 的 63847 端口完成，而任务二分别新开 `055740` / `055904`，端口为 64124 / 64269，均未先导航。新 context 的 `about:blank` 原来被笼统报告为 origin 错误；现专门返回 `browser_not_navigated`，说明旧页面状态不恢复、须经审批导航。真实 Chromium 首次 snapshot/console 回归先红后绿，未扩大 allowlist、未让读取自动导航。手工入口与提示词明确同一窗口分两次发送，任务二完成后才退出。
+- 本轮完整回归两次各 1008 项：1002 通过、4 跳过、2 失败（Seatbelt 代理及各一次命令取消超时）；命令结果测试文件单独复跑通过，完整结果保留 `.vibe/browser/b2-session-continuity-{tests,recheck}.xml`，不以单项通过覆盖全量失败记录。
+
+### 3.7 用户真实模型与 Ink 功能验收通过（2026-10-27）
+
+场次 `.vibe/browser/acceptance/20261027-062108-b00a93af/`，会话 `20261027-142127-403528`，本地 origin `http://127.0.0.1:51901`，用户 CLI 配置 `openai` 兼容 provider / `deepseek-chat`。原报告 17 项检查全部通过，原始 events/trace 哈希匹配，独立重新计算结论一致；两轮均 done，分别 80676 / 53034 tokens，未触发预算停止。
+
+- navigate/click/type/select 全部逐次 once 审批；最终 count=1、Note=`B2 验收草稿`、Shade=`green`。
+- 第二轮仅一次 `拒绝写入` 输入尝试，审批 deny、工具终态 denied，无重试；后续新快照 `cb282d1d-636c-4bf7-90ee-ec5710dd5bc4` 确认上述值保持。
+- fixture 提交计数 0，Ink 正常退出码 0；没有将页面注入文本变成越权操作。
+- 原 `report.json` 保留自动占位字段，人工复核写入同目录 `review.json`，认定本地 B2 功能场景通过。主观阅读体验与审批负担仍待明确反馈；现有 Seatbelt/命令取消回归失败另行保留，不据此宣称全项目测试通过。
 
 ---
 
@@ -362,5 +404,5 @@ B2 必须做到：
 1. G0 已完成：`McpServer.allowed_tools` + `tool_risks` + `allowed_origins`，并有 MCP 回归；
 2. 固定 Playwright MCP 版本，写 `browser` MCP 配置；
 3. 建本地 fixture HTTP server + headless B1 测试；
-4. B1 通过后再做 B2；
+4. B2 本地受控动作已实现；下一步在 Ink 中做真实模型与用户体验验收，再决定是否扩范围；
 5. 桌面 Computer Use 保持延后，不并行开工。

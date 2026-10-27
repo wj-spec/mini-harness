@@ -106,8 +106,9 @@ def test_cancel_before_start(tmp_path):
 
 
 def test_context_is_applied_before_model_call(tmp_path):
+    import json
     from core.budget import BudgetPolicy
-    from core.context import ContextBuilder
+    from core.context import ContextBuilder, estimate_tokens, total_tokens
 
     (tmp_path / "a.txt").write_text("x" * 400)
     provider = FakeProvider(
@@ -129,7 +130,7 @@ def test_context_is_applied_before_model_call(tmp_path):
         keep_recent_groups=0,
         offload_dir=tmp_path / "offload",
     )
-    agent = Agent(provider, ToolRegistry(tmp_path), context=context)
+    agent = Agent(provider, ToolRegistry(tmp_path), context=context, system="Test agent")
     seen_context = []
 
     result = run(agent.run("q", on_context=seen_context.append))
@@ -139,6 +140,8 @@ def test_context_is_applied_before_model_call(tmp_path):
     second_call = provider.seen[1]
     assert any("q" == m.content for m in second_call if m.role == "user")
     assert any("[offloaded:" in m.content for m in second_call)
+    for messages, tools in zip(provider.seen, provider.seen_tools):
+        assert total_tokens(messages) + estimate_tokens(json.dumps(tools, ensure_ascii=False)) <= 1890
 
 
 def test_chat_only_sends_no_tools(tmp_path):

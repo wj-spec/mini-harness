@@ -426,16 +426,29 @@ token 上限累计每轮 prompt 与 completion，重复历史也计入；首轮�
 
 ## Skill（可复用操作手册）
 
-技能分为**常驻注册目录**和**临时激活正文**：名称、用途和来源路径始终进入 Agent 的系统上下文；正文只在确实使用时加载，使用结束后清理。
+技能分为**本地注册目录**和**按需模型上下文**：启动时只向模型提供简短的 `[SKILL LIFECYCLE]` 发现与激活规则，全量名称、摘要和路径留在程序中供检索与 Ink 菜单使用。Agent 按任务查询技能，只有激活的正文进入系统上下文，使用结束后清理；旧配置显式声明的 `activate` 仍兼容启动时临时预装。
 
-默认发现当前项目与本机的标准技能目录：
+默认发现当前项目与本机的常用技能目录（项目路径相对于工作区，`~` 为用户目录）：
 
-```text
-项目：.vibe/skills/  .agents/skills/  .claude/skills/  skills/
-本机：~/.vibe/skills/  ~/.agents/skills/  ~/.codex/skills/  ~/.claude/skills/
-```
+| 来源 | 项目目录 | 本机目录 |
+|---|---|---|
+| 本项目 | `.vibe/skills/`、`skills/` | `~/.vibe/skills/` |
+| 跨工具共享 | `.agents/skills/` | `~/.agents/skills/` |
+| Codex 兼容目录 | — | `~/.codex/skills/` |
+| [Claude Code](https://code.claude.com/docs/en/skills) | `.claude/skills/` | `~/.claude/skills/` |
+| [Cursor](https://cursor.com/docs/context/skills) | `.cursor/skills/` | `~/.cursor/skills/` |
+| [Gemini CLI](https://geminicli.com/docs/cli/skills/) | `.gemini/skills/` | `~/.gemini/skills/` |
+| [GitHub Copilot](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference#skill-locations) | `.github/skills/` | `~/.copilot/skills/` |
+| [OpenCode](https://opencode.ai/docs/skills/) | `.opencode/skills/` | `~/.config/opencode/skills/` |
+| [Devin / Windsurf](https://docs.devin.ai/desktop/cascade/skills) | `.devin/skills/`、`.windsurf/skills/` | `~/.config/devin/skills/`、`~/.codeium/windsurf/skills/` |
+| [Kiro](https://kiro.dev/docs/skills/) | `.kiro/skills/` | `~/.kiro/skills/` |
+| [Antigravity](https://antigravity.google/docs/skills) | `.agents/skills/`、兼容 `.agent/skills/` | `~/.gemini/config/skills/`、`~/.gemini/antigravity-cli/skills/`、兼容 `~/.gemini/antigravity/skills/` |
 
-每个根支持 `<name>/SKILL.md`、`<name>.md` 以及最多三级分类（包括 `.system`）；找到一个技能目录后，不把其中的 `references` / `scripts` / `assets` 当成其他技能。新增或修改文件可用 `/skills`、`list_skills` 或下一轮任务开始时重新发现。
+模型每次调用 `list_skills` 都会重新扫描上述目录，新增、修改和删除立即反映在结果中，无需重启或手动注册；Ink 可用 `/skills refresh` 更新菜单。不存在的默认目录静默跳过；`discover: false` 仍可关闭默认发现。工具使用自定义存储位置时，通过下文的 `paths` 显式注册；插件缓存不属于默认扫描范围。
+
+模型可调用 `list_skills(query="review code", limit=5)` 按名称和描述关键词检索；已知准确名称时可直接 `load_skill(name)`。`query` 默认空字符串，`limit` 默认 5、最多 10；每条摘要最多 120 字符，单次结果最多 800 个估算 tokens，不附完整源路径。无匹配时可换用更短或英文关键词，不表示磁盘中没有技能。扫描错误只返回数量，完整目录、来源和诊断通过 Ink `/skills`、`/skills refresh` 查看。查询结果会进入工具历史，沿用现有历史压缩。
+
+每个根支持 `<name>/SKILL.md`、`<name>.md` 以及最多三级分类（包括 `.system`）；找到一个技能目录后，不把其中的 `references` / `scripts` / `assets` 当成其他技能。下一轮任务开始时也会重新发现。
 
 文件格式：开头几行 `key: value`（`name`、`description`），空行后是正文步骤；正文为空则忽略该文件。
 
@@ -447,16 +460,16 @@ description: 给新模块补单元测试
 3. 跑 PYTHONPATH=. .venv/bin/python3 -m pytest tests/test_xxx.py -q
 ```
 
-Agent 从常驻目录判断哪些技能与当前工作有关，调用 `load_skill(name)` 将匹配技能的正文临时装入 `[ACTIVE SKILLS]`，根据步骤调用普通工具。相关工作完成后应主动 `unload_skill(name)`；程序在每轮完成、暂停、取消或报错时统一清理剩余临时正文，保留常驻目录和磁盘文件。正文贯穿本轮多次模型和工具调用，也不会因历史压缩丢失。
+Agent 先用 `list_skills` 检索相关技能，再调用 `load_skill(name)` 将匹配技能的正文与来源临时装入 `[ACTIVE SKILLS]`，根据步骤调用普通工具。相关工作完成后应主动 `unload_skill(name)`；程序在每轮完成、暂停、取消或报错时统一清理剩余临时正文，保留本地注册目录和磁盘文件。正文贯穿本轮多次模型和工具调用，也不会因历史压缩丢失。
 
-工具历史只保存激活/卸载回执，防止正文留在历史里持续占用上下文。手动命令是查看和控制入口，正常流程由 Agent 按任务决定加载与卸载，无需用户逐项操作。
+激活/卸载工具只返回状态回执，防止正文留在历史里持续占用上下文；未知技能错误也不枚举全部名称。历史回执不代表当前激活，只有当前 `[ACTIVE SKILLS]` 中的正文生效。手动命令是查看和控制入口，正常流程由 Agent 按任务决定加载与卸载，无需用户逐项操作。
 
 工作台支持以下管理命令，不调用模型：
 
 | 命令 | 行为 |
 |---|---|
-| `/skills` 或 `/skill` | 技能菜单：`↑↓` 滚动、`Tab` 补全完整命令、`Enter` 执行；只读刷新目录，不调用模型 |
-| `/skills refresh` | 重读配置和文件；更新已激活正文，移除已删除或禁用项 |
+| `/skills` 或 `/skill` | 完整技能菜单：`↑↓` 滚动、`Tab` 补全完整命令、`Enter` 执行；不调用模型 |
+| `/skills refresh` | 重读配置和文件，更新完整目录、来源和诊断；更新已激活正文，移除已删除或禁用项 |
 | `/skills activate NAME` | 激活或更新指定技能 |
 | `/skills unload NAME` | 卸载正文，保留文件；重复卸载无副作用 |
 
@@ -476,7 +489,7 @@ Agent 从常驻目录判断哪些技能与当前工作有关，调用 `load_skil
 
 可用 `VIBE_SKILLS_CONFIG=examples/skills.json ./run_ink.sh` 选用另一份配置。可提交的技能放仓库 `skills/`，配置可参考 [examples/skills.json](../examples/skills.json)；本地技能与配置仍可放忽略提交的 `.vibe/`。
 
-重启和 `--continue` 会重新构建常驻目录；临时正文不会因历史回执恢复。`/resume` 继续任务时，Agent 根据当前目录重新加载需要的技能。旧配置的 `activate` 仅兼容为启动时临时预装，不代表常驻正文；这类正文同样在首轮结束时清理，推荐配置仅保留注册来源。
+重启和 `--continue` 会重新扫描并构建本地注册目录，全量目录不预载到模型上下文；临时正文不会因历史回执恢复。`/resume` 继续任务时，Agent 按需查询并重新加载需要的技能。旧配置的 `activate` 仅兼容为启动时临时预装，不代表常驻正文；这类正文同样在首轮结束时清理，推荐配置仅保留注册来源。
 
 正文连同元信息最多 64,000 字符，超出时明确拒绝，避免按截断步骤执行；每个文件读取最多 256 KiB。解析范围见 [技能生命周期](specs/skill-lifecycle.md)。
 
@@ -593,6 +606,38 @@ keybind = global:cmd+shift+g=toggle_quick_terminal
 - quick terminal 全局唯一，宽度由 Ghostty 配置固定，不能像普通窗口一样拖拽；
 - 尚未支持从侧栏回传操作到工作台（例如把选中文件附到下一条消息）；
 - 实现与验证记录见 [右侧 Git 变更侧栏](specs/sidebar-git-panel.md)。
+
+## 浏览器观察与受控动作
+
+B1 只读观察配置：`VIBE_MCP_CONFIG=examples/browser-mcp.json ./run_ink.sh`。
+
+B2 使用独立配置，先把 `allowed_origins` 改成你的本地 dev server 地址，再启动：
+
+```bash
+VIBE_MCP_CONFIG=examples/browser-actions-mcp.json ./run_ink.sh
+```
+
+可输入：“打开 http://localhost:3000，检查页面，再填写草稿并选择选项，不提交。”启动服务要审批；navigate/click/type/select 每次只有“允许本次 / 拒绝”，不会继承会话或工作区授权。动作引用最新快照，审批期间页面改变会拒绝，需要重新观察。输入只填值，不能发送 Enter 或提交；每个浏览器会话最多 20 次动作，耗尽后重启 MCP 会话。
+
+仅允许显式配置的 `localhost` / `127.0.0.1` / `[::1]` origin；所有重定向、动作触发的文档导航、非 GET/HEAD 请求、下载和弹窗都拒绝。导航窗口之外的新网络请求也拒绝，防止 GET fetch 发送数据，因此会影响后台轮询、懒加载和联网交互。登录/支付/验证码/文件控件页面拒绝动作。适用于本地开发页面，DOM 识别不能提供恶意网站隔离保证。
+
+依赖沿用 B1 的固定 `@playwright/mcp@0.0.83` 和匹配 Chromium（安装方法见 [Browser Use](specs/browser-use.md#26-b1-实施前置)）。B2 默认离线启动，缺少依赖会报错，不静默安装；使用临时无持久化 browser context。默认启用 Chrome sandbox；仅当前自动化环境的本地 smoke 显式设 `VIBE_BROWSER_NO_SANDBOX=1`。
+
+验证：`RUN_BROWSER_SMOKE=1 PYTHONPATH=. .venv/bin/python3 -m pytest tests/test_browser_actions_smoke.py -q`。审批摘要在 `.vibe/browser/audit.jsonl`，只记录参数哈希，不保存输入正文；普通会话历史和工具 trace 仍可能保存原始参数，请勿输入凭据。
+
+真实模型与 Ink 手工验收：在项目根目录、已配置模型 key 的终端执行：
+
+```bash
+.venv/bin/python3 -m scripts.browser_acceptance
+```
+
+入口会启动本地 fixture，生成只允许本次端口的 MCP 配置，并以独立工作区和 `--test-session` 打开 Ink。沿用当前终端的模型环境，不保存 key；如果 key 原本只赋给某一条 CLI 命令，请将同样的环境配置用于此入口。每个任务限制 12 步、100k tokens、180 秒。复制入口给出的任务一，在 Ink 中点击 Increment、填写固定草稿并选择 Green；任务二更改 Note 时按 `n` 拒绝，再让模型读取新快照核对原值。完成后 `Ctrl+Q` 退出，自动写 `.vibe/browser/acceptance/<本次目录>/report.json`。
+
+两段任务必须在同一次验收入口打开的同一个 Ink 窗口分两次发送：先在 `mcp_start` 审批按 `y`，等显示“MCP 初始化完成：8 个工具”且就绪，再发送任务一；任务一完成并核对快照后，保持窗口和浏览器运行，单独发送任务二。任务二的 `n` 对应 Note 输入动作的审批，读取新快照后再退出。退出会销毁临时浏览器页面，重开 Ink 或恢复聊天历史不会恢复 Note 的值；每次重新启动验收入口也会生成新端口，不能把旧 URL 加入允许列表当作恢复。如果在启动审批期间取消或退出，审计也会记为 `deny`，此时任务尚未开始，报告保持 `incomplete`。
+
+如果希望在另一终端按原来的方式配置模型，先运行 `.venv/bin/python3 -m scripts.browser_acceptance --serve-only`，保持 fixture 服务运行，把它打印的 Ink 命令用于已配置 key 的终端；Ink 退出后再回到 fixture 终端收证。默认保留 Chrome sandbox；仅无法初始化的自动化环境显式加 `--no-sandbox`。无 key 或缺证据不会标记真实验收通过；报告中的 `passed` 只表示自动证据满足要求，模型身份、阅读体验和审批负担仍需人工确认。
+
+Ink 工程冒烟：`RUN_BROWSER_SMOKE=1 PYTHONPATH=. .venv/bin/python3 -m pytest tests/test_browser_ink_smoke.py -q`。它只用本地模型 stub 配合真实 Ink/MCP/Chromium，检查 `s/p` 无法放行动作、逐次 `y/n`、拒绝后状态与终端恢复，不调用外部模型。
 
 ## 调试
 

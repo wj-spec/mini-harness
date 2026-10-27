@@ -13,14 +13,26 @@ import stat
 from dataclasses import dataclass
 from pathlib import Path
 
+from core.context import estimate_tokens
+
 MAX_SKILL_CHARS = 64_000
 MAX_SKILL_FILE_BYTES = 256 * 1024
 MAX_SUMMARY_CHARS = 600
+MAX_SEARCH_TOKENS = 800
 SKILL_FILE = "SKILL.md"
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 HEADER_KEYS = ("name", "description")
-PROJECT_SKILL_DIRS = (".vibe/skills", ".agents/skills", ".claude/skills", "skills")
-LOCAL_SKILL_DIRS = (".vibe/skills", ".agents/skills", ".codex/skills", ".claude/skills")
+PROJECT_SKILL_DIRS = (
+    ".vibe/skills", ".agents/skills", ".claude/skills", "skills",
+    ".cursor/skills", ".gemini/skills", ".github/skills", ".opencode/skills",
+    ".devin/skills", ".windsurf/skills", ".kiro/skills", ".agent/skills",
+)
+LOCAL_SKILL_DIRS = (
+    ".vibe/skills", ".agents/skills", ".codex/skills", ".claude/skills",
+    ".cursor/skills", ".gemini/skills", ".copilot/skills", ".config/opencode/skills",
+    ".config/devin/skills", ".codeium/windsurf/skills", ".kiro/skills",
+    ".gemini/config/skills", ".gemini/antigravity-cli/skills", ".gemini/antigravity/skills",
+)
 SKILL_CATEGORY_DEPTH = 3
 SKILL_RESOURCE_DIRS = {"references", "scripts", "assets", "resources", "node_modules", "__pycache__", "venv"}
 
@@ -250,7 +262,7 @@ def _scan_skills(workspace: Path, paths: list[str], *, discover: bool = True) ->
 
 
 class SkillManager:
-    """注册目录常驻；正文临时激活。activate 配置仅兼容启动预装。"""
+    """本地注册表供按需查询；正文临时激活。activate 配置仅兼容启动预装。"""
 
     def __init__(self, workspace: str | Path, config_path: str | Path = "") -> None:
         self.workspace = Path(workspace).resolve()
@@ -340,8 +352,7 @@ class SkillManager:
         resolved = name.strip()
         skill = self._available.get(resolved)
         if skill is None:
-            names = ", ".join(self._available) or "none"
-            raise KeyError(f"unknown skill {resolved!r}; available: {names}")
+            raise KeyError(f"unknown skill {resolved[:120]!r}; use list_skills with a name or purpose keyword")
         return skill
 
     def _activate_current(self, name: str) -> Skill:
@@ -380,6 +391,42 @@ class SkillManager:
         if not self._active_names:
             return ""
         return "[ACTIVE SKILLS]\n\n" + "\n\n".join(skill.render() for skill in self.active)
+
+    def format_matches(self, query: str = "", limit: int = 5) -> str:
+        """模型只接收有限摘要；完整目录与诊断留给管理界面。"""
+        if not isinstance(query, str) or len(query) > 200:
+            raise ValueError("query must be a string of at most 200 characters")
+        if type(limit) is not int or not 1 <= limit <= 10:
+            raise ValueError("limit must be an integer between 1 and 10")
+        query = query.strip().casefold()
+        terms = query.split()
+        ranked = []
+        for skill in self.available:
+            name, description = skill.name.casefold(), skill.description.casefold()
+            score = sum(3 * (term in name) + (term in description) for term in terms)
+            if not terms or score:
+                ranked.append((skill, score))
+        ranked.sort(key=lambda item: (item[0].name.casefold() != query, -item[1], item[0].name))
+        if not self._available:
+            header = "(no skills; configure paths or add a standard skill directory)"
+        else:
+            header = f"skills: {len(self._available)} registered; {len(ranked)} matches"
+            if not ranked:
+                header += "\nNo matching skills; try shorter or English keywords."
+        diagnostics = (f"\nScan errors: {len(self._errors)}; use /skills refresh for details."
+                       if self._errors else "")
+        omitted = "\nResults limited; refine query or use /skills for the full catalog."
+        lines = [header]
+        for skill, _ in ranked:
+            if len(lines) - 1 >= limit:
+                break
+            status = " [active]" if skill.name in self._active_names else ""
+            line = f"- {skill.name}: {skill.summary(120)}{status}"
+            if estimate_tokens("\n".join([*lines, line]) + omitted + diagnostics) > MAX_SEARCH_TOKENS:
+                continue
+            lines.append(line)
+        return ("\n".join(lines)
+                + (omitted if len(lines) - 1 < len(ranked) else "") + diagnostics)
 
     def format_status(self) -> str:
         if self.available:

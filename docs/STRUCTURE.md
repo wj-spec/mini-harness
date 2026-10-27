@@ -32,11 +32,19 @@ mini-harness/
     trace.py            # TraceRecorder / Pricing
     instructions.py     # AGENTS.md 加载与注入
     skills.py           # 项目/本机发现、常驻注册目录、临时正文与来源边界
+    bench_profile.py    # 跑分模式提示词（无人值守、容器内验证）
+    oneshot.py          # 非交互跑分入口：--task、自动审批、telemetry
     skill_history.py    # 旧技能正文的模型视图，保留原始历史
     summarize.py        # LLM 摘要 HTTP 适配器 + 确定性回退
     eval.py             # 10 任务 eval、check、报告、regression delta
     agent.py            # 唯一运行 loop：流式 + 工具执行 + context 接入
     stdio.py            # Ink JSONL：恢复、审批、MCP、命令、取消、会话记录
+
+  bench/                # Harbor 跑分适配层（不作为 app 依赖）
+    adapter.py          # BaseInstalledAgent：容器内安装并执行 --task
+    support.py          # 模型/环境/telemetry 纯逻辑，可离线测试
+    requirements-bench.txt # 容器内运行依赖（与 pyproject 对齐）
+    README.md           # 单题 smoke、覆盖项与限制
 
   tui/                  # Node.js + TypeScript + React/Ink 工作台（唯一界面入口）
     src/
@@ -98,6 +106,8 @@ mini-harness/
     test_session.py
     test_trace.py
     test_eval.py
+    test_bench_mode.py
+    test_bench_adapter.py
     test_instructions.py
     test_skills.py
     test_skill_discovery.py
@@ -129,7 +139,7 @@ mini-harness/
   run_vibe.sh
   run_ink.sh            # 编译并启动 Ink（唯一交互入口）
   run_sidebar.sh        # 手动启动右侧 Git 变更侧栏
-  run_vibe.sh           # Python 入口：--stdio 后端、--eval、会话列表
+  run_vibe.sh           # Python 入口：--stdio 后端、--eval、--task 跑分、会话列表
   run_tests.sh
   .gitignore
 ```

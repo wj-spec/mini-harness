@@ -118,6 +118,33 @@ def test_allowlist_requires_sandbox(tmp_path):
         ToolRegistry(tmp_path, sandbox_network_allow="registry.npmjs.org")
 
 
+def test_registry_closes_proxy_when_allowlist_profile_fails(tmp_path, monkeypatch):
+    class Proxy:
+        port = 23456
+        closed = False
+
+        def start(self):
+            return self
+
+        def close(self):
+            self.closed = True
+
+    proxy = Proxy()
+
+    def build(workspace, **kwargs):
+        if kwargs.get("proxy_port") is not None:
+            raise OSError("profile unavailable")
+        return sandbox.SandboxSpec(kind="seatbelt", workspace=workspace)
+
+    monkeypatch.setattr("app.tools.sandbox_available", lambda: True)
+    monkeypatch.setattr("app.tools.probe_sandbox", lambda: (True, ""))
+    monkeypatch.setattr("app.tools.build_sandbox", build)
+    monkeypatch.setattr("app.tools.AllowlistProxy", lambda entries: proxy)
+    with pytest.raises(OSError, match="profile unavailable"):
+        ToolRegistry(tmp_path, sandbox=True, sandbox_network_allow="example.com")
+    assert proxy.closed
+
+
 def test_config_reads_allowlist_env(monkeypatch):
     monkeypatch.setenv("VIBE_SANDBOX_NETWORK_ALLOW", "registry.npmjs.org,*.pypi.org")
     from app.config import Config

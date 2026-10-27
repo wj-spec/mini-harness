@@ -1,3 +1,5 @@
+import asyncio
+import socket
 import sys
 from pathlib import Path
 
@@ -143,20 +145,50 @@ def test_sandbox_wrapped_uses_the_backend_of_the_spec(tmp_path):
 
 
 @needs_applicable
-def test_allowlist_mode_reaches_proxy_port_but_blocks_direct_connections(tmp_path):
+@pytest.mark.skipif(sys.platform != "darwin", reason="allowlist requires macOS Seatbelt")
+@pytest.mark.parametrize("asynchronous", [False, True], ids=["sync", "async"])
+def test_allowlist_mode_reaches_proxy_port_but_blocks_direct_connections(tmp_path, asynchronous):
     registry = ToolRegistry(tmp_path, sandbox=True, sandbox_network_allow="example.com")
+
+    def execute(command):
+        call = ToolCall("bash", {"command": command})
+        return asyncio.run(registry.execute_async(call)) if asynchronous else registry.execute(call)
+
     try:
         proxy_port = registry._sandbox.proxy_port
         assert proxy_port
-        ok, output = registry.execute(ToolCall("bash", {
-            "command": f"python3 -c \"import socket; socket.create_connection(('127.0.0.1', {proxy_port}), 2)\"",
-        }))
+        ok, output = execute(
+            f"python3 -c \"import socket; socket.create_connection(('127.0.0.1', {proxy_port}), 2)\"",
+        )
         assert ok is True, output
-        ok, output = registry.execute(ToolCall("bash", {
-            "command": "python3 -c \"import socket; socket.create_connection(('1.1.1.1', 53), 2)\"",
-        }))
-        assert ok is False
-        assert "Operation not permitted" in output or "sandbox_denied" in output
+        with socket.create_server(("127.0.0.1", 0)) as other:
+            for host, port in (("127.0.0.1", other.getsockname()[1]), ("1.1.1.1", 53)):
+                ok, output = execute(
+                    f"python3 -c \"import socket; socket.create_connection(('{host}', {port}), 2)\"",
+                )
+                assert ok is False, output
+                assert "sandbox_denied" in output
     finally:
         registry.close()
+
+
+@needs_applicable
+@pytest.mark.skipif(sys.platform != "darwin", reason="allowlist requires macOS Seatbelt")
+def test_allowlist_profiles_stay_bound_to_each_registry(tmp_path):
+    registries = []
+    try:
+        for host in ("example.com", "example.org"):
+            registries.append(ToolRegistry(tmp_path, sandbox=True, sandbox_network_allow=host))
+        for registry in registries:
+            for target in registries:
+                port = target._sandbox.proxy_port
+                ok, output = registry.execute(ToolCall("bash", {
+                    "command": f"python3 -c \"import socket; socket.create_connection(('127.0.0.1', {port}), 2)\"",
+                }))
+                assert ok is (registry is target), output
+                if registry is not target:
+                    assert "sandbox_denied" in output
+    finally:
+        for registry in registries:
+            registry.close()
 

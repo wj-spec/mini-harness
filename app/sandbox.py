@@ -149,7 +149,7 @@ def build_seatbelt_profile(workspace: Path, *, allow_network: bool = False,
 def ensure_seatbelt_profile(workspace: Path, *, allow_network: bool = False,
                             proxy_port: int | None = None) -> Path:
     """按工作区写出策略文件；内容不变时复用。"""
-    name = ("seatbelt-allowlist.sb" if proxy_port is not None
+    name = (f"seatbelt-allowlist-{proxy_port}.sb" if proxy_port is not None
             else "seatbelt-network.sb" if allow_network else "seatbelt.sb")
     profile = workspace / ".vibe" / "sandbox" / name
     content = build_seatbelt_profile(workspace, allow_network=allow_network, proxy_port=proxy_port)
@@ -327,19 +327,36 @@ async def run_command_async(
             output, _ = await asyncio.wait_for(asyncio.shield(communicating), timeout)
         except asyncio.TimeoutError:
             timed_out = True
-            _kill_group(proc.pid)
-            output, _ = await communicating
     except asyncio.CancelledError:
         cancelled = True
     finally:
-        # 创建过程中被取消，也必须先取得句柄再回收。
-        if proc is None:
-            proc = await spawning
-        _kill_group(proc.pid)
-        if communicating is None:
-            communicating = asyncio.create_task(proc.communicate())
-        output, _ = await communicating
-        await proc.wait()
+        async def finish():
+            nonlocal proc
+            # 创建过程中被取消，也必须先取得句柄再回收。
+            if proc is None:
+                proc = await spawning
+            draining = communicating or asyncio.create_task(proc.communicate())
+            _kill_group(proc.pid)
+            while not draining.done():
+                # fork 与组信号并发时，新成员可能漏过首次终止。
+                await asyncio.wait({draining}, timeout=0.01)
+                _kill_group(proc.pid)
+            output, _ = await draining
+            await proc.wait()
+            # 子进程可能已关闭 stdout，EOF 不代表进程组已退出。
+            _kill_group(proc.pid)
+            return output
+
+        cleanup = asyncio.create_task(finish())
+        # 重复取消只改变结果，不能打断回收。
+        while True:
+            try:
+                output = await asyncio.shield(cleanup)
+                break
+            except asyncio.CancelledError:
+                if cleanup.cancelled():
+                    raise
+                cancelled = True
 
     text = annotate_sandbox_denial((output or b"").decode("utf-8", errors="replace"), sandbox)
     if len(text) > max_chars:

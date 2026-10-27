@@ -46,7 +46,7 @@ LSP、插件生态和其他界面根据具体使用需求评估。stdio MCP 已�
 
 当前在单进程中运行一个 Agent loop。后续可能由主 Agent 负责理解需求、拆分与编排任务、汇总和核对结果，子 Agent 负责执行范围明确的子任务；Computer Use 则让 Agent 观察/操作本机 GUI。
 
-2026-10-26 已完成两方向的方向调研与实施规格：[Multi-Agent 与 Computer Use](specs/multi-agent-computer-use.md)；Computer Use 已收窄为先做 [Browser Use](specs/browser-use.md)。推荐顺序为 **G0 权限/预算/trace 基础 → C1 只读 Computer Use → M1 只读子 Agent → C2 受控 GUI 输入 → M2 可写子 Agent → M3 并行/A2A**；第一版不并行写、不做视觉优先的通用桌面控制。
+2026-10-26 已完成两方向的方向调研与实施规格：[Multi-Agent 与 Computer Use](specs/multi-agent-computer-use.md)；Computer Use 已收窄为先做 [Browser Use](specs/browser-use.md)。当前顺序为 **G0 MCP 工具级权限 → B1 浏览器观察 → B2 本地受控浏览器动作 → 再评估 M1 只读子 Agent / 桌面 Computer Use**。2026-10-27 B2 已通过用户 CLI 真实模型与 Ink 本地功能验收：click/type/select、逐次审批、拒绝后保持草稿、零提交均成立；主观使用体验继续记录。当前范围保持本地且不提交，后续扩展按实际需求单独评估。第一版不并行写、不做视觉优先的通用桌面控制。
 
 这是一条架构探索方向，与“关于你”的个人上下文能力分别演进。先根据实际任务确认委派/GUI 操作是否带来收益，再确定通信、执行和任务状态的设计；多 Agent 不预设为 W0–W3 的交付要求。
 

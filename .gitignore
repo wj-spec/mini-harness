@@ -5,6 +5,7 @@ node_modules/
 tui/dist/
 __pycache__/
 .pytest_cache/
+jobs/
 *.pyc
 drafts/*.bak
 

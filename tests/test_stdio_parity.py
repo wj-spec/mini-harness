@@ -193,6 +193,29 @@ def test_scoped_approval_and_permissions_reset(tmp_path, scope):
     asyncio.run(scenario())
 
 
+def test_once_only_tool_menu_rejects_session_without_releasing_gate(tmp_path):
+    async def scenario():
+        called = []
+        agent = make_agent(tmp_path, [Response(tool_calls=[ToolCall("controlled_action", {})]), "done"])
+        agent.tools.register(ToolSpec("controlled_action", "fixture", {}, lambda: called.append(True) or "ok", risk="write"))
+        agent.approval.require_once("controlled_action", lambda call, decision: None)
+        c = Connection(agent, tmp_path)
+        try:
+            c.send("run", "r1", text="fixture")
+            approval = await c.until("approval_request", "r1")
+            assert approval["decisions"] == ["once", "deny"]
+            c.send("approval", "bad", approval_id=approval["approval_id"], decision="session")
+            assert (await c.until("error", "bad"))["code"] == "invalid_request"
+            assert not called
+            c.send("approval", "ok", approval_id=approval["approval_id"], decision="once")
+            await c.until("done", "r1")
+            assert called == [True]
+        finally:
+            await c.close()
+
+    asyncio.run(scenario())
+
+
 def test_server_commands_use_registry_and_persisted_session_cost(tmp_path):
     async def scenario():
         session = SessionStore.new(tmp_path, "fake")
@@ -289,8 +312,10 @@ def test_skill_management_refresh_activation_and_unload_update_model_context(tmp
         c = Connection(agent, tmp_path)
         try:
             c.send("command", "discover", command="skills", args={"action": "refresh"})
-            assert "release: 发布检查" in (await c.until("command_result", "discover"))["text"]
-            assert "release: 发布检查" in agent.system
+            discovered = await c.until("command_result", "discover")
+            assert "release: 发布检查" in discovered["text"]
+            assert any(skill["name"] == "release" for skill in discovered["skills"])
+            assert "release: 发布检查" not in agent.system
             assert "SKILL_BODY_ONLY_WHEN_ACTIVE" not in agent.system
             c.send("command", "activate", command="skills", args={"action": "activate", "name": "release"})
             await c.until("command_result", "activate")
@@ -298,6 +323,7 @@ def test_skill_management_refresh_activation_and_unload_update_model_context(tmp
             c.send("command", "unload", command="skills", args={"action": "unload", "name": "release"})
             await c.until("command_result", "unload")
             assert "SKILL_BODY_ONLY_WHEN_ACTIVE" not in agent.system
+            assert "release: 发布检查" not in agent.system
             assert skill_file.exists() and not agent.provider.seen and not agent.history
         finally:
             await c.close()

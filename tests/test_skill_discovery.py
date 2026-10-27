@@ -4,6 +4,8 @@ from pathlib import Path
 import pytest
 
 from app.skills import SkillManager, discover_skills
+from app.tools import ToolRegistry
+from core.models import ToolCall
 
 
 def put_skill(root: Path, name: str, body: str = "正文") -> Path:
@@ -36,6 +38,69 @@ def test_default_discovery_combines_project_and_local_skill_directories(tmp_path
     assert {skill.name for skill in manager.available} == set(expected)
     assert {skill.name for skill in discover_skills(workspace)} == set(expected)
     assert manager.active == []
+    assert manager.errors == []
+
+
+@pytest.mark.parametrize("scope,relative", [
+    ("project", ".cursor/skills"),
+    ("project", ".gemini/skills"),
+    ("project", ".github/skills"),
+    ("project", ".opencode/skills"),
+    ("project", ".windsurf/skills"),
+    ("project", ".devin/skills"),
+    ("project", ".kiro/skills"),
+    ("project", ".agent/skills"),
+    ("local", ".cursor/skills"),
+    ("local", ".gemini/skills"),
+    ("local", ".copilot/skills"),
+    ("local", ".config/opencode/skills"),
+    ("local", ".codeium/windsurf/skills"),
+    ("local", ".config/devin/skills"),
+    ("local", ".kiro/skills"),
+    ("local", ".gemini/config/skills"),
+    ("local", ".gemini/antigravity-cli/skills"),
+    ("local", ".gemini/antigravity/skills"),
+])
+def test_list_skills_rescans_common_agent_directories(tmp_path, monkeypatch, scope, relative):
+    workspace, home = tmp_path / "project", tmp_path / "home"
+    monkeypatch.setenv("VIBE_SKILLS_HOME", str(home))
+    registry = ToolRegistry(workspace)
+    assert registry.skills == []
+    root = workspace if scope == "project" else home
+    path = put_skill(root / relative, "new-skill", "PRIVATE BODY")
+
+    ok, output = registry.execute(ToolCall("list_skills", {}))
+    assert ok and "new-skill 简介" in output
+    assert str(path) not in output and "PRIVATE BODY" not in output
+    assert registry.skill_manager.active == []
+
+    path.write_text("name: new-skill\ndescription: Updated summary\n\nUPDATED BODY", encoding="utf-8")
+    ok, output = registry.execute(ToolCall("list_skills", {}))
+    assert ok and "Updated summary" in output and "new-skill 简介" not in output
+    path.unlink()
+    ok, output = registry.execute(ToolCall("list_skills", {}))
+    assert ok and "no skills" in output
+    assert registry.skills == []
+
+
+def test_common_agent_roots_preserve_priority_and_symlink_boundaries(tmp_path, monkeypatch):
+    workspace, home = tmp_path / "project", tmp_path / "home"
+    monkeypatch.setenv("VIBE_SKILLS_HOME", str(home))
+    local = put_skill(home / ".config/opencode/skills", "shared", "LOCAL")
+    project = put_skill(workspace / ".cursor/skills", "shared", "PROJECT")
+    aliases = home / ".gemini/skills"
+    aliases.mkdir(parents=True)
+    (aliases / "alias").symlink_to(local.parent, target_is_directory=True)
+    outside = put_skill(home / "documents", "outside")
+    (aliases / "escape").symlink_to(outside.parent, target_is_directory=True)
+
+    manager = SkillManager(workspace)
+    assert [skill.path for skill in manager.available] == [project]
+    assert sum("duplicate skill" in error for error in manager.errors) == 1
+    assert any("escapes source root" in error for error in manager.errors)
+    configure(workspace, discover=False, paths=[str(local.parent)])
+    manager.refresh()
+    assert [skill.path for skill in manager.available] == [local]
     assert manager.errors == []
 
 
