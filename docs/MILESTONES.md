@@ -374,6 +374,8 @@ Ink 两轮实际日志补充：`.vibe/browser/ink-smoke/309dc558d44d/report.json
 
 **Seatbelt 代理连接修复（2026-10-27）**：根因是代理启动后仅替换内存中的 `proxy_port`，实际执行仍使用先前生成的全断网策略。现在端口确定后重新构建沙箱配置，策略文件按代理端口区分，避免同一工作区的两个会话相互覆盖；生成策略失败时关闭已启动的代理并保留错误。同步/异步代理连接、其他本地端口与外网直连拒绝、同工作区代理隔离、启动失败清理均有回归；旧行为先红，修复后沙箱相关 **28 项：27 通过、1 条件跳过**，完整 Python **1014 项：1010 通过、4 条件跳过、0 失败**（`.vibe/seatbelt-debug/targeted.xml`、`full.xml`）。同一代理换策略的根因对照见 `profile-probe.log`，失败证据见 `red.log`、`profile-binding-red.log`。全量跳过项为三项 opt-in 浏览器 smoke 与当前环境不适用的“沙箱不可用”测试；本片未重跑外部真实模型或浏览器人工验收。命令取消与 Seatbelt 两项已知回归失败均已消除。
 
+**B2 浏览器基线固化（2026-10-28）**：新增 [B2 浏览器基线](baselines/b2-browser.md) 与离线自检 `scripts/browser_baseline_check.py`：固定 `@playwright/mcp@0.0.83`、Chromium `chromium-1247`、Node ≥22、`fastmcp==4.1.1` 与四个验收入口；检查两项 MCP 配置无 `@latest`、本地浏览器缓存、依赖固定与入口文件，`--json` 输出机器可读结果，`--allow-missing-chromium` 仅查版本与入口。基线登记时 Python 全量 1072 项退出 0、Ink 337 项 336 通过（唯一失败为既有沙箱无 PTY 环境项），B2 真实模型 + Ink 两段验收证据仍保留在 `.vibe/browser/acceptance/`。自检回归 `tests/test_browser_baseline.py` 4 项。升级或扩范围时按文档流程重建基线。
+
 ## 当前下一步
 
 W1–W5 已完成真实验收；W6 v2 三组对照完成，主假设未获支持。2026-10-26 用户决定停止 P0 扩张、不进入 P5，保留显式偏好管理能力；后续只有新证据/新评估方法才重新评估个性化。接下来：

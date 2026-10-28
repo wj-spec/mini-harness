@@ -2,6 +2,8 @@
 
 日期：2026-10-27。状态：G0 MCP 工具级权限已实现；B1 只读观察已完成真实 Playwright MCP smoke；B2 本地受控动作已通过用户 CLI 真实模型与 Ink 两段功能验收，证据见 3.7；主观可读性与审批负担继续收集反馈。本文把 Computer Use 缩小到**浏览器**，不碰桌面 AX/视觉/系统级 GUI。
 
+> 可恢复基线与离线自检见 [B2 浏览器基线](../baselines/b2-browser.md)（2026-10-28）。
+
 ## 0. 结论
 
 **先做 Browser Use，暂缓桌面 Computer Use。**
