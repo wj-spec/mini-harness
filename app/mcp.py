@@ -331,6 +331,7 @@ class McpManager:
                 f"\nallowed origins: {', '.join(server.allowed_origins) or '(unrestricted)'}"
                 f"\ncontrolled browser actions: {server.browser_actions}"
                 "\n\n[risk] exec — 启动外部服务，需要审批；工具调用另行审批。"
+                "\n[审批层] T2 本地执行"
             )
             if approval is None or not (await approval.request(call, preview, self.root)).allowed:
                 self.errors.append(f"{name}: startup denied (approval_required)")

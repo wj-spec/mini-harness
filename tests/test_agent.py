@@ -987,3 +987,27 @@ def test_qa_tasks_do_not_require_artifact_progress(tmp_path):
 
     assert result.status == "done"
     assert not any("No real progress" in message.content for message in provider.seen[2])
+
+
+def test_approval_tiers_are_visible_and_scoped(tmp_path):
+    captured = []
+
+    async def handler(call, preview):
+        captured.append((call.name, preview))
+        return ApprovalDecision(True, "once")
+
+    (tmp_path / "a.txt").write_text("x\n")
+    provider = FakeProvider([
+        Response(tool_calls=[ToolCall("write_file", {"path": "a.txt", "content": "y\n"}, id="c1")]),
+        "done",
+    ])
+    agent = Agent(provider, ToolRegistry(tmp_path), approval=ApprovalGate(handler))
+    result = run(agent.run("写文件"))
+    assert result.status == "done"
+    assert captured and "[审批层] T1 工作区写入" in captured[0][1]
+    decisions = agent.approval.decisions_for(
+        ToolCall("write_file", {"path": "a.txt", "content": "z\n"}))
+    assert decisions == ["once", "session", "workspace", "deny"]
+    network = agent.approval.decisions_for(ToolCall("web_search", {"query": "x"}))
+    assert network == ["once", "session", "deny"]
+

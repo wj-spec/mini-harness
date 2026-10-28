@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Awaitable, Callable
 
+from app import permissions
 from core.models import ToolCall
 
 
@@ -36,15 +37,25 @@ class ApprovalGate:
         self.workspace_allowed: set[str] = set()
         self.once_only: set[str] = set()
         self._auditors: dict[str, Callable[[ToolCall, str], None]] = {}
+        # 由 Agent 注入：把工具 risk 映射成审批层级；缺失时退回旧的名字集合行为。
+        self.tier_resolver: Callable[[ToolCall], str] | None = None
 
     def require_once(self, name: str, audit: Callable[[ToolCall, str], None]) -> None:
         self.once_only.add(name)
         self._auditors[name] = audit
 
+    def _tier(self, call: ToolCall) -> str | None:
+        if self.tier_resolver is None:
+            return None
+        return permissions.tier_for(self.tier_resolver(call))
+
     def decisions_for(self, call: ToolCall) -> list[str]:
         if call.name in self.once_only:
             return ["once", "deny"]
-        return ["once", "session", *(["workspace"] if call.name in self.WORKSPACE_TOOLS else []), "deny"]
+        tier = self._tier(call)
+        if tier is None:
+            return ["once", "session", *(["workspace"] if call.name in self.WORKSPACE_TOOLS else []), "deny"]
+        return permissions.scopes_for(tier, workspace_eligible=call.name in self.WORKSPACE_TOOLS)
 
     @staticmethod
     def _workspace(workspace: str | Path | None) -> str | None:
@@ -87,7 +98,13 @@ class ApprovalGate:
         self, call: ToolCall, preview: str, workspace: str | Path | None = None,
     ) -> ApprovalDecision:
         root = self._workspace(workspace)
-        workspace_scope = root is not None and call.name in self.WORKSPACE_TOOLS
+        tier = self._tier(call)
+        workspace_eligible = call.name in self.WORKSPACE_TOOLS
+        workspace_scope = (
+            root is not None and workspace_eligible
+            and (tier is None or permissions.scope_allowed(
+                tier, "workspace", workspace_eligible=workspace_eligible))
+        )
         if workspace_scope and root in self.workspace_allowed:
             self._audit(call, "workspace_allow", preview, root)
             return ApprovalDecision(True, "workspace")
@@ -115,9 +132,14 @@ class ApprovalGate:
                     return ApprovalDecision(False, "deny")
                 self.workspace_allowed.add(root)
             elif decision.scope == "session":
+                if tier is not None and not permissions.scope_allowed(
+                        tier, "session", workspace_eligible=workspace_eligible):
+                    self._audit(call, "deny_scope_not_allowed", preview, root)
+                    return ApprovalDecision(False, "deny")
                 self.session_allowed.add(key)
             elif decision.scope != "once":
-                decision = ApprovalDecision(False, "deny")
+                self._audit(call, "deny_scope_not_allowed", preview, root)
+                return ApprovalDecision(False, "deny")
         self._audit(call, decision.scope if decision.allowed else "deny", preview, root)
         return decision
 

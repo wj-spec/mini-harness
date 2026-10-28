@@ -14,6 +14,7 @@ from typing import Callable
 from core.models import ExecutionOutcome, Message, ToolCall
 from core.progress import ArtifactProgress, ProgressMonitor
 
+from app import permissions
 from app.events import ReasoningDelta, StreamDone, StreamError, TextDelta, ToolCallsReady
 from app.policy import ApprovalGate
 from app.skill_history import skill_history_view
@@ -245,6 +246,8 @@ class Agent:
         self.tools_enabled = tools_enabled
         self.state = state
         self.approval = approval
+        if approval is not None and hasattr(approval, "tier_resolver"):
+            approval.tier_resolver = self._tool_tier
         self.project_instructions = project_instructions
         self.project_background = list(project_background or [])
         self.user_background = list(user_background or [])
@@ -457,6 +460,12 @@ class Agent:
     def _adopt_history(self, history: list[Message] | None) -> list[Message]:
         """恢复历史时补齐工具调用配对：每个 tool_call 都要有结果或未执行说明。"""
         return ensure_tool_pairing(skill_history_view(list(history or [])))
+
+    def _tool_tier(self, call: ToolCall) -> str:
+        """审批层级：MCP 启动按本地执行层，其余按工具声明风险。"""
+        if call.name == "mcp_start":
+            return "exec"
+        return self.tools.risk(call.name)
 
     def steer(self, text: str) -> bool:
         """把运行中用户的纠偏排入当前 run；没有运行中的任务时返回 False。"""
@@ -1056,6 +1065,7 @@ class Agent:
                 else:
                     try:
                         preview = self.tools.preview(call)
+                        preview += f"\n\n[审批层] {permissions.label(self._tool_tier(call))}"
                     except Exception as exc:
                         ok, output = False, f"ERROR {type(exc).__name__}: {exc}"
                     else:

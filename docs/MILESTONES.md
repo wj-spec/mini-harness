@@ -376,6 +376,8 @@ Ink 两轮实际日志补充：`.vibe/browser/ink-smoke/309dc558d44d/report.json
 
 **B2 浏览器基线固化（2026-10-28）**：新增 [B2 浏览器基线](baselines/b2-browser.md) 与离线自检 `scripts/browser_baseline_check.py`：固定 `@playwright/mcp@0.0.83`、Chromium `chromium-1247`、Node ≥22、`fastmcp==4.1.1` 与四个验收入口；检查两项 MCP 配置无 `@latest`、本地浏览器缓存、依赖固定与入口文件，`--json` 输出机器可读结果，`--allow-missing-chromium` 仅查版本与入口。基线登记时 Python 全量 1072 项退出 0、Ink 337 项 336 通过（唯一失败为既有沙箱无 PTY 环境项），B2 真实模型 + Ink 两段验收证据仍保留在 `.vibe/browser/acceptance/`。自检回归 `tests/test_browser_baseline.py` 4 项。升级或扩范围时按文档流程重建基线。
 
+**审批层级与作用域（2026-10-28）**：按用户"做好层级设置"的要求，把散落的审批判断收敛为显式模型，见 [审批层级](specs/approval-tiers.md)。新增 `app/permissions.py`：T0 只读 / T1 工作区写入 / T2 本地执行 / T3 外部网络 / T4 远端页面动作，作用域矩阵（T1/T2 可 once/session/workspace，T3 仅 once/session，T4 仅 once）为唯一事实来源；未知 risk 按 T2 fail closed。`ApprovalGate` 新增 `tier_resolver`（Agent 注入，`mcp_start` 固定 T2），`decisions_for` 与 `request` 均按矩阵校验，非法作用域直接拒绝并审计 `deny_scope_not_allowed`；审批预览追加 `[审批层] Tn 名称`，MCP 启动预览同步。现有工具行为保持兼容（write_file/edit_file/bash 仍可 workspace，web_search 仍仅 once/session，浏览器动作仍 once/deny）。回归新增 `tests/test_permissions.py` 8 项与 Agent 层级可见性用例；Python 全量 `./run_tests.sh -q` 退出 0。后续待做：destructive 层、浏览器会话级授权、规则持久化、审批可视化与统计（见规格第 6 节）。
+
 ## 当前下一步
 
 W1–W5 已完成真实验收；W6 v2 三组对照完成，主假设未获支持。2026-10-26 用户决定停止 P0 扩张、不进入 P5，保留显式偏好管理能力；后续只有新证据/新评估方法才重新评估个性化。接下来：
