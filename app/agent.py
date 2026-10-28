@@ -3,18 +3,21 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import time
 import re
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
 from itertools import count
+from pathlib import Path
 from typing import Callable
 
 from core.models import ExecutionOutcome, Message, ToolCall
 from core.progress import ArtifactProgress, ProgressMonitor
 
 from app import permissions
+from app.permission_policy import PermissionPolicy, PolicyError
 from app.events import ReasoningDelta, StreamDone, StreamError, TextDelta, ToolCallsReady
 from app.policy import ApprovalGate
 from app.skill_history import skill_history_view
@@ -248,6 +251,9 @@ class Agent:
         self.approval = approval
         if approval is not None and hasattr(approval, "tier_resolver"):
             approval.tier_resolver = self._tool_tier
+        self.permission_policy = PermissionPolicy()
+        self.permission_error: str | None = None
+        self._reload_permission_policy()
         self.project_instructions = project_instructions
         self.project_background = list(project_background or [])
         self.user_background = list(user_background or [])
@@ -462,10 +468,28 @@ class Agent:
         return ensure_tool_pairing(skill_history_view(list(history or [])))
 
     def _tool_tier(self, call: ToolCall) -> str:
-        """审批层级：MCP 启动按本地执行层，其余按工具声明风险。"""
-        if call.name == "mcp_start":
-            return "exec"
-        return self.tools.risk(call.name)
+        """审批层级：MCP 启动按本地执行层，其余按工具声明风险，可被用户策略覆盖。"""
+        default = "exec" if call.name == "mcp_start" else self.tools.risk(call.name)
+        return self.permission_policy.tier_for(call, default)
+
+    def _permissions_paths(self) -> tuple[Path | None, Path | None]:
+        project = self.tools.root / ".vibe" / "permissions.json"
+        raw = os.environ.get("VIBE_PERMISSIONS")
+        if raw is not None and raw.strip() == "":
+            return project, None
+        user = Path(raw) if raw else Path.home() / ".vibe" / "permissions.json"
+        return project, user
+
+    def _reload_permission_policy(self) -> None:
+        """每次 run 重新加载；非法策略保留上一份并记录错误。"""
+        project, user = self._permissions_paths()
+        try:
+            self.permission_policy = PermissionPolicy.from_files(project, user)
+            self.permission_error = None
+        except PolicyError as exc:
+            self.permission_error = str(exc)
+        if self.approval is not None:
+            self.approval.policy = self.permission_policy
 
     def steer(self, text: str) -> bool:
         """把运行中用户的纠偏排入当前 run；没有运行中的任务时返回 False。"""
@@ -517,6 +541,7 @@ class Agent:
         cancel: asyncio.Event | None = None,
     ) -> AgentResult:
         """准备一次 run 的共享状态，然后交给 _loop 逐步执行。"""
+        self._reload_permission_policy()
         if self.tools_enabled:
             try:
                 self.tools.skill_manager.refresh()
@@ -545,6 +570,8 @@ class Agent:
             model=getattr(self.provider, "model", ""),
         )
         recorder.start(task)
+        if self.permission_error:
+            recorder.event("permission_policy_error", error=self.permission_error)
         run = _RunContext(
             cancel=cancel,
             on_text=on_text,

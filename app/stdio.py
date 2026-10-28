@@ -236,6 +236,14 @@ class _Connection:
                 text = ("已撤销当前工作区的本进程授权。\n" if command.endswith("reset") else "")
                 text += (f"workspace 授权：{'已开启' if rules['workspace_allowed'] else '未开启'}；"
                          f"session 精确规则：{rules['session_rules']} 条。重启后重新审批。")
+                policy = getattr(self.agent, "permission_policy", None)
+                if policy is not None:
+                    summary = policy.summary()
+                    text += (f"\n策略规则：user {summary['user_rules']} 条，"
+                             f"project {summary['project_rules']} 条（project 只能收紧）。")
+                error = getattr(self.agent, "permission_error", None)
+                if error:
+                    text += f"\n策略错误（保留上一份）：{error}"
             elif command == "cost":
                 summary = self.session.cost_summary()
                 text = (f"session {self.session.id} · runs {summary['runs']} · "

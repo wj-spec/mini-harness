@@ -67,6 +67,20 @@ npm --prefix tui test
 | 查看技能 | `/skills`（或 `/skill`）打开技能菜单：`↑↓` 滚动、`Tab` 补全、`Enter` 执行；不调用模型 |
 | 目标模式 | `/goal <目标>` 启动长任务，资源暂停时自动开新段；`/goal stop` 停止，`/goal resume` 恢复 |
 
+审批层级：T0 只读免审批；T1 工作区写入、T2 本地执行可授予 once/session/workspace；T3 外部网络只有 once/session；T4 浏览器远端动作固定逐次确认。审批预览会标注层级（如 `[审批层] T1 工作区写入`）。
+
+用户可用策略覆盖默认审批：`~/.vibe/permissions.json`（`VIBE_PERMISSIONS` 可覆盖路径；设为空串禁用），项目级 `.vibe/permissions.json` 只能收紧不能放宽。示例：
+
+```json
+{"version": 1, "rules": [
+  {"tool": "bash", "command_prefix": ["pytest", "npm test"], "decision": "allow"},
+  {"tool": "bash", "command_prefix": "rm -rf", "decision": "once"},
+  {"tool": "web_search", "scopes": ["once"]}
+]}
+```
+
+规则支持 `tool`（glob）、`decision`（allow/deny/once）、`scopes`、`tier`、`command_prefix`、仅用户级的 `command_regex`；每次 run 重载，非法文件保留上一份并在 `/permissions` 显示错误。评测/基准请设 `VIBE_PERMISSIONS=""` 保持可比。详见 [用户可覆盖的审批策略](specs/permission-policy.md)。
+
 运行中输入框保持可用：`Enter` 提交纠偏，`/followup <内容>` 排队后续消息；阅读、审批和工具详情聚焦时暂停编辑，滚动不会改写草稿。对话区支持鼠标拖选：按住左键拖动看高亮，松开即复制所选文本，`Esc` 取消；要整段复制用 `Ctrl+Y` / `/copy`。没有鼠标事件的终端可以用上述键盘操作。工具结果默认摘要，全文在详情页查看；原始消息和结果仍保存在 `.vibe/sessions/`。取消后需核对已发生的副作用。
 
 状态与消息按块展示：等待模型、回复、调用工具、审批、暂停和错误分别标注；宽屏右侧显示当前任务、工具记录和真实预算，窄屏使用紧凑状态条。命令失败、超时、取消、未知结果显示实际状态，长工具名不会遮住结果。界面与验证见 [历史阅读与状态分区](specs/ink-reading-state.md)。

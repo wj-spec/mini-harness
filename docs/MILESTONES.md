@@ -378,6 +378,8 @@ Ink 两轮实际日志补充：`.vibe/browser/ink-smoke/309dc558d44d/report.json
 
 **审批层级与作用域（2026-10-28）**：按用户"做好层级设置"的要求，把散落的审批判断收敛为显式模型，见 [审批层级](specs/approval-tiers.md)。新增 `app/permissions.py`：T0 只读 / T1 工作区写入 / T2 本地执行 / T3 外部网络 / T4 远端页面动作，作用域矩阵（T1/T2 可 once/session/workspace，T3 仅 once/session，T4 仅 once）为唯一事实来源；未知 risk 按 T2 fail closed。`ApprovalGate` 新增 `tier_resolver`（Agent 注入，`mcp_start` 固定 T2），`decisions_for` 与 `request` 均按矩阵校验，非法作用域直接拒绝并审计 `deny_scope_not_allowed`；审批预览追加 `[审批层] Tn 名称`，MCP 启动预览同步。现有工具行为保持兼容（write_file/edit_file/bash 仍可 workspace，web_search 仍仅 once/session，浏览器动作仍 once/deny）。回归新增 `tests/test_permissions.py` 8 项与 Agent 层级可见性用例；Python 全量 `./run_tests.sh -q` 退出 0。后续待做：destructive 层、浏览器会话级授权、规则持久化、审批可视化与统计（见规格第 6 节）。
 
+**用户可覆盖的审批策略（2026-10-28）**：按用户"用设置覆盖层级"的要求，在层级/作用域矩阵之上新增策略覆盖层，见 [用户可覆盖的审批策略](specs/permission-policy.md)。用户级 `~/.vibe/permissions.json`（`VIBE_PERMISSIONS` 可覆盖；空串禁用）可 `allow`/`deny`/`once`、限定 `scopes`、覆盖 `tier`，bash 支持命令前缀与用户级正则；项目级 `.vibe/permissions.json` **只能收紧**（禁止 `allow` 与正则），避免仓库自带自我授权。优先级：硬边界（黑名单/护栏/沙箱）> 项目规则 > 用户规则 > 默认矩阵 > 审批处理器；`allow` 对 T4 远端动作无效（`deny_policy_floor`），审计新增 `policy_allow`/`deny_policy`/`deny_policy_once`/`deny_policy_scope`。每次 run 重载，非法文件保留上一份并记录 `permission_policy_error`；`/permissions` 显示 user/project 规则数与错误。评测/基准建议 `VIBE_PERMISSIONS=""` 保持可比。回归 `tests/test_permission_policy.py` 9 项；Python 全量 `./run_tests.sh -q` 退出 0（浏览器 worker 用例一次 flaky，单测复跑通过）。后续：TUI 逐条规则可视化与撤销、审批统计、destructive 层与沙箱下自动批准开关。
+
 ## 当前下一步
 
 W1–W5 已完成真实验收；W6 v2 三组对照完成，主假设未获支持。2026-10-26 用户决定停止 P0 扩张、不进入 P5，保留显式偏好管理能力；后续只有新证据/新评估方法才重新评估个性化。接下来：
