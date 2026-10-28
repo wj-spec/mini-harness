@@ -24,7 +24,7 @@
 | 层级 | once | session（精确调用） | workspace（整个工具） | 说明 |
 |---|---|---|---|---|
 | T0 | — | — | — | 免审批 |
-| T1 | ✅ | ✅ | ✅（仅写文件类） | apply_patch 暂不提供 workspace |
+| T1 | ✅ | ✅ | ✅（write_file/edit_file/apply_patch） | — |
 | T2 | ✅ | ✅ | ✅（仅 bash） | MCP 启动当前可 session 记住精确命令 |
 | T3 | ✅ | ✅ | ❌ | 不允许"整个网络工具工作区放行" |
 | T4 | ✅ | ❌ | ❌ | 快照绑定，逐次确认 |

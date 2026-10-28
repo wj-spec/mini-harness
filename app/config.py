@@ -55,6 +55,7 @@ class Config:
     sandbox: bool = False
     sandbox_network: bool = False
     sandbox_network_allow: str = ""
+    autonomy: str = ""
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -112,6 +113,7 @@ class Config:
             sandbox=os.getenv("VIBE_SANDBOX", "0").lower() in {"1", "true", "yes"},
             sandbox_network=os.getenv("VIBE_SANDBOX_NETWORK", "0").lower() in {"1", "true", "yes"},
             sandbox_network_allow=os.getenv("VIBE_SANDBOX_NETWORK_ALLOW", ""),
+            autonomy=os.getenv("VIBE_AUTONOMY", ""),
         )
 
     def label(self) -> str:

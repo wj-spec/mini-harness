@@ -380,6 +380,8 @@ Ink 两轮实际日志补充：`.vibe/browser/ink-smoke/309dc558d44d/report.json
 
 **用户可覆盖的审批策略（2026-10-28）**：按用户"用设置覆盖层级"的要求，在层级/作用域矩阵之上新增策略覆盖层，见 [用户可覆盖的审批策略](specs/permission-policy.md)。用户级 `~/.vibe/permissions.json`（`VIBE_PERMISSIONS` 可覆盖；空串禁用）可 `allow`/`deny`/`once`、限定 `scopes`、覆盖 `tier`，bash 支持命令前缀与用户级正则；项目级 `.vibe/permissions.json` **只能收紧**（禁止 `allow` 与正则），避免仓库自带自我授权。优先级：硬边界（黑名单/护栏/沙箱）> 项目规则 > 用户规则 > 默认矩阵 > 审批处理器；`allow` 对 T4 远端动作无效（`deny_policy_floor`），审计新增 `policy_allow`/`deny_policy`/`deny_policy_once`/`deny_policy_scope`。每次 run 重载，非法文件保留上一份并记录 `permission_policy_error`；`/permissions` 显示 user/project 规则数与错误。评测/基准建议 `VIBE_PERMISSIONS=""` 保持可比。回归 `tests/test_permission_policy.py` 9 项；Python 全量 `./run_tests.sh -q` 退出 0（浏览器 worker 用例一次 flaky，单测复跑通过）。后续：TUI 逐条规则可视化与撤销、审批统计、destructive 层与沙箱下自动批准开关。
 
+**整体授权档位（2026-10-28）**：在工具层级/作用域与用户策略之外，新增用户可选的**整体授权档位** `ask`（每次询问，默认）/ `edits`（工作区文件修改自动）/ `workspace`（工作区写入+执行自动）/ `full`（再加网络与 MCP；浏览器动作仍逐次），解决"授权后仍不断审批"的体验问题。来源优先级：CLI `--autonomy` > `VIBE_AUTONOMY` > 用户策略 `autonomy` > 默认；项目策略只提供**更严上限**，有效档位取两者中更严者。档位只是自动放行：T4 永不自动、策略 `deny`/`once` 优先、黑名单/护栏/沙箱始终优先；审计记为 `autonomy_allow_<level>`。`/permissions` 显示当前档位。回归：`tests/test_permission_policy.py` 新增授权矩阵、项目上限、Gate 各档位自动/询问、策略优先与 Agent 环境/重载；该文件 21 项通过，全量 Python 退出 0。规格见 [permission-policy](specs/permission-policy.md) 第 5 节，用法见 USAGE。
+
 ## 当前下一步
 
 W1–W5 已完成真实验收；W6 v2 三组对照完成，主假设未获支持。2026-10-26 用户决定停止 P0 扩张、不进入 P5，保留显式偏好管理能力；后续只有新证据/新评估方法才重新评估个性化。接下来：

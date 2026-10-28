@@ -47,7 +47,7 @@ def test_decisions_reflect_tiers(tmp_path):
     assert gate.decisions_for(ToolCall("web_search", {"query": "x"})) == [
         "once", "session", "deny"]
     assert gate.decisions_for(ToolCall("apply_patch", {"patch": "x"})) == [
-        "once", "session", "deny"]
+        "once", "session", "workspace", "deny"]
     assert gate.decisions_for(ToolCall("bash", {"command": "true"})) == [
         "once", "session", "workspace", "deny"]
     assert gate.decisions_for(ToolCall("write_file", {"path": "a", "content": "b"})) == [

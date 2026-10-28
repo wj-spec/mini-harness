@@ -53,3 +53,33 @@ def scope_allowed(tier: str, scope: str, *, workspace_eligible: bool = False) ->
     if scope == "deny" or scope == "once":
         return True
     return scope in TIER_SCOPES.get(tier, ()) and (scope != "workspace" or workspace_eligible)
+
+
+AUTONOMY_LEVELS = ("ask", "edits", "workspace", "full")
+AUTONOMY_RANK = {level: index for index, level in enumerate(AUTONOMY_LEVELS)}
+AUTONOMY_LABELS = {
+    "ask": "每次询问",
+    "edits": "自动改文件（工作区）",
+    "workspace": "工作区自动（写入+执行）",
+    "full": "完全执行（写入+执行+网络）",
+}
+
+
+def strictest_autonomy(*levels: str | None) -> str:
+    """取最严格档位；None/未知值不参与（未设置不等于 ask）。"""
+    ranks = [AUTONOMY_RANK[level] for level in levels if level in AUTONOMY_RANK]
+    return AUTONOMY_LEVELS[min(ranks)] if ranks else "ask"
+
+
+def autonomy_allows(level: str, tier: str, *, workspace_eligible: bool = False) -> bool:
+    """档位能否自动放行该层级；T0 免审批、T4 永不自动。"""
+    rank = AUTONOMY_RANK.get(level or "ask", 0)
+    if rank == 0 or tier in {"read", "remote_action"}:
+        return False
+    if tier == "write":
+        return workspace_eligible if rank < 3 else True
+    if tier == "exec":
+        return workspace_eligible and rank >= 2 or rank >= 3
+    if tier == "network":
+        return rank >= 3
+    return False

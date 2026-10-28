@@ -67,6 +67,22 @@
 
 审计新增：`policy_allow`、`deny_policy`、`deny_policy_once`、`deny_policy_scope`、`deny_policy_floor`，与 `denied_by_user`/`sandbox_denied` 等可区分。
 
+## 5. 授权档位（autonomy）
+
+工具级细分之外，再提供一层**整体授权档位**，决定 Agent 默认能自动执行到哪一步：
+
+| 档位 | 自动放行 | 仍需审批 |
+|---|---|---|
+| `ask` | 无（默认） | 所有 T1–T4 |
+| `edits` | 工作区内 T1 文件修改（write_file/edit_file/apply_patch） | 执行、网络、MCP、浏览器 |
+| `workspace` | 工作区内 T1+T2（写入与执行） | 网络、MCP 工具、浏览器 |
+| `full` | T1–T3（含网络与 MCP 启动/工具），不限工作区 | 浏览器 T4 仍逐次；硬边界始终生效 |
+
+- 来源优先级：CLI `--autonomy` > 环境变量 `VIBE_AUTONOMY` > 用户策略文件 `"autonomy"` 字段 > 默认 `ask`；**项目级只提供上限**（`"autonomy"` 只能更严），有效档位取"所选档位与项目上限中更严的一个"。
+- 档位是"自动放行"，不是"取消层级"：T0 照常免审批，T4 永不自动；策略里的 `deny`/`once` 优先于档位；黑名单、写路径护栏、沙箱始终优先。
+- 审计：自动放行记为 `autonomy_allow_<level>`；`/permissions` 显示当前档位（含用户/项目规则数）。
+- 与工具细分的关系：档位按**层级**放行（T1/T2/T3），不按工具名；单个工具仍可用策略 `deny/once/scopes` 收紧。
+
 ## 5. 与评测/基准的隔离
 
 评测与基准应显式设置 `VIBE_PERMISSIONS=""`，避免开发机的个人策略改变模型可执行范围，影响结果可比性。

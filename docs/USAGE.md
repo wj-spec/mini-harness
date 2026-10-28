@@ -69,6 +69,8 @@ npm --prefix tui test
 
 审批层级：T0 只读免审批；T1 工作区写入、T2 本地执行可授予 once/session/workspace；T3 外部网络只有 once/session；T4 浏览器远端动作固定逐次确认。审批预览会标注层级（如 `[审批层] T1 工作区写入`）。
 
+整体授权档位：`--autonomy ask|edits|workspace|full`（或 `VIBE_AUTONOMY`，也可写进用户策略文件的 `"autonomy"`）。`edits` 只自动放行工作区文件修改；`workspace` 再放行工作区命令；`full` 再放行网络与 MCP（浏览器动作仍逐次）；项目级策略只能把档位调得更严。`/permissions` 显示当前档位。
+
 用户可用策略覆盖默认审批：`~/.vibe/permissions.json`（`VIBE_PERMISSIONS` 可覆盖路径；设为空串禁用），项目级 `.vibe/permissions.json` 只能收紧不能放宽。示例：
 
 ```json

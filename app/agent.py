@@ -238,6 +238,7 @@ class Agent:
         require_tool_use: bool = False,
         project_background: list[ProjectBackgroundEntry] | None = None,
         user_background: list[UserPreference] | None = None,
+        autonomy: str | None = None,
     ):
         if require_tool_use and not tools_enabled:
             raise ValueError("require_tool_use requires tools_enabled=True")
@@ -253,6 +254,8 @@ class Agent:
             approval.tier_resolver = self._tool_tier
         self.permission_policy = PermissionPolicy()
         self.permission_error: str | None = None
+        self.autonomy = "ask"
+        self._cli_autonomy = autonomy or os.environ.get("VIBE_AUTONOMY") or None
         self._reload_permission_policy()
         self.project_instructions = project_instructions
         self.project_background = list(project_background or [])
@@ -486,10 +489,12 @@ class Agent:
         try:
             self.permission_policy = PermissionPolicy.from_files(project, user)
             self.permission_error = None
+            self.autonomy = self.permission_policy.effective_autonomy(self._cli_autonomy)
         except PolicyError as exc:
             self.permission_error = str(exc)
         if self.approval is not None:
             self.approval.policy = self.permission_policy
+            self.approval.autonomy = self.autonomy
 
     def steer(self, text: str) -> bool:
         """把运行中用户的纠偏排入当前 run；没有运行中的任务时返回 False。"""

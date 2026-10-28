@@ -113,6 +113,15 @@ def _parse_rule(source: str, raw: dict, index: int) -> Rule:
                 command_regex=command_regex, note=(note or "").strip())
 
 
+def _parse_autonomy(source: str, raw) -> str | None:
+    level = raw.get("autonomy") if isinstance(raw, dict) else None
+    if level is None:
+        return None
+    if level not in permissions.AUTONOMY_LEVELS:
+        raise PolicyError(f"{source} autonomy 必须是 {list(permissions.AUTONOMY_LEVELS)}")
+    return level
+
+
 def _parse_document(source: str, raw) -> list[Rule]:
     if not isinstance(raw, dict):
         raise PolicyError(f"{source} 策略必须是 JSON 对象")
@@ -122,21 +131,29 @@ def _parse_document(source: str, raw) -> list[Rule]:
     rules = raw.get("rules", [])
     if not isinstance(rules, list):
         raise PolicyError(f"{source} rules 必须是数组")
-    unknown = set(raw) - {"version", "rules"}
+    unknown = set(raw) - {"version", "rules", "autonomy"}
     if unknown:
         raise PolicyError(f"{source} 含未知字段 {sorted(unknown)}")
     return [_parse_rule(source, item, index) for index, item in enumerate(rules)]
 
 
 class PermissionPolicy:
-    """有序规则集：project 规则优先，未命中才看 user 规则。"""
+    """有序规则集：project 规则优先，未命中才看 user 规则。
 
-    def __init__(self, rules: tuple[Rule, ...] = ()):
+    autonomy 是用户选择的默认授权档位；autonomy_cap 是项目级上限（只能更严）。
+    """
+
+    def __init__(self, rules: tuple[Rule, ...] = (), *, autonomy: str = "ask",
+                 autonomy_cap: str | None = None):
         self.rules = tuple(rules)
+        self.autonomy = autonomy
+        self.autonomy_cap = autonomy_cap
 
     @classmethod
     def from_files(cls, project: Path | None, user: Path | None) -> "PermissionPolicy":
         rules: list[Rule] = []
+        autonomy = "ask"
+        autonomy_cap: str | None = None
         for source, path in (("project", project), ("user", user)):
             if path is None or not Path(path).is_file():
                 continue
@@ -144,8 +161,18 @@ class PermissionPolicy:
                 raw = json.loads(Path(path).read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError) as exc:
                 raise PolicyError(f"{source} 策略读取失败 {path}: {exc}") from None
+            level = _parse_autonomy(source, raw)
+            if level is not None:
+                if source == "user":
+                    autonomy = level
+                else:
+                    autonomy_cap = level
             rules.extend(_parse_document(source, raw))
-        return cls(tuple(rules))
+        return cls(tuple(rules), autonomy=autonomy, autonomy_cap=autonomy_cap)
+
+    def effective_autonomy(self, override: str | None = None) -> str:
+        chosen = override or self.autonomy or "ask"
+        return permissions.strictest_autonomy(chosen, self.autonomy_cap)
 
     def evaluate(self, call, *, tier: str) -> PolicyOutcome:
         command = str(call.args.get("command", "")) if call.name == "bash" else ""
@@ -170,4 +197,6 @@ class PermissionPolicy:
         return {
             "user_rules": sum(1 for rule in self.rules if rule.source == "user"),
             "project_rules": sum(1 for rule in self.rules if rule.source == "project"),
+            "autonomy": self.autonomy,
+            "autonomy_cap": self.autonomy_cap,
         }

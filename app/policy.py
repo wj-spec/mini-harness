@@ -24,7 +24,7 @@ ApprovalHandler = Callable[[ToolCall, str], Awaitable[ApprovalDecision]]
 class ApprovalGate:
     """写工具的审批闸；默认 fail closed。"""
 
-    WORKSPACE_TOOLS = frozenset({"write_file", "edit_file", "bash"})
+    WORKSPACE_TOOLS = frozenset({"write_file", "edit_file", "apply_patch", "bash"})
 
     def __init__(
         self,
@@ -39,8 +39,9 @@ class ApprovalGate:
         self._auditors: dict[str, Callable[[ToolCall, str], None]] = {}
         # 由 Agent 注入：把工具 risk 映射成审批层级；缺失时退回旧的名字集合行为。
         self.tier_resolver: Callable[[ToolCall], str] | None = None
-        # 由 Agent 注入：用户/项目策略覆盖（可为空）。
+        # 由 Agent 注入：用户/项目策略覆盖（可为空）与整体授权档位。
         self.policy = None
+        self.autonomy = "ask"
 
     def require_once(self, name: str, audit: Callable[[ToolCall, str], None]) -> None:
         self.once_only.add(name)
@@ -131,6 +132,11 @@ class ApprovalGate:
                 self._audit(call, "policy_allow", preview, root)
                 return ApprovalDecision(True, "policy")
         workspace_eligible = call.name in self.WORKSPACE_TOOLS
+        if (outcome is None or outcome.decision is None) and tier is not None:
+            if permissions.autonomy_allows(self.autonomy, tier,
+                                           workspace_eligible=workspace_eligible):
+                self._audit(call, f"autonomy_allow_{self.autonomy}", preview, root)
+                return ApprovalDecision(True, "autonomy")
         workspace_scope = (
             root is not None and workspace_eligible and not force_once
             and (allowed_scopes is None or "workspace" in allowed_scopes)

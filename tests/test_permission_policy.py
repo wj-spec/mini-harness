@@ -190,3 +190,115 @@ def test_agent_reloads_policy_each_run_and_keeps_last_valid(tmp_path, monkeypatc
     assert agent.permission_error and "读取失败" in agent.permission_error
     assert any(event.get("type") == "permission_policy_error" for event in events)
     assert handler.calls == []
+
+
+def test_autonomy_matrix():
+    from app import permissions
+
+    assert permissions.autonomy_allows("ask", "write", workspace_eligible=True) is False
+    assert permissions.autonomy_allows("edits", "write", workspace_eligible=True) is True
+    assert permissions.autonomy_allows("edits", "write", workspace_eligible=False) is False
+    assert permissions.autonomy_allows("edits", "exec", workspace_eligible=True) is False
+    assert permissions.autonomy_allows("workspace", "write", workspace_eligible=True) is True
+    assert permissions.autonomy_allows("workspace", "exec", workspace_eligible=True) is True
+    assert permissions.autonomy_allows("workspace", "exec", workspace_eligible=False) is False
+    assert permissions.autonomy_allows("workspace", "network", workspace_eligible=False) is False
+    assert permissions.autonomy_allows("full", "write", workspace_eligible=False) is True
+    assert permissions.autonomy_allows("full", "exec", workspace_eligible=False) is True
+    assert permissions.autonomy_allows("full", "network", workspace_eligible=False) is True
+    assert permissions.autonomy_allows("full", "remote_action", workspace_eligible=False) is False
+    assert permissions.strictest_autonomy("full", None) == "full"
+    assert permissions.strictest_autonomy("workspace", "edits") == "edits"
+    assert permissions.strictest_autonomy(None, None) == "ask"
+
+
+def test_policy_autonomy_user_and_project_cap(tmp_path):
+    user = _write(tmp_path / "user.json", {"version": 1, "autonomy": "full", "rules": []})
+    project = _write(tmp_path / "project.json", {"version": 1, "autonomy": "edits", "rules": []})
+    policy = PermissionPolicy.from_files(project, user)
+    assert policy.autonomy == "full"
+    assert policy.autonomy_cap == "edits"
+    assert policy.effective_autonomy() == "edits"          # 项目只能更严
+    assert policy.effective_autonomy("full") == "edits"
+    assert policy.effective_autonomy("ask") == "ask"
+    overridden = _write(tmp_path / "user2.json", {"version": 1, "autonomy": "workspace", "rules": []})
+    assert PermissionPolicy.from_files(None, overridden).effective_autonomy() == "workspace"
+    bad = _write(tmp_path / "bad.json", {"version": 1, "autonomy": "yolo", "rules": []})
+    with pytest.raises(PolicyError, match="autonomy"):
+        PermissionPolicy.from_files(None, bad)
+
+
+def _auto_gate(level: str, handler=None) -> ApprovalGate:
+    gate = ApprovalGate(handler=handler)
+    gate.tier_resolver = lambda call: {"write_file": "write", "edit_file": "write",
+                                       "apply_patch": "write", "bash": "exec",
+                                       "web_search": "network",
+                                       "browser_click": "remote_action"}.get(call.name, "read")
+    gate.autonomy = level
+    return gate
+
+
+@pytest.mark.parametrize("level,name,args,auto", [
+    ("ask", "write_file", {"path": "a", "content": "b"}, False),
+    ("edits", "write_file", {"path": "a", "content": "b"}, True),
+    ("edits", "bash", {"command": "true"}, False),
+    ("workspace", "bash", {"command": "true"}, True),
+    ("workspace", "web_search", {"query": "x"}, False),
+    ("full", "web_search", {"query": "x"}, True),
+    ("full", "browser_click", {}, False),
+])
+def test_gate_autonomy_levels_skip_or_ask(tmp_path, level, name, args, auto):
+    handler = _Handler()
+    gate = _auto_gate(level, handler)
+    decision = asyncio.run(gate.request(ToolCall(name, args), "p", workspace=tmp_path))
+    assert decision.allowed is True
+    assert handler.calls == ([] if auto else [name])
+
+
+def test_autonomy_does_not_override_policy_deny_or_once(tmp_path):
+    handler = _Handler()
+    gate = _auto_gate("full", handler)
+    gate.policy = _policy(user={"rules": [
+        {"tool": "bash", "command_prefix": "rm", "decision": "deny"},
+        {"tool": "bash", "command_prefix": "git", "decision": "once"}]})
+    denied = asyncio.run(gate.request(ToolCall("bash", {"command": "rm -rf x"}), "p", workspace=tmp_path))
+    assert denied.allowed is False and handler.calls == []
+    once = asyncio.run(gate.request(ToolCall("bash", {"command": "git clean -fd"}), "p", workspace=tmp_path))
+    assert once.allowed is True and handler.calls == ["bash"]  # 显式 once 覆盖 full
+
+
+def test_agent_autonomy_from_env_and_param(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_AUTONOMY", "workspace")
+    agent = Agent(FakeProvider(["ok"]), ToolRegistry(tmp_path))
+    assert agent.autonomy == "workspace"
+    assert agent.approval is None
+    explicit = Agent(FakeProvider(["ok"]), ToolRegistry(tmp_path), autonomy="edits")
+    assert explicit.autonomy == "edits"
+
+
+def test_agent_reloads_autonomy_from_policy(tmp_path, monkeypatch):
+    user = tmp_path / "user-permissions.json"
+    _write(user, {"version": 1, "autonomy": "edits", "rules": []})
+    monkeypatch.setenv("VIBE_PERMISSIONS", str(user))
+    provider = FakeProvider([
+        Response(tool_calls=[ToolCall("write_file", {"path": "a.txt", "content": "x"}, id="w1")]),
+        "done",
+    ])
+    handler = _Handler()
+    agent = Agent(provider, ToolRegistry(tmp_path), approval=ApprovalGate(handler))
+    first = asyncio.run(agent.run("run1"))
+    assert first.status == "done" and agent.autonomy == "edits" and handler.calls == []
+    _write(user, {"version": 1, "autonomy": "ask", "rules": []})
+    asyncio.run(agent.run("run2"))
+    assert agent.autonomy == "ask"
+
+
+def test_apply_patch_gets_workspace_scope_and_autonomy(tmp_path):
+    handler = _Handler(scope="workspace")
+    gate = _auto_gate("edits", handler)
+    call = ToolCall("apply_patch", {"patch": "--- a\n+++ b\n"})
+    # 与 write_file 同级：edits 档位自动放行，decisions 也提供 workspace。
+    assert gate.decisions_for(call) == ["once", "session", "workspace", "deny"]
+    decision = asyncio.run(gate.request(call, "p", workspace=tmp_path))
+    assert decision.allowed is True and handler.calls == []
+

@@ -57,6 +57,7 @@ def main() -> None:
     parser.add_argument("--sandbox", action="store_true", help="用 macOS Seatbelt 沙箱执行命令（写入限工作区与临时目录）")
     parser.add_argument("--sandbox-network", action="store_true", help="沙箱内允许网络（默认拒绝）")
     parser.add_argument("--sandbox-network-allow", default=None, metavar="HOSTS", help="沙箱内只允许这些域名（逗号分隔，隐含 --sandbox）")
+    parser.add_argument("--autonomy", choices=["ask", "edits", "workspace", "full"], default=None, help="整体授权档位：ask/edits/workspace/full")
     parser.add_argument("--max-steps", type=int, default=None)
     parser.add_argument("--chat-only", action="store_true", help="M1: 不挂工具，只验证真实模型流式回复")
     sessions = parser.add_mutually_exclusive_group()
@@ -116,6 +117,8 @@ def main() -> None:
     if args.sandbox_network_allow:
         config.sandbox = True
         config.sandbox_network_allow = args.sandbox_network_allow
+    if args.autonomy:
+        config.autonomy = args.autonomy
 
     if args.task is not None:
         from app.oneshot import OneShotOptions, run_oneshot
@@ -265,6 +268,7 @@ def _run(config, session, tools, approval, provider, context, state, history, ar
         history=history,
         pricing=pricing,
         project_instructions=instructions,
+        autonomy=config.autonomy or None,
     )
     if not args.stdio:
         raise SystemExit(2)  # main() 已拦截；保留防御，避免误走交互入口。

@@ -12,6 +12,7 @@ from collections.abc import AsyncIterable, Callable
 from dataclasses import asdict, replace
 
 from app.agent import Agent, AgentResult
+from app import permissions
 from app.config import Config
 from app.project_profile import load_project_background
 from app.user_profile import load_user_profile, select_user_preferences
@@ -236,6 +237,8 @@ class _Connection:
                 text = ("已撤销当前工作区的本进程授权。\n" if command.endswith("reset") else "")
                 text += (f"workspace 授权：{'已开启' if rules['workspace_allowed'] else '未开启'}；"
                          f"session 精确规则：{rules['session_rules']} 条。重启后重新审批。")
+                level = getattr(self.agent, "autonomy", "ask")
+                text += f"\n授权档位：{level}（{permissions.AUTONOMY_LABELS.get(level, level)}）。"
                 policy = getattr(self.agent, "permission_policy", None)
                 if policy is not None:
                     summary = policy.summary()
