@@ -394,4 +394,8 @@ backbone：主用 **Qwen 3.7-Plus**，泛化用 **Claude Opus 4.7**；三组自�
 - P2 确定性环境审计：`app/audit.py`（git 基线、记录 hash 核对、未归因改动、审计窗口变化），Agent 收尾接入；
 - 交互入口与 `oneshot`（非 bench）默认开启，eval/bench 保持旧行为；TUI `/goal` 在 `verified=false` 时暂停而不是标记完成。
 
-未做：LLM 只读 auditor、契约反查、fresh-context 执行器、undo/rollback、文件正文存储。真实模型与 `/goal` 体验仍待验收；测试见 `tests/test_completion_guard.py`、`test_file_changes.py`、`test_rounds.py`、`test_audit.py`。
+2026-11-01 继续落地 P3 前置：`ToolRegistry.subset()` + `app/auditor.py` 的可选 LLM 只读审计（`VIBE_LLM_AUDITOR=1`，默认关闭）。子 Agent 使用全新上下文与 `read_file/grep/list_files/git_status/git_diff` 只读工具子集，看不到执行轨迹；输出三行控制头，只有 `complete + clean` 且确定性审计通过才保留 `verified=true`。等价于论文的 Auditor 角色，但当前只做一次、不参与重规划循环。
+
+同一轮补上**契约反查**（论文实现里的 `AUDITOR_CONTRACT_BACKCHECK`）：审计者先从原始任务独立重建验收约束清单，再输出 `Acceptance-constraint backcheck` 段（Contract conclusion / 约束清单 / 覆盖检查 / 逐条回查 / Blocking constraints / 建议修订）；默认严格模式 `VIBE_CONTRACT_BACKCHECK=1`，只有 `aligned`、无 blocking 且第三行控制头与结论一致才通过，否则即使 `Status=complete` 也降级为未验证。设为 0 时允许 `unknown`，但仍拒绝 `needs_revision/invalid`。
+
+仍未做：fresh-context 执行器、undo/rollback、文件正文存储；真实模型与 `/goal` 体验仍待验收。测试见 `tests/test_completion_guard.py`、`test_file_changes.py`、`test_rounds.py`、`test_audit.py`、`test_auditor.py`。

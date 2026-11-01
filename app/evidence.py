@@ -90,11 +90,20 @@ def _audit_lines(audit) -> list[str]:
     )
     if data.get("contract_audit"):
         header += f"；contract_audit={_text(data.get('contract_audit'))}"
-    return [
+    lines = [
         header,
         *_audit_items("未归因改动", _as_list(data.get("unattributed"))),
         *_audit_items("发现", _as_list(data.get("findings"))),
     ]
+    llm = _as_dict(data.get("llm"))
+    if llm:
+        lines.append(
+            "- LLM 审计："
+            f"status={_text(llm.get('status'))}；"
+            f"integrity={_text(llm.get('integrity'))}；"
+            f"contract={_text(llm.get('contract_audit'))}"
+        )
+    return lines
 
 
 def _change_lines(task_state: dict) -> list[str]:

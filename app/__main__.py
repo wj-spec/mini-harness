@@ -264,6 +264,16 @@ def main() -> None:
 def _run(config, session, tools, approval, provider, context, state, history, args, mcp=None) -> None:
     instructions = load_agents_md(config.workspace, config.agents_max_chars)
     pricing = Pricing(config.input_price_per_1m, config.output_price_per_1m)
+    llm_auditor = None
+    if config.llm_auditor and not args.chat_only:
+        from app.auditor import ReadOnlyAuditor
+
+        llm_auditor = ReadOnlyAuditor(
+            provider, tools,
+            timeout=config.llm_timeout,
+            retries=config.llm_retries,
+            require_contract_aligned=config.contract_backcheck,
+        ).audit
     agent = Agent(
         provider,
         tools,
@@ -293,6 +303,7 @@ def _run(config, session, tools, approval, provider, context, state, history, ar
         completion_guard=config.completion_guard,
         workspace_audit=config.workspace_audit,
         on_round=session.save_round,
+        llm_auditor=llm_auditor,
     )
     if not args.stdio:
         raise SystemExit(2)  # main() 已拦截；保留防御，避免误走交互入口。

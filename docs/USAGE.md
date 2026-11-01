@@ -310,6 +310,8 @@ Agent 新增两个**只读、无需审批**的工具，用于在报告工作区�
 - `/evidence` 查看最近一轮证据摘要：完成判定、环境审计、改动文件与 hash、验证命令与退出码、回执摘要；没有轮次时提示先完成任务。
 - 任务结束后的状态区分三种：`本轮结束 · 已验证`、`本轮结束 · 待验证`（有改动但没有覆盖最后改动的成功验证）、`本轮结束`（只读/问答任务不启用守卫）。`verified=false` 时不要当作任务已验收。
 - 完成守卫第一次拒绝模型的自述完成时会以“完成守卫”提示出现；第二次仍无验证证据时仍会收尾，但明确标记 `verified=false`，可在 `/evidence` 与回执中核对。
+- 可选 LLM 只读审计：`VIBE_LLM_AUDITOR=1` 时，动作任务在确定性守卫通过后再启动一个全新上下文的只读子 Agent（只有 `read_file` / `grep` / `list_files` / `git_status` / `git_diff`），检查工作区后输出 `Status / Integrity / Contract audit` 三行结论。审计者看不到执行轨迹、不能写文件或执行命令；只有 `complete + clean` 才保留 `verified=true`，拒绝或失败会把本轮标为未验证，并在回执与 `/evidence` 中显示。默认关闭，会额外消耗一次模型调用。
+- 契约反查：同一审计者必须先从原始任务重建验收约束清单，再输出 `Acceptance-constraint backcheck` 段（Contract conclusion / 约束清单 / 覆盖检查 / 逐条回查 / Blocking constraints / 建议修订）。默认严格模式 `VIBE_CONTRACT_BACKCHECK=1`，只有 `aligned`、无 blocking 且与控制行一致才通过；设为 0 时允许 `unknown` 但拒绝 `needs_revision/invalid`。
 - 边界：非 git 工作区审计 `coverage=limited`，只能核对已记录 hash；`verified=false` 表示“没有覆盖最后改动的验证”或“工作区与记录不一致”，不等于任务一定失败；最终仍需人工核对需求。
 
 默认不按工具次数或模型轮数停止。需要人为限定轮数时可用 `--max-steps N` 或 `VIBE_MAX_STEPS`；0 表示不限。eval 保留各测试任务显式设置的轮数。

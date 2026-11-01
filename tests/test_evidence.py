@@ -232,3 +232,24 @@ def test_json_serializable_unicode_text():
     assert isinstance(text, str)
     json.dumps(text, ensure_ascii=False)
     assert "\x00" not in text
+
+
+def test_llm_auditor_result_is_rendered_when_present():
+    audit = {
+        "status": "complete",
+        "integrity": "clean",
+        "verified": True,
+        "findings": [],
+        "unattributed": [],
+        "changed_files": 1,
+        "coverage": "full",
+        "contract_audit": "unknown",
+        "llm": {
+            "status": "complete",
+            "integrity": "clean",
+            "contract_audit": "aligned",
+        },
+    }
+    text = format_round_evidence(_record(audit=audit))
+    assert "LLM 审计" in text
+    assert "contract=aligned" in text

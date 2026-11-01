@@ -407,6 +407,27 @@ Ink 两轮实际日志补充：`.vibe/browser/ink-smoke/309dc558d44d/report.json
 
 **下一步**：先用真实模型跑 3 道保留题 ×3 次，记录误完成率/误杀率/额外轮次；再决定审批自动放行标记与规则撤销 UI 的投入。
 
+## P3 前置：LLM 只读审计与契约反查（2026-11-01）
+
+在确定性完成守卫/环境审计之后，补上论文里的 Auditor 角色；默认关闭，避免无谓调用。
+
+**用户获得什么**：开启 `VIBE_LLM_AUDITOR=1` 后，动作任务在守卫通过后会被一个全新上下文、只读工具的审计者复核；拒绝会计入回执与 `/evidence`，不会把 `verified=true` 交给只满足“本地证据”的结果。
+
+**已交付**：
+- `ToolRegistry.subset()`：按名称复制工具子集，供审计角色收窄权限。
+- `app/auditor.py`：`ReadOnlyAuditor` 用同一 provider 起一个全新子 Agent，只暴露 `read_file/grep/list_files/git_status/git_diff`；不接收父对话与工具轨迹；输出 `Status / Integrity / Contract audit` 三行控制头。
+- Agent 收尾接入：确定性守卫通过后调用；`complete + clean` 且契约审计通过才保留 `verified=true`；拒绝、非法头或审计异常标 `verified=false`，回执增加“LLM 审计”行。
+- **契约反查**：审计者必须先从原始任务独立重建验收约束清单，输出 `Acceptance-constraint backcheck` 段（Contract conclusion / 约束清单 / 覆盖检查 / 逐条回查 / Blocking constraints / 建议修订）；第三行 `Contract audit` 必须与结论一致。默认严格模式（`VIBE_CONTRACT_BACKCHECK=1`）要求 `aligned`、无 blocking；否则即使状态 complete 也降级，不保留 verified。
+- 交互入口与 `oneshot` 非 bench 支持；eval/bench 固定关闭；配置默认关闭。
+- 崩溃/超时/异常 fail closed；审计者本身无法写文件或执行命令。
+
+**验证证据**：
+- 新增 `tests/test_auditor.py`：只读子集、控制头解析、契约反查段/blocking 检测、严格模式降级与放宽、确定性失败降级、Agent 端到端接受/拒绝。
+- 全量 Python `./run_tests.sh -q` 退出 0；TUI 回归未改。
+- 设计边界见 [完成守卫与环境审计](specs/verified-completion.md) §6。
+
+**未验收 / 未做**：真实模型下从自然语言重建验收清单的质量、误杀率、额外 token 成本与延迟；审计调用暂不计入父 run 预算，也不参与重规划循环；fresh-context 执行器、undo/rollback 仍未做。真实模型验收前，对外只陈述“机制已验证、真实任务待验收”。
+
 ## 当前下一步
 
 W1–W5 已完成真实验收；W6 v2 三组对照完成，主假设未获支持。2026-10-26 用户决定停止 P0 扩张、不进入 P5，保留显式偏好管理能力；后续只有新证据/新评估方法才重新评估个性化。接下来：

@@ -164,6 +164,13 @@ def delivery_receipt(
             + " integrity=" + str(audit.get("integrity", "unknown"))
             + " verified=" + str(bool(audit.get("verified")))
         )
+        llm = audit.get("llm")
+        if isinstance(llm, dict):
+            lines.append(
+                "LLM 审计：status=" + str(llm.get("status", "unknown"))
+                + " integrity=" + str(llm.get("integrity", "unknown"))
+                + " contract=" + str(llm.get("contract_audit", "unknown"))
+            )
     return "\n".join(lines)
 
 

@@ -144,6 +144,16 @@ def run_oneshot(config: Config, provider: Any, options: OneShotOptions) -> tuple
         _auto_approve if options.bench else None,
         audit_path=session.audit_path,
     )
+    llm_auditor = None
+    if config.llm_auditor and not options.bench:
+        from app.auditor import ReadOnlyAuditor
+
+        llm_auditor = ReadOnlyAuditor(
+            provider, tools,
+            timeout=config.llm_timeout,
+            retries=config.llm_retries,
+            require_contract_aligned=config.contract_backcheck,
+        ).audit
     agent = Agent(
         provider, tools,
         max_steps=config.max_steps if options.max_steps is None else options.max_steps,
@@ -170,6 +180,7 @@ def run_oneshot(config: Config, provider: Any, options: OneShotOptions) -> tuple
         completion_guard=config.completion_guard and not options.bench,
         workspace_audit=config.workspace_audit and not options.bench,
         on_round=session.save_round,
+        llm_auditor=llm_auditor,
     )
     if options.bench:
         agent.add_system_part(

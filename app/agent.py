@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from itertools import count
 from pathlib import Path
-from typing import Callable
+from typing import Awaitable, Callable
 
 
 from core.models import ExecutionOutcome, Message, ToolCall
@@ -20,6 +20,7 @@ from core.progress import ArtifactProgress, ProgressMonitor
 
 from app import permissions
 from app.audit import audit_completion, capture_baseline
+from app.auditor import AuditRequest
 from app.permission_policy import PermissionPolicy, PolicyError
 from app.events import ReasoningDelta, StreamDone, StreamError, TextDelta, ToolCallsReady
 from app.policy import ApprovalGate
@@ -264,6 +265,7 @@ class Agent:
         completion_guard: bool = False,
         workspace_audit: bool = False,
         on_round: Callable[[dict], None] | None = None,
+        llm_auditor: Callable[[AuditRequest], Awaitable[dict]] | None = None,
     ):
         if require_tool_use and not tools_enabled:
             raise ValueError("require_tool_use requires tools_enabled=True")
@@ -306,6 +308,7 @@ class Agent:
         self.completion_guard = completion_guard
         self.workspace_audit = workspace_audit
         self.on_round = on_round
+        self.llm_auditor = llm_auditor
         self._active_steering: deque[str] | None = None
         if system is None:
             if tools_enabled:
@@ -1102,7 +1105,7 @@ class Agent:
             if run.pending_steering:
                 # 纠偏在模型收尾前到达：再走一步消费它，避免静默丢弃。
                 return _StepDecision()
-            return self._complete_run(run, text, step)
+            return await self._complete_run(run, text, step)
 
         if not self.tools_enabled:
             self._skip_tools(run, calls, "chat_only_mode")
@@ -1111,8 +1114,8 @@ class Agent:
             )
         return _StepDecision(calls=calls)
 
-    def _complete_run(self, run: _RunContext, text: str, step: int) -> AgentResult:
-        """模型声称完成时的确定性守卫与只读环境审计。"""
+    async def _complete_run(self, run: _RunContext, text: str, step: int) -> AgentResult:
+        """模型声称完成时的确定性守卫、只读环境审计与可选 LLM 审计。"""
         task_kind = classify_task(run.state.goal)
         changed_this_run = len(run.state.file_changes) > run.start_file_changes
         decision = completion_decision(
@@ -1172,6 +1175,54 @@ class Agent:
             )
         elif self.completion_guard:
             verified = decision.allowed if task_kind == "action" and changed_this_run else None
+
+        if (
+            self.llm_auditor is not None
+            and self.tools_enabled
+            and task_kind == "action"
+            and changed_this_run
+            and decision.allowed
+            and verified is not False
+        ):
+            request = AuditRequest(
+                task=run.state.goal,
+                claim=text,
+                state_summary=run.state.render(),
+                file_changes=run.state.file_changes[run.start_file_changes:],
+                verifications=run.state.verifications[run.start_verifications:],
+                deterministic_audit=audit,
+            )
+            try:
+                llm = await self.llm_auditor(request)
+            except Exception as exc:
+                llm = {
+                    "status": "blocked",
+                    "integrity": "suspect",
+                    "contract_audit": "unknown",
+                    "valid_header": False,
+                    "findings": [f"LLM auditor error: {type(exc).__name__}: {exc}"],
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            if not isinstance(llm, dict):
+                llm = {
+                    "status": "blocked", "integrity": "suspect",
+                    "contract_audit": "unknown", "valid_header": False,
+                    "findings": ["LLM auditor returned a non-dict result"],
+                }
+            llm_pass = (
+                bool(llm.get("valid_header"))
+                and llm.get("status") == "complete"
+                and llm.get("integrity") == "clean"
+                and llm.get("contract_audit") in {"aligned", "unknown"}
+                and not llm.get("error")
+            )
+            audit = dict(audit or {})
+            audit["llm"] = llm
+            if verified is None:
+                verified = llm_pass
+            else:
+                verified = bool(verified) and llm_pass
+            audit["verified"] = verified
         run.verified = verified
         run.audit = audit
         run.recorder.event(

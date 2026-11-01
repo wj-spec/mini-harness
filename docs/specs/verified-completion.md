@@ -1,6 +1,6 @@
-# 外置状态与完成审计（P0–P2）
+# 外置状态与完成审计（P0–P2 + 可选 LLM 审计）
 
-日期：2026-10-31。状态：工程实现与确定性回归完成；真实模型、Ink `/goal` 体验与 benchmark 未验收。
+日期：2026-11-01。状态：工程实现与确定性回归完成；真实模型、LLM 审计质量、Ink `/goal` 体验与 benchmark 未验收。
 
 ## 用户目标
 
@@ -11,7 +11,7 @@
 3. 每次 run 结束写一轮不可变记录，可回看、可恢复、可审计；
 4. 收尾时做一次只读环境审计，给出 `verified` 与完整性结论。
 
-本切片只做确定性、本地、只读的判定。LLM 审计者、契约反查、fresh-context 执行器与 undo 仍后置。
+P0–P2 只做确定性、本地、只读的判定；P3 前置的可选 LLM 只读审计默认关闭。契约反查、fresh-context 执行器与 undo 仍后置。
 
 ## 行为
 
@@ -63,16 +63,29 @@
 - 审计只读：不写文件、不执行命令；运行验证命令仍由模型工具 + `ApprovalGate` 决定。
 - 可通过 `VIBE_WORKSPACE_AUDIT=0` 关闭。
 
+### 6. 可选 LLM 只读审计（P3 前置）
+
+- `VIBE_LLM_AUDITOR=1` 且确定性守卫通过后，启动一个**全新上下文**的子 Agent 审计本轮完成声明；默认关闭，会增加一次模型调用。
+- 子 Agent 只拿到本轮任务/声明/状态/证据摘要与确定性审计结论，不接收父 Agent 的对话轨迹、工具轨迹或内部推理。
+- 工具层收窄为只读集合 `read_file` / `grep` / `list_files` / `git_status` / `git_diff`；没有写文件、`bash`、MCP、Web 工具，因此不是靠提示词约束。
+- 子 Agent 输出前三行 `Status: complete|incomplete|blocked`、`Integrity: clean|suspect|violation`、`Contract audit: aligned|unknown|needs_revision|invalid`；缺少合法控制头时 fail closed。
+- **契约反查**：审计者必须先从原始任务独立重建验收约束清单（最终消费者/状态载体、权威输入、候选选择、字段/文件/路径、保存/提交/持久化边界、格式/精确文本、不能改/漏/多做、非目标保持、禁止捷径），再输出 `Acceptance-constraint backcheck:` 段：`Contract conclusion`、约束清单、覆盖检查、逐条回查、`Blocking constraints`、建议修订。第三行 `Contract audit` 必须与 `Contract conclusion` 一致。
+- 严格模式（`VIBE_CONTRACT_BACKCHECK=1`，默认）：必须 `Contract conclusion=aligned`、无 blocking、且控制行一致；否则即使 `Status=complete` 也降级为 `incomplete`，不保留 `verified=true`。`VIBE_CONTRACT_BACKCHECK=0` 时允许 `unknown`（仍不允许 `needs_revision/invalid`）。
+- 只有 `Status=complete + Integrity=clean + 契约审计通过` 且确定性审计通过时，保留 `verified=true`；拒绝、非法报告或调用异常会把本轮标为 `verified=false`，并在回执与 `/evidence` 中显示 `LLM 审计`。
+- 确定性审计不通过时跳过 LLM 审计；eval/bench 固定关闭。
+- `contract_audit` 由 LLM 审计者给出；确定性审计自身仍固定 `unknown`，不能用它宣称“需求已被审计”。
+
 ## 数据结构
 
 ```text
 CompletionDecision { allowed, codes[], messages[] }
 TaskState.file_changes[] / verifications[] / mutation_seq / last_verification_seq / last_verification_ok
-AuditReport { status, integrity, verified, findings[], unattributed[], changed_files, coverage, contract_audit }
+AuditReport { status, integrity, verified, findings[], unattributed[], changed_files, coverage, contract_audit, llm? }
+AuditRequest { task, claim, state_summary, file_changes[], verifications[], deterministic_audit? }
 RoundRecord { schema_version, run_id, round_index, status, task_kind, verified, completion, audit, task_state, ... }
 ```
 
-`contract_audit` 当前固定 `unknown`，因为本切片没有实现契约反查；不能用它宣称“需求已被审计”。
+确定性审计的 `contract_audit` 固定 `unknown`；可选 LLM 审计会在 `audit["llm"]` 中返回自己的控制头与结论。不能用任一字段宣称“需求已被审计”。
 
 ## 验收
 
@@ -85,7 +98,11 @@ RoundRecord { schema_version, run_id, round_index, status, task_kind, verified, 
 - [x] 全量 Python 回归 `./run_tests.sh -q` 退出 0。
 - [x] Ink `/goal` 逻辑回归：`verified=false` 时暂停而不是标记完成（`node --test tui/dist/tests/goal.test.js` 6 项通过）。
 - [x] eval 入口未改：Agent 默认不启用守卫/审计，全量回归覆盖既有 eval 用例。
+- [x] LLM 只读审计：工具子集只读、全新上下文、三行控制头解析、确定性审计失败降级、拒绝/异常标记未验证。
+- [x] 契约反查：验收约束段解析、结论/控制行一致性、blocking 检测、严格模式降级、可关闭严格模式。
+- [x] 全量 Python 回归与 TUI 定向测试通过（2026-11-01）。
 - [ ] 真实模型任务验证守卫纠偏是否可执行、是否引入过多额外轮次。
+- [ ] 真实模型下 LLM 审计的误杀率、额外 token 成本与延迟。
 - [ ] 真实终端 `/goal` 下未验证完成提示的体验验收。
 
 ## 工程证据
@@ -94,7 +111,8 @@ RoundRecord { schema_version, run_id, round_index, status, task_kind, verified, 
 - `tests/test_file_changes.py`
 - `tests/test_rounds.py`
 - `tests/test_audit.py`
-- 全量回归：`./run_tests.sh -q`（2026-10-31，退出 0）。
+- `tests/test_auditor.py`
+- 全量回归：`./run_tests.sh -q`（2026-11-01，LLM 审计切片后退出 0）。
 
 ## 边界与未做
 
@@ -102,6 +120,6 @@ RoundRecord { schema_version, run_id, round_index, status, task_kind, verified, 
 - bash 归因不精确：只记命令结果，不逐文件归因；审计靠 run 前后 git 基线兜底。
 - 非 git 工作区只能验证已记录 hash，不能发现未记录改动。
 - 8MB 以上文件、符号链接、目录变化标记为无法核验，可能导致 `suspect`。
-- 未实现 LLM 只读 auditor、契约反查、fresh-context 执行器、undo/rollback，也不存文件正文。
-- 交互入口默认开启；eval/bench 保持旧行为；`oneshot` 非 bench 模式开启。
+- LLM 只读 auditor 已实现但默认关闭，且只做一次、不参与重规划循环；其 token/时间消耗目前不计入父 run 预算，后续需要聚合。契约反查已实现为审计者的一段严格检查，但“从自然语言需求恢复完整验收清单”的质量仍依赖模型与真实任务验收；fresh-context 执行器、undo/rollback 仍未实现，也不存文件正文。
+- 交互入口默认开启守卫/审计；LLM 审计需显式 `VIBE_LLM_AUDITOR=1`；eval/bench 固定关闭。
 - 所有写文件/执行命令仍经 `ApprovalGate`；审计只读，不绕过审批。

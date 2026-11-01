@@ -42,6 +42,7 @@ IGNORE_DIRS = {
 }
 
 MUTATION_TOOLS = {"write_file", "edit_file", "apply_patch"}
+READ_ONLY_TOOL_NAMES = ("read_file", "grep", "list_files", "git_status", "git_diff")
 MAX_METADATA_HASH_BYTES = 8 * 1024 * 1024
 
 
@@ -847,6 +848,13 @@ class ToolRegistry:
 
     def names(self) -> list[str]:
         return list(self._tools)
+
+    def subset(self, names) -> "ToolRegistry":
+        """返回共享工作区、只暴露指定工具的副本；用于只读审计角色。"""
+        allowed = [name for name in names if name in self._tools]
+        clone = copy(self)
+        clone._tools = {name: self._tools[name] for name in allowed}
+        return clone
 
     def close(self) -> None:
         """停止沙箱网络代理（进程退出时也会随守护线程结束）。"""

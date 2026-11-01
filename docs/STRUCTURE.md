@@ -32,6 +32,7 @@ mini-harness/
     session.py          # JSONL 事件、state 投影、轮次账本、--continue、崩溃对账
     trace.py            # TraceRecorder / Pricing
     audit.py            # 只读环境审计：git 基线、文件 hash、完整性结论
+    auditor.py          # 可选 LLM 只读审计：全新上下文 + 只读工具子集
     evidence.py         # 最近一轮 RoundRecord 的中文证据摘要（/evidence，不存正文）
     instructions.py     # AGENTS.md 加载与注入
     skills.py           # 项目/本机发现、常驻注册目录、临时正文与来源边界
@@ -114,6 +115,7 @@ mini-harness/
     test_file_changes.py
     test_rounds.py
     test_audit.py
+    test_auditor.py
     test_session.py
     test_trace.py
     test_eval.py

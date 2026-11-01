@@ -58,6 +58,8 @@ class Config:
     autonomy: str = ""
     completion_guard: bool = True
     workspace_audit: bool = True
+    llm_auditor: bool = False
+    contract_backcheck: bool = True
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -118,6 +120,8 @@ class Config:
             autonomy=os.getenv("VIBE_AUTONOMY", ""),
             completion_guard=os.getenv("VIBE_COMPLETION_GUARD", "1").lower() in {"1", "true", "yes"},
             workspace_audit=os.getenv("VIBE_WORKSPACE_AUDIT", "1").lower() in {"1", "true", "yes"},
+            llm_auditor=os.getenv("VIBE_LLM_AUDITOR", "0").lower() in {"1", "true", "yes"},
+            contract_backcheck=os.getenv("VIBE_CONTRACT_BACKCHECK", "1").lower() in {"1", "true", "yes"},
         )
 
     def label(self) -> str:
