@@ -132,41 +132,54 @@ def agent_version(repo_root: str | Path) -> str:
     except Exception:
         return "unknown"
 
-def install_shell(*, guest_pkg: str = "/opt/vibe", venv: str = "$HOME/vibe-venv") -> str:
-    """容器内安装脚本：优先复用镜像自带 uv/Python 3.11+，否则回退 uv-managed 3.12。
+def install_shell(
+    *, guest_pkg: str = "/opt/vibe", venv: str = "$HOME/vibe-venv",
+    prebuilt_venv: str = "/opt/vibe-venv",
+) -> str:
+    """容器内安装脚本：优先复用镜像预装 venv，其次复用镜像 uv/Python 3.11+。
 
-    SWE-bench 任务镜像的 Dockerfile 通常已经用 astral.sh 装了 uv；默认 Python
-    也多是 3.11。只在镜像 Python 过旧时下载 3.12，避免每次 trial 重复下载运行时。
+    本地跑分镜像可在 Dockerfile 里预建 /opt/vibe-venv（app 依赖）与 uv/pip
+    cache；trial 里只做 symlink，不再重复下载依赖。没有预装时回退到
+    镜像 Python 3.11+；镜像 Python 过旧才下载 uv-managed 3.12。
     """
     return (
         "set -euo pipefail; "
         'export PATH="$HOME/.local/bin:$PATH"; '
-        'PYTHON_BIN=""; '
-        "for py in python3.12 python3.11 python3 python; do "
-        '  if command -v "$py" >/dev/null 2>&1; then '
-        "    ver=$(\"$py\" -c 'import sys; print(\"%d.%d\" % sys.version_info[:2])' 2>/dev/null || true); "
-        '    case "$ver" in 3.11|3.12|3.13) PYTHON_BIN="$py"; break ;; esac; '
-        "  fi; "
-        "done; "
-        'if [ -z "$PYTHON_BIN" ]; then '
-        "  if ! command -v uv >/dev/null 2>&1; then "
-        "    curl -LsSf https://astral.sh/uv/install.sh | sh; "
-        '    export PATH="$HOME/.local/bin:$PATH"; '
-        "  fi; "
-        f'  uv venv --python 3.12 "{venv}"; '
+        f'if [ -x "{prebuilt_venv}/bin/python" ] && '
+        f"\"{prebuilt_venv}/bin/python\" -c 'import fastmcp, ddgs, httpx' "
+        ">/dev/null 2>&1; then "
+        f'  ln -sfn "{prebuilt_venv}" "{venv}"; '
         "else "
-        f'  if ! "$PYTHON_BIN" -m venv "{venv}"; then '
+        '  PYTHON_BIN=""; '
+        "  for py in python3.12 python3.11 python3 python; do "
+        '    if command -v "$py" >/dev/null 2>&1; then '
+        "      ver=$(\"$py\" -c 'import sys; print(\"%d.%d\" % sys.version_info[:2])' "
+        "2>/dev/null || true); "
+        '      case "$ver" in 3.11|3.12|3.13) PYTHON_BIN="$py"; break ;; esac; '
+        "    fi; "
+        "  done; "
+        '  if [ -z "$PYTHON_BIN" ]; then '
         "    if ! command -v uv >/dev/null 2>&1; then "
         "      curl -LsSf https://astral.sh/uv/install.sh | sh; "
         '      export PATH="$HOME/.local/bin:$PATH"; '
         "    fi; "
         f'    uv venv --python 3.12 "{venv}"; '
+        "  else "
+        f'    if ! "$PYTHON_BIN" -m venv "{venv}"; then '
+        "      if ! command -v uv >/dev/null 2>&1; then "
+        "        curl -LsSf https://astral.sh/uv/install.sh | sh; "
+        '        export PATH="$HOME/.local/bin:$PATH"; '
+        "      fi; "
+        f'      uv venv --python 3.12 "{venv}"; '
+        "    fi; "
         "  fi; "
-        "fi; "
-        "if command -v uv >/dev/null 2>&1; then "
-        f'  uv pip install --python "{venv}/bin/python" -r {guest_pkg}/bench/requirements-bench.txt; '
-        "else "
-        f'  "{venv}/bin/python" -m pip install --disable-pip-version-check -r {guest_pkg}/bench/requirements-bench.txt; '
+        "  if command -v uv >/dev/null 2>&1; then "
+        f'    uv pip install --python "{venv}/bin/python" '
+        f'-r {guest_pkg}/bench/requirements-bench.txt; '
+        "  else "
+        f'    "{venv}/bin/python" -m pip install --disable-pip-version-check '
+        f'-r {guest_pkg}/bench/requirements-bench.txt; '
+        "  fi; "
         "fi; "
         f"PYTHONPATH={guest_pkg} \"{venv}/bin/python\" -c 'import app, core'"
     )

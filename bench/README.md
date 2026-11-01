@@ -51,6 +51,30 @@ PYTHONPATH=. uv run --with "harbor==0.20.0" harbor run \
 - `support.py`：模型/环境/telemetry 的纯逻辑，可离线测试。
 - 非交互入口：`python -m app --task "..." --bench --telemetry-out ... --runtime-dir ...`。
 
+## 加速本地跑分镜像（可选）
+
+Harbor 每个 trial 都会在任务容器里安装一次 Agent 依赖；如果每次都从 PyPI 下载会比较慢。可以给本地 task 加一层预装缓存（只改 `local-bench/` 下的任务副本，不改官方评分逻辑）：
+
+```bash
+python scripts/prepare_bench_image.py local-bench/smoke/astropy__astropy-7606
+
+# 首次需要重建镜像
+PYTHONPATH=. uv run --managed-python --python 3.12 \
+  --with "harbor==0.20.0" harbor run \
+  -p local-bench/smoke \
+  --agent bench.adapter:VibeAgent \
+  --model deepseek/deepseek-flash \
+  --env docker -n 1 --force-build
+```
+
+脚本会：
+
+- 在任务 Dockerfile 末尾预建 `/opt/vibe-venv`（`fastmcp/ddgs/httpx`），adapter 在 trial 里只做 symlink；
+- 预热 verifier parser 的 uv cache（`swebench/datasets/fastcore`）与 testbed 的 `pip install -e .[test]`；
+- 在 `task.toml` 的 `[verifier]` 加 `UV_HTTP_TIMEOUT=600` 与 PyPI 镜像 env。
+
+默认镜像源是 `https://pypi.tuna.tsinghua.edu.cn/simple`，可用 `--pypi-index https://mirrors.aliyun.com/pypi/simple/` 替换。镜像层只在本地构建，不改变评测题目或隐藏测试。
+
 ## 限制
 
 - 未实现 ATIF 轨迹与 sb-cli/Modal 云评分。

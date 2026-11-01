@@ -82,4 +82,6 @@ def test_install_shell_reuses_image_uv_and_python():
     assert "uv venv --python 3.12" in script
     assert "requirements-bench.txt" in script
     assert "command -v uv" in script
+    assert "/opt/vibe-venv/bin/python" in script
+    assert "ln -sfn" in script
     subprocess.run(["bash", "-n", "-c", script], check=True)
