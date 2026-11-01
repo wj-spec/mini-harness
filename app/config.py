@@ -56,6 +56,8 @@ class Config:
     sandbox_network: bool = False
     sandbox_network_allow: str = ""
     autonomy: str = ""
+    completion_guard: bool = True
+    workspace_audit: bool = True
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -114,6 +116,8 @@ class Config:
             sandbox_network=os.getenv("VIBE_SANDBOX_NETWORK", "0").lower() in {"1", "true", "yes"},
             sandbox_network_allow=os.getenv("VIBE_SANDBOX_NETWORK_ALLOW", ""),
             autonomy=os.getenv("VIBE_AUTONOMY", ""),
+            completion_guard=os.getenv("VIBE_COMPLETION_GUARD", "1").lower() in {"1", "true", "yes"},
+            workspace_audit=os.getenv("VIBE_WORKSPACE_AUDIT", "1").lower() in {"1", "true", "yes"},
         )
 
     def label(self) -> str:

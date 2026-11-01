@@ -1,4 +1,5 @@
-import type {ApprovalDecision, BackendCommand, CommandExecution, ContextSnapshot, PersistedMessage, RunMetrics, RunResult, ServerEvent, SessionPurpose, SkillInfo, ToolCall} from './protocol.js';
+import {AUTONOMY_LABELS} from './protocol.js';
+import type {ApprovalDecision, ApprovalRule, AuditSummary, AutonomyLevel, BackendCommand, CommandExecution, CompletionSummary, ContextSnapshot, PersistedMessage, RunMetrics, RunResult, ServerEvent, SessionPurpose, SkillInfo, ToolCall} from './protocol.js';
 
 export const MAX_CONTEXT_SNAPSHOTS = 100;
 
@@ -14,7 +15,7 @@ export type Entry = {
   runId?: string;
   execution?: CommandExecution;
 };
-type Approval = {id: string; tool: string; preview: string; call: ToolCall; decisions?: ApprovalDecision[]};
+type Approval = {id: string; tool: string; preview: string; call: ToolCall; decisions?: ApprovalDecision[]; tier?: string; tierLabel?: string; rule?: ApprovalRule};
 export type ViewState = {
   phase: 'starting' | 'idle' | 'running' | 'waiting_approval' | 'stopping' | 'closed';
   activeId: string | null;
@@ -40,6 +41,11 @@ export type ViewState = {
   hasStartedRun: boolean;
   resumed: boolean;
   skills: SkillInfo[];
+  autonomy: AutonomyLevel | '';
+  autonomyLabel: string;
+  lastVerified: boolean | null;
+  lastCompletion: CompletionSummary | null;
+  lastAudit: AuditSummary | null;
 };
 export type Action =
   | {type: 'event'; event: ServerEvent}
@@ -53,6 +59,7 @@ export const initialState: ViewState = {
   phase: 'starting', activeId: null, activeCommand: null, activity: 'initializing', entries: [], nextEntry: 0, live: '', segment: '',
   approval: null, model: '', workspace: '', lastResult: '', lastStatus: null, lastStopReason: null, error: null,
   sessionId: '', sessionPath: '', sessionPurpose: 'user', provider: '', metrics: null, contextSnapshots: [], hasStartedRun: false, resumed: false, skills: [],
+  autonomy: '', autonomyLabel: '', lastVerified: null, lastCompletion: null, lastAudit: null,
 };
 
 function append(state: ViewState, kind: Entry['kind'], text: string): ViewState {
@@ -128,10 +135,10 @@ function restoreMessage(state: ViewState, message: PersistedMessage): ViewState 
 }
 
 export function reduceView(state: ViewState, action: Action): ViewState {
-  if (action.type === 'begin') return append({...state, phase: 'running', activeId: action.id, activeCommand: null, activity: 'waiting_model', live: '', segment: '', approval: null, lastResult: '', lastStatus: null, lastStopReason: null, error: null, metrics: null, contextSnapshots: [], hasStartedRun: true}, 'task', action.text);
+  if (action.type === 'begin') return append({...state, phase: 'running', activeId: action.id, activeCommand: null, activity: 'waiting_model', live: '', segment: '', approval: null, lastResult: '', lastStatus: null, lastStopReason: null, error: null, metrics: null, contextSnapshots: [], hasStartedRun: true, lastVerified: null, lastCompletion: null, lastAudit: null}, 'task', action.text);
   if (action.type === 'begin_command') return {...state, phase: 'running', activeId: action.id, activeCommand: action.command,
     activity: action.command === 'resume' ? 'waiting_model' : null, approval: null, error: null,
-    ...(action.command === 'resume' ? {live: '', segment: '', lastResult: '', lastStatus: null, lastStopReason: null, metrics: null, contextSnapshots: [], hasStartedRun: true} : {})};
+    ...(action.command === 'resume' ? {live: '', segment: '', lastResult: '', lastStatus: null, lastStopReason: null, metrics: null, contextSnapshots: [], hasStartedRun: true, lastVerified: null, lastCompletion: null, lastAudit: null} : {})};
   if (action.type === 'notice') return append(state, 'notice', action.text);
   if (action.type === 'cancel') return {...state, phase: 'stopping', approval: null};
   if (action.type === 'approval_sent') return afterApproval(state);
@@ -149,13 +156,15 @@ export function reduceView(state: ViewState, action: Action): ViewState {
       return {...state, phase: 'starting', activity: 'initializing', workspace: event.workspace, model: event.model, error: null,
         provider: event.provider ?? '', sessionId: event.session_id, sessionPath: event.session_path ?? '',
         sessionPurpose: event.session_purpose ?? 'user', resumed: event.resumed ?? false,
-        skills: event.skills ?? []};
+        skills: event.skills ?? [],
+        ...(event.autonomy ? {autonomy: event.autonomy as AutonomyLevel, autonomyLabel: event.autonomy_label ?? AUTONOMY_LABELS[event.autonomy as AutonomyLevel] ?? ''} : {})};
     case 'history_message':
       return restoreMessage(state, event.message);
     case 'notice':
       return append(state, 'notice', event.message);
     case 'command_result':
       return {...append(state, 'notice', event.text), skills: event.skills ?? state.skills,
+        ...(event.autonomy ? {autonomy: event.autonomy as AutonomyLevel, autonomyLabel: AUTONOMY_LABELS[event.autonomy as AutonomyLevel] ?? state.autonomyLabel} : {}),
         phase: 'idle', activeId: null, activeCommand: null, activity: null, approval: null};
     case 'metrics': {
       const {v, type, id, ...metrics} = event;
@@ -193,7 +202,8 @@ export function reduceView(state: ViewState, action: Action): ViewState {
       return {...updated, activity: ongoingActivity(updated)};
     }
     case 'approval_request':
-      return {...flush(state), phase: 'waiting_approval', approval: {id: event.approval_id, tool: event.call.name, preview: event.preview, call: event.call, decisions: event.decisions}};
+      return {...flush(state), phase: 'waiting_approval', approval: {id: event.approval_id, tool: event.call.name, preview: event.preview, call: event.call, decisions: event.decisions,
+        tier: event.tier, tierLabel: event.tier_label, rule: event.rule}};
     case 'approval_resolved':
       return state.approval && state.approval.id !== event.approval_id ? state : afterApproval(state);
     case 'done': {
@@ -213,6 +223,9 @@ export function reduceView(state: ViewState, action: Action): ViewState {
         {...entry, pending: false, uncertain: true, output: '此调用没有确认结果；请先核对实际文件与进程状态。'} : entry),
         live: '', segment: '', activeId: null, activeCommand: null, activity: null, approval: null, phase: 'idle',
         lastStatus: event.result.status, lastStopReason: event.result.stop_reason || null,
+        lastVerified: event.result.verified ?? null,
+        lastCompletion: event.result.completion ?? null,
+        lastAudit: event.result.audit ?? null,
         lastResult: resultLabel(event.result.status, event.result.stop_reason)};
     }
     case 'error': {

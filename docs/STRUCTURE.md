@@ -11,7 +11,8 @@ mini-harness/
     models.py           # Message / ToolCall / Response
     budget.py           # BudgetPolicy：S/M/T/H/R 分区
     context.py          # ContextBuilder：预算 / 分组 / offload / summary
-    state.py            # TaskState：harness 侧任务进度
+    state.py            # TaskState / 完成守卫 / 文件变动与验证证据
+    rounds.py           # 一轮 run 的紧凑记录（不存正文）
     summarize.py        # 确定性摘要，只依赖标准库
 
   app/                  # Python 后端：模型、工具、审批、会话、eval
@@ -28,8 +29,10 @@ mini-harness/
     policy.py           # 审批闸、session allowlist、审计
     diff.py             # unified diff 预览
     sandbox.py          # 命令黑名单、超时、进程组 kill、输出截断
-    session.py          # JSONL 事件、state 投影、--continue、崩溃对账
+    session.py          # JSONL 事件、state 投影、轮次账本、--continue、崩溃对账
     trace.py            # TraceRecorder / Pricing
+    audit.py            # 只读环境审计：git 基线、文件 hash、完整性结论
+    evidence.py         # 最近一轮 RoundRecord 的中文证据摘要（/evidence，不存正文）
     instructions.py     # AGENTS.md 加载与注入
     skills.py           # 项目/本机发现、常驻注册目录、临时正文与来源边界
     bench_profile.py    # 跑分模式提示词（无人值守、容器内验证）
@@ -53,6 +56,7 @@ mini-harness/
       backend-launch.ts # 交互后端与只读会话列表共用启动环境
       protocol.ts       # JSONL v1 类型与运行时校验
       app.tsx           # 阅读焦点、滚动、输入、审批与取消
+      approval-view.ts  # 审批预览的层级解析与标题（T0–T4 前置显示）
       view-state.ts     # 实际活动、最终状态、完整消息与工具记录
       mascot.tsx       # 彩色像素猫 Mini 的 sprite 与半格渲染
       goal.ts          # /goal 目标状态、段决策、提示与上限
@@ -90,6 +94,8 @@ mini-harness/
   examples/demo-repo/   # 3 分钟 demo 仓库
   examples/skills.json  # 可提交的静态技能配置示例
   scripts/demo.sh       # 复制 demo 并启动 Ink 工作台
+  scripts/doctor.py     # 首用环境自检（--doctor；仅标准库，缺项给命令）
+  .env.example          # 环境变量模板（不含真实 key，.env 不提交）
   scripts/setup-ghostty-sidebar.sh # 写入右侧 quick terminal 配置（幂等）
   AGENTS.md             # 项目规则（自举）
 
@@ -103,6 +109,11 @@ mini-harness/
     test_tools.py
     test_agent.py
     test_agent_budget.py
+    test_completion_guard.py
+    test_evidence.py
+    test_file_changes.py
+    test_rounds.py
+    test_audit.py
     test_session.py
     test_trace.py
     test_eval.py

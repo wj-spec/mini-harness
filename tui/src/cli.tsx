@@ -27,6 +27,8 @@ const help = `vibe Ink — 个人编码工作台
   --sandbox               用 macOS Seatbelt 沙箱执行命令（写入限工作区，默认断网）
   --sandbox-network       沙箱内允许网络（隐含 --sandbox）
   --sandbox-network-allow HOSTS  沙箱内只允许这些域名（逗号分隔，隐含 --sandbox）
+  --autonomy LEVEL        授权档位：ask | edits | workspace | full
+  --doctor                环境自检（检查 Node / Python / 依赖 / API Key，不需要先装前端依赖）
   --help                  显示帮助
 
 支持会话恢复、MCP 启动与调用、分范围审批和可靠取消。
@@ -51,6 +53,8 @@ Ctrl+C 取消任务或 MCP 初始化，空闲时退出；Ctrl+Q 退出。
   /resume                       继续已保存的任务
   /permissions                  查看当前授权规则
   /permissions reset            清除当前进程授权规则
+  /evidence                     查看最近一轮验收证据（verified/审计/改动 hash）
+  /autonomy [LEVEL]             查看或切换授权档位：ask|edits|workspace|full
   /diff                         查看实际 Git 改动（执行前审批）
   /sidebar                      在当前窗口右侧分屏，跟随窗口尺寸（Ctrl+G；占用 TUI 宽度）
   /sidebar quick                屏幕右侧 quick terminal（不挤占 TUI；需先 /sidebar setup）

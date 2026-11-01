@@ -302,3 +302,41 @@ def test_apply_patch_gets_workspace_scope_and_autonomy(tmp_path):
     decision = asyncio.run(gate.request(call, "p", workspace=tmp_path))
     assert decision.allowed is True and handler.calls == []
 
+
+def test_describe_rules_empty_policy_returns_empty_tuple():
+    assert PermissionPolicy().describe_rules() == ()
+
+
+def test_describe_rules_renders_user_and_project_rules_with_note_and_prefix():
+    policy = _policy(
+        project={"rules": [
+            {"tool": "mcp_*", "tier": "exec", "scopes": ["once"]},
+            {"tool": "bash", "command_prefix": "rm -rf", "decision": "once",
+             "note": "删除类逐次确认"},
+        ]},
+        user={"rules": [
+            {"tool": "bash", "command_prefix": ["pytest", "npm test"],
+             "decision": "allow", "note": "本地测试"},
+            {"tool": "bash", "command_regex": r"^curl\s", "decision": "deny"},
+            {"tool": "web_search", "scopes": ["once"]},
+        ]},
+    )
+    lines = policy.describe_rules()
+    assert isinstance(lines, tuple)
+    assert lines == (
+        "- [project] mcp_* tier=exec scopes=once",
+        "- [project] bash prefix=rm -rf → once（删除类逐次确认）",
+        "- [user] bash prefix=pytest, npm test → allow（本地测试）",
+        "- [user] bash regex=^curl\\s → deny",
+        "- [user] web_search scopes=once",
+    )
+
+
+def test_describe_rules_includes_tier_scopes_decision_together():
+    policy = _policy(user={"rules": [
+        {"tool": "browser_*", "tier": "remote_action", "scopes": ["once"],
+         "decision": "deny", "note": "远端动作"},
+    ]})
+    (line,) = policy.describe_rules()
+    assert line == "- [user] browser_* tier=remote_action scopes=once → deny（远端动作）"
+

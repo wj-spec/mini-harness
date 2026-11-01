@@ -78,6 +78,13 @@ export function goalDecision(goal: GoalMode, result: RunResult, now = Date.now()
   const base = {...goal, totalTokens, totalCostUsd};
   const noticePrefix = `目标模式 · ${goalLabel(goal)}`;
   if (result.status === 'done') {
+    if (result.verified === false) {
+      return {
+        goal: {...base, active: false, pausedReason: 'unverified_completion'},
+        continue: false,
+        notice: `${noticePrefix} 完成未通过验证；检查回执后输入 /goal resume 继续`,
+      };
+    }
     return {
       goal: {...base, active: false, completed: true, pausedReason: null},
       continue: false,

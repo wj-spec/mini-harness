@@ -37,6 +37,16 @@ test('goal completes on done and pauses on non-resource failures', () => {
   assert.equal(paused.goal.pausedReason, 'no_progress');
 });
 
+test('unverified done pauses the goal instead of marking it complete', () => {
+  const done = {...result('done'), verified: false};
+  const decision = goalDecision(startGoal('完成并验证'), done);
+  assert.equal(decision.continue, false);
+  assert.equal(decision.goal.completed, false);
+  assert.equal(decision.goal.active, false);
+  assert.equal(decision.goal.pausedReason, 'unverified_completion');
+  assert.match(decision.notice, /未通过验证/);
+});
+
 test('goal segment and total limits stop without a new segment', () => {
   const goal = {...startGoal('长任务'), segment: 8};
   const maxSegments = goalDecision(goal, result('stopped', 'max_run_seconds'));

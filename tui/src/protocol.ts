@@ -8,21 +8,37 @@ export interface ToolCall {
 
 export type ApprovalDecision = 'once' | 'session' | 'workspace' | 'deny';
 export type SessionPurpose = 'user' | 'test';
-export const BACKEND_COMMANDS = ['resume', 'permissions', 'permissions_reset', 'cost', 'tools', 'diff', 'mcp', 'skills'] as const;
+export type AutonomyLevel = 'ask' | 'edits' | 'workspace' | 'full';
+export const AUTONOMY_LEVELS = ['ask', 'edits', 'workspace', 'full'] as const;
+export const AUTONOMY_LABELS: Record<AutonomyLevel, string> = {
+  ask: '每次询问',
+  edits: '自动改文件（工作区）',
+  workspace: '工作区自动（写入+执行）',
+  full: '完全执行（写入+执行+网络）',
+};
+export const BACKEND_COMMANDS = ['resume', 'permissions', 'permissions_reset', 'cost', 'tools', 'diff', 'mcp', 'skills', 'evidence', 'autonomy'] as const;
 export const COMMAND_COMPLETIONS = ['/help', '/resume', '/context', '/continue', '/cost', '/tools', '/diff', '/permissions',
-  '/permissions reset', '/mcp', '/skills', '/goal', '/session', '/theme', '/followup', '/copy', '/project', '/about', '/sidebar', '/sidebar split', '/sidebar quick', '/sidebar window', '/sidebar setup', '/quit', '/exit'] as const;
+  '/permissions reset', '/mcp', '/skills', '/goal', '/session', '/theme', '/followup', '/copy', '/project', '/about', '/sidebar', '/sidebar split', '/sidebar quick', '/sidebar window', '/sidebar setup', '/evidence', '/autonomy', '/quit', '/exit'] as const;
 export const COMMAND_DESCRIPTIONS: Record<string, string> = {
   '/help': '查看操作帮助', '/resume': '继续已保存的任务', '/context': '查看上下文与预算', '/continue': '同 /resume，继续任务',
   '/cost': '查看本轮与会话成本', '/tools': '查看工具调用统计', '/diff': '查看工作区改动', '/permissions': '查看审批规则',
   '/permissions reset': '恢复默认审批规则', '/mcp': '查看 MCP 服务', '/skills': '技能菜单（↑↓ 选择，Tab 补全）', '/goal': '目标模式：长任务自动续段', '/session': '查看会话路径',
   '/theme': '切换主题', '/followup': '排队后续任务', '/copy': '复制最近回复', '/project': '管理项目背景',
-  '/about': '管理个人偏好', '/sidebar': '打开右侧变更侧栏', '/sidebar split': '窗口内右侧分屏（跟随窗口）', '/sidebar quick': '屏幕右侧 quick terminal（不挤占）', '/sidebar window': '独立窗口模式（手动摆位）', '/sidebar setup': '写入 Ghostty 右侧配置', '/quit': '退出', '/exit': '退出',
+  '/about': '管理个人偏好', '/sidebar': '打开右侧变更侧栏', '/sidebar split': '窗口内右侧分屏（跟随窗口）', '/sidebar quick': '屏幕右侧 quick terminal（不挤占）', '/sidebar window': '独立窗口模式（手动摆位）', '/sidebar setup': '写入 Ghostty 右侧配置', '/evidence': '查看最近一轮验收证据', '/autonomy': '查看或切换授权档位', '/quit': '退出', '/exit': '退出',
 };
 export function commandMatches(value: string): string[] {
   return value.startsWith('/') && !value.includes('\n') ? COMMAND_COMPLETIONS.filter(command => command.startsWith(value)) : [];
 }
 export type BackendCommand = typeof BACKEND_COMMANDS[number];
 export type SkillsCommandArgs = {action?: 'list' | 'refresh' | 'activate' | 'unload'; name?: string};
+export type AutonomyCommandArgs = {level: AutonomyLevel};
+export type CommandArgs = SkillsCommandArgs | AutonomyCommandArgs;
+export function validateAutonomyArgs(value: unknown): asserts value is AutonomyCommandArgs {
+  if (!record(value) || Object.keys(value).some(key => key !== 'level') ||
+      !AUTONOMY_LEVELS.includes(value.level as AutonomyLevel)) {
+    throw new Error('autonomy 参数只允许 level=ask|edits|workspace|full');
+  }
+}
 export interface SkillInfo {name: string; summary: string; active: boolean; source?: string}
 
 function skillInfo(value: unknown): value is SkillInfo {
@@ -64,6 +80,32 @@ export interface CommandExecution {
   exit_code: number | null;
 }
 
+export interface ApprovalRule {
+  source: string;
+  tool: string;
+  decision?: string | null;
+  scopes?: string[] | null;
+  note?: string;
+  command_prefix?: string[];
+}
+
+export interface CompletionSummary {
+  allowed: boolean;
+  codes: string[];
+  messages: string[];
+}
+
+export interface AuditSummary {
+  status: string;
+  integrity: string;
+  verified: boolean;
+  findings?: string[];
+  unattributed?: string[];
+  changed_files?: number;
+  coverage?: string;
+  contract_audit?: string;
+}
+
 export interface RunResult {
   receipt?: string;
   text: string;
@@ -73,6 +115,9 @@ export interface RunResult {
   cost_usd: number;
   run_id: string;
   stop_reason: string;
+  verified?: boolean | null;
+  completion?: CompletionSummary | null;
+  audit?: AuditSummary | null;
 }
 
 export interface RunMetrics {
@@ -132,10 +177,10 @@ type Envelope<T extends string, P = Record<never, never>> = {
 } & P;
 
 export type ServerEvent =
-  | Envelope<'ready', {workspace: string; model: string; session_id: string; capabilities: string[]; provider?: string; session_path?: string; session_purpose?: SessionPurpose; resumed?: boolean; skills?: SkillInfo[]}>
+  | Envelope<'ready', {workspace: string; model: string; session_id: string; capabilities: string[]; provider?: string; session_path?: string; session_purpose?: SessionPurpose; resumed?: boolean; skills?: SkillInfo[]; autonomy?: string; autonomy_label?: string}>
   | Envelope<'history_message', {message: PersistedMessage}>
   | Envelope<'notice', {message: string}>
-  | Envelope<'command_result', {command: BackendCommand; text: string; skills?: SkillInfo[]}>
+  | Envelope<'command_result', {command: BackendCommand; text: string; skills?: SkillInfo[]; autonomy?: string}>
   | Envelope<'metrics', RunMetrics>
   | Envelope<'context_snapshot', {snapshot: ContextSnapshot}>
   | Envelope<'diagnostic', {message: string}>
@@ -143,7 +188,7 @@ export type ServerEvent =
   | Envelope<'text_delta', {delta: string}>
   | Envelope<'tool_call', {call: ToolCall}>
   | Envelope<'tool_result', {call: ToolCall; ok: boolean; output: string; execution?: CommandExecution}>
-  | Envelope<'approval_request', {approval_id: string; call: ToolCall; preview: string; decisions?: ApprovalDecision[]}>
+  | Envelope<'approval_request', {approval_id: string; call: ToolCall; preview: string; decisions?: ApprovalDecision[]; tier?: string; tier_label?: string; rule?: ApprovalRule}>
   | Envelope<'approval_resolved', {approval_id: string; decision: ApprovalDecision}>
   | Envelope<'done', {result: RunResult}>
   | Envelope<'ack', {action: 'cancel' | 'approval' | 'steer'}>
@@ -152,8 +197,9 @@ export type ServerEvent =
 
 export type ClientRequest = (
   | Envelope<'run', {text: string}>
-  | Envelope<'command', {command: Exclude<BackendCommand, 'skills'>}>
+  | Envelope<'command', {command: Exclude<BackendCommand, 'skills' | 'autonomy'>}>
   | Envelope<'command', {command: 'skills'; args?: SkillsCommandArgs}>
+  | Envelope<'command', {command: 'autonomy'; args: AutonomyCommandArgs}>
   | Envelope<'cancel', {target: string}>
   | Envelope<'steer', {target: string; text: string}>
   | Envelope<'approval', {approval_id: string; decision: ApprovalDecision}>
@@ -193,12 +239,46 @@ function execution(value: unknown): value is CommandExecution {
   return true;
 }
 
+function stringList(value: unknown, maxLength = 50): value is string[] {
+  return Array.isArray(value) && value.length <= maxLength && value.every(item => typeof item === 'string');
+}
+
+function completionSummary(value: unknown): value is CompletionSummary {
+  return record(value) && typeof value.allowed === 'boolean' && stringList(value.codes) && stringList(value.messages);
+}
+
+function auditSummary(value: unknown): value is AuditSummary {
+  return record(value) && typeof value.status === 'string' && typeof value.integrity === 'string' &&
+    typeof value.verified === 'boolean' &&
+    (value.findings === undefined || stringList(value.findings)) &&
+    (value.unattributed === undefined || stringList(value.unattributed)) &&
+    (value.changed_files === undefined || safeInteger(value.changed_files)) &&
+    (value.coverage === undefined || typeof value.coverage === 'string') &&
+    (value.contract_audit === undefined || typeof value.contract_audit === 'string');
+}
+
+function approvalRule(value: unknown): value is ApprovalRule {
+  return record(value) && typeof value.source === 'string' && value.source.length <= 40 &&
+    typeof value.tool === 'string' && value.tool.length <= 200 &&
+    (value.decision === undefined || value.decision === null || typeof value.decision === 'string') &&
+    (value.scopes === undefined || value.scopes === null || stringList(value.scopes)) &&
+    (value.note === undefined || typeof value.note === 'string') &&
+    (value.command_prefix === undefined || stringList(value.command_prefix));
+}
+
+function autonomyLevel(value: unknown): value is AutonomyLevel {
+  return typeof value === 'string' && AUTONOMY_LEVELS.includes(value as AutonomyLevel);
+}
+
 function runResult(value: unknown): value is RunResult {
   return record(value) && typeof value.text === 'string' &&
     typeof value.steps === 'number' && Number.isInteger(value.steps) && value.steps >= 0 &&
     ['done', 'stopped', 'cancelled', 'error', 'truncated'].includes(String(value.status)) &&
     record(value.usage) && typeof value.cost_usd === 'number' && Number.isFinite(value.cost_usd) &&
-    typeof value.run_id === 'string' && typeof value.stop_reason === 'string';
+    typeof value.run_id === 'string' && typeof value.stop_reason === 'string' &&
+    (value.verified === undefined || value.verified === null || typeof value.verified === 'boolean') &&
+    (value.completion === undefined || value.completion === null || completionSummary(value.completion)) &&
+    (value.audit === undefined || value.audit === null || auditSummary(value.audit));
 }
 
 function safeInteger(value: unknown, signed = false): value is number {
@@ -264,13 +344,16 @@ export function parseServerEvent(line: string): ServerEvent {
         (value.session_path === undefined || typeof value.session_path === 'string') &&
         (value.session_purpose === undefined || value.session_purpose === 'user' || value.session_purpose === 'test') &&
         (value.resumed === undefined || typeof value.resumed === 'boolean') &&
-        (value.skills === undefined || skillList(value.skills));
+        (value.skills === undefined || skillList(value.skills)) &&
+        (value.autonomy === undefined || autonomyLevel(value.autonomy)) &&
+        (value.autonomy_label === undefined || (typeof value.autonomy_label === 'string' && value.autonomy_label.length <= 80));
       break;
     case 'history_message': valid = value.id === null && message(value.message); break;
     case 'notice': valid = value.id === null && typeof value.message === 'string'; break;
     case 'command_result':
       valid = validId(value.id) && BACKEND_COMMANDS.includes(value.command as BackendCommand) && typeof value.text === 'string' &&
-        (value.skills === undefined || skillList(value.skills));
+        (value.skills === undefined || skillList(value.skills)) &&
+        (value.autonomy === undefined || autonomyLevel(value.autonomy));
       break;
     case 'metrics':
       valid = (validId(value.id) || (value.id === null && value.used_tokens === 0 &&
@@ -298,7 +381,10 @@ export function parseServerEvent(line: string): ServerEvent {
       valid = validId(value.id) && validId(value.approval_id) && toolCall(value.call) && typeof value.preview === 'string' &&
         (value.decisions === undefined || (Array.isArray(value.decisions) && value.decisions.includes('deny') &&
           value.decisions.every(decision => approvalDecisions.includes(String(decision))) &&
-          new Set(value.decisions).size === value.decisions.length));
+          new Set(value.decisions).size === value.decisions.length)) &&
+        (value.tier === undefined || typeof value.tier === 'string') &&
+        (value.tier_label === undefined || (typeof value.tier_label === 'string' && value.tier_label.length <= 80)) &&
+        (value.rule === undefined || approvalRule(value.rule));
       break;
     case 'approval_resolved':
       valid = validId(value.id) && validId(value.approval_id) && approvalDecisions.includes(String(value.decision));
@@ -313,7 +399,7 @@ export function parseServerEvent(line: string): ServerEvent {
 }
 
 const booleanArgs = new Set(['--fake', '--chat-only', '--continue', '--list-sessions', '--test-session', '--sandbox', '--sandbox-network']);
-const valueArgs = new Set(['--workspace', '--provider', '--model', '--base-url', '--max-steps', '--session', '--sandbox-network-allow']);
+const valueArgs = new Set(['--workspace', '--provider', '--model', '--base-url', '--max-steps', '--session', '--sandbox-network-allow', '--autonomy']);
 
 export function validateClientArgs(args: readonly string[]): string[] {
   const checked: string[] = [];
@@ -337,6 +423,9 @@ export function validateClientArgs(args: readonly string[]): string[] {
     }
     if (arg === '--max-steps' && (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value)))) {
       throw new Error('--max-steps 必须是非负整数（0 表示不限）');
+    }
+    if (arg === '--autonomy' && !AUTONOMY_LEVELS.includes(value as AutonomyLevel)) {
+      throw new Error('--autonomy 必须是 ask|edits|workspace|full');
     }
     checked.push(arg, value);
     index += 1;

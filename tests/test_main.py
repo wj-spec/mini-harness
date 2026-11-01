@@ -117,6 +117,27 @@ def test_stdio_eval_still_rejected(tmp_path, monkeypatch, capsys):
     assert "eval" in capsys.readouterr().err
 
 
+def test_stdio_wires_completion_guard_audit_and_round_sink(tmp_path, monkeypatch):
+    from app import stdio
+
+    opened = []
+    monkeypatch.setattr(
+        stdio, "run_stdio",
+        lambda agent, config, **kwargs: opened.append((agent, kwargs)),
+    )
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path))
+    monkeypatch.setattr(sys, "argv", ["vibe", "--fake", "--stdio"])
+
+    entrypoint.main()
+
+    agent, options = opened[0]
+    assert agent.completion_guard is True
+    assert agent.workspace_audit is True
+    assert agent.on_round is not None
+    assert agent.on_round.__self__ is options["session"]
+    assert agent.on_round.__func__.__name__ == "save_round"
+
+
 def test_list_sessions_does_not_initialize_provider_or_mcp(tmp_path, monkeypatch, capsys):
     session = SessionStore.new(tmp_path, "m")
     session.append_message(Message("user", "查找这条会话\n不要展示正文"))

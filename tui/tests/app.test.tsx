@@ -528,12 +528,12 @@ test('slash opens a scrollable command menu without overflowing the frame', asyn
   let frame = lastFrame() ?? '';
   assert.match(frame, /› \/help/);
   assert.match(frame, /查看操作帮助/);
-  assert.match(frame, /↑↓ 选择 · Tab 填充 · 1\/25/);
+  assert.match(frame, /↑↓ 选择 · Tab 填充 · 1\/27/);
   assert.ok(frame.split('\n').length <= 24);
   for (const line of frame.split('\n')) assert.ok(stringWidth(line) <= 80, line);
   stdin.write('\u001b[B');
   await pause(15);
-  assert.match(lastFrame() ?? '', /2\/25/);
+  assert.match(lastFrame() ?? '', /2\/27/);
   stdin.write('\t');
   await pause(15);
   frame = lastFrame() ?? '';
@@ -1370,5 +1370,114 @@ test('about audit shows recent profile actions', async () => {
     assert.match(lastFrame() ?? '', /add · 1 条/u);
   } finally {
     await rm(directory, {recursive: true, force: true});
+  }
+});
+
+test('unverified completion is a visible warning state and receipt card', async () => {
+  const client = new MockClient();
+  const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 80, rows: 24}}/>);
+  await pause(20);
+  client.emit({type: 'ready', workspace: '/repo', model: 'fake', session_id: 's', capabilities: [], autonomy: 'ask', autonomy_label: '每次询问'});
+  client.emit({type: 'status', phase: 'idle'});
+  await pause(20);
+  await enter(stdin, '修复 calc.py');
+  assert.deepEqual(client.runs, ['修复 calc.py']);
+  client.emit({type: 'done', id: 'run-1', result: {
+    text: '已修复并完成。', steps: 2, status: 'done', usage: {}, cost_usd: 0, run_id: 'run-1', stop_reason: '',
+    verified: false,
+    completion: {allowed: false, codes: ['no_verification'], messages: ['有文件改动，但没有记录到验证命令']},
+    audit: {status: 'incomplete', integrity: 'clean', verified: false, changed_files: 1, coverage: 'full'},
+    receipt: '[运行结束] status=done steps=2\n[任务验收] 未验证：有文件改动，但没有记录到验证命令\n完成判定：未通过：有文件改动，但没有记录到验证命令',
+  }});
+  await pause(30);
+  const frame = lastFrame() ?? '';
+  assert.match(frame, /本轮结束 · 待验证|完成待验证/);
+  assert.match(frame, /验收未通过/);
+  assert.match(frame, /完成判定：未通过/);
+  assert.doesNotMatch(frame, /已完成 · 已验证/);
+});
+
+test('verified completion is distinguished from unverified completion', async () => {
+  const client = new MockClient();
+  const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}/>);
+  await pause(20);
+  client.emit({type: 'ready', workspace: '/repo', model: 'fake', session_id: 's', capabilities: [], autonomy: 'edits', autonomy_label: '自动改文件'});
+  client.emit({type: 'status', phase: 'idle'});
+  await pause(20);
+  await enter(stdin, '修复并验证');
+  client.emit({type: 'done', id: 'run-1', result: {
+    text: '已修复并验证。', steps: 3, status: 'done', usage: {}, cost_usd: 0, run_id: 'run-1', stop_reason: '',
+    verified: true,
+    completion: {allowed: true, codes: [], messages: []},
+    audit: {status: 'complete', integrity: 'clean', verified: true, changed_files: 1, coverage: 'full'},
+    receipt: '[运行结束] status=done steps=3\n[任务验收] 已验证（有环境证据）；仍需你核对是否满足原始需求\n环境审计：status=complete integrity=clean verified=True',
+  }});
+  await pause(30);
+  const frame = lastFrame() ?? '';
+  assert.match(frame, /本轮结束 · 已验证|已完成 · 已验证/);
+  assert.match(frame, /验收通过/);
+  assert.match(frame, /授权 edits · 自动改文件/);
+});
+
+test('/evidence and /autonomy reach the backend and sync the autonomy badge', async () => {
+  const client = new MockClient();
+  const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}/>);
+  await pause(20);
+  client.emit({type: 'ready', workspace: '/repo', model: 'fake', session_id: 's', capabilities: [], autonomy: 'ask', autonomy_label: '每次询问'});
+  client.emit({type: 'status', phase: 'idle'});
+  await pause(20);
+
+  await enter(stdin, '/evidence');
+  assert.deepEqual(client.commands, ['evidence']);
+  client.emit({type: 'command_result', id: 'command-1', command: 'evidence', text: '最近一轮：round_001\n完成判定：未通过（no_verification）'});
+  await pause(20);
+  assert.match(lastFrame() ?? '', /round_001/);
+
+  await enter(stdin, '/autonomy');
+  assert.deepEqual(client.commands, ['evidence']);
+  assert.match(lastFrame() ?? '', /当前授权档位：ask · 每次询问/);
+
+  await enter(stdin, '/autonomy edits');
+  assert.deepEqual(client.commands, ['evidence', 'autonomy']);
+  assert.deepEqual(client.commandArgs[1], {level: 'edits'});
+  client.emit({type: 'command_result', id: 'command-2', command: 'autonomy', text: '授权档位已切换：edits（自动改文件）', autonomy: 'edits'});
+  await pause(20);
+  assert.match(lastFrame() ?? '', /授权档位已切换：edits/);
+  assert.match(lastFrame() ?? '', /授权 edits/);
+});
+
+test('approval panel moves the tier into the title instead of the preview tail', async () => {
+  const client = new MockClient();
+  const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 80, rows: 24}}/>);
+  await pause(20);
+  client.emit({type: 'ready', workspace: '/repo', model: 'fake', session_id: 's', capabilities: []});
+  client.emit({type: 'status', phase: 'idle'});
+  await pause(20);
+  await enter(stdin, '改一下 a.txt');
+  client.emit({type: 'approval_request', id: 'run-1', approval_id: 'a1',
+    call: {id: 'c1', name: 'write_file', args: {path: 'a.txt'}},
+    preview: '--- a/a.txt\n+++ b/a.txt\n+hello\n\n[审批层] T1 工作区写入',
+    decisions: ['once', 'session', 'workspace', 'deny'],
+    tier: 'write', tier_label: 'T1 工作区写入',
+    rule: {source: 'project', tool: 'write_file', decision: 'once', note: '项目要求逐次'}});
+  await pause(25);
+  const frame = lastFrame() ?? '';
+  assert.match(frame, /审批 · T1 工作区写入 · write_file/);
+  assert.match(frame, /层级：T1 工作区写入/);
+  assert.match(frame, /命中规则：\[project\] write_file → once · 项目要求逐次/);
+  assert.ok(frame.split('\n').every(line => stringWidth(line) <= 80));
+});
+
+test('fake demo mode prefills an actionable demo prompt', async () => {
+  const previous = process.env.VIBE_FAKE_DEMO;
+  process.env.VIBE_FAKE_DEMO = '1';
+  try {
+    const client = new MockClient();
+    const {lastFrame} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 100, rows: 30}}/>);
+    await pause(20);
+    assert.match(lastFrame() ?? '', /创建 \.vibe\/fake-demo\.txt 并验证/);
+  } finally {
+    if (previous === undefined) delete process.env.VIBE_FAKE_DEMO;
+    else process.env.VIBE_FAKE_DEMO = previous;
   }
 });

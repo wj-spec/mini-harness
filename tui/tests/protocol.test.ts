@@ -196,3 +196,58 @@ test('ready and skills command results carry an optional structured catalog', ()
   assert.equal(parseServerEvent(JSON.stringify({...result, skills})).type, 'command_result');
   assert.equal(parseServerEvent(JSON.stringify({...result, skills: undefined})).type, 'command_result');
 });
+
+test('accepts autonomy ready/command payloads and verified completion summaries', () => {
+  const ready = {v: 1, type: 'ready', id: null, workspace: '/repo', model: 'm', session_id: 's', capabilities: [], autonomy: 'edits', autonomy_label: '自动改文件'};
+  assert.equal(Reflect.get(parseServerEvent(JSON.stringify(ready)), 'autonomy'), 'edits');
+  assert.equal(parseServerEvent(JSON.stringify({...ready, autonomy: undefined, autonomy_label: undefined})).type, 'ready');
+  for (const autonomy of ['ask', 'edits', 'workspace', 'full']) {
+    assert.equal(parseServerEvent(JSON.stringify({v: 1, type: 'command_result', id: 'c', command: 'autonomy', text: 'ok', autonomy})).type, 'command_result');
+  }
+  for (const autonomy of ['auto', '', 1, null]) {
+    assert.throws(() => parseServerEvent(JSON.stringify({...ready, autonomy})));
+  }
+
+  const done = {v: 1, type: 'done', id: 'r', result: {
+    text: '', steps: 1, status: 'done', usage: {}, cost_usd: 0, run_id: 'r', stop_reason: '', verified: false,
+    completion: {allowed: false, codes: ['no_verification'], messages: ['有文件改动，但没有记录到验证命令']},
+    audit: {status: 'incomplete', integrity: 'clean', verified: false, changed_files: 1, coverage: 'full', unattributed: [], findings: []},
+  }};
+  assert.equal(parseServerEvent(JSON.stringify(done)).type, 'done');
+  assert.equal(parseServerEvent(JSON.stringify({...done, result: {...done.result, verified: true, completion: null, audit: null}})).type, 'done');
+  for (const change of [
+    {verified: 'no'},
+    {completion: {allowed: false, codes: [1], messages: []}},
+    {audit: {status: 'incomplete', integrity: 'clean', verified: 'yes'}},
+    {audit: {status: 'incomplete', integrity: 'clean', verified: false, changed_files: -1}},
+  ]) {
+    assert.throws(() => parseServerEvent(JSON.stringify({...done, result: {...done.result, ...change}})), JSON.stringify(change));
+  }
+});
+
+test('CLI accepts --autonomy and rejects missing or invalid levels', () => {
+  assert.deepEqual(validateClientArgs(['--workspace', '/repo', '--autonomy', 'edits']), ['--workspace', '/repo', '--autonomy', 'edits']);
+  for (const level of ['ask', 'edits', 'workspace', 'full']) {
+    assert.deepEqual(validateClientArgs(['--autonomy', level]), ['--autonomy', level]);
+  }
+  for (const bad of ['auto', 'edits x', '']) {
+    assert.throws(() => validateClientArgs(['--autonomy', bad]));
+  }
+  assert.throws(() => validateClientArgs(['--autonomy']));
+  assert.throws(() => validateClientArgs(['--autonomy', '--fake']));
+});
+
+test('approval requests may carry structured tier and matched rule context', () => {
+  const base = {v: 1, type: 'approval_request', id: 'r', approval_id: 'a',
+    call: {id: null, name: 'write_file', args: {path: 'a.txt'}}, preview: 'diff', decisions: ['once', 'deny']};
+  const enriched = {...base, tier: 'write', tier_label: 'T1 工作区写入',
+    rule: {source: 'project', tool: 'write_file', decision: 'once', note: '项目要求逐次', scopes: ['once']}};
+  assert.equal(parseServerEvent(JSON.stringify(enriched)).type, 'approval_request');
+  assert.equal(parseServerEvent(JSON.stringify(base)).type, 'approval_request');
+  for (const change of [
+    {tier: 1}, {tier_label: 2}, {rule: 'write_file'},
+    {rule: {source: 'project'}}, {rule: {source: 'project', tool: 'x', scopes: ['once', 1]}},
+  ]) {
+    assert.throws(() => parseServerEvent(JSON.stringify({...enriched, ...change})), JSON.stringify(change));
+  }
+});

@@ -140,3 +140,18 @@ def test_cli_max_steps_overrides_environment_even_when_zero(tmp_path, monkeypatc
     entrypoint.main()
 
     assert captured == [max_steps]
+
+
+def test_completion_guard_and_audit_default_on_and_can_be_disabled(monkeypatch):
+    monkeypatch.delenv("VIBE_COMPLETION_GUARD", raising=False)
+    monkeypatch.delenv("VIBE_WORKSPACE_AUDIT", raising=False)
+    assert Config().completion_guard is True
+    assert Config().workspace_audit is True
+    assert Config.from_env().completion_guard is True
+    assert Config.from_env().workspace_audit is True
+
+    monkeypatch.setenv("VIBE_COMPLETION_GUARD", "0")
+    monkeypatch.setenv("VIBE_WORKSPACE_AUDIT", "false")
+    config = Config.from_env()
+    assert config.completion_guard is False
+    assert config.workspace_audit is False

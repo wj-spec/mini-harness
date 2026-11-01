@@ -8,13 +8,15 @@ from pathlib import Path
 
 import pytest
 
+from app import permissions
 from app.agent import Agent
 from app.config import Config
 from app.events import StreamDone, TextDelta
+from app.permission_policy import PermissionPolicy, Rule
 from app.policy import ApprovalGate
 from app.providers.fake import FakeProvider
 from app.session import SessionStore
-from app.stdio import MAX_FRAME_BYTES, _Connection, serve
+from app.stdio import MAX_FRAME_BYTES, _Connection, _completion_rejected_message, approval_rule_context, serve
 from app.tools import ToolRegistry
 from core.context import ContextBuilder
 from core.models import Response, ToolCall
@@ -364,6 +366,7 @@ from pathlib import Path
 import sys
 from app.agent import Agent
 from app.config import Config
+from app.permission_policy import PermissionPolicy, Rule
 from app.policy import ApprovalGate
 from app.providers.fake import FakeProvider
 from app.stdio import run_stdio
@@ -409,6 +412,7 @@ from pathlib import Path
 import sys
 from app.agent import Agent
 from app.config import Config
+from app.permission_policy import PermissionPolicy, Rule
 from app.policy import ApprovalGate
 from app.providers.fake import FakeProvider
 from app.stdio import run_stdio
@@ -472,3 +476,239 @@ def test_ready_and_skills_command_expose_structured_catalog(tmp_path):
         await harness.close()
 
     asyncio.run(scenario())
+
+
+def test_ready_exposes_autonomy_and_label(tmp_path):
+    async def scenario():
+        agent = Agent(
+            FakeProvider([]), ToolRegistry(tmp_path), approval=ApprovalGate(), autonomy="edits",
+        )
+        harness = Harness(agent, Config(workspace=tmp_path))
+        ready = await harness.until("ready")
+        assert ready["autonomy"] == "edits"
+        assert ready["autonomy_label"] == permissions.AUTONOMY_LABELS["edits"]
+        await harness.close()
+
+    asyncio.run(scenario())
+
+
+def test_autonomy_command_switches_level_and_reports_effective(tmp_path):
+    async def scenario():
+        agent = agent_for(tmp_path, [])
+        harness = Harness(agent, Config(workspace=tmp_path))
+        await harness.until("ready")
+        harness.send("command", "c1", command="autonomy", args={"level": "edits"})
+        result = await harness.until("command_result", "c1")
+        assert result["command"] == "autonomy"
+        assert result["autonomy"] == "edits"
+        assert agent.autonomy == "edits"
+        assert agent._cli_autonomy == "edits"
+        assert agent.approval.autonomy == "edits"
+        assert "授权档位已切换：edits" in result["text"]
+        assert permissions.AUTONOMY_LABELS["edits"] in result["text"]
+        await harness.close()
+
+    asyncio.run(scenario())
+
+
+def test_autonomy_command_respects_project_cap(tmp_path):
+    policy_file = tmp_path / ".vibe" / "permissions.json"
+    policy_file.parent.mkdir(parents=True)
+    policy_file.write_text(
+        json.dumps({"version": 1, "autonomy": "ask", "rules": []}), encoding="utf-8",
+    )
+
+    async def scenario():
+        agent = agent_for(tmp_path, [])
+        assert agent.permission_policy.autonomy_cap == "ask"
+        harness = Harness(agent, Config(workspace=tmp_path))
+        await harness.until("ready")
+        harness.send("command", "c1", command="autonomy", args={"level": "full"})
+        result = await harness.until("command_result", "c1")
+        assert result["autonomy"] == "ask"
+        assert agent.autonomy == "ask"
+        assert "项目上限" in result["text"]
+        await harness.close()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("frame", [
+    '{"v":1,"type":"command","id":"bad","command":"autonomy"}',
+    '{"v":1,"type":"command","id":"bad","command":"autonomy","args":null}',
+    '{"v":1,"type":"command","id":"bad","command":"autonomy","args":{}}',
+    '{"v":1,"type":"command","id":"bad","command":"autonomy","args":{"level":"yolo"}}',
+    '{"v":1,"type":"command","id":"bad","command":"autonomy","args":{"level":"edits","extra":1}}',
+    '{"v":1,"type":"command","id":"bad","command":"autonomy","args":{"level":1}}',
+])
+def test_invalid_autonomy_args_are_rejected(tmp_path, frame):
+    async def scenario():
+        agent = agent_for(tmp_path, [])
+        initial = agent.autonomy
+        harness = Harness(agent, Config(workspace=tmp_path))
+        harness.incoming.put_nowait(frame)
+        assert (await harness.until("error"))["code"] == "invalid_request"
+        assert agent.autonomy == initial
+        await harness.close()
+
+    asyncio.run(scenario())
+
+
+def test_evidence_command_without_rounds(tmp_path):
+    async def scenario():
+        harness = Harness(agent_for(tmp_path, []), Config(workspace=tmp_path))
+        harness.send("command", "c1", command="evidence")
+        result = await harness.until("command_result", "c1")
+        assert result["command"] == "evidence"
+        assert result["text"] == "当前会话还没有轮次记录。完成一次任务后再查看。"
+        await harness.close()
+
+    asyncio.run(scenario())
+
+
+async def _run_approving_once(harness, request_id, text):
+    """跑一次任务：stdio 会接管 approval.handler，因此按协议批准一次。"""
+    harness.send("run", request_id, text=text)
+    approval = await harness.until("approval_request")
+    harness.send("approval", f"a-{request_id}", approval_id=approval["approval_id"],
+                 decision="once")
+    await harness.until("ack", f"a-{request_id}")
+    return await harness.until("done", request_id)
+
+
+def test_evidence_command_renders_latest_round(tmp_path):
+    session = SessionStore.new(tmp_path, "fake")
+    provider = FakeProvider([
+        Response(tool_calls=[ToolCall(
+            "write_file", {"path": "notes.txt", "content": "new"}, id="w1",
+        )]),
+        "done without verification",
+        "still done",
+    ])
+    agent = Agent(
+        provider, ToolRegistry(tmp_path), approval=ApprovalGate(),
+        completion_guard=True, workspace_audit=True, on_round=session.save_round,
+    )
+
+    async def scenario():
+        harness = Harness(agent, Config(workspace=tmp_path), session=session)
+        await harness.until("ready")
+        done = await _run_approving_once(harness, "r1", "修改 notes.txt")
+        assert done["result"]["verified"] is False
+        harness.send("command", "c1", command="evidence")
+        result = await harness.until("command_result", "c1")
+        text = result["text"]
+        assert "最近一轮证据" in text
+        assert "完成判定" in text and "verified=false" in text
+        assert "环境审计" in text and "coverage=limited" in text
+        assert "notes.txt" in text
+        await harness.close()
+
+    asyncio.run(scenario())
+
+
+def test_permissions_text_lists_policy_rules(tmp_path):
+    policy_file = tmp_path / ".vibe" / "permissions.json"
+    policy_file.parent.mkdir(parents=True)
+    policy_file.write_text(json.dumps({
+        "version": 1,
+        "rules": [{"tool": "bash", "command_prefix": "rm", "decision": "once",
+                   "note": "删除逐次确认"}],
+    }, ensure_ascii=False), encoding="utf-8")
+
+    async def scenario():
+        agent = agent_for(tmp_path, [])
+        harness = Harness(agent, Config(workspace=tmp_path))
+        await harness.until("ready")
+        harness.send("command", "c1", command="permissions")
+        result = await harness.until("command_result", "c1")
+        text = result["text"]
+        assert "策略规则明细" in text
+        assert "- [project] bash prefix=rm → once（删除逐次确认）" in text
+        assert result["autonomy"] == agent.autonomy
+        harness.send("command", "c2", command="permissions_reset")
+        reset = await harness.until("command_result", "c2")
+        assert reset["autonomy"] == agent.autonomy
+        await harness.close()
+
+    asyncio.run(scenario())
+
+
+def test_completion_rejected_emits_notice_with_guard_reason(tmp_path):
+    provider = FakeProvider([
+        Response(tool_calls=[ToolCall(
+            "write_file", {"path": "a.txt", "content": "new"}, id="w1",
+        )]),
+        "done without verification",
+        "still done",
+    ])
+    agent = Agent(
+        provider, ToolRegistry(tmp_path), approval=ApprovalGate(),
+        completion_guard=True, workspace_audit=False,
+    )
+
+    async def scenario():
+        harness = Harness(agent, Config(workspace=tmp_path))
+        done = await _run_approving_once(harness, "r1", "修改 a.txt")
+        assert done["result"]["verified"] is False
+        notices = [event for event in harness.events
+                   if event["type"] == "notice" and "完成守卫" in event["message"]]
+        assert len(notices) == 1
+        assert notices[0]["id"] is None
+        assert "有文件改动但没有验证命令" in notices[0]["message"]
+        assert "已要求模型补验证" in notices[0]["message"]
+        await harness.close()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("code,explanation", [
+    ("no_verification", "有文件改动但没有验证命令"),
+    ("mutation_after_verification", "最后一次改动发生在验证之后"),
+    ("last_verification_failed", "最后一次验证命令失败"),
+])
+def test_completion_rejected_notice_explains_codes(code, explanation):
+    message = _completion_rejected_message({"codes": [code]})
+    assert message.startswith("完成守卫：")
+    assert explanation in message
+    assert "已要求模型补验证" in message
+
+
+def test_completion_rejected_notice_keeps_unknown_code():
+    message = _completion_rejected_message({"codes": ["no_verification", "future_code"]})
+    assert "有文件改动但没有验证命令" in message
+    assert "future_code" in message
+
+
+def test_diff_command_approval_preview_includes_tier(tmp_path):
+    async def scenario():
+        agent = agent_for(tmp_path, [])
+        harness = Harness(agent, Config(workspace=tmp_path))
+        harness.send("command", "c1", command="diff")
+        request = await harness.until("approval_request")
+        assert request["call"]["name"] == "bash"
+        assert "[审批层] T2 本地执行" in request["preview"]
+        harness.send("approval", "a1", approval_id=request["approval_id"], decision="deny")
+        result = await harness.until("command_result", "c1")
+        assert "未获授权" in result["text"]
+        await harness.close()
+
+    asyncio.run(scenario())
+
+
+def test_approval_rule_context_reports_tier_and_matched_rule(tmp_path):
+    agent = agent_for(tmp_path, [])
+    agent.permission_policy = PermissionPolicy((
+        Rule(source="user", tool="bash", decision="once",
+             command_prefix=("pytest",), note="本地测试"),
+    ))
+    matched = approval_rule_context(agent, ToolCall("bash", {"command": "pytest -q"}))
+    assert matched["tier"] == "exec"
+    assert matched["tier_label"] == "T2 本地执行"
+    assert matched["rule"]["source"] == "user"
+    assert matched["rule"]["decision"] == "once"
+    assert matched["rule"]["note"] == "本地测试"
+
+    unmatched = approval_rule_context(agent, ToolCall("read_file", {"path": "a.txt"}))
+    assert unmatched["tier"] == "read"
+    assert "rule" not in unmatched

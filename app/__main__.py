@@ -17,12 +17,33 @@ from app.providers.fake import FakeProvider
 from app.providers.openai_compat import OpenAICompatProvider
 from app.tools import ToolRegistry
 from core.context import ContextBuilder
+from core.models import Response, ToolCall
 from core.state import TaskState
 from core.summarize import summarize_messages
 
 
+def _fake_demo_script() -> list:
+    """无需 API key 的确定性演示：写文件 → 审批 → 验证 → 回执。
+
+    只写 .vibe/（运行时产物目录），不碰用户源码；需要用户在审批面板确认两步。
+    """
+    return [
+        Response(tool_calls=[ToolCall(
+            "write_file", {"path": ".vibe/fake-demo.txt", "content": "fake demo\n"}, id="fake-demo-w1",
+        )]),
+        Response(tool_calls=[ToolCall(
+            "bash", {"command": "test -f .vibe/fake-demo.txt", "verification": True},
+            id="fake-demo-b1",
+        )]),
+        "fake 演示完成：写文件 → 审批 → 验证。输入 /evidence 查看最近一轮证据；"
+        "配好 VIBE_API_KEY 后可以直接跑真实任务。",
+    ]
+
+
 def build_provider(config: Config, fake: bool, debug_path=None):
     if fake or config.provider == "fake":
+        if os.getenv("VIBE_FAKE_DEMO", "").strip().lower() in {"1", "true", "yes"}:
+            return FakeProvider(_fake_demo_script())
         return FakeProvider(
             [
                 "这是 fake provider。设 VIBE_API_KEY 后，用 --provider openai 接真模型。",
@@ -269,6 +290,9 @@ def _run(config, session, tools, approval, provider, context, state, history, ar
         pricing=pricing,
         project_instructions=instructions,
         autonomy=config.autonomy or None,
+        completion_guard=config.completion_guard,
+        workspace_audit=config.workspace_audit,
+        on_round=session.save_round,
     )
     if not args.stdio:
         raise SystemExit(2)  # main() 已拦截；保留防御，避免误走交互入口。

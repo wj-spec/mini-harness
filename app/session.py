@@ -13,6 +13,7 @@ from core.state import TaskState
 
 
 SessionPurpose = Literal["user", "test"]
+STATE_SCHEMA_VERSION = 2
 
 
 def _validate_purpose(purpose: SessionPurpose) -> None:
@@ -312,7 +313,10 @@ class SessionStore:
 
     def save_state(self, state: TaskState) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
-        payload = json.dumps(asdict(state), ensure_ascii=False, indent=2)
+        payload = json.dumps(
+            {"state_version": STATE_SCHEMA_VERSION, **asdict(state)},
+            ensure_ascii=False, indent=2,
+        )
         temporary = self.state_path.with_name(self.state_path.name + ".tmp")
         try:
             temporary.write_text(payload, encoding="utf-8")
@@ -324,9 +328,66 @@ class SessionStore:
         if not self.state_path.exists():
             return None
         try:
-            return TaskState(**json.loads(self.state_path.read_text(encoding="utf-8")))
+            data = json.loads(self.state_path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                data.pop("state_version", None)
+            return TaskState(**data)
         except (json.JSONDecodeError, TypeError):
             return None
+
+    @property
+    def rounds_dir(self) -> Path:
+        return self.root / "rounds"
+
+    def save_round(self, record: dict) -> Path:
+        """追加一轮不可变记录；轮次编号由已有文件推导，原子写。"""
+        if not isinstance(record, dict):
+            raise ValueError("round record must be a dict")
+        if not isinstance(record.get("run_id"), str) or not record["run_id"]:
+            raise ValueError("round record requires run_id")
+        if not isinstance(record.get("schema_version"), int):
+            raise ValueError("round record requires integer schema_version")
+        rounds_dir = self.rounds_dir
+        rounds_dir.mkdir(parents=True, exist_ok=True)
+        indexes: list[int] = []
+        for path in rounds_dir.glob("round_*.json"):
+            try:
+                indexes.append(int(path.stem.split("_", 1)[1]))
+            except (IndexError, ValueError):
+                continue
+        index = (max(indexes) if indexes else 0) + 1
+        payload = dict(record)
+        payload["round_index"] = index
+        payload["saved_at"] = datetime.now(timezone.utc).isoformat()
+        target = rounds_dir / f"round_{index:03d}.json"
+        temporary = target.with_name(target.name + ".tmp")
+        try:
+            temporary.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8",
+            )
+            os.replace(temporary, target)
+        finally:
+            temporary.unlink(missing_ok=True)
+        return target
+
+    def load_rounds(self) -> list[dict]:
+        """按轮次编号读取；损坏或非 dict 的记录跳过，不阻断会话。"""
+        if not self.rounds_dir.is_dir():
+            return []
+        rounds: list[dict] = []
+        for path in sorted(self.rounds_dir.glob("round_*.json")):
+            try:
+                value = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if isinstance(value, dict):
+                rounds.append(value)
+        return rounds
+
+    def latest_round(self) -> dict | None:
+        rounds = self.load_rounds()
+        return rounds[-1] if rounds else None
+
 
     def repair_incomplete_tool_calls(self) -> int:
         """崩溃后 assistant(tool_calls) 可能没有对应 tool 结果；补一条 interrupted。"""

@@ -62,6 +62,12 @@ function toolSummary(entry: Entry, columns: number, selected: boolean): ReadingL
 
 function noticePresentation(text: string): {title: string; text: string; tone: SemanticTone} {
   if (text.startsWith('后端提示：')) return {title: '后端诊断', text: text.slice('后端提示：'.length), tone: 'warning'};
+  if (text.startsWith('完成守卫：')) return {title: '完成守卫', text, tone: 'warning'};
+  if (text.startsWith('[运行结束]')) {
+    if (/任务验收[^\n]*未验证|完成判定：[^\n]*未通过|integrity=violation/.test(text)) return {title: '验收未通过', text, tone: 'warning'};
+    if (/任务验收[^\n]*已验证/.test(text)) return {title: '验收通过', text, tone: 'success'};
+    return {title: '本轮回执', text, tone: 'accent'};
+  }
   const first = text.split('\n')[0] ?? '';
   const title = /未知命令|失败|错误|未能|未送达/.test(first) ? '操作异常' : /预算|压缩/.test(first) ? '上下文与预算' :
     /^(会话|恢复)/.test(first) ? '会话信息' : /^(主题|当前主题)/.test(first) ? '外观设置' :

@@ -32,12 +32,12 @@ Agent 执行的步骤一多，最终回答就不足以说明它依据了什么�
 | --- | --- |
 | 编码工具 | 读取 / 搜索 / 列目录、`write_file` / `edit_file`、`apply_patch`（多文件多 hunk）、`bash`、免费 Web 搜索、stdio MCP 外部工具；`git_status` / `git_diff` 只读免审批 |
 | 技能 | 项目 / 本机 Skill 自动发现；启动仅提供简短技能入口，目录按需关键词检索，正文按需加载与卸载；加载不授予额外工具权限，Ink `/skills` 保留完整菜单与 Tab 补全 |
-| 执行边界 | 写文件、命令、Web 搜索与 MCP 调用均经 `ApprovalGate` 预览审批（单次 / 精确规则 / 工作区授权，工作区授权仅限内置写入与命令；可撤销、有审计）；无审批处理器时 fail closed；可选 macOS Seatbelt 沙箱与网络白名单 |
-| 过程控制 | 运行中纠偏、排队后续任务、取消与超时回收；重复调用 / 重复读取 / 无产物进展的空转护栏；交互单轮默认 30 分钟 |
+| 执行边界 | 写文件、命令、Web 搜索与 MCP 调用均经 `ApprovalGate` 预览审批（T0–T4 副作用层级 × 单次 / 精确规则 / 工作区授权；用户/项目策略可覆盖，项目策略只能收紧；`/autonomy` 或 `--autonomy` 提供 ask/edits/workspace/full 整体档位；可撤销、有审计）；无审批处理器时 fail closed；可选 macOS Seatbelt / Linux bwrap 沙箱与网络白名单 |
+| 过程控制 | 运行中纠偏、排队后续任务、取消与超时回收；重复调用 / 重复读取 / 无产物进展的空转护栏；交互单轮默认 30 分钟；完成守卫：动作任务的“完成”必须有覆盖最后一次改动的成功验证，否则只标 `verified=false`；结束状态区分「本轮结束 · 已验证 / 待验证」 |
 | 上下文 | 1M 上下文窗口、预算分区、80% 主动压缩、原文 offload + `recall` 回取、请求前上下文快照与 `/context` |
-| 会话与恢复 | JSONL 会话与原始消息、崩溃对账、交付回执、显式 `/resume` 续做同一任务 |
-| 长任务 | `/goal` 目标模式：资源受限停止后自动续段（默认 8 段 / 4 小时）；目标状态写入会话目录，重启 / `--continue` 后恢复为暂停态，需 `/goal resume` 显式续段 |
-| 工作台 | 全屏 Ink、Markdown 阅读、多行输入与历史、拖选复制、Git 变更侧栏、像素猫 Mini 首屏 |
+| 会话与恢复 | JSONL 会话与原始消息、崩溃对账、交付回执、显式 `/resume` 续做同一任务；每轮写入 `.vibe/sessions/<id>/rounds/` 账本（文件变动前后 hash、验证记录、审计结论），`/evidence` 查看最近一轮证据摘要，不复制文件正文 |
+| 长任务 | `/goal` 目标模式：资源受限停止后自动续段（默认 8 段 / 4 小时）；目标状态写入会话目录，重启 / `--continue` 后恢复为暂停态，需 `/goal resume` 显式续段；完成未验证时暂停而不是标记完成 |
+| 工作台 | 全屏 Ink、Markdown 阅读、多行输入与历史、拖选复制、Git 变更侧栏、像素猫 Mini 首屏；`--doctor` 首用环境自检；审批面板标题显示层级 |
 | 个性化 | 项目背景 `/project`（查看、增删、改来源）与个人偏好 `/about`（确认、编辑、触发词、相关性注入、导出/审计）：均带来源，下一次任务生效；W6 v2 未证明收益，保持显式可管理，不扩 P5 |
 
 ## 架构
@@ -89,15 +89,18 @@ flowchart TD
 
 结论尽量来自可复核的证据，而不是「看起来能跑」。完整运行记录与验收条件见[工作台里程碑](docs/MILESTONES.md)。
 
-| 验证项 | 方式 | 结果（2026-10-26） |
+| 验证项 | 方式 | 结果（2026-10-31） |
 | --- | --- | --- |
-| 自动回归 | `./run_tests.sh`、`npm --prefix tui test` | Python **941** 通过 / 6 项环境跳过（收集 947）；TUI **337** 项中 336 通过（1 项为无 PTY 环境的已知限制） |
+| 自动回归 | `./run_tests.sh`、`npm --prefix tui test` | Python **1167** 通过 / 13 项环境跳过（收集 1180）；TUI **348** 项中 347 通过（1 项为无 PTY 环境的已知限制） |
 | 真实模型任务 | 内部 eval 前 3 题 + SWE-bench Lite 开发集首题 | 内部 eval 前 3 题（创建 / 编辑 / 复制）3/3，其余 7 题未见运行记录；SWE-bench Lite（10 题子集）首题 `pylint-dev__astroid-1196` resolved 1/1（单题，非整榜；前三题扩跑待做） |
 | 本地编码基准 | 6 道仓库副本注入 bug 任务（3 道 held-out：2 道保留题 + 1 道跨层压测） | 调优题能力 2/3 → 3/3；保留题 2 题 × 3 次运行 `verified_fix` 全真；跨层压测 3/3 次通过 |
 | 端到端里程碑 | 真实模型 + 证据采集脚本 | W1–W5 完成真实验收；W6 v2 三组对照完成（主假设未获支持，如实记录；已停止 P0 扩张，不进入 P5） |
 | 评测口径 | 隐藏测试、初始 RED、防改测试；内部 eval 在宿主执行、本地基准用独立临时工作区、SWE-bench 走容器 | 分开记录产物正确 / 运行完成 / 可比较性；支持 `--runs` 多次运行、`--pause-tokens` 暂停续做 |
+| 产品体验 P0 | `/evidence`、`/autonomy`、verified 状态、`--doctor` 与 `.env.example` | 结束状态区分已验证 / 待验证；`/evidence` 输出最近一轮证据；`/autonomy` 与 `--autonomy` 可切换并显示档位；`--doctor` 实机自检（缺 key exit 2、配 key exit 0）；未做真实模型与真实 PTY 验收 |
 
 2026-10-25 按 P0/P1 逐项修复工具工作区边界、流式终止与协议完整性、交付核验、恢复对账、评测有效性与完整 trace 六项缺口，均有针对性回归；真实任务核对使用未参与调优的保留题完成。
+
+2026-10-31 按[产品/UX 评估](docs/research/product-ux-review-2026-10-31.md)的 P0 推进产品化：把已实现的验收证据与审批档位变成界面能力（`/evidence`、`/autonomy`、结束状态区分、审批层级标题），并补齐首用自检与 `.env.example`。结构与取舍见 [P0 产品化切片](docs/MILESTONES.md)；真实模型与真机 TTY 体验仍待验收。
 
 ## 里程碑与规划
 
@@ -121,29 +124,40 @@ flowchart TD
 - **评测扩题**：固定前三题参考补丁自检与 `--limit 3` 扩题，建立多次运行基线。
 - **方向探索**：MCP HTTP transport / 资源与 prompt、LSP、多 Agent 主 / 子编排、Computer Use、W7 第二种工作流，按实际需求再评估；两方向调研与规格见 [Multi-Agent 与 Computer Use](docs/specs/multi-agent-computer-use.md)；Computer Use 先收窄为 [Browser Use](docs/specs/browser-use.md)。
 - **体验补齐**：Git 侧栏与拖选复制在真实终端中的打开 / 切换 / 授权 / 视觉体验验收。
+- **P0 后续**：真实模型任务下的 `verified` 体验与真机 TTY 键路验收；审批自动放行标记、规则撤销 UI；安装分发（brew/uvx）按是否对外使用再决定。
 
 ## 快速开始
 
-依赖：Python 3.11+、`uv`、Node.js 22+。
+依赖：Python 3.11+、Node.js 22+；`uv` 可选（没有 uv 用第 2 步里的 venv + pip 等价路径）。三步启动：
 
 ```bash
-uv sync --extra test
+# 1) 环境自检：逐项列出缺什么、给出补齐命令；不需要前端依赖（运行自检本身不要求 API Key，只提示是否已配置）
+./run_ink.sh --doctor
+#    没有 .venv 时也可以用系统 Python：python3 scripts/doctor.py
+
+# 2) 安装依赖
 npm --prefix tui ci
+#    有 uv 时：
+uv sync --extra test
+#    没有 uv 时（venv + pip，依赖版本与 pyproject.toml 一致）：
+python3 -m venv .venv
+.venv/bin/pip install "httpx==0.28.1" "fastmcp==4.1.1" "ddgs==9.16.0" "pytest>=9,<10"
 
-# 不需要模型 API：启动工作台，检查界面与协议接线
+# 3) 启动
+#    先看界面（不需要模型 API）：验证界面与协议接线
 ./run_ink.sh --fake
-```
+#    确定性演示（写文件→审批→验证→回执，全程本地、无需 key）
+#    输入框会预填演示任务：创建 .vibe/fake-demo.txt 并验证（回车，按提示批准两次）
+VIBE_FAKE_DEMO=1 ./run_ink.sh --fake
 
-配置真实模型（OpenAI-compatible）：
-
-```bash
-export VIBE_API_KEY=sk-...
-export VIBE_BASE_URL=https://api.deepseek.com/v1
-export VIBE_MODEL=deepseek-chat
-
+#    跑真实任务：复制模板、填 key，让 .env 在当前 shell 生效
+cp .env.example .env    # 至少填 VIBE_API_KEY；默认 VIBE_BASE_URL=https://api.deepseek.com/v1、VIBE_MODEL=deepseek-chat
+set -a; source .env; set +a
 ./run_ink.sh --workspace /path/to/your/repo
-./scripts/demo.sh   # 在临时示例仓库体验一次真实编码任务
+./scripts/demo.sh       # 在临时示例仓库体验一次真实编码任务
 ```
+
+`.env.example` 还列出了授权档位 `VIBE_AUTONOMY`、审批策略 `VIBE_PERMISSIONS`、沙箱 `VIBE_SANDBOX` 等常用项与注释。程序不会自动读取 `.env`，需要 `source` 或手动 `export`；`.env` 不要提交。
 
 常用验证：
 
@@ -163,6 +177,7 @@ npm --prefix tui test       # TypeScript / Ink 测试
 | [工作台里程碑](docs/MILESTONES.md) | W0–W7 的验收条件、真实运行证据与当前状态 |
 | [建设方向](docs/roadmap.md) | 长期方向、阶段取舍与界面 / 全栈学习路径 |
 | [文件规划](docs/STRUCTURE.md) | 目录职责、依赖方向与新增文件约定 |
+| [完成守卫与环境审计](docs/specs/verified-completion.md) | 完成判定、文件变动账本、轮次记录与只读审计的行为/边界 |
 | [规格](docs/specs/) | 每个功能切片的 spec、边界与验收口径 |
 | [Benchmark 适配（Harbor）](bench/README.md) | SWE-bench Verified / Terminal-Bench 2.1 的 Harbor 接入、单题 smoke 与限制 |
 | [调研](docs/research/) | TUI、评测、沙箱、上下文等选型记录 |
@@ -172,6 +187,7 @@ npm --prefix tui test       # TypeScript / Ink 测试
 - 当前是单 Agent、本地单用户；多 Agent 编排与第二种工作流是方向，尚未实现。
 - 命令以当前用户权限运行；审批、黑名单、超时与可选 Seatbelt 沙箱不等于容器级隔离。
 - fake 模型只证明接线和确定性行为，真实能力以真实模型任务与独立评分为准。
+- `verified=false` 表示“没有覆盖最后改动的成功验证”或“工作区与记录不一致”，不等于任务一定失败；完成仍需用户核对。非 git 工作区的审计只能核对已记录 hash，不能发现未记录改动。
 - 个性化收益尚未成立（W6 主假设未获支持），当前只提供可查看、可纠正的偏好管理。
 
 采用 [MIT](LICENSE) 许可证。

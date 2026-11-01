@@ -6,10 +6,16 @@ import {fitText, ReadingSpans, wrapSpans, type Span} from './markdown.js';
 import {compactNumber, toolState} from './workbench.js';
 import type {Palette, SemanticTone} from './theme.js';
 import {contextLine, contextSummarySpans, needsContextComposition} from './context-view.js';
-import type {ContextSnapshot} from './protocol.js';
+import {AUTONOMY_LABELS, type AutonomyLevel, type ContextSnapshot} from './protocol.js';
 import {COMPACT_MASCOT, PixelMascot, WIDE_MASCOT} from './mascot.js';
 
 export type AgentStatus = {label: string; detail: string; tone: SemanticTone};
+
+export function autonomyText(state: ViewState): string {
+  if (!state.autonomy) return '';
+  const label = AUTONOMY_LABELS[state.autonomy as AutonomyLevel] ?? state.autonomyLabel;
+  return label ? `${state.autonomy} · ${label}` : state.autonomy;
+}
 
 export function agentStatus(state: ViewState): AgentStatus {
   if (state.phase === 'closed') return {label: '后端已断开', detail: '重新启动入口以恢复会话', tone: 'error'};
@@ -33,7 +39,11 @@ export function agentStatus(state: ViewState): AgentStatus {
   if (state.lastStatus === 'truncated') return {label: '本轮未完成', detail: state.lastResult || '查看输出并核对剩余工作', tone: 'warning'};
   if (state.lastStatus === 'cancelled') return {label: '已取消', detail: '已发生的修改仍需核对', tone: 'warning'};
   if (state.lastStatus === 'error') return {label: '运行失败', detail: state.lastResult || '查看错误与工具记录', tone: 'error'};
-  if (state.lastStatus === 'done') return {label: '本轮结束', detail: '请结合输出与验证记录核对结果', tone: 'success'};
+  if (state.lastStatus === 'done') {
+    if (state.lastVerified === false) return {label: '本轮结束 · 待验证', detail: '有改动但没有通过验证；输入 /evidence 核对', tone: 'warning'};
+    if (state.lastVerified === true) return {label: '本轮结束 · 已验证', detail: '改动已通过验证；输入 /evidence 查看证据', tone: 'success'};
+    return {label: '本轮结束', detail: '请结合输出与验证记录核对结果', tone: 'success'};
+  }
   return {label: '就绪', detail: state.resumed ? '历史已恢复；发送任务或 /resume' : '输入任务开始工作', tone: 'success'};
 }
 
@@ -76,12 +86,13 @@ export function AgentHeader({state, columns, height = 3, palette}: {
   const titleWidth = Math.max(1, contentColumns - (showStatus ? statusWidth + 1 : 0));
   const title = state.sessionPurpose === 'test' ? '测试会话 · mini-harness' : contentColumns >= 65 ? 'mini-harness / 个人编码工作台' : 'mini-harness';
   const badgeBackground = status.tone === 'warning' || status.tone === 'error' ? palette.surfaces[status.tone] : palette.raised;
-  const workspaceAndModel = `${state.workspace || '工作区待连接'}  ·  ${state.model || '模型待连接'}`;
+  const autonomy = autonomyText(state);
+  const workspaceAndModel = `${state.workspace || '工作区待连接'}  ·  ${state.model || '模型待连接'}${state.autonomy ? `  ·  授权 ${state.autonomy}` : ''}`;
   const sessionLine = `会话 ${state.sessionId || '待连接'}${state.resumed ? ' · 已恢复' : ''}  |  ${state.provider || 'provider 待连接'}`;
   const details = height >= 5 ? [
     '先读后写 · 每一步都有证据',
     `工作区 ${state.workspace || '待连接'}`,
-    `模型 ${state.model || '待连接'} · ${state.provider || 'provider 待连接'}`,
+    `模型 ${state.model || '待连接'} · ${state.provider || 'provider 待连接'}${autonomy ? ` · 授权 ${autonomy}` : ''}`,
     sessionLine,
   ] : height > 2 ? [workspaceAndModel, sessionLine] : height > 1 ? [workspaceAndModel] : [];
   return <Box width={columns} height={height} backgroundColor={palette.background} flexDirection="row" flexShrink={0} overflow="hidden">
@@ -145,6 +156,7 @@ function statusLines(state: ViewState, columns: number, contextFirst = false, fr
   const lines: StatusLine[] = [
     {text: status.label, tone: status.tone, bold: true, highlighted: true},
     {text: status.detail, muted: true},
+    ...(state.autonomy ? [{text: `授权档位 ${autonomyText(state)}`, muted: true}] : []),
     separator,
     ...(contextFirst ? [...context, separator] : []),
     {text: '当前任务', bold: true, muted: true},

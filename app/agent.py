@@ -9,23 +9,30 @@ import re
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from itertools import count
 from pathlib import Path
 from typing import Callable
+
 
 from core.models import ExecutionOutcome, Message, ToolCall
 from core.progress import ArtifactProgress, ProgressMonitor
 
 from app import permissions
+from app.audit import audit_completion, capture_baseline
 from app.permission_policy import PermissionPolicy, PolicyError
 from app.events import ReasoningDelta, StreamDone, StreamError, TextDelta, ToolCallsReady
 from app.policy import ApprovalGate
 from app.skill_history import skill_history_view
 from app.trace import Pricing, TraceRecorder
-from app.tools import ToolRegistry
+from app.tools import MUTATION_TOOLS, ToolRegistry
 from core.context import ContextBuilder, ContextResult, estimate_tokens, total_tokens
 from core.context_snapshot import build_context_snapshot
-from core.state import TaskState, classify_task, delivery_receipt
+from core.rounds import build_round_record
+from core.state import (
+    CompletionDecision, TaskState, classify_task, completion_decision, delivery_receipt,
+)
+
 from app.project_profile import ProjectBackgroundEntry, render_project_background
 from app.user_profile import UserPreference, render_user_background
 from core.summarize import summarize_messages
@@ -114,6 +121,9 @@ class AgentResult:
     stop_reason: str = ""
     error: str | None = None
     receipt: str = ""
+    verified: bool | None = None
+    completion: dict | None = None
+    audit: dict | None = None
 
 
 @dataclass
@@ -159,6 +169,18 @@ class _RunContext:
     continuations: int = 0
     started: float = 0.0
     approval_wait_seconds: float = 0.0
+    started_at: str = ""
+    baseline: dict | None = None
+    completion: CompletionDecision | None = None
+    audit: dict | None = None
+    verified: bool | None = None
+    completion_rejections: int = 0
+    start_mutation_seq: int = 0
+    start_file_changes: int = 0
+    start_verifications: int = 0
+    start_files_changed: int = 0
+    start_command_results: int = 0
+
 
 
 @dataclass
@@ -239,6 +261,9 @@ class Agent:
         project_background: list[ProjectBackgroundEntry] | None = None,
         user_background: list[UserPreference] | None = None,
         autonomy: str | None = None,
+        completion_guard: bool = False,
+        workspace_audit: bool = False,
+        on_round: Callable[[dict], None] | None = None,
     ):
         if require_tool_use and not tools_enabled:
             raise ValueError("require_tool_use requires tools_enabled=True")
@@ -278,6 +303,9 @@ class Agent:
         self.max_run_cost_usd = max_run_cost_usd
         self.tool_retries = tool_retries
         self.require_tool_use = require_tool_use
+        self.completion_guard = completion_guard
+        self.workspace_audit = workspace_audit
+        self.on_round = on_round
         self._active_steering: deque[str] | None = None
         if system is None:
             if tools_enabled:
@@ -558,7 +586,19 @@ class Agent:
         state = self.state
         if task and not state.goal:
             state.goal = task
-        state_message = Message("system", state.render(), name="task_state")
+        # 本轮证据起点：verified/回执/轮次只统计这次 run 的增量，避免第二轮
+        # 继承上一轮的 file_changes / verifications 与 verified 结论。
+        run_starts = {
+            "start_mutation_seq": state.mutation_seq,
+            "start_file_changes": len(state.file_changes),
+            "start_verifications": len(state.verifications),
+            "start_files_changed": len(state.files_changed),
+            "start_command_results": len(state.command_results),
+        }
+        state_message = Message("system", state.render(
+            start_mutation_seq=run_starts["start_mutation_seq"],
+            start_file_changes=run_starts["start_file_changes"],
+        ), name="task_state")
         raw_history = list(self.history)
         if task is not None:
             user_message = Message("user", task)
@@ -593,7 +633,15 @@ class Agent:
             recorder=recorder,
             messages=messages,
             raw_history=raw_history,
+            **run_starts,
         )
+        run.started_at = datetime.now(timezone.utc).isoformat()
+        if self.workspace_audit and self.tools_enabled:
+            try:
+                run.baseline = capture_baseline(self.tools.root)
+            except Exception as exc:  # 审计基线失败不阻断任务，但记录在 trace
+                run.baseline = None
+                recorder.event("audit_baseline_failed", error=f"{type(exc).__name__}: {exc}")
         self._budget_update(run, "running")
         run.progress = ProgressMonitor(
             self.max_no_progress, max_reads_per_file=self.max_reads_per_file,
@@ -647,7 +695,10 @@ class Agent:
         self._apply_steering(run, step)
         self._sync_skill_context()
         run.messages[0] = Message("system", self.system)
-        run.state_message.content = run.state.render()
+        run.state_message.content = run.state.render(
+            start_mutation_seq=run.start_mutation_seq,
+            start_file_changes=run.start_file_changes,
+        )
         tool_specs = self.tools.specs() if self.tools_enabled else []
         tool_tokens = estimate_tokens(json.dumps(tool_specs, ensure_ascii=False))
         request_messages = run.messages
@@ -1051,7 +1102,7 @@ class Agent:
             if run.pending_steering:
                 # 纠偏在模型收尾前到达：再走一步消费它，避免静默丢弃。
                 return _StepDecision()
-            return self._finish(run, text, step, "done")
+            return self._complete_run(run, text, step)
 
         if not self.tools_enabled:
             self._skip_tools(run, calls, "chat_only_mode")
@@ -1059,6 +1110,80 @@ class Agent:
                 run, "error: model requested tools, but chat-only mode is on", step, "error",
             )
         return _StepDecision(calls=calls)
+
+    def _complete_run(self, run: _RunContext, text: str, step: int) -> AgentResult:
+        """模型声称完成时的确定性守卫与只读环境审计。"""
+        task_kind = classify_task(run.state.goal)
+        changed_this_run = len(run.state.file_changes) > run.start_file_changes
+        decision = completion_decision(
+            run.state,
+            task_kind=task_kind,
+            start_mutation_seq=run.start_mutation_seq,
+            start_file_changes=run.start_file_changes,
+        )
+        run.completion = decision
+
+        if (
+            self.completion_guard
+            and self.tools_enabled
+            and task_kind == "action"
+            and not decision.allowed
+            and run.completion_rejections < 1
+        ):
+            run.completion_rejections += 1
+            run.recorder.event(
+                "completion_rejected", step=step, codes=list(decision.codes),
+            )
+            guidance = (
+                "Harness completion check failed: " + decision.reason_text + ". "
+                "A statement of completion is not evidence. Run the project's verification "
+                "command with bash(verification=true), check the actual exit result, or explain "
+                "the blocker. Do not claim completion without covering the last file change."
+            )
+            self._record_message(run, Message(
+                "system", guidance, name="completion_guard",
+            ))
+            return _StepDecision()
+
+        audit = None
+        verified: bool | None = None
+        if self.workspace_audit and self.tools_enabled:
+            try:
+                audit = audit_completion(
+                    workspace=self.tools.root,
+                    state=run.state,
+                    completion=decision,
+                    baseline=run.baseline,
+                    file_changes=run.state.file_changes[run.start_file_changes:],
+                ).to_dict()
+            except Exception as exc:
+                audit = {
+                    "schema_version": 1,
+                    "status": "incomplete",
+                    "integrity": "suspect",
+                    "verified": False,
+                    "findings": [f"audit error: {type(exc).__name__}: {exc}"],
+                    "coverage": "error",
+                    "contract_audit": "unknown",
+                }
+            verified = (
+                bool(audit.get("verified")) and decision.allowed
+                if task_kind == "action" and changed_this_run else None
+            )
+        elif self.completion_guard:
+            verified = decision.allowed if task_kind == "action" and changed_this_run else None
+        run.verified = verified
+        run.audit = audit
+        run.recorder.event(
+            "completion_audit",
+            step=step,
+            verified=verified,
+            completion=decision.to_dict(),
+            audit=audit,
+        )
+        return self._finish(
+            run, text, step, "done", verified=verified, completion=decision, audit=audit,
+        )
 
     async def _run_tool_calls(
         self, run: _RunContext, step: int, calls: list[ToolCall],
@@ -1083,6 +1208,8 @@ class Agent:
             duplicate = key in batch_seen
             batch_seen.add(key)
             run.recorder.tool_start(call, step=step)
+            approval_scope = "auto"
+            before_metadata = None
             if duplicate:
                 ok, output = False, (
                     "ERROR duplicate_call: an identical tool call (same name and arguments) "
@@ -1113,8 +1240,13 @@ class Agent:
                                 ok, output = False, "ERROR denied_by_user"
                                 run.denied_requests.add(key)
                             else:
+                                approval_scope = str(getattr(decision, "scope", "") or "once")
+                                if call.name in MUTATION_TOOLS:
+                                    before_metadata = self.tools.mutation_metadata(call)
                                 ok, output = await self._execute_tool(run, call)
             else:
+                if call.name in MUTATION_TOOLS:
+                    before_metadata = self.tools.mutation_metadata(call)
                 ok, output = await self._execute_tool(run, call)
 
             execution = getattr(output, "execution", None)
@@ -1134,8 +1266,45 @@ class Agent:
             )
             if run.on_result:
                 run.on_result(call, ok, output)
-            run.state.observe_tool(call.name, call.args, ok, output, execution=execution)
-            run.state_message.content = run.state.render()
+            run.state.observe_tool(
+                call.name, call.args, ok, output, execution=execution, step=step,
+            )
+            if ok and before_metadata is not None:
+                after_metadata = self.tools.mutation_metadata(call) or {}
+                changes = run.state.record_file_changes(
+                    before=before_metadata,
+                    after=after_metadata,
+                    tool=call.name,
+                    step=step,
+                    tool_call_id=call.id,
+                    approval_scope=approval_scope,
+                )
+                if changes:
+                    run.recorder.event(
+                        "file_changes", step=step, tool=call.name,
+                        changes=[{"path": item["path"], "kind": item["kind"]} for item in changes],
+                    )
+            if (
+                call.name == "bash"
+                and execution is not None
+                and call.args.get("verification") is True
+            ):
+                verified = run.state.record_verification(
+                    command=str(call.args.get("command", "")),
+                    status=str(execution.get("status", "")),
+                    exit_code=execution.get("exit_code"),
+                    output_digest=hashlib.sha256(str(output).encode("utf-8")).hexdigest(),
+                    step=step,
+                )
+                run.recorder.event(
+                    "verification_recorded", step=step,
+                    status=verified["status"], exit_code=verified["exit_code"],
+                    ok=verified["ok"], mutation_seq=verified["mutation_seq"],
+                )
+            run.state_message.content = run.state.render(
+            start_mutation_seq=run.start_mutation_seq,
+            start_file_changes=run.start_file_changes,
+        )
             if run.on_state:
                 run.on_state(run.state)
             tool_message = Message(
@@ -1284,10 +1453,15 @@ class Agent:
 
     def _finish(
         self, run: _RunContext, text: str, steps: int, status: str, stop_reason: str = "",
+        *,
+        verified: bool | None = None,
+        completion: CompletionDecision | None = None,
+        audit: dict | None = None,
     ) -> AgentResult:
         run.recorder.tool_calls = run.tool_calls
         run.recorder.end(status, steps, stop_reason, self.max_run_tokens)
         usage = run.recorder.usage()
+        task_kind = classify_task(run.state.goal)
         receipt = delivery_receipt(
             run.state,
             status=status,
@@ -1296,9 +1470,14 @@ class Agent:
             cost_usd=run.recorder.cost_usd,
             tool_calls=run.tool_calls,
             denied=bool(run.denied_requests),
-            task_kind=classify_task(run.state.goal),
+            task_kind=task_kind,
+            verified=verified,
+            completion=completion,
+            audit=audit,
+            start_command_results=run.start_command_results,
+            start_files_changed=run.start_files_changed,
         )
-        return AgentResult(
+        result = AgentResult(
             text,
             steps,
             status,
@@ -1308,7 +1487,39 @@ class Agent:
             stop_reason,
             run.model_error,
             receipt=receipt,
+            verified=verified,
+            completion=completion.to_dict() if completion is not None else None,
+            audit=audit,
         )
+        if self.on_round is not None:
+            round_record = build_round_record(
+                run_id=run.recorder.run_id,
+                goal=run.state.goal,
+                task_kind=task_kind,
+                status=status,
+                stop_reason=stop_reason,
+                steps=steps,
+                usage=usage,
+                cost_usd=run.recorder.cost_usd,
+                started_at=run.started_at,
+                state=run.state,
+                completion=completion,
+                audit=audit,
+                verified=verified,
+                receipt=receipt,
+                start_mutation_seq=run.start_mutation_seq,
+                start_file_changes=run.start_file_changes,
+                start_verifications=run.start_verifications,
+                start_files_changed=run.start_files_changed,
+                start_command_results=run.start_command_results,
+            )
+            try:
+                self.on_round(round_record)
+            except Exception as exc:
+                run.recorder.event(
+                    "round_record_failed", error=f"{type(exc).__name__}: {exc}",
+                )
+        return result
 
     def _record_message(self, run: _RunContext, message: Message) -> None:
         run.history_compacted = False
@@ -1323,7 +1534,10 @@ class Agent:
             text = run.pending_steering.popleft()
             self._record_message(run, Message("user", text, name="steering"))
             run.state.add_constraint(text, source="steering")
-            run.state_message.content = run.state.render()
+            run.state_message.content = run.state.render(
+            start_mutation_seq=run.start_mutation_seq,
+            start_file_changes=run.start_file_changes,
+        )
             run.recorder.event("steering_applied", step=step, chars=len(text))
 
     def _budget_update(self, run: _RunContext, phase: str) -> None:

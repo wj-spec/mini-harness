@@ -14,6 +14,7 @@ from dataclasses import asdict, replace
 from app.agent import Agent, AgentResult
 from app import permissions
 from app.config import Config
+from app.evidence import format_round_evidence
 from app.project_profile import load_project_background
 from app.user_profile import load_user_profile, select_user_preferences
 from app.context_snapshot_display import snapshot_for_display
@@ -26,12 +27,59 @@ from core.models import ToolCall
 
 MAX_FRAME_BYTES = 1024 * 1024
 _OVERSIZED = object()
-COMMANDS = frozenset({"resume", "permissions", "permissions_reset", "cost", "tools", "diff", "mcp", "skills"})
+COMMANDS = frozenset({
+    "resume", "permissions", "permissions_reset", "cost", "tools", "diff", "mcp",
+    "skills", "evidence", "autonomy",
+})
+COMPLETION_CODE_LABELS = {
+    "no_verification": "有文件改动但没有验证命令",
+    "mutation_after_verification": "最后一次改动发生在验证之后",
+    "last_verification_failed": "最后一次验证命令失败",
+}
 RESUME_INSTRUCTION = (
     "继续上次暂停的任务，开启新一轮预算。先核对已保存的进度和未执行操作；"
     "对于结果未知的写入或命令，先检查实际文件与执行结果，禁止直接重放。"
     "再完成剩余工作并验证结果。"
 )
+
+
+def approval_rule_context(agent, call) -> dict:
+    """审批面板用的结构化上下文：副作用层级与命中的用户/项目规则。
+
+    只读、容错；规则匹配失败不影响审批本身（预览里仍有文本层级行）。
+    """
+    context: dict = {}
+    try:
+        tier = agent._tool_tier(call)
+    except Exception:
+        tier = None
+    if tier:
+        context["tier"] = tier
+        context["tier_label"] = permissions.label(tier)
+    rule = None
+    policy = getattr(agent, "permission_policy", None)
+    if policy is not None and tier is not None:
+        try:
+            rule = policy.evaluate(call, tier=tier).rule
+        except Exception:
+            rule = None
+    if rule is not None:
+        context["rule"] = {
+            "source": rule.source,
+            "tool": rule.tool,
+            "decision": rule.decision,
+            "scopes": list(rule.scopes) if rule.scopes else None,
+            "note": rule.note,
+            "command_prefix": list(rule.command_prefix),
+        }
+    return context
+
+
+def _completion_rejected_message(event: dict) -> str:
+    """把完成守卫的原因码翻译成用户可读的一句话。"""
+    codes = [str(code) for code in event.get("codes") or []]
+    reasons = "；".join(COMPLETION_CODE_LABELS.get(code, code) for code in codes)
+    return f"完成守卫：{reasons or '完成判定未通过'}；已要求模型补验证。"
 
 
 async def _stdin_frames():
@@ -136,7 +184,8 @@ class _Connection:
         self.pending = (approval_id, future, decisions)
         self.send("status", self.active_id, phase="waiting_approval")
         self.send("approval_request", self.active_id, approval_id=approval_id,
-                  call=asdict(call), preview=preview, decisions=decisions)
+                  call=asdict(call), preview=preview, decisions=decisions,
+                  **approval_rule_context(self.agent, call))
         decision = "deny"
         try:
             decision = await future
@@ -244,6 +293,13 @@ class _Connection:
                     summary = policy.summary()
                     text += (f"\n策略规则：user {summary['user_rules']} 条，"
                              f"project {summary['project_rules']} 条（project 只能收紧）。")
+                    described = policy.describe_rules()
+                    if described:
+                        text += "\n策略规则明细：\n" + "\n".join(described[:20])
+                        if len(described) > 20:
+                            text += f"\n… 另有 {len(described) - 20} 条"
+                    else:
+                        text += "\n策略规则明细：（无）"
                 error = getattr(self.agent, "permission_error", None)
                 if error:
                     text += f"\n策略错误（保留上一份）：{error}"
@@ -283,11 +339,32 @@ class _Connection:
                     ) + f"\n工具：{len(self.mcp.tools)} 个")
                     if self.mcp.errors:
                         text += "\n" + "\n".join(self.mcp.errors)
+            elif command == "evidence":
+                text = format_round_evidence(self.session.latest_round())
+            elif command == "autonomy":
+                requested = (args or {}).get("level")
+                if requested not in permissions.AUTONOMY_LEVELS:
+                    raise ValueError(f"unknown autonomy level: {requested!r}")
+                self.agent._cli_autonomy = requested
+                self.agent._reload_permission_policy()
+                effective = getattr(self.agent, "autonomy", "ask")
+                label = permissions.AUTONOMY_LABELS.get(effective, effective)
+                text = f"授权档位已切换：{effective}（{label}）"
+                if effective != requested:
+                    cap = getattr(self.agent.permission_policy, "autonomy_cap", None)
+                    reason = f"项目上限为 {cap}" if cap else "项目策略限制"
+                    text += f"\n请求档位 {requested} 未生效（{reason}），已按 {effective} 生效。"
             else:
                 call = ToolCall("bash", {"command": "git diff --stat && git diff --color=never", "timeout": 10},
                                 f"{request_id}:diff")
+                preview = self.agent.tools.preview(call)
+                try:
+                    # 与模型发起的工具审批一致：预览尾部标注副作用层级。
+                    preview += f"\n\n[审批层] {permissions.label(self.agent._tool_tier(call))}"
+                except Exception:
+                    pass
                 decision = await self.agent.approval.request(
-                    call, self.agent.tools.preview(call), self.agent.tools.root,
+                    call, preview, self.agent.tools.root,
                 )
                 if self.cancel.is_set() or self.stop.is_set():
                     text = "diff 已取消；命令未执行。"
@@ -299,6 +376,8 @@ class _Connection:
             payload = {"command": command, "text": str(text)[:100000]}
             if skills is not None:
                 payload["skills"] = skills
+            if command in {"permissions", "permissions_reset", "autonomy"}:
+                payload["autonomy"] = getattr(self.agent, "autonomy", "ask")
             self.send("command_result", request_id, **payload)
         except asyncio.CancelledError:
             self.send("command_result", request_id, command=command, text="命令已取消；已开始操作的结果需要核对。")
@@ -380,6 +459,9 @@ class _Connection:
                 set_cost(event.get("cost_usd"))
                 terminal_trace = dict(event)
                 return
+            elif event["type"] == "completion_rejected":
+                # notice 必须 id=null（任务进行中的系统提示，不绑定请求）。
+                self.send("notice", None, message=_completion_rejected_message(event))
             self.session.append_trace(event)
 
         def record_context(context):
@@ -521,7 +603,7 @@ class _Connection:
             }
             if not isinstance(kind, str) or kind not in fields:
                 raise ValueError("unknown request type")
-            if kind == "command" and request.get("command") == "skills" and "args" in request:
+            if kind == "command" and request.get("command") in {"skills", "autonomy"} and "args" in request:
                 fields[kind] = fields[kind] | {"args"}
             if set(request) != {"v", "type", "id"} | fields[kind]:
                 raise ValueError("unexpected or missing request fields")
@@ -542,6 +624,12 @@ class _Connection:
                             raise ValueError("skills activate/unload requires a nonempty name")
                     elif "name" in args:
                         raise ValueError("skills list/refresh does not accept name")
+                if kind == "command" and request["command"] == "autonomy":
+                    args = request.get("args")
+                    if not isinstance(args, dict) or set(args) != {"level"}:
+                        raise ValueError("autonomy args must contain only level")
+                    if args["level"] not in permissions.AUTONOMY_LEVELS:
+                        raise ValueError("unknown autonomy level")
                 if self.active is not None and not self.active.done():
                     self.error(request_id, "busy", "another run is active")
                     return
@@ -648,6 +736,9 @@ async def serve(
                         session_id=session.id, session_path=str(session.root.resolve()),
                     provider=provider, capabilities=capabilities, resumed=resumed,
                     session_purpose=session.purpose,
+                    autonomy=agent.autonomy,
+                    autonomy_label=permissions.AUTONOMY_LABELS.get(
+                        agent.autonomy, agent.autonomy),
                     skills=(agent.tools.skill_entries() if agent.tools_enabled else []))
         if resumed:
             connection.restore()

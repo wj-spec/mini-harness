@@ -2,12 +2,12 @@ import {spawn, type ChildProcessWithoutNullStreams} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import {StringDecoder} from 'node:string_decoder';
 import {backendCommand, backendLaunchOptions} from './backend-launch.js';
-import {BACKEND_COMMANDS, MAX_FRAME_BYTES, parseServerEvent, validateClientArgs, validateSkillsArgs, type ApprovalDecision, type BackendCommand, type ClientRequest, type ServerEvent, type SkillsCommandArgs} from './protocol.js';
+import {BACKEND_COMMANDS, MAX_FRAME_BYTES, parseServerEvent, validateAutonomyArgs, validateClientArgs, validateSkillsArgs, type ApprovalDecision, type AutonomyCommandArgs, type BackendCommand, type ClientRequest, type CommandArgs, type ServerEvent, type SkillsCommandArgs} from './protocol.js';
 
 export interface BackendClient {
   subscribe(listener: (event: ServerEvent) => void): () => void;
   run(text: string): string;
-  command(command: BackendCommand, args?: SkillsCommandArgs): string;
+  command(command: BackendCommand, args?: CommandArgs): string;
   cancel(target: string): string;
   steer(target: string, text: string): string;
   approve(approvalId: string, decision: ApprovalDecision): void;
@@ -361,10 +361,14 @@ export function createBackendClient(options: BackendOptions = {}): BackendClient
     command(command, args) {
       if (!ready) throw new Error('Python 后端尚未就绪');
       if (!BACKEND_COMMANDS.includes(command)) throw new Error('后端命令无效');
-      if (args !== undefined && command !== 'skills') throw new Error('只有 skills 命令接受参数');
-      if (args !== undefined) validateSkillsArgs(args);
+      if (args !== undefined) {
+        if (command === 'skills') validateSkillsArgs(args);
+        else if (command === 'autonomy') validateAutonomyArgs(args);
+        else throw new Error('只有 skills/autonomy 命令接受参数');
+      }
       const id = randomUUID();
-      if (command === 'skills') send({v: 1, type: 'command', id, command, ...(args === undefined ? {} : {args})});
+      if (command === 'skills') send({v: 1, type: 'command', id, command, ...(args === undefined ? {} : {args: args as SkillsCommandArgs})});
+      else if (command === 'autonomy') send({v: 1, type: 'command', id, command, args: args as AutonomyCommandArgs});
       else send({v: 1, type: 'command', id, command});
       return id;
     },

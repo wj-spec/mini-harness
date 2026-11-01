@@ -137,3 +137,22 @@ test('wide headers carry the compact product mark and narrow headers stay text-f
     assert.doesNotMatch(narrow, /[▀▄█▗▐▝▟▙▛▜]/u);
     assert.match(narrow, /mini-harness/);
 });
+
+test('done keeps verification state separate from task completion and surfaces autonomy', () => {
+  const done = {...ready, lastStatus: 'done' as const, lastResult: '本轮结束'};
+  const unverified = {...done, lastVerified: false,
+    lastCompletion: {allowed: false, codes: ['no_verification'], messages: ['有文件改动，但没有记录到验证命令']}};
+  assert.equal(agentStatus(unverified).label, '本轮结束 · 待验证');
+  assert.equal(agentStatus(unverified).tone, 'warning');
+  assert.match(agentStatus(unverified).detail, /evidence/);
+  const verified = {...done, lastVerified: true};
+  assert.equal(agentStatus(verified).label, '本轮结束 · 已验证');
+  assert.equal(agentStatus(verified).tone, 'success');
+  assert.equal(agentStatus(done).label, '本轮结束');
+
+  const withAutonomy = {...ready, autonomy: 'edits' as const, autonomyLabel: '自动改文件'};
+  const header = renderToString(<AgentHeader state={withAutonomy} columns={120} height={5} palette={themes.system}/>, {columns: 120});
+  assert.match(header, /授权 edits · 自动改文件/);
+  const panel = renderToString(<StatusPanel state={{...withAutonomy, phase: 'idle'}} columns={40} height={26} palette={themes.system}/>, {columns: 40});
+  assert.match(panel, /授权档位 edits · 自动改文件/);
+});

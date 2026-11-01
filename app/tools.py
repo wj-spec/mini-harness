@@ -41,6 +41,9 @@ IGNORE_DIRS = {
     "build",
 }
 
+MUTATION_TOOLS = {"write_file", "edit_file", "apply_patch"}
+MAX_METADATA_HASH_BYTES = 8 * 1024 * 1024
+
 
 @dataclass
 class ToolSpec:
@@ -622,21 +625,59 @@ class ToolRegistry:
         header = f"git {' '.join(args)} (cwd={self.root})"
         return header + "\n" + (rendered if rendered.strip() else "(no differences)")
 
-    def mutation_fingerprint(self, call: ToolCall) -> dict[str, str] | None:
-        """成功修改后的目标文件内容指纹；供 ArtifactProgress 判断真实变化。"""
-        paths: list[str] = []
+    def mutation_targets(self, call: ToolCall) -> list[str]:
+        """一次修改工具会触及的相对路径；无法解析时返回空列表。"""
         if call.name in {"write_file", "edit_file"}:
             path = call.args.get("path")
-            if isinstance(path, str) and path:
-                paths = [path]
-        elif call.name == "apply_patch":
+            return [path] if isinstance(path, str) and path else []
+        if call.name == "apply_patch":
             patch = call.args.get("patch")
             if not isinstance(patch, str):
-                return None
+                return []
             try:
-                paths = [file.target for file in parse_patch(patch)]
+                return [file.target for file in parse_patch(patch)]
             except (ValueError, TypeError):
-                return None
+                return []
+        return []
+
+    def mutation_metadata(self, call: ToolCall) -> dict[str, dict] | None:
+        """修改前后的文件元数据：存在性、大小、SHA-256；不读取/保存正文。
+
+        在工具执行前、执行后各调用一次，即可得到 before/after 快照。
+        """
+        paths = self.mutation_targets(call)
+        if not paths:
+            return None
+        result: dict[str, dict] = {}
+        for path in paths:
+            result[path] = self.path_metadata(path)
+        return result
+
+    def path_metadata(self, path: str) -> dict:
+        """单个工作区文件的可审计元数据；正文始终留在原文件。"""
+        try:
+            target = self._resolve(path)
+        except (ValueError, OSError):
+            return {"status": "invalid"}
+        if not target.exists():
+            return {"status": "missing"}
+        if target.is_dir():
+            return {"status": "directory"}
+        try:
+            size = target.stat().st_size
+        except OSError:
+            return {"status": "unreadable"}
+        if size > MAX_METADATA_HASH_BYTES:
+            return {"status": "too_large", "size": size}
+        try:
+            digest = hashlib.sha256(target.read_bytes()).hexdigest()
+        except OSError:
+            return {"status": "unreadable", "size": size}
+        return {"status": "present", "sha256": digest, "size": size}
+
+    def mutation_fingerprint(self, call: ToolCall) -> dict[str, str] | None:
+        """成功修改后的目标文件内容指纹；供 ArtifactProgress 判断真实变化。"""
+        paths = self.mutation_targets(call)
         if not paths:
             return None
         fingerprints: dict[str, str] = {}

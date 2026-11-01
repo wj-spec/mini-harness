@@ -4,6 +4,8 @@
 
 ## 怎么跑
 
+首次使用先跑环境自检：`./run_ink.sh --doctor`（没有 `.venv` 时可用 `python3 scripts/doctor.py`）。它逐项检查 Node / Python / 依赖 / API Key / TTY / 工作区，缺项给出补齐命令；阻塞项 exit 2。
+
 首次安装（Python 3.11+，建议 3.12）：
 
 ```bash
@@ -21,8 +23,15 @@ uv sync --extra test
 npm --prefix tui ci
 ./run_ink.sh --fake
 
+# 确定性演示：写 .vibe/fake-demo.txt → 两次审批 → 验证 → 回执（无需 API key）
+# 输入框会预填“创建 .vibe/fake-demo.txt 并验证”，回车后按提示批准两次
+VIBE_FAKE_DEMO=1 ./run_ink.sh --fake
+
 # 使用已有 VIBE_* 模型配置，启动一个新会话
 ./run_ink.sh --workspace /path/to/your/repo
+
+# 启动时选择授权档位（也可在界面内用 /autonomy 切换）
+./run_ink.sh --autonomy edits --workspace /path/to/your/repo
 
 # 恢复最近有对话的会话；只展示进度，输入 /resume 才继续
 ./run_ink.sh --workspace /path/to/your/repo --continue
@@ -138,8 +147,10 @@ VIBE_MODEL=qwen2.5-coder:7b \
 - `/copy`：复制当前可见内容（工具详情优先，其次审批预览，否则最近一条 Agent 回复）；拖选后的文本也会在松开时自动复制；
 - `/project`：查看当前项目的背景条目与来源；`/project add <文本>` 添加，`/project remove <序号>` 删除，`/project source <序号> <来源>` 改来源；
 - `/about`：查看个人偏好与来源；`/about add/propose` 新增/观察，`/about observe` 从本会话提出待确认偏好（`VIBE_AUTO_OBSERVE=1` 时任务结束自动观察），`/about edit` 修改文本，`/about triggers` 设置相关性触发词，`/about confirm/disable/enable/remove/on/off` 管理；
-- `/permissions`：查看当前工作区授权；`/permissions reset` 撤销本进程授权；
-- 写文件或执行命令会弹审批：`y/a` once、`s` session、`n/d` deny。
+- `/permissions`：查看当前工作区授权、当前授权档位与策略规则明细；`/permissions reset` 撤销本进程授权；
+- `/evidence`：查看最近一轮验收证据（verified / 完成判定 / 环境审计 / 改动 hash / 验证记录）；
+- `/autonomy [ask|edits|workspace|full]`：查看或切换授权档位；
+- 写文件或执行命令会弹审批：`y` once、`s` session、`p` workspace、`n` deny。
 
 3 分钟 demo：`./scripts/demo.sh`，脚本见 [`docs/DEMO.md`](DEMO.md)。
 
@@ -250,7 +261,7 @@ history 实际额度 = 窗口 − 输出预留 − 安全余量 − 实际 syste
 
 - 启动后第 1 段使用目标说明作为任务；如果该段因 **`max_run_seconds` / token budget / cost budget / max_steps`** 停止，自动开启第 2 段，并注入“先核对工作区，再继续未完成部分”的续段提示；
 - 因 `no_progress`、`context_window`、`error`、`cancelled` 停止时**不自动续段**，保留证据并要求人工判断；
-- 模型正常 done 时目标完成；`done` 之前的资源暂停不会丢历史，后续段继续读取同一会话；
+- 模型 done 且 `verified` 不为 false 时目标完成；`done` 但 `verified=false` 时目标暂停（`unverified_completion`），核对 `/evidence` 后输入 `/goal resume` 继续；`done` 之前的资源暂停不会丢历史，后续段继续读取同一会话；
 - 默认最多 **8 段**、总时长 **4 小时**：`VIBE_GOAL_MAX_SEGMENTS`、`VIBE_GOAL_SECONDS`；可选总 token/费用上限 `VIBE_GOAL_MAX_TOKENS`、`VIBE_GOAL_MAX_COST_USD`（0=不限）；
 - 目标完成/暂停后可以用 `/goal resume` 继续，或输入新 `/goal` 开始新目标；
 - 目标状态以 `goal.json` 保存在当前会话目录（`.vibe/sessions/<id>/goal.json`）；重启 Ink 或 `--continue` 后会恢复目标并标记为 paused，输入 `/goal resume` 显式续段，不会在重启后自动继续花费。
@@ -284,12 +295,22 @@ Agent 新增两个**只读、无需审批**的工具，用于在报告工作区�
 
 - `write_file` / `edit_file` / `apply_patch` 是 `risk=write`，必须过审批。
 - `apply_patch`：一次应用 unified diff（多文件/多 hunk、新建、删除）；预览显示文件列表、增删行数与 diff 原文；拒绝重命名、二进制、`.git`、越界路径与符号链接目标；跨文件写盘非事务（先完整校验，失败时按 `.vibe/backups/` 核对）。实现见 [apply_patch](specs/apply-patch.md)。
-- 审批弹窗：`y/a` 仅本次；`s` 本会话此工具与此文件、此目录下相同命令或远端工具相同参数；`p` 批准本进程工作区发起的内置文件写入和命令；`n/d` 拒绝。
-- `p` 不覆盖 MCP 工具，换工作区或重启不继承。授权后的每个动作仍经过 `ApprovalGate` 并审计；`/permissions` 查看，`/permissions reset` 撤销。
+- 审批弹窗：`y` 仅本次；`s` 本会话此工具与此文件、此目录下相同命令或远端工具相同参数；`p` 批准本进程工作区发起的内置文件写入和命令；`n` 拒绝。
+- 审批面板标题显示副作用层级（T0 只读 / T1 工作区写入 / T2 本地执行 / T3 外部网络 / T4 远端页面动作），例如 `审批 · T1 工作区写入 · edit_file`；层级只描述副作用强度，不代替审批。
+- `p` 不覆盖 MCP 工具，换工作区或重启不继承。授权后的每个动作仍经过 `ApprovalGate` 并审计；`/permissions` 查看运行时授权、当前档位与策略规则明细，`/permissions reset` 撤销本进程授权。
+- 授权档位：`/autonomy` 查看当前档位；`/autonomy ask|edits|workspace|full` 切换（也可用启动参数 `--autonomy`、环境变量 `VIBE_AUTONOMY` 或用户策略文件的 `autonomy` 字段；项目策略只能收紧）。档位是自动放行范围，不取消 T0–T4 与策略 deny/once，T4 永不自动放行。
 - 等待人工审批不设截止时间，也不计入 `max_run_seconds`。`Ctrl+C` 可取消等待、关闭弹窗并恢复输入；取消之后不会再执行待批动作。
 - 预览：`difflib.unified_diff`，最多 200 行 / 20k 字符。
 - 写前备份到 `.vibe/backups/`；审计写 `.vibe/sessions/*.jsonl`（参数/预览只存哈希）。
 - 没有审批 gate 时 fail closed：`ERROR approval_required`；拒绝回灌 `ERROR denied_by_user`。
+
+## 验收证据与 `/evidence`
+
+- 每次 run 结束写一轮不可变记录 `.vibe/sessions/<id>/rounds/round_XXX.json`，包含 `verified`、`completion`（原因码）、`audit`（完整性/未归因改动）、`task_state.file_changes`（前后 hash，不存正文）与回执。
+- `/evidence` 查看最近一轮证据摘要：完成判定、环境审计、改动文件与 hash、验证命令与退出码、回执摘要；没有轮次时提示先完成任务。
+- 任务结束后的状态区分三种：`本轮结束 · 已验证`、`本轮结束 · 待验证`（有改动但没有覆盖最后改动的成功验证）、`本轮结束`（只读/问答任务不启用守卫）。`verified=false` 时不要当作任务已验收。
+- 完成守卫第一次拒绝模型的自述完成时会以“完成守卫”提示出现；第二次仍无验证证据时仍会收尾，但明确标记 `verified=false`，可在 `/evidence` 与回执中核对。
+- 边界：非 git 工作区审计 `coverage=limited`，只能核对已记录 hash；`verified=false` 表示“没有覆盖最后改动的验证”或“工作区与记录不一致”，不等于任务一定失败；最终仍需人工核对需求。
 
 默认不按工具次数或模型轮数停止。需要人为限定轮数时可用 `--max-steps N` 或 `VIBE_MAX_STEPS`；0 表示不限。eval 保留各测试任务显式设置的轮数。
 
@@ -300,7 +321,7 @@ Agent 新增两个**只读、无需审批**的工具，用于在报告工作区�
 - 超时用进程组 kill；输出只保留最后 10k 字符。
 - 危险命令黑名单：`rm -rf /`、`mkfs`、`dd if=`、fork bomb、`sudo`、`git push --force`、`git reset --hard`、`curl|sh` 等。
 - 运行预算：任务累计 tokens、费用与运行时限仍生效；交互默认 `max_run_seconds=1800`（30 分钟，排除人工审批等待），评测/基准保留 600 秒。工具次数只用于统计；无进展通过结果检测、纠偏和降级处理。命令执行超时与模型超时仍独立生效。
-- **这不是沙箱**：命令仍以你的用户权限运行，`cwd` 只是起点，命令可以 `cd` 到别处。审批 + 黑名单 + 超时是当前边界；VM/seatbelt/landlock 是后续。
+- **默认不启用沙箱**：命令仍以你的用户权限运行，`cwd` 只是起点，命令可以 `cd` 到别处。审批 + 黑名单 + 超时是默认边界；可选 macOS Seatbelt / Linux bwrap（`--sandbox`），但不是容器级隔离。
 
 可调：`VIBE_MAX_RUN_SECONDS`。旧 `VIBE_MAX_TOOL_CALLS`、`VIBE_MAX_REPEATS` 已不再读取。
 

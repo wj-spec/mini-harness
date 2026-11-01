@@ -200,3 +200,24 @@ class PermissionPolicy:
             "autonomy": self.autonomy,
             "autonomy_cap": self.autonomy_cap,
         }
+
+    def describe_rules(self) -> tuple[str, ...]:
+        """逐条渲染规则，供 /permissions 展示来源、匹配条件与说明。"""
+        lines: list[str] = []
+        for rule in self.rules:
+            fields = [f"- [{rule.source}] {rule.tool}"]
+            if rule.command_prefix:
+                fields.append("prefix=" + ", ".join(rule.command_prefix))
+            if rule.command_regex:
+                fields.append(f"regex={rule.command_regex}")
+            if rule.tier is not None:
+                fields.append(f"tier={rule.tier}")
+            if rule.scopes is not None:
+                fields.append("scopes=" + ",".join(rule.scopes))
+            if rule.decision is not None:
+                fields.append(f"→ {rule.decision}")
+            line = " ".join(fields)
+            if rule.note:
+                line += f"（{rule.note}）"
+            lines.append(line)
+        return tuple(lines)

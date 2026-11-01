@@ -1,6 +1,7 @@
 # 和 opencode / Codex CLI 的对照
 
 > 早期学习对照，保留记录时的观察；其他产品能力以各自对应版本为准。当前项目能力与限制见 [README](../README.md)。
+> 2026-10-31 的三方产品/UX 对照（含 Claude Code）见 [产品/UX 评估](research/product-ux-review-2026-10-31.md)；本页只保留骨架级学习对照。
 
 | 维度 | vibe（本项目） | opencode | Codex CLI |
 |---|---|---|---|
@@ -9,11 +10,11 @@
 | provider | 任意 OpenAI-compatible | 多 provider | OpenAI / 兼容端点 |
 | 上下文 | 1M 窗口，S/M/T/H/R 分区 + recall + LLM 摘要 | 会话与自动压缩（公开能力） | 自动压缩 / 长任务 |
 | 工具 | read / grep / list / write / edit / bash / recall | 文件、搜索、shell、LSP、MCP 等 | shell、apply_patch、搜索、MCP 等 |
-| 写/执行审批 | `risk` + diff + `y/a/s/n/d` | 权限提示 | approval modes + sandbox |
+| 写/执行审批 | T0–T4 层级 × once/session/workspace + 策略/档位 + diff + `y/s/p/n` | 权限提示 | approval modes + sandbox |
 | 会话恢复 | JSONL + `--continue` + 崩溃对账 | session / resume | resume / 会话 |
 | 可观测 | trace + `/cost` + 10 任务 eval | 日志 / 分享 | 日志 / 用量 |
 | 扩展 | 代码级 `ToolRegistry` | 插件 / MCP / LSP | MCP / 配置 |
-| 隔离 | 审批 + 命令黑名单 + timeout，**不是沙箱** | 权限模型 | OS sandbox（Seatbelt/Landlock） |
+| 隔离 | 审批 + 黑名单 + timeout；可选 Seatbelt/bwrap，**非容器级隔离** | 权限模型 | OS sandbox（Seatbelt/Landlock） |
 | 体量 | 几千行，能读完 | 产品级 | 产品级 |
 
 ## 取舍
@@ -37,7 +38,7 @@
 | 控制流 | 显式 `Agent.run` loop + max steps/tool calls/time | 产品级 agent loop | 产品级 agent loop |
 | 状态 | `TaskState` 投影，harness 侧 | 会话状态 | 会话状态 |
 | 持久化 | `events.jsonl` + `state.json` | session 存储 | 会话/rollout |
-| HITL | `ApprovalGate` + diff + `y/a/s/n/d` | 权限提示 | approval + sandbox |
+| HITL | `ApprovalGate` + diff + `y/s/p/n`（T0–T4 层级 × 作用域） | 权限提示 | approval + sandbox |
 | 多 Agent | **不做** | 公开能力因版本而异 | 公开能力因版本而异 |
 | 工具 | `ToolRegistry`，代码级扩展 | 插件/MCP/LSP | MCP/内置工具 |
 | 可观测 | trace + `/cost` + eval | 日志/分享 | 日志/用量 |

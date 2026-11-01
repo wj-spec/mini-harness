@@ -4,9 +4,10 @@ import React, {useEffect, useMemo, useReducer, useRef, useState} from 'react';
 import {CommandMenu} from './command-menu.js';
 import {Box, Text, useApp, useInput, usePaste, useWindowSize} from 'ink';
 import type {BackendClient} from './backend.js';
-import {commandMatches} from './protocol.js';
+import {AUTONOMY_LABELS, AUTONOMY_LEVELS, commandMatches} from './protocol.js';
+import {approvalTitle, splitApprovalPreview} from './approval-view.js';
 import {buildSkillMenu} from './skills-menu.js';
-import type {ApprovalDecision, BackendCommand, RunResult, SkillsCommandArgs} from './protocol.js';
+import type {ApprovalDecision, AutonomyLevel, BackendCommand, RunResult, SkillsCommandArgs} from './protocol.js';
 import {goalDecision, goalLabel, goalPrompt, goalStatusText, resumeGoal, startGoal as newGoal, type GoalMode} from './goal.js';
 import {loadGoal, saveGoal} from './goal-store.js';
 import {initialState as emptyState, reduceView, resultReason, type ViewState} from './view-state.js';
@@ -32,9 +33,11 @@ import type {SetupResult} from './sidebar/launch.js';
 type Scroll = {follow: boolean; top: number};
 const backendCommands: Record<string, BackendCommand> = {
   '/resume': 'resume', '/continue': 'resume', '/permissions': 'permissions', '/permissions reset': 'permissions_reset',
-  '/cost': 'cost', '/costs': 'cost', '/tools': 'tools', '/diff': 'diff', '/mcp': 'mcp',
+  '/cost': 'cost', '/costs': 'cost', '/tools': 'tools', '/diff': 'diff', '/mcp': 'mcp', '/evidence': 'evidence',
 };
 const approvalKeys: Record<string, ApprovalDecision> = {y: 'once', s: 'session', p: 'workspace', n: 'deny'};
+const FAKE_DEMO_PROMPT = '创建 .vibe/fake-demo.txt 并验证';
+const fakeDemoEnabled = () => /^(1|true|yes)$/i.test(process.env.VIBE_FAKE_DEMO ?? '');
 
 export function App({client, initialState = emptyState, windowSize, initialTheme = 'system', copyText = copyToClipboard, profilePath, userProfilePath, launchSidebar = launchSidebarForTui, setupSidebar = runSidebarSetup, publishSidebarSignal = writeSidebarSignal, autoObserve = process.env.VIBE_AUTO_OBSERVE === '1'}: {
   client: BackendClient; initialState?: ViewState; windowSize?: {columns: number; rows: number}; initialTheme?: ThemeName;
@@ -45,7 +48,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
   autoObserve?: boolean;
 }) {
   const [state, dispatch] = useReducer(reduceView, initialState);
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState(fakeDemoEnabled() ? FAKE_DEMO_PROMPT : '');
   const [menuIndex, setMenuIndex] = useState(0);
   const [theme, setTheme] = useState<ThemeName>(initialTheme);
   const [quitting, setQuitting] = useState(false);
@@ -132,18 +135,21 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
     ...(state.live ? [{spans: [{text: ''}]}, ...liveLines(state.live, bodyColumns)] : []),
     ...(state.error ? errorLines(state.error, bodyColumns) : []),
   ], [completedLines, state.live, state.error, bodyColumns]);
+  const approvalView = state.approval ? splitApprovalPreview(state.approval.preview) : null;
   const lines = useMemo(() => {
-    if (state.approval) return [
-      ...textLines(`审批 › ${state.approval.tool}`, bodyColumns, 'heading'),
+    if (state.approval && approvalView) return [
+      ...textLines(approvalTitle(state.approval.tool, state.approval.tierLabel ?? approvalView.tier), bodyColumns, 'heading'),
+      ...(state.approval.tierLabel || approvalView.tier ? textLines(`层级：${state.approval.tierLabel ?? approvalView.tier}；作用域选项见底部按键。`, bodyColumns, 'notice') : []),
+      ...(state.approval.rule ? textLines(`命中规则：[${state.approval.rule.source}] ${state.approval.rule.tool}${state.approval.rule.decision ? ` → ${state.approval.rule.decision}` : ''}${state.approval.rule.note ? ` · ${state.approval.rule.note}` : ''}`, bodyColumns, 'notice') : []),
       ...(decisions.includes('session') ? textLines('s 精确规则：本进程内记住同一工作区、工具及目标；命令内容与目录必须相同。', bodyColumns, 'notice') : []),
       ...(decisions.includes('workspace') ? textLines('p 工作区授权：本进程内允许原生文件写入、编辑与命令；MCP 仍单独审批。', bodyColumns, 'notice') : []),
       ...textLines('预览', bodyColumns, 'label'),
-      ...textLines(state.approval.preview, bodyColumns),
+      ...textLines(approvalView.body, bodyColumns),
     ];
     if (contextOpen) return contextLines(state.contextSnapshots, contextSelection, bodyColumns);
     if (detailEntry) return detailLines(detailEntry, bodyColumns);
     return isEmpty ? welcomeLines(state, bodyColumns) : transcript;
-  }, [state.approval, contextOpen, state.contextSnapshots, contextSelection, detailEntry, bodyColumns, isEmpty, transcript]);
+  }, [state.approval, approvalView, contextOpen, state.contextSnapshots, contextSelection, detailEntry, bodyColumns, isEmpty, transcript]);
   const maximum = Math.max(0, lines.length - bodyRows);
   const top = overlayKey ? Math.min(overlayScroll.key === overlayKey ? overlayScroll.top : 0, maximum) :
     isEmpty ? Math.min(scroll.top, maximum) : scroll.follow ? maximum : Math.min(scroll.top, maximum);
@@ -738,7 +744,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
     if (text === '/goal' || text.startsWith('/goal ')) {setInput(''); handleGoalCommand(text.slice('/goal'.length).trim()); return;}
     if (text === '/help') {
       setInput('');
-      notice('Enter 发送（运行中提交纠偏，下一次模型请求生效）；Ctrl+J 换行；输入焦点下 ↑↓ 编辑或浏览输入历史。滚轮 / 触控板在对话区回看；PgUp/PgDn 翻页，Ctrl+P/N 或 Ctrl+↑/↓ 逐行。Ctrl+R 切换阅读 / 输入焦点，阅读时 ↑↓ 滚动、空格下一页，Esc 回输入。Ctrl+Home/End 到首尾，End 恢复跟随最新；鼠标在对话区拖选，松开即复制所选文本。Tab 选择工具，Ctrl+O 查看全文。Ctrl+K 或 /context 查看上下文分区，←/→ 回放本轮快照，l 跟随最新，Esc 返回。Ctrl+Y 或 /copy 复制最近回复、工具详情或审批预览；Ctrl+G 或 /sidebar 打开右侧 Git 变更侧栏（Ghostty；Terminal 为独立窗口）；/sidebar window 独立窗口；/project 查看项目背景（add/remove/source）；/about 查看个人偏好（add/propose/edit/triggers/confirm/disable/enable/remove/on/off）；Ctrl+C 取消当前操作，空闲时退出；Ctrl+Q 退出。审批时 y 单次、s 精确规则、p 工作区、n 拒绝，以面板选项为准。\n/goal <目标> 目标模式（长任务自动续段，/goal stop 停止，/goal resume 恢复）；/resume 显式续做已保存任务；/permissions 查看授权，/permissions reset 撤销；/cost 会话花费；/tools 可用工具；/diff 工作区差异；/mcp 服务状态；/skills 技能菜单（↑↓ 选择，Tab 补全，Enter 执行；refresh 重扫，activate NAME 激活，unload NAME 卸载）；/followup TEXT 排队后续消息，本轮结束后自动继续；/session 会话路径；/sidebar 在窗口内右侧分屏（跟随窗口尺寸）；/sidebar quick 屏幕右侧 quick terminal（不挤占 TUI）；/sidebar setup 写入 Ghostty 右侧配置；/theme system|light|dark 主题。');
+      notice('Enter 发送（运行中提交纠偏，下一次模型请求生效）；Ctrl+J 换行；输入焦点下 ↑↓ 编辑或浏览输入历史。滚轮 / 触控板在对话区回看；PgUp/PgDn 翻页，Ctrl+P/N 或 Ctrl+↑/↓ 逐行。Ctrl+R 切换阅读 / 输入焦点，阅读时 ↑↓ 滚动、空格下一页，Esc 回输入。Ctrl+Home/End 到首尾，End 恢复跟随最新；鼠标在对话区拖选，松开即复制所选文本。Tab 选择工具，Ctrl+O 查看全文。Ctrl+K 或 /context 查看上下文分区，←/→ 回放本轮快照，l 跟随最新，Esc 返回。Ctrl+Y 或 /copy 复制最近回复、工具详情或审批预览；Ctrl+G 或 /sidebar 打开右侧 Git 变更侧栏（Ghostty；Terminal 为独立窗口）；/sidebar window 独立窗口；/project 查看项目背景（add/remove/source）；/about 查看个人偏好（add/propose/edit/triggers/confirm/disable/enable/remove/on/off）；Ctrl+C 取消当前操作，空闲时退出；Ctrl+Q 退出。审批时 y 单次、s 精确规则、p 工作区、n 拒绝，以面板选项为准。\n/goal <目标> 目标模式（长任务自动续段，/goal stop 停止，/goal resume 恢复）；/resume 显式续做已保存任务；/permissions 查看授权，/permissions reset 撤销；/evidence 查看最近一轮验收证据；/autonomy ask|edits|workspace|full 切换授权档位；/cost 会话花费；/tools 可用工具；/diff 工作区差异；/mcp 服务状态；/skills 技能菜单（↑↓ 选择，Tab 补全，Enter 执行；refresh 重扫，activate NAME 激活，unload NAME 卸载）；/followup TEXT 排队后续消息，本轮结束后自动继续；/session 会话路径；/sidebar 在窗口内右侧分屏（跟随窗口尺寸）；/sidebar quick 屏幕右侧 quick terminal（不挤占 TUI）；/sidebar setup 写入 Ghostty 右侧配置；/theme system|light|dark 主题。');
       return;
     }
     if (text.startsWith('/theme')) {
@@ -764,6 +770,24 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
         return;
       }
       followupText = rest;
+    }
+    if (text.startsWith('/autonomy')) {
+      setInput('');
+      const level = text.slice('/autonomy'.length).trim();
+      if (!level) {
+        const current = state.autonomy ? `${state.autonomy} · ${AUTONOMY_LABELS[state.autonomy as AutonomyLevel] ?? state.autonomyLabel}` : '未知';
+        notice(`当前授权档位：${current}\n用法：/autonomy ask|edits|workspace|full（ask 每次询问；edits 自动改文件；workspace 工作区自动；full 包含网络）`);
+        return;
+      }
+      if (!AUTONOMY_LEVELS.includes(level as AutonomyLevel)) {notice('用法：/autonomy ask|edits|workspace|full'); return;}
+      if (state.phase !== 'idle' || activeRun.current) return;
+      try {
+        const id = client.command('autonomy', {level: level as AutonomyLevel});
+        activeRun.current = id;
+        dispatch({type: 'begin_command', id, command: 'autonomy'});
+        setFeedback('');
+      } catch (error) {reportError(`授权档位未送达：${String(error)}`);}
+      return;
     }
     const parts = text.split(/\s+/);
     const skillCommand = parts[0] === '/skill' || parts[0] === '/skills';
@@ -813,13 +837,14 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
   const status = agentStatus(state);
   const phase = quitting ? '正在退出，等待后端清理' : status.label;
   const position = `${Math.min(top + 1, lines.length)}–${Math.min(top + bodyRows, lines.length)}/${lines.length}`;
+  const doneText = state.lastVerified === false ? '完成待验证' : state.lastVerified === true ? '已完成 · 已验证' : '任务完成';
   const goalTitle = goal?.active ? `目标模式 · ${goalLabel(goal)} · ` : '';
   const paneTitle = goalTitle + (state.approval ? `等待审批 · ${position}` : contextOpen ? `上下文分区 · ${position}` : detailEntry ? `工具详情 · ${position}` : isEmpty ? '工作台首页 · 输入任务开始' : `对话 · ${reading ? '阅读焦点 · ' : ''}${scroll.follow ? '跟随最新' : `回看 · 下方 ${maximum-top} 行`} · ${position}`);
   const goalHint = goal ? `${goalStatusText(goal)} · ` : '';
   const hint = goalHint + (state.approval ? `${approvalHint} · 滚轮/PgUp/PgDn 翻页 · Ctrl+C 取消` : contextOpen ? '←/→ 选快照 · l 最新 · ↑↓/滚轮 翻阅 · Esc 返回' : detailEntry ? '滚轮/↑↓ 翻阅 · Home/End 首尾 · Esc 返回' :
     reading ? '阅读焦点：↑↓滚动  空格翻页  End最新  Esc输入  Ctrl+Q退出' :
       state.phase === 'running' ? (columns < 60 ? 'Enter 纠偏 · /followup 排队 · Ctrl+C 停止' : 'Enter 提交纠偏  /followup 文本 排队后续  Ctrl+C 停止  Ctrl+Q 退出') :
-        state.lastStatus === 'done' ? (columns < 60 ? '任务完成 · /diff 核对 · /resume 续做' : '任务完成  /diff 核对改动  /resume 续做  /copy 复制回复  Ctrl+Q 退出') :
+        state.lastStatus === 'done' ? (columns < 60 ? `${doneText} · /evidence 核对 · /resume 续做` : `${doneText}  /evidence 证据  /resume 续做  /copy 复制回复  Ctrl+Q 退出`) :
         state.lastStatus === 'cancelled' ? (columns < 60 ? '已取消 · 核对修改 · /resume 续做' : '已取消  核对已发生的修改  /resume 续做  /copy 复制回复  Ctrl+Q 退出') :
         state.lastStatus === 'error' ? (columns < 60 ? '运行失败 · /resume 重试' : '运行失败  查看错误与工具记录  /resume 重试  Ctrl+Q 退出') :
         state.lastStatus === 'stopped' ? (columns < 60 ? '任务已暂停 · /resume 续做' : '任务已暂停  /resume 续做  /context 查看进度  Ctrl+Q 退出') :
@@ -829,7 +854,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
   const composerPlaceholder = state.approval ? '审批面板已聚焦，请选择授权范围' : contextOpen ? '上下文详情已聚焦，Esc 返回输入' : detailEntry ? '工具详情已聚焦，Esc 返回输入' : reading ? '正在阅读历史，Esc 返回输入' :
     state.phase === 'closed' ? '可以回看已有记录，退出后重新启动' : state.phase === 'starting' ? '可以先写下任务目标与约束' : state.phase === 'stopping' ? '正在停止 · 收到停止结果后可发送' :
       state.phase === 'running' ? '运行中：Enter 提交纠偏，/followup 文本排队后续' :
-        state.lastStatus === 'done' ? '任务完成 · 输入新任务，或 /resume 续做' :
+        state.lastStatus === 'done' ? `${doneText} · 输入新任务，或 /resume 续做` :
         state.lastStatus === 'cancelled' ? '已取消 · 核对修改后输入新任务，或 /resume 续做' :
         state.lastStatus === 'error' ? '运行失败 · 输入新任务，或 /resume 重试' :
         state.lastStatus === 'stopped' ? '任务已暂停 · 输入新任务，或 /resume 续做' : '描述任务，或输入 / 查看命令';

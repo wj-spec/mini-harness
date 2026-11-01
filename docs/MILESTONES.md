@@ -382,6 +382,31 @@ Ink 两轮实际日志补充：`.vibe/browser/ink-smoke/309dc558d44d/report.json
 
 **整体授权档位（2026-10-28）**：在工具层级/作用域与用户策略之外，新增用户可选的**整体授权档位** `ask`（每次询问，默认）/ `edits`（工作区文件修改自动）/ `workspace`（工作区写入+执行自动）/ `full`（再加网络与 MCP；浏览器动作仍逐次），解决"授权后仍不断审批"的体验问题。来源优先级：CLI `--autonomy` > `VIBE_AUTONOMY` > 用户策略 `autonomy` > 默认；项目策略只提供**更严上限**，有效档位取两者中更严者。档位只是自动放行：T4 永不自动、策略 `deny`/`once` 优先、黑名单/护栏/沙箱始终优先；审计记为 `autonomy_allow_<level>`。`/permissions` 显示当前档位。回归：`tests/test_permission_policy.py` 新增授权矩阵、项目上限、Gate 各档位自动/询问、策略优先与 Agent 环境/重载；该文件 21 项通过，全量 Python 退出 0。规格见 [permission-policy](specs/permission-policy.md) 第 5 节，用法见 USAGE。
 
+## P0 产品化切片：验收状态可见与首用自检（2026-10-31）
+
+按 [产品/UX 评估](research/product-ux-review-2026-10-31.md) 的 P0 建议，把已实现的证据链与审批模型接到界面上，并补齐首用路径；只做产品化，不新增 Agent 能力。
+
+**用户获得什么**：任务结束后能一眼区分「已验证 / 待验证」；能查看最近一轮的结构化证据；能在界面内切换授权档位并看到当前档位；审批面板直接显示副作用层级；新用户能先用 `--doctor` 自检缺什么，再按提示补齐。
+
+**已交付**：
+- 结束状态区分 `本轮结束 · 已验证 / 本轮结束 · 待验证 / 本轮结束`；回执卡片按内容显示「验收未通过 / 验收通过 / 本轮回执」；完成守卫第一次拒绝时出现「完成守卫」提示；`/goal` 在 `verified=false` 时暂停。
+- `/evidence`：读取最近一轮 `rounds/round_XXX.json`，显示完成判定、环境审计、改动文件 hash、验证记录与回执摘要；无轮次时提示先完成任务（`app/evidence.py`）。
+- `/autonomy`：查看/切换 `ask|edits|workspace|full`；Ink 入口支持 `--autonomy`；ready/command_result 同步档位，Header 与状态面板显示档位徽标；`/permissions` 追加策略规则明细（来源 / 工具 / decision / tier / scopes / note）。
+- 审批面板把 `[审批层]` 从预览尾部提到标题（`审批 · T1 工作区写入 · edit_file`），窄屏也能看到层级；审批请求同时带结构化 `tier / tier_label / rule`（来源、工具、decision、note），面板显示“命中规则”。
+- 评审修复：`verified / completion / audit / 回执 / 轮次记录` 改为按**本轮增量**（run 起点切片），同一会话第二轮不再继承上一轮改动；环境审计支持只审本轮改动，并修复 workspace 为 git 仓库子目录时的路径错位；`/diff` 审批补 `[审批层]`。
+- 首用：`./run_ink.sh --doctor`（不需要 node_modules 即可运行）、`.env.example`、README 三步快速开始；USAGE 补验收证据与档位说明。
+- 确定性演示：`VIBE_FAKE_DEMO=1 ./run_ink.sh --fake` 无 key 走完“写文件 → 审批 → 验证 → 回执 → `/evidence`”，便于首用体验核心闭环。
+
+**验证证据**：
+- Python 全量 `./run_tests.sh`：1167 passed / 13 skipped（收集 1180）；新增 `tests/test_evidence.py` 与 stdio/策略用例。
+- TUI `npm --prefix tui test`：348 项 347 通过（唯一失败为既有“无 PTY 环境”限制）；新增 verified 状态、`/evidence`、`/autonomy`、审批层级与命令菜单用例。
+- `./run_ink.sh --doctor` 实机：缺 API key exit 2 并给出补齐命令；配置 key 后 exit 0「可以启动」。
+- stdio 端到端（fake）：ready 带档位；`/evidence` 无记录/有记录；`/autonomy edits` 切换且 command_result 带档位；非法 level 返回 `invalid_request`；`/permissions` 含规则明细。
+
+**未验收 / 未做**：真实模型任务下的 `verified` 体验与额外轮次、真实 PTY 键路与终端渲染、审批自动放行标记、规则撤销 UI、规则持久化、安装分发。真实模型验收前，对外只陈述“机制已验证、真实任务待验收”。
+
+**下一步**：先用真实模型跑 3 道保留题 ×3 次，记录误完成率/误杀率/额外轮次；再决定审批自动放行标记与规则撤销 UI 的投入。
+
 ## 当前下一步
 
 W1–W5 已完成真实验收；W6 v2 三组对照完成，主假设未获支持。2026-10-26 用户决定停止 P0 扩张、不进入 P5，保留显式偏好管理能力；后续只有新证据/新评估方法才重新评估个性化。接下来：
