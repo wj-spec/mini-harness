@@ -30,7 +30,7 @@ python -m app --task "修复 tests/test_x.py 的失败" --bench \
 
 ### Harbor adapter
 
-- `bench/adapter.py`：`VibeAgent(BaseInstalledAgent)`。`install()` 在容器内上传 `app/`、`core/` 与依赖清单，用 `uv` 建 Python 3.12 venv；`run()` 通过文件传递 API key，执行 `python -m app --task ... --bench --workspace "$PWD"`；`populate_context_post_run()` 回填 token 用量。
+- `bench/adapter.py`：`VibeAgent(BaseInstalledAgent)`。`install()` 在容器内上传 `app/`、`core/` 与依赖清单；优先复用镜像自带 uv 与 Python 3.11+ 建 venv，只装 `fastmcp/ddgs/httpx`，镜像 Python <3.11 时才回退 uv-managed 3.12；`run()` 通过文件传递 API key，执行 `python -m app --task ... --bench --workspace "$PWD"`；`populate_context_post_run()` 回填 token 用量。
 - `bench/support.py`：模型前缀解析、`VIBE_*` 环境映射、telemetry 校验；不 import harbor。
 
 ## 运行方式

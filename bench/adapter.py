@@ -29,7 +29,6 @@ GUEST_PKG = "/opt/vibe"
 GUEST_SECRET = "/opt/vibe_secret"
 KEY_FILE = f"{GUEST_SECRET}/api.key"
 LOG_DIR = "/logs/agent"
-UV_ENV = '. "$HOME/.local/bin/env"'
 AGENT_VERSION = support.agent_version(REPO_ROOT)
 
 
@@ -79,7 +78,10 @@ class VibeAgent(BaseInstalledAgent):
     async def install(self, environment: BaseEnvironment) -> None:
         await self.exec_as_root(
             environment,
-            command="apt-get update && apt-get install -y curl ca-certificates",
+            command=(
+                "command -v curl >/dev/null 2>&1 || "
+                "(apt-get update && apt-get install -y curl ca-certificates)"
+            ),
             env={"DEBIAN_FRONTEND": "noninteractive"},
         )
         with tempfile.TemporaryDirectory() as tmp:
@@ -103,18 +105,7 @@ class VibeAgent(BaseInstalledAgent):
             secret.mkdir()
             (secret / "api.key").write_text(self._resolved["api_key"], encoding="utf-8")
             await environment.upload_dir(secret, GUEST_SECRET)
-        await self.exec_as_agent(
-            environment,
-            command=(
-                "set -euo pipefail; "
-                "curl -LsSf https://astral.sh/uv/install.sh | sh; "
-                f"{UV_ENV}; "
-                "uv venv --python 3.12 \"$HOME/vibe-venv\"; "
-                "uv pip install --python \"$HOME/vibe-venv/bin/python\" "
-                f"-r {GUEST_PKG}/bench/requirements-bench.txt; "
-                f"PYTHONPATH={GUEST_PKG} \"$HOME/vibe-venv/bin/python\" -c 'import app, core'"
-            ),
-        )
+        await self.exec_as_agent(environment, command=support.install_shell(guest_pkg=GUEST_PKG))
 
     @override
     @with_prompt_template
@@ -124,7 +115,6 @@ class VibeAgent(BaseInstalledAgent):
             environment,
             command=(
                 "set -o pipefail; "
-                f"{UV_ENV}; "
                 f'export PYTHONPATH={GUEST_PKG}; '
                 f'export VIBE_API_KEY="$(cat {KEY_FILE} 2>/dev/null)"; '
                 f"rm -f {KEY_FILE}; "

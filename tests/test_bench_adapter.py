@@ -1,4 +1,5 @@
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -74,3 +75,11 @@ def test_adapter_source_compiles_and_requirements_are_pinned():
     requirements = (REPO_ROOT / "bench" / "requirements-bench.txt").read_text(encoding="utf-8")
     for pin in ("ddgs==", "fastmcp==", "httpx=="):
         assert pin in requirements
+
+def test_install_shell_reuses_image_uv_and_python():
+    script = support.install_shell()
+    assert "for py in python3.12 python3.11 python3 python" in script
+    assert "uv venv --python 3.12" in script
+    assert "requirements-bench.txt" in script
+    assert "command -v uv" in script
+    subprocess.run(["bash", "-n", "-c", script], check=True)

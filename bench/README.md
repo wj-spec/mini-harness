@@ -47,7 +47,7 @@ PYTHONPATH=. uv run --with "harbor==0.20.0" harbor run \
 
 ## 实现
 
-- `adapter.py`：Harbor `BaseInstalledAgent`，容器内上传 `app/`、`core/`，用 `uv` 安装依赖，执行 `python -m app --task ... --bench`。
+- `adapter.py`：Harbor `BaseInstalledAgent`，容器内上传 `app/`、`core/`；优先复用镜像自带 uv 与 Python 3.11+（SWE-bench 镜像的 Dockerfile 已装 uv），只安装 `fastmcp/ddgs/httpx`；镜像 Python <3.11 时才回退 uv-managed 3.12。执行 `python -m app --task ... --bench`。
 - `support.py`：模型/环境/telemetry 的纯逻辑，可离线测试。
 - 非交互入口：`python -m app --task "..." --bench --telemetry-out ... --runtime-dir ...`。
 
