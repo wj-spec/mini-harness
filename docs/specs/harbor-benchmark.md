@@ -60,6 +60,7 @@ PYTHONPATH=. uv run --with "harbor==0.20.0" harbor run \
 - [x] `--task --fake --bench` 本地 smoke：telemetry 写入、退出码 0、workspace 不产生 `.vibe/`。
 - [x] Harbor 0.20.0 CLI 与 `bench.adapter:VibeAgent` 导入/实例化验证（`harbor --version` = 0.20.0；`uv run --with "harbor==0.20.0"` 可加载 adapter）。
 - [x] 可选本地镜像加速：`scripts/prepare_bench_image.py` 预装 app venv、预热 uv/pip cache 与 testbed 测试依赖；adapter 复用 `/opt/vibe-venv`。
+- [x] 批量下载/共享缓存：`scripts/fetch_swebench_task.py` 按 instance 拉 6 个文件；Harbor `--mounts` 挂载 uv/pip/python 缓存，避免 500 个 task 各自重建镜像。
 - [ ] 真实 Harbor 单题（需要 Docker + API key）。
 - [ ] SWE-bench Verified / Terminal-Bench 2.1 小规模与全量（成本/时间另算）。
 

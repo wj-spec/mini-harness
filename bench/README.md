@@ -76,6 +76,69 @@ PYTHONPATH=. uv run --managed-python --python 3.12 \
 
 默认镜像源是 `https://pypi.tuna.tsinghua.edu.cn/simple`，可用 `--pypi-index https://mirrors.aliyun.com/pypi/simple/` 替换。镜像层只在本地构建，不改变评测题目或隐藏测试。
 
+## 批量跑本地 SWE-bench Verified
+
+下载指定 task（只拉 6 个文件，不克隆 4.3GB 数据集）：
+
+```bash
+python3 scripts/fetch_swebench_task.py \
+  astropy__astropy-12907 django__django-11099 \
+  sympy__sympy-20590 matplotlib__matplotlib-14623 \
+  pytest-dev__pytest-7432 \
+  --dest local-bench/batch1
+```
+
+全量时 task 数量多，建议共享宿主机缓存，而不是给每个 task 重建预装镜像。Harbor 支持 `--mounts`，把 uv/pip cache 和 uv-managed Python 挂进容器：
+
+```bash
+mkdir -p ~/.cache/vibe-bench/uv ~/.cache/vibe-bench/pip ~/.local/share/uv/python
+
+MOUNTS=$(python3 - <<'PY'
+import json, os
+home = os.path.expanduser("~")
+print(json.dumps([
+    {"type": "bind", "source": f"{home}/.cache/vibe-bench/uv", "target": "/root/.cache/uv"},
+    {"type": "bind", "source": f"{home}/.cache/vibe-bench/pip", "target": "/root/.cache/pip"},
+    {"type": "bind", "source": f"{home}/.local/share/uv/python", "target": "/root/.local/share/uv/python"},
+]))
+PY
+)
+```
+
+先跑 oracle 校验 task 口径（不需要 API key）：
+
+```bash
+PYTHONPATH=. uv run --managed-python --python 3.12 \
+  --with "harbor==0.20.0" harbor run \
+  -p local-bench/batch1 \
+  --agent oracle \
+  --env docker -n 2 \
+  --job-name "oracle-batch1-$(date +%s)" \
+  --mounts "$MOUNTS" \
+  --environment-build-timeout-multiplier 5
+```
+
+再用 Agent 跑同一批：
+
+```bash
+PYTHONPATH=. uv run --managed-python --python 3.12 \
+  --with "harbor==0.20.0" harbor run \
+  -p local-bench/batch1 \
+  --agent bench.adapter:VibeAgent \
+  --model deepseek/deepseek-flash \
+  --env docker -n 2 \
+  --job-name "agent-batch1-$(date +%s)" \
+  --mounts "$MOUNTS" \
+  --environment-build-timeout-multiplier 5 \
+  --agent-setup-timeout-multiplier 5
+```
+
+缓存目录会跨 task 复用：第一个 task 预热 uv/pip/python 3.12，后续 task 明显更快。全量 500 题要分批跑，批次之间清理不用的 Docker 镜像：
+
+```bash
+docker image prune -af
+```
+
 ## 限制
 
 - 未实现 ATIF 轨迹与 sb-cli/Modal 云评分。
