@@ -139,6 +139,35 @@ PYTHONPATH=. uv run --managed-python --python 3.12 \
 docker image prune -af
 ```
 
+## 容器内网络代理
+
+Windows 代理通常只监听 `127.0.0.1`，Docker 容器访问不到；而 SWE-bench 的 verifier
+parser 会从 GitHub 读取 requirements，容器没有代理时会 `Connection reset`。
+
+在 WSL 里起一个 TCP 转发桥，把容器流量转到 Windows 代理：
+
+```bash
+nohup python3 scripts/local_proxy_bridge.py \
+  --listen 0.0.0.0:17892 --target 127.0.0.1:17891 \
+  >/tmp/proxy_bridge.log 2>&1 &
+cat /tmp/proxy_bridge.log
+```
+
+验证容器可达：
+
+```bash
+docker run --rm --add-host=host.docker.internal:host-gateway \
+  swebench/sweb.eval.x86_64.astropy_1776_astropy-12907:latest \
+  sh -lc 'curl -x http://host.docker.internal:17892 -I https://github.com'
+```
+
+跑 Harbor 时加 `--extra-docker-compose bench/proxy-compose.yaml`，把代理环境变量注入
+main service（Agent 和 verifier 都会继承）：
+
+```bash
+... harbor run ... --extra-docker-compose bench/proxy-compose.yaml
+```
+
 ## 限制
 
 - 未实现 ATIF 轨迹与 sb-cli/Modal 云评分。

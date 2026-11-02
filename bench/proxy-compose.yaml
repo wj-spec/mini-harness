@@ -1,0 +1,12 @@
+# 给 Harbor task 容器注入 HTTP 代理。
+# 配合 scripts/local_proxy_bridge.py 使用：
+#   python3 scripts/local_proxy_bridge.py --listen 0.0.0.0:17892 --target 127.0.0.1:17891 &
+#   harbor run ... --extra-docker-compose bench/proxy-compose.yaml
+services:
+  main:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      HTTP_PROXY: "http://host.docker.internal:17892"
+      HTTPS_PROXY: "http://host.docker.internal:17892"
+      NO_PROXY: "localhost,127.0.0.1,::1"
