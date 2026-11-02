@@ -189,6 +189,15 @@
 - 修复：`ensure_tool_pairing` 补 ID、修复错配、补缺失结果；每次模型请求前执行。
 - 防再犯：保留该回归测试；出现 400 先看 tool 配对，而不是先怀疑模型。
 
+### 5.3b 没确认 agent_version 就解读结果
+
+- 现象：retry4 结果里 `agent_version=574c005`，但当前代码已经是 `edaa812`（测试文件保护 + completion guard）；结果被误当成“新策略效果”。
+- 根因：Harbor run 启动时 adapter 已经 import，运行中后续提交不会生效。
+- 修复：每次结果先看 `agent/telemetry.json` 的 `agent_version`，必须等于当前 HEAD（或预期的提交）。
+- 防再犯：
+  - 启动前 `git log --oneline -1`，跑完对比 `agent_version`；
+  - 不一致就重跑，不要分析旧代码结果。
+
 ### 5.4 Agent 在 `/app` 与 `/testbed` 之间浪费步数
 
 - 现象：多个 Agent 先 `cd /app` 失败，再发现 `/testbed`。
@@ -203,6 +212,7 @@
 - [ ] `git pull` 成功，adapter 是新版；
 - [ ] `python3` 不是 `python`；
 - [ ] `DEEPSEEK_API_KEY` 有效（curl 200）；
+- [ ] 当前 HEAD 与预期一致，跑完核对 `telemetry.agent_version`；
 - [ ] Docker daemon proxy 生效（`docker info`）；
 - [ ] 代理桥监听 `17892`；
 - [ ] `--extra-docker-compose bench/proxy-compose.yaml`；
