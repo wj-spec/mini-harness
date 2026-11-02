@@ -168,6 +168,40 @@ main service（Agent 和 verifier 都会继承）：
 ... harbor run ... --extra-docker-compose bench/proxy-compose.yaml
 ```
 
+## Docker build 网络：预装 uv 二进制
+
+Harbor 的 Docker build **不继承**宿主的 `HTTP_PROXY`，任务 Dockerfile 里的：
+
+```dockerfile
+RUN curl -LsSf https://astral.sh/uv/0.7.13/install.sh | sh
+```
+
+在镜像构建阶段可能直接失败。做法是先在 WSL 构建一个本地 uv 镜像，再把这些 RUN
+替换成 `COPY`：
+
+```bash
+# 下载 uv 二进制（走 Windows 代理）
+curl -L -x http://127.0.0.1:17891 -o /tmp/uv.tar.gz \
+  https://github.com/astral-sh/uv/releases/download/0.7.13/uv-x86_64-unknown-linux-gnu.tar.gz
+tar -xzf /tmp/uv.tar.gz -C /tmp
+
+mkdir -p /tmp/uv-image
+cp /tmp/uv-x86_64-unknown-linux-gnu/uv /tmp/uv-image/uv
+printf 'FROM scratch\nCOPY uv /uv\n' > /tmp/uv-image/Dockerfile
+docker build -t local/uv:0.7.13 /tmp/uv-image
+docker run --rm local/uv:0.7.13 /uv --version
+```
+
+然后批量替换本地 task 的 Dockerfile：
+
+```bash
+python3 scripts/patch_task_uv.py local-bench/batch20
+rm -rf ~/.cache/harbor/tasks   # Dockerfile 变了，清 Harbor task 缓存
+```
+
+之后再跑 Harbor，build 阶段只 COPY 本地 uv，不再访问 astral.sh。全量 500 题下载后
+也要先跑一遍 `scripts/patch_task_uv.py local-bench/all`。
+
 ## 限制
 
 - 未实现 ATIF 轨迹与 sb-cli/Modal 云评分。
