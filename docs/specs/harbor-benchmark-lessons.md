@@ -9,8 +9,9 @@
 - 数据集：**SWE-bench Verified 500**（不是原始 SWE-bench 2,294，也不是 Lite 300）。
 - 5 题 smoke：Oracle 5/5；Agent 5/5（Harbor 口径）。
 - 20 题 oracle：19/20；`django__django-10097` 的 oracle 失败，尚未定位到官方口径原因。
-- 19 题 Agent（Harbor 口径）：**15/19 resolved**。
-- 当前正在重跑 4 个失败任务，验证新增的 bench 策略。
+- 19 题 Agent（Harbor 口径，旧策略）：**15/19 resolved**。
+- 旧策略重跑 4 个失败任务：1/4；其中 sympy-12096 的 HTTP 400 已修。
+- 最新策略（`130b5d8`，测试文件保护 + completion guard + prompt）重跑 3 个失败任务：**3/3 resolved**。
 - 官方分数链路：Harbor 只跑 Agent，官方 `swebench` harness 评分；目前尚在打通。
 
 ## 1. 评测口径错误
@@ -197,6 +198,13 @@
 - 防再犯：
   - 启动前 `git log --oneline -1`，跑完对比 `agent_version`；
   - 不一致就重跑，不要分析旧代码结果。
+
+### 5.3c 策略验证结果（2026-11-02）
+
+- 旧代码 `574c005`：3 个失败任务 0/3；
+- 新代码 `130b5d8`：同一批 3 个任务 **3/3 resolved**（astropy-13033、matplotlib-20676、sympy-11618）；
+- 新增策略确实改变了行为：不再改测试文件，最后验证失败会被 completion guard 拒绝并继续。
+- 注意：这仍是 **Harbor 口径**；官方分数必须用 `swebench` harness 再评一次。
 
 ### 5.4 Agent 在 `/app` 与 `/testbed` 之间浪费步数
 
