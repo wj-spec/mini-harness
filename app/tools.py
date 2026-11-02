@@ -408,11 +408,19 @@ class ToolRegistry:
         spec = self._tools.get(name)
         return bool(spec and spec.retryable)
 
+    @staticmethod
+    def _verification_command(command: str, verification: bool) -> str:
+        """验证命令带管道时启用 pipefail，避免 `pytest ... | tail` 把失败吞成 0。"""
+        if verification and "|" in command and "pipefail" not in command:
+            return "set -o pipefail\n" + command
+        return command
+
     def bash(self, command: str, timeout: float = 30.0, cwd: str = ".", verification: bool = False) -> str:
         target = self._resolve(cwd)
         if not target.is_dir():
             raise NotADirectoryError(cwd)
         check_command(command, None if self.bench_mode else self.root)
+        command = self._verification_command(command, verification)
         code, output, timed_out = run_command(
             command, target, float(timeout),
             **({"sandbox": self._sandbox, "env_extra": self._sandbox_env} if self._sandbox else {}),
@@ -425,6 +433,7 @@ class ToolRegistry:
         if not target.is_dir():
             raise NotADirectoryError(cwd)
         check_command(command, None if self.bench_mode else self.root)
+        command = self._verification_command(command, verification)
         try:
             code, output, timed_out = await run_command_async(
                 command, target, float(timeout),

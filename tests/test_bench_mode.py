@@ -166,3 +166,12 @@ def test_bench_mode_rejects_test_file_edits(tmp_path):
     normal = ToolRegistry(workspace)
     normal.write_file("tests/test_demo.py", "def test_ok():\n    assert True\n")
     assert (tests_dir / "test_demo.py").is_file()
+
+
+def test_verification_pipefail_does_not_mask_failure(tmp_path):
+    workspace = _workspace(tmp_path)
+    registry = ToolRegistry(workspace)
+    output = registry.bash("false | true", verification=True)
+    assert "exit=1" in output
+    output = registry.bash("true | true", verification=True)
+    assert "exit=0" in output
