@@ -1026,3 +1026,13 @@ def test_ensure_tool_pairing_assigns_missing_ids_and_results():
     assert tools[0].tool_call_id == calls[0].id
     assert tools[1].tool_call_id == calls[1].id
     assert "not_executed" in tools[1].content
+
+
+def test_ensure_tool_pairing_drops_orphan_tool_messages():
+    messages = [
+        Message("user", "q"),
+        Message("tool", "orphan", name="read_file", tool_call_id="missing"),
+        Message("assistant", "done"),
+    ]
+    repaired = ensure_tool_pairing(messages)
+    assert [m.role for m in repaired] == ["user", "assistant"]

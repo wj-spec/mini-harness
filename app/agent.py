@@ -100,7 +100,9 @@ def ensure_tool_pairing(messages: list[Message]) -> list[Message]:
     while index < len(messages):
         message = messages[index]
         if message.role != "assistant" or not message.tool_calls:
-            repaired.append(message)
+            # 孤立 tool 消息会被 OpenAI 兼容 API 拒绝；保留反而破坏请求。
+            if message.role != "tool":
+                repaired.append(message)
             index += 1
             continue
 
