@@ -232,6 +232,52 @@ python3 scripts/sync_verified_configs.py \
 - `django-10097` 若 oracle 仍失败，先和官方 `swebench.make_test_spec` 生成的测试命令对比，再判断是镜像/数据集问题；
 - Harbor `tests/test.sh` 必须与官方 eval_script 的核心命令一致；只把 Harbor 当执行器，评分逻辑以官方 swebench parser 为准。
 
+## 官方 SWE-bench Verified 评分链路
+
+Harbor 只负责跑 Agent；官方分数用 `swebench` 包计算。
+
+### 1. Agent 跑完保存 patch
+
+新版 adapter 会在 `python -m app` 结束后自动写：
+
+```text
+trial/agent/model.patch
+trial/agent/git-status.txt
+```
+
+如果用的是旧 run，先重跑 Agent，旧结果里没有 patch。
+
+### 2. 汇总每题结果和错误
+
+```bash
+python3 scripts/bench_report.py jobs/agent-... --failures-only
+python3 scripts/bench_report.py jobs/agent-... --format csv > report.csv
+```
+
+报告包含：reward/resolved、Agent status/error、steps/tool_calls/tokens、
+失败测试名、耗时、patch 大小、日志路径。优化 harness 时先看这个。
+
+### 3. 生成官方评测输入
+
+```bash
+python3 scripts/collect_predictions.py jobs/agent-... \
+  -o predictions.jsonl \
+  --model-name-or-path vibe-mini-harness
+```
+
+### 4. 用官方 harness 评分
+
+```bash
+uv run --with "swebench==4.1.0" python -m swebench.harness.run_evaluation \
+  --dataset_name princeton-nlp/SWE-bench_Verified \
+  --split test \
+  --predictions_path predictions.jsonl \
+  --max_workers 2 \
+  --run_id vibe-bench
+```
+
+注意官方 harness 的评测容器也需要网络/代理；先在 5 题上跑通再扩到 500 题。
+
 ## 限制
 
 - 未实现 ATIF 轨迹与 sb-cli/Modal 云评分。

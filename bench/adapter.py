@@ -124,7 +124,11 @@ class VibeAgent(BaseInstalledAgent):
                 f'--workspace "$PWD" '
                 f"--telemetry-out {LOG_DIR}/telemetry.json "
                 f"--runtime-dir {LOG_DIR}/vibe "
-                f"2>&1 | tee {LOG_DIR}/agent.log"
+                f"2>&1 | tee {LOG_DIR}/agent.log; "
+                'rc=${PIPESTATUS[0]}; '
+                f'git -C "$PWD" diff > {LOG_DIR}/model.patch 2>/dev/null || true; '
+                f'git -C "$PWD" status --porcelain > {LOG_DIR}/git-status.txt 2>/dev/null || true; '
+                'exit "$rc"'
             ),
             env={
                 **self._resolved["env"],

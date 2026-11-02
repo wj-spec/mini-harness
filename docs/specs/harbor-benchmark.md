@@ -62,6 +62,7 @@ PYTHONPATH=. uv run --with "harbor==0.20.0" harbor run \
 - [x] 可选本地镜像加速：`scripts/prepare_bench_image.py` 预装 app venv、预热 uv/pip cache 与 testbed 测试依赖；adapter 复用 `/opt/vibe-venv`。
 - [x] 批量下载/共享缓存：`scripts/fetch_swebench_task.py` 按 instance 拉 6 个文件；Harbor `--mounts` 挂载 uv/pip/python 缓存，避免 500 个 task 各自重建镜像。
 - [x] Docker build 网络兜底：`scripts/patch_task_uv.py` 把 `RUN curl uv` 替换为本地 `local/uv:0.7.13` 镜像 COPY，避免 build 阶段访问 astral.sh。
+- [x] 官方评分链路：adapter 保存 `model.patch`；`scripts/collect_predictions.py` 生成 predictions.jsonl；`scripts/bench_report.py` 汇总每题失败原因。
 - [ ] 真实 Harbor 单题（需要 Docker + API key）。
 - [ ] SWE-bench Verified / Terminal-Bench 2.1 小规模与全量（成本/时间另算）。
 
