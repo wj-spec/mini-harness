@@ -114,6 +114,7 @@ def main(argv: list[str] | None = None) -> int:
             row["model_name_or_path"] = args.model_name_or_path
             handle.write(json.dumps(row, ensure_ascii=False) + "\n")
     print(f"wrote {len(rows)} predictions to {args.output}")
+    print("instances:", " ".join(row["instance_id"] for row in rows))
     return 0
 
 

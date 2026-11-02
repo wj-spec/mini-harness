@@ -143,6 +143,13 @@
 
 ## 4. 运行 / 环境 / 脚本
 
+### 4.0 官方评测的 instance_ids 与本地 batch 不一致
+
+- 现象：官方评测命令写了 `astropy__astropy-7606`，但实际 `batch1` 里是 `sympy__sympy-20590`；结果 `Instances incomplete: 2`，有 patch 的 sympy-20590 被漏评。
+- 根因：`--instance_ids` 手写，没和 `predictions.jsonl` 对齐；`batch1` 曾换过内容。
+- 修复：`collect_predictions.py` 现在会输出 `instances: ...`，官方命令直接用该列表；或从 JSONL 里 Python 生成。
+- 防再犯：官方评测前，先核对 predictions 的 instance 列表与 `--instance_ids` 完全一致。
+
 ### 4.1 WSL 没有 `python`
 
 - 现象：`python - <<'PY'` 全部失败，导致“移除 PASS_TO_PASS”实际上没执行。
