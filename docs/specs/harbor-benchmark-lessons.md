@@ -12,6 +12,7 @@
 - 19 题 Agent（Harbor 口径，旧策略）：**15/19 resolved**。
 - 旧策略重跑 4 个失败任务：1/4；其中 sympy-12096 的 HTTP 400 已修。
 - 最新策略（`130b5d8`，测试文件保护 + completion guard + prompt）重跑 3 个失败任务：**3/3 resolved**。
+- 官方 `swebench==4.1.0` 对上述 3 题评测：**3/3 resolved，0 errors**（`vibe-official3-1793627940`）。
 - 官方分数链路：Harbor 只跑 Agent，官方 `swebench` harness 评分；目前尚在打通。
 
 ## 1. 评测口径错误
@@ -47,6 +48,15 @@
 - 根因：Harbor task config 与官方 PASS_TO_PASS 不一致（空参数 ID、测试收集差异）。
 - 修复：官方数据集校验；不要手工删；若官方 harness 也复现，记录为数据集/环境问题。
 - 防再犯：`bench_report.py` 里同时看 `failed_tests` 和 `verifier/test-stdout.txt` 是否真的出现该测试名。
+
+## 1.5 官方 harness 验证结果
+
+- 数据集：`princeton-nlp/SWE-bench_Verified`，500 题，经 `HF_ENDPOINT=https://hf-mirror.com` 加载成功；
+- 官方 harness `swebench==4.1.0`；
+- 3 题官方评测：`Instances resolved: 3`，`unresolved: 0`，`errors: 0`；
+- 与 Harbor 的 3/3 一致；
+- 评测镜像本地已存在，官方 harness 输出 `Found 3 existing instance images. Will reuse them.`；
+- 说明：官方评测阶段没有遇到容器内 parser 拉 GitHub 的问题，requirements 在 host 侧处理。
 
 ## 2. 网络 / 代理 / 镜像
 
