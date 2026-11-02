@@ -42,6 +42,20 @@ IGNORE_DIRS = {
 }
 
 MUTATION_TOOLS = {"write_file", "edit_file", "apply_patch"}
+_TEST_DIR_NAMES = {"tests", "test", "testing", "__tests__"}
+
+
+def is_test_file_path(path: str | Path) -> bool:
+    """近似判断 SWE-bench/仓库测试文件；bench 模式禁止改测试。"""
+    parts = Path(str(path).replace("\\", "/")).parts
+    if not parts:
+        return False
+    name = parts[-1]
+    if name.startswith("test_") or name.endswith("_test.py") or name in {
+        "conftest.py", "tests.py", "test.py",
+    }:
+        return True
+    return any(part in _TEST_DIR_NAMES for part in parts[:-1])
 READ_ONLY_TOOL_NAMES = ("read_file", "grep", "list_files", "git_status", "git_diff")
 MAX_METADATA_HASH_BYTES = 8 * 1024 * 1024
 
@@ -702,6 +716,11 @@ class ToolRegistry:
         targets: set[Path] = set()
         for file in files:
             target_path = file.target
+            if self.bench_mode and is_test_file_path(target_path):
+                raise PermissionError(
+                    "bench_policy: test files are read-only in benchmark mode; "
+                    "do not modify tests"
+                )
             target = self._resolve(target_path)
             if target in targets:
                 raise ValueError(f"same file appears twice in patch: {target_path}")
@@ -745,6 +764,11 @@ class ToolRegistry:
         return "\n".join(lines)
 
     def write_file(self, path: str, content: str) -> str:
+        if self.bench_mode and is_test_file_path(path):
+            raise PermissionError(
+                "bench_policy: test files are read-only in benchmark mode; "
+                "do not modify tests"
+            )
         target = self._resolve(path)
         if target.is_dir():
             raise IsADirectoryError(path)
@@ -759,6 +783,11 @@ class ToolRegistry:
         return f"wrote {path} ({len(content.encode('utf-8'))} bytes)"
 
     def edit_file(self, path: str, old: str, new: str) -> str:
+        if self.bench_mode and is_test_file_path(path):
+            raise PermissionError(
+                "bench_policy: test files are read-only in benchmark mode; "
+                "do not modify tests"
+            )
         target = self._resolve(path)
         if not target.exists():
             raise FileNotFoundError(path)

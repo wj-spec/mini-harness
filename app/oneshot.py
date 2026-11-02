@@ -177,7 +177,7 @@ def run_oneshot(config: Config, provider: Any, options: OneShotOptions) -> tuple
         history=[],
         pricing=Pricing(config.input_price_per_1m, config.output_price_per_1m),
         require_tool_use=options.require_tool_use,
-        completion_guard=config.completion_guard and not options.bench,
+        completion_guard=config.completion_guard,
         workspace_audit=config.workspace_audit and not options.bench,
         on_round=session.save_round,
         llm_auditor=llm_auditor,

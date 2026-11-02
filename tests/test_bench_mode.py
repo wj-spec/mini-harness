@@ -143,3 +143,26 @@ def test_bench_cli_requires_task(monkeypatch):
     with pytest.raises(SystemExit) as error:
         entrypoint.main()
     assert error.value.code == 2
+
+
+def test_bench_mode_rejects_test_file_edits(tmp_path):
+    workspace = _workspace(tmp_path)
+    tests_dir = workspace / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_demo.py").write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+
+    bench = ToolRegistry(workspace, bench_mode=True)
+    with pytest.raises(PermissionError):
+        bench.write_file("tests/test_demo.py", "def test_bad():\n    assert False\n")
+    with pytest.raises(PermissionError):
+        bench.edit_file("tests/test_demo.py", "assert True", "assert False")
+    with pytest.raises(PermissionError):
+        bench.apply_patch(
+            "diff --git a/tests/test_demo.py b/tests/test_demo.py\n"
+            "--- a/tests/test_demo.py\n+++ b/tests/test_demo.py\n"
+            "@@ -1 +1 @@\n-def test_ok():\n+def test_bad():\n"
+        )
+
+    normal = ToolRegistry(workspace)
+    normal.write_file("tests/test_demo.py", "def test_ok():\n    assert True\n")
+    assert (tests_dir / "test_demo.py").is_file()

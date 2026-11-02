@@ -85,3 +85,17 @@ def test_adapter_saves_model_patch():
     source = (REPO_ROOT / "bench" / "adapter.py").read_text(encoding="utf-8")
     assert "model.patch" in source
     assert "git-status.txt" in source
+
+
+def test_strip_test_file_hunks():
+    module = _load("collect_predictions", "scripts/collect_predictions.py")
+    patch = (
+        "diff --git a/src/app.py b/src/app.py\n"
+        "--- a/src/app.py\n+++ b/src/app.py\n@@ -1 +1 @@\n-old\n+new\n"
+        "diff --git a/tests/test_app.py b/tests/test_app.py\n"
+        "--- a/tests/test_app.py\n+++ b/tests/test_app.py\n@@ -1 +1 @@\n-old\n+new\n"
+    )
+    cleaned, removed = module.strip_test_file_hunks(patch)
+    assert removed == 1
+    assert "src/app.py" in cleaned
+    assert "tests/test_app.py" not in cleaned
