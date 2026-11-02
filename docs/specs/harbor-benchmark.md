@@ -78,3 +78,7 @@ PYTHONPATH=. uv run --with "harbor==0.20.0" harbor run \
 - arm64 Mac 需要 amd64 模拟；镜像首次下载较慢。
 - 上游 80.2% / 69.44% 是历史自报成绩（`deepseek-v4-flash`、私有归档、部分异常），不能当作本实现的对照基线；比较必须固定模型、任务子集与预算。
 - 未实现 ATIF，Harbor 侧部分轨迹功能可能缺失；SWE-bench 评分只依赖容器内 patch 与 verifier。
+
+## 踩坑记录
+
+- 详见 [harbor-benchmark-lessons.md](harbor-benchmark-lessons.md)。
