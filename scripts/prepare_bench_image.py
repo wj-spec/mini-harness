@@ -44,18 +44,20 @@ ENV UV_HTTP_TIMEOUT=600 \\
     UV_PYTHON=3.11 \\
     PATH="/root/.local/bin:$PATH"
 
+# 预装 app venv；超时/失败不阻塞镜像构建，adapter 会回退到运行时安装
 RUN mkdir -p /opt/uv-cache /opt/pip-cache \\
  && python -m venv /opt/vibe-venv \\
- && /opt/vibe-venv/bin/pip install --disable-pip-version-check \\
-      {app_requirements}
+ && timeout 600 /opt/vibe-venv/bin/pip install --disable-pip-version-check \\
+      {app_requirements} || true
 
 # 预热 verifier parser 的 uv 依赖（与 tests/test.sh 内联元数据一致）
-RUN uv run --no-project --python 3.11 \\
+RUN timeout 600 uv run --no-project --python 3.11 \\
       {parser_with} \\
-      python -c 'import swebench, datasets, fastcore'
+      python -c 'import swebench, datasets, fastcore' || true
 
 # 预热 testbed 的测试依赖；失败不阻塞镜像构建，verifier 会再试
-RUN bash -lc 'source /opt/miniconda3/bin/activate && conda activate testbed \\
+RUN timeout 900 bash -lc 'source /opt/miniconda3/bin/activate \\
+      && conda activate testbed \\
       && cd /testbed && python -m pip install --disable-pip-version-check \\
       -e ".[test]"' || true
 """
@@ -95,9 +97,15 @@ def prepare_task_image(
         )
 
     dockerfile_text = dockerfile.read_text(encoding="utf-8")
-    dockerfile_changed = MARKER not in dockerfile_text
-    if dockerfile_changed:
-        dockerfile_text = dockerfile_text.rstrip() + "\n" + dockerfile_layer(pypi_index)
+    layer = dockerfile_layer(pypi_index)
+    if MARKER in dockerfile_text:
+        # 升级旧缓存层：从 marker 到文件末尾整体替换，保证脚本更新能生效
+        head = dockerfile_text.split(MARKER, 1)[0].rstrip()
+        updated = head + "\n" + layer
+    else:
+        updated = dockerfile_text.rstrip() + "\n" + layer
+    dockerfile_changed = updated != dockerfile_text
+    dockerfile_text = updated
 
     toml_text = task_toml.read_text(encoding="utf-8")
     toml_text, toml_changed = patch_task_toml(toml_text, pypi_index)

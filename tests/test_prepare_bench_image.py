@@ -33,6 +33,8 @@ def test_prepare_task_image_is_idempotent(tmp_path):
     assert module.MARKER in dockerfile
     assert "/opt/vibe-venv" in dockerfile
     assert "swebench==4.0.3" in dockerfile
+    assert "timeout 600" in dockerfile
+    assert "timeout 900" in dockerfile
     toml = (task / "task.toml").read_text(encoding="utf-8")
     assert "UV_HTTP_TIMEOUT" in toml
     assert "https://mirror.example/simple" in toml

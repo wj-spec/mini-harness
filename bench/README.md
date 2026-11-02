@@ -71,7 +71,8 @@ PYTHONPATH=. uv run --managed-python --python 3.12 \
 
 - 在任务 Dockerfile 末尾预建 `/opt/vibe-venv`（`fastmcp/ddgs/httpx`），adapter 在 trial 里只做 symlink；
 - 预热 verifier parser 的 uv cache（`swebench/datasets/fastcore`）与 testbed 的 `pip install -e .[test]`；
-- 在 `task.toml` 的 `[verifier]` 加 `UV_HTTP_TIMEOUT=600` 与 PyPI 镜像 env。
+- 在 `task.toml` 的 `[verifier]` 加 `UV_HTTP_TIMEOUT=600` 与 PyPI 镜像 env；
+- 所有预装步骤带 `timeout` 和 `|| true`，网络差时镜像仍能构建，adapter 会回退到运行时安装。
 
 默认镜像源是 `https://pypi.tuna.tsinghua.edu.cn/simple`，可用 `--pypi-index https://mirrors.aliyun.com/pypi/simple/` 替换。镜像层只在本地构建，不改变评测题目或隐藏测试。
 
