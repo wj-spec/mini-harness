@@ -202,6 +202,36 @@ rm -rf ~/.cache/harbor/tasks   # Dockerfile 变了，清 Harbor task 缓存
 之后再跑 Harbor，build 阶段只 COPY 本地 uv，不再访问 astral.sh。全量 500 题下载后
 也要先跑一遍 `scripts/patch_task_uv.py local-bench/all`。
 
+## 严格官方口径（SWE-bench Verified）
+
+严格官方口径 = **官方数据集字段** + **官方测试执行/评分**，不能手工删除 PASS_TO_PASS。
+
+官方 Verified parquet（HF 镜像可达）：
+
+```bash
+curl -L -o /tmp/swebench_verified.parquet \
+  https://hf-mirror.com/datasets/princeton-nlp/SWE-bench_Verified/resolve/main/data/test-00000-of-00001.parquet
+```
+
+下载 task 后，用官方字段校验/覆盖 `tests/config.json`：
+
+```bash
+python3 scripts/sync_verified_configs.py \
+  --dataset /tmp/swebench_verified.parquet \
+  --tasks local-bench/batch20
+
+# 发现差异时写入官方值
+python3 scripts/sync_verified_configs.py \
+  --dataset /tmp/swebench_verified.parquet \
+  --tasks local-bench/batch20 --write
+```
+
+注意：
+
+- 不要手工从 PASS_TO_PASS 里删测试；官方 7606 本来就没有 `test_compose_roundtrip[]`，之前是本地口径偏差；
+- `django-10097` 若 oracle 仍失败，先和官方 `swebench.make_test_spec` 生成的测试命令对比，再判断是镜像/数据集问题；
+- Harbor `tests/test.sh` 必须与官方 eval_script 的核心命令一致；只把 Harbor 当执行器，评分逻辑以官方 swebench parser 为准。
+
 ## 限制
 
 - 未实现 ATIF 轨迹与 sb-cli/Modal 云评分。
