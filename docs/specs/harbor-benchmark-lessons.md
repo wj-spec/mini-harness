@@ -71,6 +71,15 @@
   - 每个新 task 下载后先 `python3 scripts/patch_task_uv.py <task-root>`；
   - 本地 uv 镜像必须先用带 glibc 的基础镜像构建（见 2.5）。
 
+### 2.2b Docker build 前 base image metadata EOF
+
+- 现象：`docker compose build` 报 `failed to resolve source metadata ... Head https://registry-1.docker.io/v2/.../manifests/latest: EOF`。
+- 根因：该 task 的 `swebench/...:latest` base image 本地没有缓存，BuildKit 去 Docker Hub 解析 tag 时网络被 reset；不是 `local/uv` 或 task 代码问题。
+- 修复：先 `docker pull` 该 task Dockerfile 的 `FROM` 镜像，再跑 Harbor；可批量预拉。
+- 防再犯：
+  - 每批开跑前 `for d in ...; do docker pull "$(grep -m1 '^FROM ' "$d/environment/Dockerfile" | awk '{print $2}')"; done`；
+  - 全量 500 题按批次预拉，避免 build 阶段临时解析 `latest`。
+
 ### 2.3 registry mirror 配置错误/慢
 
 - 现象：`daemon.json` 里有 `docker.1panel.1ive`（疑似拼写错误）和多个公共 mirror，拉取仍然慢。
@@ -201,6 +210,7 @@
 - [ ] 本地 task 已 `sync_verified_configs.py`；
 - [ ] Dockerfile 已 `patch_task_uv.py`；
 - [ ] 改了 task 文件后清 `~/.cache/harbor/tasks`；
+- [ ] 每批 base images 已 `docker pull`（避免 build metadata EOF）；
 - [ ] 先 oracle preflight，再 Agent。
 
 出结果后：
