@@ -1,7 +1,7 @@
 import asyncio
 
 from core.models import Message, Response, ToolCall
-from app.agent import Agent
+from app.agent import Agent, ensure_tool_pairing
 from app.providers.fake import FakeProvider
 from app.tools import ToolRegistry, ToolSpec
 from core.state import TaskState
@@ -1011,3 +1011,18 @@ def test_approval_tiers_are_visible_and_scoped(tmp_path):
     network = agent.approval.decisions_for(ToolCall("web_search", {"query": "x"}))
     assert network == ["once", "session", "deny"]
 
+
+def test_ensure_tool_pairing_assigns_missing_ids_and_results():
+    messages = [
+        Message("assistant", "", [ToolCall("read_file", {"path": "a"}, id=None),
+                                  ToolCall("read_file", {"path": "b"}, id=None)]),
+        Message("tool", "a", name="read_file", tool_call_id=None),
+    ]
+    repaired = ensure_tool_pairing(messages)
+    calls = repaired[0].tool_calls
+    assert all(call.id for call in calls)
+    tools = [m for m in repaired if m.role == "tool"]
+    assert len(tools) == 2
+    assert tools[0].tool_call_id == calls[0].id
+    assert tools[1].tool_call_id == calls[1].id
+    assert "not_executed" in tools[1].content

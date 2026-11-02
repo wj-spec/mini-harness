@@ -8,7 +8,7 @@ import time
 import re
 import uuid
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from itertools import count
 from pathlib import Path
@@ -89,25 +89,53 @@ ResultCallback = Callable[[ToolCall, bool, str], None]
 
 
 def ensure_tool_pairing(messages: list[Message]) -> list[Message]:
-    """补齐消息配对：assistant 的每个 tool_call 必须有对应 tool 结果。
+    """补齐 assistant.tool_calls 与 tool 结果的配对。
 
-    恢复崩溃或截断遗留的会话时，缺失结果的调用补一条未执行说明，
-    保证后续请求不会出现无响应的 tool_call。
+    除了补缺失结果，还给缺失 id 的调用/结果分配 id，并修复 id 对不上的
+    tool 消息；否则 OpenAI 兼容 API 会报 "insufficient tool messages"。
     """
-    answered = {m.tool_call_id for m in messages if m.role == "tool"}
     repaired: list[Message] = []
-    for message in messages:
-        repaired.append(message)
+    counter = 0
+    index = 0
+    while index < len(messages):
+        message = messages[index]
         if message.role != "assistant" or not message.tool_calls:
+            repaired.append(message)
+            index += 1
             continue
+
+        calls: list[ToolCall] = []
         for call in message.tool_calls:
-            if call.id and call.id not in answered:
-                repaired.append(Message(
-                    "tool",
-                    "ERROR not_executed: session restored without a recorded result; "
-                    "verify side effects before assuming state",
-                    name=call.name, tool_call_id=call.id,
-                ))
+            call_id = call.id or f"call_{counter}"
+            counter += 1
+            calls.append(replace(call, id=call_id))
+        repaired.append(replace(message, tool_calls=calls))
+
+        following: list[Message] = []
+        index += 1
+        while index < len(messages) and messages[index].role == "tool":
+            following.append(messages[index])
+            index += 1
+
+        unanswered = {call.id: call for call in calls}
+        tool_messages: list[Message] = []
+        for tool_message in following:
+            call_id = tool_message.tool_call_id
+            call = unanswered.get(call_id) if call_id else None
+            if call is None and unanswered:
+                call = next(iter(unanswered.values()))
+                call_id = call.id
+            if call is not None:
+                unanswered.pop(call.id, None)
+            tool_messages.append(replace(tool_message, tool_call_id=call_id or ""))
+        for call in unanswered.values():
+            tool_messages.append(Message(
+                "tool",
+                "ERROR not_executed: session restored without a recorded result; "
+                "verify side effects before assuming state",
+                name=call.name, tool_call_id=call.id,
+            ))
+        repaired.extend(tool_messages)
     return repaired
 
 
@@ -814,6 +842,7 @@ class Agent:
             self._budget_update(run, "stopped")
             return self._finish(run, note, step - 1, "stopped", "context_window")
 
+        request_messages = ensure_tool_pairing(request_messages)
         return _StepPlan(
             request_messages=request_messages,
             tool_specs=tool_specs,
