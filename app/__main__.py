@@ -85,6 +85,7 @@ def main() -> None:
     sessions.add_argument("--continue", dest="continue_session", action="store_true", help="打开 workspace 中最近有对话的 session")
     sessions.add_argument("--session", metavar="SESSION_ID", help="恢复本工作区指定 session，不自动续跑")
     sessions.add_argument("--list-sessions", action="store_true", help="只读列出本工作区已有对话的 session 后退出")
+    parser.add_argument("--tasks", action="store_true", help="只读列出最近会话的任务与 worker 状态")
     parser.add_argument("--eval", action="store_true", help="跑 eval 任务并退出")
     parser.add_argument("--eval-limit", type=int, default=None)
     parser.add_argument("--eval-tasks", default=None)
@@ -101,6 +102,12 @@ def main() -> None:
         parser.error("--stdio cannot be combined with eval options")
     if args.list_sessions and (args.stdio or args.eval):
         parser.error("--list-sessions cannot be combined with --stdio or --eval")
+    if args.tasks and (
+        args.stdio or args.eval or args.eval_limit is not None or args.eval_tasks is not None
+        or args.list_sessions or args.task is not None or args.continue_session
+        or args.session is not None or args.bench
+    ):
+        parser.error("--tasks cannot be combined with --stdio/--eval/--list-sessions/--task/--continue/--session/--bench")
     if args.eval_limit is not None and args.eval_limit < 1:
         parser.error("--eval-limit must be positive")
     if args.task is not None:
@@ -112,7 +119,7 @@ def main() -> None:
         parser.error("--bench requires --task")
     if args.telemetry_out and args.task is None:
         parser.error("--telemetry-out requires --task")
-    if not args.stdio and not args.eval and not args.list_sessions and args.task is None:
+    if not args.stdio and not args.eval and not args.list_sessions and not args.tasks and args.task is None:
         print(
             "Textual 入口已退役。交互界面请运行 ./run_ink.sh（例如 ./run_ink.sh --fake）；"
             "后端与 eval 分别使用 --stdio / --eval。",
@@ -140,6 +147,47 @@ def main() -> None:
         config.sandbox_network_allow = args.sandbox_network_allow
     if args.autonomy:
         config.autonomy = args.autonomy
+
+    if args.tasks:
+        from app.runtime.supervise import WorkerSupervisor
+
+        purpose = "test" if args.test_session or args.fake or config.provider == "fake" else "user"
+        sessions_root = Path(config.workspace) / ".vibe" / "sessions"
+        candidates = []
+        if sessions_root.is_dir() and sessions_root.resolve().is_relative_to(Path(config.workspace).resolve()):
+            for path in sessions_root.iterdir():
+                if not path.is_dir() or path.is_symlink():
+                    continue
+                if not (path / "tasks").is_dir():
+                    continue
+                if SessionStore(path).purpose != purpose:
+                    continue
+                candidates.append(path)
+        if not candidates:
+            print(f"no tasks under {config.workspace}")
+            return
+        session_root = max(candidates, key=lambda path: (path.stat().st_mtime, path.name))
+        snapshots = WorkerSupervisor(session_root).snapshot()
+        if not snapshots:
+            print(f"no tasks under {session_root}")
+            return
+        print("TASK_ID\tKIND\tSTATUS\tSEGMENTS\tWORKER\tPID\tHEARTBEAT\tSTALE\tOBJECTIVE")
+        for snapshot in snapshots:
+            task = snapshot.task
+            worker = snapshot.worker
+            segment = task.segments[-1].segment if task.segments else 0
+            print("\t".join([
+                task.task_id,
+                task.kind,
+                task.status,
+                str(segment),
+                worker.status if worker is not None else "-",
+                str(worker.pid) if worker is not None else "-",
+                worker.heartbeat_at if worker is not None else "-",
+                "!" if snapshot.stale else "-",
+                task.objective[:60],
+            ]))
+        return
 
     if args.task is not None:
         from app.eval.oneshot import OneShotOptions, run_oneshot
