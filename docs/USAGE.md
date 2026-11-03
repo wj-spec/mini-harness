@@ -221,7 +221,7 @@ profile 是摘要和来源指针，不替代 `AGENTS.md` 与项目文档；与�
 | 安全余量 | 8,000 | token 估算和协议开销余量 |
 | 合计 | 1,000,000 | |
 
-history 实际额度 = 窗口 − 输出预留 − 安全余量 − 实际 system/memory/tools 用量；空闲时最高 960k。显式设置 `VIBE_HISTORY_CAP` 会再取较小值，未分配额度可在 policy 中查看。小窗口下默认预留同比缩放，预算默认值统一由 `core/budget.py` 提供。
+history 实际额度 = 窗口 − 输出预留 − 安全余量 − 实际 system/memory/tools 用量；空闲时最高 960k。显式设置 `VIBE_HISTORY_CAP` 会再取较小值，未分配额度可在 policy 中查看。小窗口下默认预留同比缩放，预算默认值统一由 `core/budget/policy.py` 提供。
 
 可调：`VIBE_CONTEXT_WINDOW`、`VIBE_RESERVE_OUTPUT`、`VIBE_SCRATCH_CAP`、`VIBE_SYSTEM_CAP`、`VIBE_MEMORY_CAP`、`VIBE_TOOLS_CAP`、`VIBE_HISTORY_CAP`、`VIBE_KEEP_RECENT_GROUPS`、`VIBE_SUMMARY_MODEL`、`VIBE_SUMMARY_MAX_CHARS`。旧 `VIBE_MAX_TOKENS` 作为 context window 后备别名，优先使用 `VIBE_CONTEXT_WINDOW`。窗口配置需要与提供方模型能力对应；输出预留用于本地容量计算。
 
@@ -347,7 +347,7 @@ DDGS 是第三方网页检索库，并非搜索引擎提供的稳定 API；验�
 
 ## MCP 外部工具
 
-`app/mcp.py` 使用 [FastMCP 4.1.1 Client](https://gofastmcp.com/clients/client) 接入 stdio MCP 服务，由库负责版本协商、消息分发和工具结果解析。工作台准备好后先审批服务启动，再发现工具并交给 Agent；连接、调用和关闭都在同一事件循环中运行。
+`app/tools/mcp.py` 使用 [FastMCP 4.1.1 Client](https://gofastmcp.com/clients/client) 接入 stdio MCP 服务，由库负责版本协商、消息分发和工具结果解析。工作台准备好后先审批服务启动，再发现工具并交给 Agent；连接、调用和关闭都在同一事件循环中运行。
 
 ```jsonc
 // .vibe/mcp.json

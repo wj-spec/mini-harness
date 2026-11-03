@@ -2,8 +2,8 @@ import json
 
 import pytest
 
-from app.session import SessionStore
-from core.models import Message, ToolCall
+from app.session.store import SessionStore
+from core.contracts import Message, ToolCall
 
 
 def test_context_checkpoint_preserves_raw_history_and_replays_new_messages(tmp_path):

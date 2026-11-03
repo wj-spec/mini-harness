@@ -2,7 +2,7 @@ import asyncio
 
 from app.events import TextDelta
 from app.providers.openai_compat import OpenAICompatProvider
-from core.models import Message
+from core.contracts import Message
 from dev.mock_openai_server import start
 
 

@@ -4,9 +4,9 @@ import json
 import os
 import pytest
 
-from core.models import ToolCall
-from app.skills import MAX_SKILL_CHARS, Skill, discover_skills, parse_skill, render_skills
-from app.tools import ToolRegistry
+from core.contracts import ToolCall
+from app.tools.skills import MAX_SKILL_CHARS, Skill, discover_skills, parse_skill, render_skills
+from app.tools.registry import ToolRegistry
 
 
 def write_skill(root: Path, name: str, text: str) -> Path:
@@ -109,7 +109,7 @@ def write_skill_config(root: Path, **config) -> Path:
 
 
 def test_skill_manager_discovers_then_activates_and_unloads(tmp_path):
-    from app.skills import SkillManager
+    from app.tools.skills import SkillManager
 
     path = write_skill(tmp_path, "alpha", "description: 第一个\n\nPRIVATE STEP\n")
     manager = SkillManager(tmp_path)
@@ -133,7 +133,7 @@ def test_skill_manager_discovers_then_activates_and_unloads(tmp_path):
 
 
 def test_skill_manager_static_configuration_and_refresh_preserve_unload(tmp_path):
-    from app.skills import SkillManager
+    from app.tools.skills import SkillManager
 
     path = write_skill(tmp_path, "alpha", "description: 第一版\n\n步骤 A\n")
     write_skill(tmp_path, "hidden", "description: 不可用\n\n隐藏正文\n")
@@ -156,7 +156,7 @@ def test_skill_manager_static_configuration_and_refresh_preserve_unload(tmp_path
 
 
 def test_skill_manager_refreshes_active_content_and_new_disabled_config(tmp_path):
-    from app.skills import SkillManager
+    from app.tools.skills import SkillManager
 
     path = write_skill(tmp_path, "alpha", "步骤 A")
     manager = SkillManager(tmp_path)
@@ -172,7 +172,7 @@ def test_skill_manager_refreshes_active_content_and_new_disabled_config(tmp_path
 
 
 def test_skill_manager_explicit_roots_and_duplicate_diagnostics(tmp_path):
-    from app.skills import SkillManager
+    from app.tools.skills import SkillManager
 
     external = tmp_path / "external"
     primary = write_skill(external, "alpha", "description: primary\n\nPRIMARY")
@@ -188,7 +188,7 @@ def test_skill_manager_explicit_roots_and_duplicate_diagnostics(tmp_path):
 
 
 def test_skill_manager_explicit_config_relative_path_and_single_skill(tmp_path):
-    from app.skills import SkillManager
+    from app.tools.skills import SkillManager
 
     path = write_skill(tmp_path / "external", "alpha", "步骤 A")
     custom = tmp_path / "custom.json"
@@ -201,7 +201,7 @@ def test_skill_manager_explicit_config_relative_path_and_single_skill(tmp_path):
 
 
 def test_skill_manager_explicit_markdown_source_and_symlink_fallback_name(tmp_path):
-    from app.skills import SkillManager
+    from app.tools.skills import SkillManager
 
     source = tmp_path / "custom.md"
     source.write_text("description: 单文件\n\n正文", encoding="utf-8")
@@ -222,7 +222,7 @@ def test_skill_manager_explicit_markdown_source_and_symlink_fallback_name(tmp_pa
                                     {"paths": [""]}, {"activate": "alpha"}, {"activate": [False]},
                                     {"disabled": ["bad name"]}])
 def test_skill_manager_rejects_invalid_configuration(tmp_path, config):
-    from app.skills import SkillManager
+    from app.tools.skills import SkillManager
 
     path = write_skill_config(tmp_path)
     path.write_text(json.dumps(config), encoding="utf-8")
@@ -231,7 +231,7 @@ def test_skill_manager_rejects_invalid_configuration(tmp_path, config):
 
 
 def test_skill_manager_invalid_refresh_is_atomic(tmp_path):
-    from app.skills import SkillManager
+    from app.tools.skills import SkillManager
 
     write_skill(tmp_path, "alpha", "步骤 A")
     manager = SkillManager(tmp_path)
@@ -244,7 +244,7 @@ def test_skill_manager_invalid_refresh_is_atomic(tmp_path):
 
 
 def test_skill_manager_rejects_symlink_escape_but_allows_explicit_external_root(tmp_path):
-    from app.skills import SkillManager
+    from app.tools.skills import SkillManager
 
     workspace = tmp_path / "workspace"
     external = tmp_path / "external"
@@ -261,7 +261,7 @@ def test_skill_manager_rejects_symlink_escape_but_allows_explicit_external_root(
 
 
 def test_skill_manager_default_root_cannot_point_outside_workspace(tmp_path):
-    from app.skills import SkillManager
+    from app.tools.skills import SkillManager
 
     workspace = tmp_path / "workspace"
     external = tmp_path / "external"
@@ -277,7 +277,7 @@ def test_skill_manager_default_root_cannot_point_outside_workspace(tmp_path):
 
 
 def test_skill_manager_reports_broken_and_oversized_files(tmp_path):
-    from app.skills import MAX_SKILL_FILE_BYTES, SkillManager
+    from app.tools.skills import MAX_SKILL_FILE_BYTES, SkillManager
 
     write_skill(tmp_path, "broken", "---\nname: broken\nmissing closing delimiter")
     write_skill(tmp_path, "empty", "name: empty\n\n")
@@ -289,7 +289,7 @@ def test_skill_manager_reports_broken_and_oversized_files(tmp_path):
 
 
 def test_skill_manager_never_silently_truncates_active_skills(tmp_path):
-    from app.skills import SkillManager
+    from app.tools.skills import SkillManager
 
     path = write_skill(tmp_path, "large", "description: short\n\n" + "x" * (MAX_SKILL_CHARS + 1))
     manager = SkillManager(tmp_path)
@@ -309,7 +309,7 @@ def test_skill_manager_never_silently_truncates_active_skills(tmp_path):
 
 
 def test_skill_manager_bad_static_activation_is_reported(tmp_path):
-    from app.skills import SkillManager
+    from app.tools.skills import SkillManager
 
     write_skill(tmp_path, "large", "x" * (MAX_SKILL_CHARS + 1))
     write_skill_config(tmp_path, activate=["missing", "large"])
@@ -323,7 +323,7 @@ def test_skill_manager_bad_static_activation_is_reported(tmp_path):
 
 
 def test_skill_manager_refresh_does_not_activate_new_static_entries(tmp_path):
-    from app.skills import SkillManager
+    from app.tools.skills import SkillManager
 
     write_skill(tmp_path, "alpha", "正文")
     manager = SkillManager(tmp_path)
@@ -333,7 +333,7 @@ def test_skill_manager_refresh_does_not_activate_new_static_entries(tmp_path):
 
 
 def test_skill_manager_rejects_nonregular_skill_files(tmp_path):
-    from app.skills import SkillManager
+    from app.tools.skills import SkillManager
 
     base = tmp_path / ".vibe" / "skills"
     base.mkdir(parents=True)

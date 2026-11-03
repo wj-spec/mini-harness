@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import AsyncIterator, Protocol
 
-from core.models import Message
+from core.contracts import Message
 
 from app.events import StreamDone, StreamError, TextDelta, ToolCallsReady
 

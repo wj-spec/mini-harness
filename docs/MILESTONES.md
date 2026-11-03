@@ -68,8 +68,8 @@
 
 - [x] 建立当前版本可恢复的 Git 基线或独立快照（标签 `baseline-20261022`），区分源代码与 `.vibe/` 等本地产物。
 - [x] 按记录重现启动、测试和一次“读文件后回答”，把真实模型与 fake 的结果分开标注。fake 启动记录 `.vibe/w0/backend-fake.log`；真实模型读文件与解释见 W2/W3 会话（如 `w3-resume`）。
-- [ ] 你能沿 `app/__main__.py → app/stdio.py → tui/src/cli.tsx → app/agent.py` 讲清入口、模型调用、工具结果回灌和结束条件。
-- [x] 你能说明写文件、执行命令在哪里经过 `ApprovalGate`，并演示拒绝后没有该动作的副作用。拒绝演示见 W2 审批取消：审计 `edit_file deny`、调用写成 `not executed`、文件哈希不变；代码位置在 `app/agent.py` 的 `_request_approval` → `ApprovalGate`。
+- [ ] 你能沿 `app/__main__.py → app/stdio.py → tui/src/cli.tsx → app/runtime/agent.py` 讲清入口、模型调用、工具结果回灌和结束条件。
+- [x] 你能说明写文件、执行命令在哪里经过 `ApprovalGate`，并演示拒绝后没有该动作的副作用。拒绝演示见 W2 审批取消：审计 `edit_file deny`、调用写成 `not executed`、文件哈希不变；代码位置在 `app/runtime/agent.py` 的 `_request_approval` → `ApprovalGate`。
 
 **学习重点**：模型提出动作，harness 控制执行；一次 step 与一次完整任务的区别。
 
@@ -376,7 +376,7 @@ Ink 两轮实际日志补充：`.vibe/browser/ink-smoke/309dc558d44d/report.json
 
 **B2 浏览器基线固化（2026-10-28）**：新增 [B2 浏览器基线](baselines/b2-browser.md) 与离线自检 `scripts/browser_baseline_check.py`：固定 `@playwright/mcp@0.0.83`、Chromium `chromium-1247`、Node ≥22、`fastmcp==4.1.1` 与四个验收入口；检查两项 MCP 配置无 `@latest`、本地浏览器缓存、依赖固定与入口文件，`--json` 输出机器可读结果，`--allow-missing-chromium` 仅查版本与入口。基线登记时 Python 全量 1072 项退出 0、Ink 337 项 336 通过（唯一失败为既有沙箱无 PTY 环境项），B2 真实模型 + Ink 两段验收证据仍保留在 `.vibe/browser/acceptance/`。自检回归 `tests/test_browser_baseline.py` 4 项。升级或扩范围时按文档流程重建基线。
 
-**审批层级与作用域（2026-10-28）**：按用户"做好层级设置"的要求，把散落的审批判断收敛为显式模型，见 [审批层级](specs/approval-tiers.md)。新增 `app/permissions.py`：T0 只读 / T1 工作区写入 / T2 本地执行 / T3 外部网络 / T4 远端页面动作，作用域矩阵（T1/T2 可 once/session/workspace，T3 仅 once/session，T4 仅 once）为唯一事实来源；未知 risk 按 T2 fail closed。`ApprovalGate` 新增 `tier_resolver`（Agent 注入，`mcp_start` 固定 T2），`decisions_for` 与 `request` 均按矩阵校验，非法作用域直接拒绝并审计 `deny_scope_not_allowed`；审批预览追加 `[审批层] Tn 名称`，MCP 启动预览同步。现有工具行为保持兼容（write_file/edit_file/bash 仍可 workspace，web_search 仍仅 once/session，浏览器动作仍 once/deny）。回归新增 `tests/test_permissions.py` 8 项与 Agent 层级可见性用例；Python 全量 `./run_tests.sh -q` 退出 0。后续待做：destructive 层、浏览器会话级授权、规则持久化、审批可视化与统计（见规格第 6 节）。
+**审批层级与作用域（2026-10-28）**：按用户"做好层级设置"的要求，把散落的审批判断收敛为显式模型，见 [审批层级](specs/approval-tiers.md)。新增 `app/safety/permissions.py`：T0 只读 / T1 工作区写入 / T2 本地执行 / T3 外部网络 / T4 远端页面动作，作用域矩阵（T1/T2 可 once/session/workspace，T3 仅 once/session，T4 仅 once）为唯一事实来源；未知 risk 按 T2 fail closed。`ApprovalGate` 新增 `tier_resolver`（Agent 注入，`mcp_start` 固定 T2），`decisions_for` 与 `request` 均按矩阵校验，非法作用域直接拒绝并审计 `deny_scope_not_allowed`；审批预览追加 `[审批层] Tn 名称`，MCP 启动预览同步。现有工具行为保持兼容（write_file/edit_file/bash 仍可 workspace，web_search 仍仅 once/session，浏览器动作仍 once/deny）。回归新增 `tests/test_permissions.py` 8 项与 Agent 层级可见性用例；Python 全量 `./run_tests.sh -q` 退出 0。后续待做：destructive 层、浏览器会话级授权、规则持久化、审批可视化与统计（见规格第 6 节）。
 
 **用户可覆盖的审批策略（2026-10-28）**：按用户"用设置覆盖层级"的要求，在层级/作用域矩阵之上新增策略覆盖层，见 [用户可覆盖的审批策略](specs/permission-policy.md)。用户级 `~/.vibe/permissions.json`（`VIBE_PERMISSIONS` 可覆盖；空串禁用）可 `allow`/`deny`/`once`、限定 `scopes`、覆盖 `tier`，bash 支持命令前缀与用户级正则；项目级 `.vibe/permissions.json` **只能收紧**（禁止 `allow` 与正则），避免仓库自带自我授权。优先级：硬边界（黑名单/护栏/沙箱）> 项目规则 > 用户规则 > 默认矩阵 > 审批处理器；`allow` 对 T4 远端动作无效（`deny_policy_floor`），审计新增 `policy_allow`/`deny_policy`/`deny_policy_once`/`deny_policy_scope`。每次 run 重载，非法文件保留上一份并记录 `permission_policy_error`；`/permissions` 显示 user/project 规则数与错误。评测/基准建议 `VIBE_PERMISSIONS=""` 保持可比。回归 `tests/test_permission_policy.py` 9 项；Python 全量 `./run_tests.sh -q` 退出 0（浏览器 worker 用例一次 flaky，单测复跑通过）。后续：TUI 逐条规则可视化与撤销、审批统计、destructive 层与沙箱下自动批准开关。
 
@@ -390,7 +390,7 @@ Ink 两轮实际日志补充：`.vibe/browser/ink-smoke/309dc558d44d/report.json
 
 **已交付**：
 - 结束状态区分 `本轮结束 · 已验证 / 本轮结束 · 待验证 / 本轮结束`；回执卡片按内容显示「验收未通过 / 验收通过 / 本轮回执」；完成守卫第一次拒绝时出现「完成守卫」提示；`/goal` 在 `verified=false` 时暂停。
-- `/evidence`：读取最近一轮 `rounds/round_XXX.json`，显示完成判定、环境审计、改动文件 hash、验证记录与回执摘要；无轮次时提示先完成任务（`app/evidence.py`）。
+- `/evidence`：读取最近一轮 `rounds/round_XXX.json`，显示完成判定、环境审计、改动文件 hash、验证记录与回执摘要；无轮次时提示先完成任务（`app/session/evidence.py`）。
 - `/autonomy`：查看/切换 `ask|edits|workspace|full`；Ink 入口支持 `--autonomy`；ready/command_result 同步档位，Header 与状态面板显示档位徽标；`/permissions` 追加策略规则明细（来源 / 工具 / decision / tier / scopes / note）。
 - 审批面板把 `[审批层]` 从预览尾部提到标题（`审批 · T1 工作区写入 · edit_file`），窄屏也能看到层级；审批请求同时带结构化 `tier / tier_label / rule`（来源、工具、decision、note），面板显示“命中规则”。
 - 评审修复：`verified / completion / audit / 回执 / 轮次记录` 改为按**本轮增量**（run 起点切片），同一会话第二轮不再继承上一轮改动；环境审计支持只审本轮改动，并修复 workspace 为 git 仓库子目录时的路径错位；`/diff` 审批补 `[审批层]`。
@@ -415,7 +415,7 @@ Ink 两轮实际日志补充：`.vibe/browser/ink-smoke/309dc558d44d/report.json
 
 **已交付**：
 - `ToolRegistry.subset()`：按名称复制工具子集，供审计角色收窄权限。
-- `app/auditor.py`：`ReadOnlyAuditor` 用同一 provider 起一个全新子 Agent，只暴露 `read_file/grep/list_files/git_status/git_diff`；不接收父对话与工具轨迹；输出 `Status / Integrity / Contract audit` 三行控制头。
+- `app/session/auditor.py`：`ReadOnlyAuditor` 用同一 provider 起一个全新子 Agent，只暴露 `read_file/grep/list_files/git_status/git_diff`；不接收父对话与工具轨迹；输出 `Status / Integrity / Contract audit` 三行控制头。
 - Agent 收尾接入：确定性守卫通过后调用；`complete + clean` 且契约审计通过才保留 `verified=true`；拒绝、非法头或审计异常标 `verified=false`，回执增加“LLM 审计”行。
 - **契约反查**：审计者必须先从原始任务独立重建验收约束清单，输出 `Acceptance-constraint backcheck` 段（Contract conclusion / 约束清单 / 覆盖检查 / 逐条回查 / Blocking constraints / 建议修订）；第三行 `Contract audit` 必须与结论一致。默认严格模式（`VIBE_CONTRACT_BACKCHECK=1`）要求 `aligned`、无 blocking；否则即使状态 complete 也降级，不保留 verified。
 - 交互入口与 `oneshot` 非 bench 支持；eval/bench 固定关闭；配置默认关闭。

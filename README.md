@@ -75,8 +75,8 @@ flowchart TD
 | 层 | 目录 | 职责 | 边界 |
 | --- | --- | --- | --- |
 | 工作台 | `tui/` | React/Ink 界面、JSONL 协议、Git 侧栏、目标编排 | 主工作台经 JSONL 协议；只读侧栏独立执行固定 git 查询，不持有 Agent 工具执行权 |
-| 应用后端 | `app/` | Provider、工具、审批、会话、MCP、评测 | 界面与 eval 共用同一个 `Agent.run()` |
-| 可复用 harness | `core/` | 消息、上下文、预算、任务状态、进展检测 | 只依赖标准库，不能 import `app/` 或界面 |
+| 应用后端 | `app/` | 模型接入、Agent 运行、工具、审批、会话、评测 | 界面与 eval 共用同一个 `Agent.run()`；内部按 `runtime/tools/safety/session/profiles/browser/eval` 分域，规则见 [app/README.md](app/README.md) |
+| 可复用 harness | `core/` | 消息契约、预算、上下文、任务状态与证据 | 只依赖标准库，不能 import `app/` 或界面；内部按 `contracts/budget/context/task` 分域，规则见 [core/README.md](core/README.md) |
 
 ### 设计要点
 
@@ -84,6 +84,8 @@ flowchart TD
 2. **上下文按最终请求组装并可核验。** `ContextBuilder` 按预算分区，压缩旧历史时保留可回取的原文；请求前快照统计来源、分区与估算用量，`/context` 可查看变化。展示的是可核对输入，不是对模型行为的解释。
 3. **执行结果与恢复状态都是证据。** 命令保留退出码与成功 / 失败 / 超时 / 取消等状态；工具调用按 `run_id + step + tool_call_id` 关联进 trace；交付回执汇总本轮改动、验证命令与未完成项；打开旧会话不自动重放动作，显式 `/resume` 后才继续。
 4. **长任务分段落，而不是放宽边界。** `/goal` 只在运行段因资源限制停止时自动续段，遇到无进展、上下文窗口、错误或取消则暂停；每段仍走普通 run 的审批、工具与会话边界。目标状态随会话保存，重启后恢复为暂停态，必须显式续段，避免自动消耗预算。
+
+模块地图、一次任务的事件序列、逐项机制与工程取舍见 [Harness 技术方案](docs/HARNESS.md)。
 
 ## 工程验证
 
@@ -120,6 +122,7 @@ flowchart TD
 **下一步**
 
 - **长任务可靠性**：`/goal` 的真实长任务与跨段成本验收。
+- **长任务 / 后台 / 进阶模式**：先逐块讨论并拍板，再按切片写 spec；分块文档与待拍板问题见[长任务、后台任务与进阶模式分块讨论](docs/design/long-horizon/README.md)。
 - **个性化精细化**：W6 v2 未观察到重复说明减少；已停止 P0 扩张、不进入 P5，保留显式偏好管理；后续只有新证据/新评估方法才重新评估。
 - **评测扩题**：固定前三题参考补丁自检与 `--limit 3` 扩题，建立多次运行基线。
 - **方向探索**：MCP HTTP transport / 资源与 prompt、LSP、多 Agent 主 / 子编排、Computer Use、W7 第二种工作流，按实际需求再评估；两方向调研与规格见 [Multi-Agent 与 Computer Use](docs/specs/multi-agent-computer-use.md)；Computer Use 先收窄为 [Browser Use](docs/specs/browser-use.md)。
@@ -174,6 +177,8 @@ npm --prefix tui test       # TypeScript / Ink 测试
 | 文档 | 内容 |
 | --- | --- |
 | [使用指南](docs/USAGE.md) | 安装、模型配置、命令、审批、预算、MCP、侧栏与评测 |
+| [Harness 技术方案](docs/HARNESS.md) | harness 的分层、主循环、上下文、审批边界、状态与恢复、评测与取舍的汇总设计 |
+| [长任务 / 后台 / 进阶模式讨论](docs/design/long-horizon/README.md) | 长任务、后台任务与 `/plan` 等进阶模式的分块设计讨论（9 + 6 块）及子 Agent 结合方式 |
 | [工作台里程碑](docs/MILESTONES.md) | W0–W7 的验收条件、真实运行证据与当前状态 |
 | [建设方向](docs/roadmap.md) | 长期方向、阶段取舍与界面 / 全栈学习路径 |
 | [文件规划](docs/STRUCTURE.md) | 目录职责、依赖方向与新增文件约定 |

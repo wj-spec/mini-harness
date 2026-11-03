@@ -7,7 +7,7 @@
 ## 改动
 
 - `core.summarize` 只保留 `summarize_messages`。
-- `LLMSummarizer` 及其 HTTP 请求、模型提示词和输入整理移到 `app.summarize`。
+- `LLMSummarizer` 及其 HTTP 请求、模型提示词和输入整理移到 `app.runtime.summarize`。
 - 入口在 `app/` 创建摘要适配器，再注入现有的 `ContextBuilder.summarizer`。
 - 保留现有模型配置、请求参数、输出截断、错误记录和确定性回退行为。
 

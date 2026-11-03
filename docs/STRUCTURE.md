@@ -6,43 +6,76 @@
 
 ```
 mini-harness/
-  core/                 # 可复用 harness，不依赖界面
-    __init__.py
-    models.py           # Message / ToolCall / Response
-    budget.py           # BudgetPolicy：S/M/T/H/R 分区
-    context.py          # ContextBuilder：预算 / 分组 / offload / summary
-    state.py            # TaskState / 完成守卫 / 文件变动与验证证据
-    rounds.py           # 一轮 run 的紧凑记录（不存正文）
-    summarize.py        # 确定性摘要，只依赖标准库
+  core/                 # 可复用 harness，不依赖界面；模块落位见 core/README.md
+    __init__.py         # 窄公共 API：ContextBuilder / ContextResult / Message / Response / ToolCall
+    README.md           # core 模块规划：分域、依赖方向、新增文件规则
+    contracts/          # 纯数据契约（叶子层）
+      __init__.py
+      messages.py       # Message / ToolCall / Response / ExecutionOutcome
+    budget/             # 预算与额度
+      __init__.py
+      policy.py         # BudgetPolicy：S/M/T/H/R + scratch 分区
+    context/            # 上下文工程
+      __init__.py
+      builder.py        # ContextBuilder：预算 / 分组 / offload / summary
+      snapshot.py       # 请求前上下文快照
+      summarize.py      # 确定性摘要（LLM 摘要适配器留在 app/）
+    task/               # 任务与证据
+      __init__.py
+      state.py          # TaskState / 完成守卫 / 文件变动与验证证据
+      progress.py       # 进展与空转检测
+      rounds.py         # 一轮 run 的紧凑记录（不存正文）
 
-  app/                  # Python 后端：模型、工具、审批、会话、eval
-    __main__.py         # vibe 入口
+  app/                  # Python 后端：模型接入、Agent 运行、工具、审批、会话、评测
+    __init__.py         # 包说明（分域索引）
+    __main__.py         # vibe 入口（--stdio / --eval / --task）
     config.py           # env / workspace / 预算
     events.py           # TextDelta / ToolCallsReady / Error
-    providers/
+    stdio.py            # Ink JSONL：恢复、审批、MCP、命令、取消、会话记录
+    README.md           # app 模块规划：分域、依赖方向、未来模块落位
+    providers/          # 模型接入
       base.py           # Provider 协议
       fake.py           # 脚本 provider
       openai_compat.py  # SSE /chat/completions
-    tools.py            # read/list/grep/git_status/git_diff/recall/update_task/apply_patch/write_file/edit_file/bash
-    patch.py            # unified diff 解析、校验与 hunk 应用
-    mcp.py              # FastMCP Client：stdio 接入、启动审批、工具映射与清理
-    policy.py           # 审批闸、session allowlist、审计
-    diff.py             # unified diff 预览
-    sandbox.py          # 命令黑名单、超时、进程组 kill、输出截断
-    session.py          # JSONL 事件、state 投影、轮次账本、--continue、崩溃对账
-    trace.py            # TraceRecorder / Pricing
-    audit.py            # 只读环境审计：git 基线、文件 hash、完整性结论
-    auditor.py          # 可选 LLM 只读审计：全新上下文 + 只读工具子集
-    evidence.py         # 最近一轮 RoundRecord 的中文证据摘要（/evidence，不存正文）
-    instructions.py     # AGENTS.md 加载与注入
-    skills.py           # 项目/本机发现、常驻注册目录、临时正文与来源边界
-    bench_profile.py    # 跑分模式提示词（无人值守、容器内验证）
-    oneshot.py          # 非交互跑分入口：--task、自动审批、telemetry
-    skill_history.py    # 旧技能正文的模型视图，保留原始历史
-    summarize.py        # LLM 摘要 HTTP 适配器 + 确定性回退
-    eval.py             # 10 任务 eval、check、报告、regression delta
-    agent.py            # 唯一运行 loop：流式 + 工具执行 + context 接入
-    stdio.py            # Ink JSONL：恢复、审批、MCP、命令、取消、会话记录
+    runtime/            # Agent 运行与编排
+      agent.py          # 唯一运行 loop：流式 + 工具执行 + context 接入
+      summarize.py      # LLM 摘要 HTTP 适配器 + 确定性回退
+    tools/              # 工具系统
+      registry.py       # 工具注册表与内置工具（read/write/bash/...）
+      patch.py          # unified diff 解析、校验与 hunk 应用
+      diff.py           # unified diff 预览
+      web_search.py     # 免费 Web 搜索
+      mcp.py            # FastMCP Client：stdio 接入、启动审批、工具映射与清理
+      skills.py         # 项目/本机发现、常驻注册目录、临时正文与来源边界
+      skill_history.py  # 旧技能正文的模型视图，保留原始历史
+    safety/             # 审批与执行边界
+      policy.py         # 审批闸、session allowlist、审计
+      permissions.py    # T0–T4 层级矩阵、autonomy
+      permission_policy.py # 用户/项目策略覆盖
+      sandbox.py        # 命令黑名单、超时、进程组 kill、输出截断
+      sandbox_proxy.py  # 沙箱网络白名单代理
+    session/            # 会话、证据与审计
+      store.py          # JSONL 事件、state 投影、轮次账本、--continue、崩溃对账
+      trace.py          # TraceRecorder / Pricing
+      audit.py          # 只读环境审计：git 基线、文件 hash、完整性结论
+      auditor.py        # 可选 LLM 只读审计：全新上下文 + 只读工具子集
+      evidence.py       # 最近一轮 RoundRecord 的中文证据摘要（/evidence）
+      context_display.py # 上下文快照展示
+    profiles/           # 项目背景与个人偏好
+      instructions.py   # AGENTS.md 加载与注入
+      project.py        # 项目背景
+      user.py           # 用户偏好
+    browser/            # 浏览器能力（受控动作走 MCP）
+      server.py         # 浏览器 MCP server
+      policy.py         # 浏览器动作策略/快照
+    eval/               # 评测与跑分（非日常运行依赖）
+      internal.py       # 10 任务 eval、check、报告、regression delta
+      swebench.py       # SWE-bench Lite 入口
+      container.py      # 评测容器
+      data.py           # SWE-bench 数据
+      budget_checks.py  # 离线预算机制检查
+      bench_profile.py  # 跑分模式提示词（无人值守、容器内验证）
+      oneshot.py        # 非交互跑分入口：--task、自动审批、telemetry
 
   bench/                # Harbor 跑分适配层（不作为 app 依赖）
     adapter.py          # BaseInstalledAgent：容器内安装并执行 --task
@@ -104,6 +137,8 @@ mini-harness/
     test_budget.py
     test_context.py
     test_core_dependencies.py
+    test_core_layout.py
+    test_app_layout.py
     test_app_summarize.py
     test_state.py
     test_summarize.py
@@ -132,12 +167,14 @@ mini-harness/
 
   docs/
     USAGE.md           # 安装、配置与运行参考
+    HARNESS.md         # harness 技术方案：分层、主循环、上下文、审批边界、状态与恢复、评测与取舍
     VIBE-PROTOCOL.md    # 协作规则
     MILESTONES.md       # 工作台里程碑与验收状态
     roadmap.md          # 产品方向与阶段取舍
     STRUCTURE.md        # 本文件
     assets/             # README 与规格文档使用的图片
     specs/              # 每个切片的 spec
+    design/             # 未来方向的分块讨论（长任务/后台/进阶模式/子 Agent），拍板后收敛为 spec
     history/            # 旧 M1–M8 模块建设计划
 
   archive/              # 历史草稿，不 import
@@ -165,33 +202,61 @@ tests ─> core + app
 core ──> 只依赖 stdlib
 ```
 
-**硬规则**：`core/` 只依赖标准库，不能 import `app/`、`httpx`、`rich`。core 一旦沾上界面，就不能复用到别的项目。
+core 内部按域单向依赖，禁止环形与跨域反向引用（细则见 [core/README.md](../core/README.md)）：
 
-stdio 后端与 eval 都调用 `app.agent.Agent.run()`。Ink 通过本地 JSONL 与 stdio 后端交互，工具执行和审批决定仍由 Python 持有；Textual 界面已于 2026-10-23 退役。循环测试放在 `tests/test_agent.py` 等 Python 回归中，界面与传输测试另见 `tui/tests/`。
-`app.summarize.LLMSummarizer` 通过现有 `summarizer` 参数注入 `ContextBuilder`，`core/` 不负责网络请求。
+```
+contracts  ←  budget  ←  context
+contracts  ←  task
+```
+
+**硬规则**：`core/` 只依赖标准库，不能 import `app/`、`httpx`、`rich`。core 一旦沾上界面，就不能复用到别的项目。
+**布局约束**：`core/` 根目录只允许 `__init__.py` 与四个域目录；新功能先按 `core/README.md` 的“新增文件放哪”归域，
+需要新域时同时更新 `core/README.md`、本文件与 `tests/test_core_layout.py`。
+
+`app/` 内部按域组织（细则见 [app/README.md](../app/README.md)）：
+
+```
+runtime  -> tools -> safety
+runtime  -> session / profiles
+eval     -> runtime / safety / session
+入口层：__main__.py / stdio.py 只做接线；config.py / events.py 为共享边界
+```
+
+- 领域模块不得 import 入口层；`eval/` 不是日常运行依赖（`bench/` 适配层除外）。
+- 根目录只允许 `__init__.py`、`__main__.py`、`config.py`、`events.py`、`stdio.py`；其余新模块先进领域目录。
+
+stdio 后端与 eval 都调用 `app.runtime.agent.Agent.run()`。Ink 通过本地 JSONL 与 stdio 后端交互，工具执行和审批决定仍由 Python 持有；Textual 界面已于 2026-10-23 退役。循环测试放在 `tests/test_agent.py` 等 Python 回归中，界面与传输测试另见 `tui/tests/`。
+`app.runtime.summarize.LLMSummarizer` 通过现有 `summarizer` 参数注入 `ContextBuilder`，`core/` 不负责网络请求。
 
 ## 新文件放哪
 
 | 切片 | 新文件 | 职责 |
 |---|---|---|
-| D3 | `app/policy.py` | 风险分级、审批决定、session allowlist |
-| D3 | `app/diff.py` | unified diff 预览 |
-| D3 | `app/tools.py` 增 `write_file` / `edit_file` | 写工具 |
-| D3 | `app/session.py` | JSONL 事件、审批记录（D5 扩展 resume） |
-| D4 | `app/tools.py` 增 `bash`；`app/sandbox.py` | 命令白名单、超时、输出截断 |
-| D5 | `app/session.py` 扩展 | checkpoint、`--continue` |
-| D6 | `app/trace.py`；`eval/tasks/`、`eval/runner.py` | span、成本、10 个任务 |
+| D3 | `app/safety/policy.py` | 风险分级、审批决定、session allowlist |
+| D3 | `app/tools/diff.py` | unified diff 预览 |
+| D3 | `app/tools/registry.py` 增 `write_file` / `edit_file` | 写工具 |
+| D3 | `app/session/store.py` | JSONL 事件、审批记录（D5 扩展 resume） |
+| D4 | `app/tools/registry.py` 增 `bash`；`app/safety/sandbox.py` | 命令白名单、超时、输出截断 |
+| D5 | `app/session/store.py` 扩展 | checkpoint、`--continue` |
+| D6 | `app/session/trace.py`；`eval/tasks/`、`eval/runner.py` | span、成本、10 个任务 |
 | 每切片 | `tests/test_<module>.py` | 至少覆盖成功 + 一个失败路径 |
+
+> `core/` 内部新增文件不在此表：按 [core/README.md](../core/README.md) 的域划分落位
+> （契约 → `contracts/`、预算 → `budget/`、上下文 → `context/`、任务与证据 → `task/`）。
+> `app/` 内部新增文件同理按 [app/README.md](../app/README.md) 的“新增文件放哪”落位。
 
 ## 规则
 
 1. **一个文件一个职责**。不要建空占位文件；要用时再建。
-2. **core 不 import app**。如果 core 需要界面的东西，说明分层错了。
+2. **core 不 import app**。core 内部按 `contracts ← budget ← context`、`contracts ← task` 单向依赖；
+   分域与落位规则见 [core/README.md](../core/README.md)。如果 core 需要界面的东西，说明分层错了。
 3. **每个新模块配测试**：成功路径 + 一个失败路径。
 4. **移动/新增文件后**，更新 `README.md` 和本文件。
 5. **运行时产物**放 `.vibe/`（offload / backups / sessions），已 gitignore。
 6. **archive 只读**：不 import、不修、不删；它是你的学习历史。
 7. **spec 先于实现**：D3 起，每个切片在 `docs/specs/` 放一页 spec，再写代码。
+8. **core 根目录只允许** `__init__.py` 与四个域目录；新增域或移动模块时同步更新 `core/README.md` 与
+   `tests/test_core_layout.py`，不要恢复扁平模块。
 
 ## 命名
 

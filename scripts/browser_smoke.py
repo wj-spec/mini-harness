@@ -20,10 +20,10 @@ import socketserver
 import threading
 from pathlib import Path
 
-from app.mcp import McpManager
-from app.policy import ApprovalDecision, ApprovalGate
-from app.tools import ToolRegistry
-from core.models import ToolCall
+from app.tools.mcp import McpManager
+from app.safety.policy import ApprovalDecision, ApprovalGate
+from app.tools.registry import ToolRegistry
+from core.contracts import ToolCall
 
 ROOT = Path(__file__).resolve().parents[1]
 PAGE = b"""<!doctype html><html><head><title>Browser B1 Fixture</title></head>

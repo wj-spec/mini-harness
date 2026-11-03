@@ -80,7 +80,7 @@ SearXNG 是可自建的 AGPL-3.0-or-later 元搜索服务，源码要求 Python 
 
 ## 接入本项目的边界与验收
 
-依据现有 `app/tools.py`、[建设方向](../roadmap.md) 和 [W1 / W2 里程碑](../MILESTONES.md)，建议作为单 Agent 的一个基础工具切片，沿用 `ToolRegistry → ApprovalGate → 工具执行 → 模型回灌`：
+依据现有 `app/tools/registry.py`、[建设方向](../roadmap.md) 和 [W1 / W2 里程碑](../MILESTONES.md)，建议作为单 Agent 的一个基础工具切片，沿用 `ToolRegistry → ApprovalGate → 工具执行 → 模型回灌`：
 
 1. 暴露 `query` 和少量检索选项；限制空查询、字符串长度、结果数量（最多 10）。供应商地址、任意 HTTP 目标和代理不让模型自由指定。
 2. 将搜索标记为网络风险，审批先展示供应商和将外发的查询；拒绝或等待审批时取消，不启动请求。

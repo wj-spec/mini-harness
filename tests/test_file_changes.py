@@ -1,6 +1,6 @@
-from app.tools import ToolRegistry
-from core.models import ToolCall
-from core.state import TaskState
+from app.tools.registry import ToolRegistry
+from core.contracts import ToolCall
+from core.task import TaskState
 
 
 def test_mutation_metadata_records_lifecycle_without_content(tmp_path):

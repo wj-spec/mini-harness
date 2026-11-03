@@ -3,9 +3,9 @@ import json
 import httpx
 import pytest
 
-from app.summarize import LLMSummarizer
-from core.models import Message
-from core.summarize import summarize_messages
+from app.runtime.summarize import LLMSummarizer
+from core.contracts import Message
+from core.context.summarize import summarize_messages
 
 
 @pytest.mark.parametrize(

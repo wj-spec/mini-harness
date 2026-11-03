@@ -55,7 +55,7 @@ def commands(fake):
 
 
 def test_open_extracts_image_and_mounts_only_workspace(tmp_path, monkeypatch):
-    from app.eval_container import DockerSandbox
+    from app.eval.container import DockerSandbox
 
     fake = FakeDocker()
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake.spawn)
@@ -84,7 +84,7 @@ def test_open_extracts_image_and_mounts_only_workspace(tmp_path, monkeypatch):
 
 
 def test_run_uses_conda_inside_container_and_bounds_output(tmp_path, monkeypatch):
-    from app.eval_container import DockerSandbox
+    from app.eval.container import DockerSandbox
 
     fake = FakeDocker()
     fake.responses["exec"] = (3, b"prefix" + b"x" * 20_000 + b"tail")
@@ -107,7 +107,7 @@ def test_run_uses_conda_inside_container_and_bounds_output(tmp_path, monkeypatch
 
 
 def test_commands_and_patch_export_trust_only_testbed_git_directory(tmp_path, monkeypatch):
-    from app.eval_container import DockerSandbox
+    from app.eval.container import DockerSandbox
 
     fake = FakeDocker()
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake.spawn)
@@ -129,8 +129,8 @@ def test_commands_and_patch_export_trust_only_testbed_git_directory(tmp_path, mo
 
 @pytest.mark.parametrize("cancel", [False, True])
 def test_timeout_and_cancel_remove_container_and_reap_cli(tmp_path, monkeypatch, cancel):
-    from app.eval_container import DockerSandbox
-    from app.sandbox import CommandCancelled
+    from app.eval.container import DockerSandbox
+    from app.safety.sandbox import CommandCancelled
 
     async def scenario():
         fake = FakeDocker()
@@ -162,7 +162,7 @@ def test_timeout_and_cancel_remove_container_and_reap_cli(tmp_path, monkeypatch,
 
 
 def test_export_patch_keeps_new_and_deleted_files_and_fails_on_oversize(tmp_path, monkeypatch):
-    from app.eval_container import DockerSandbox
+    from app.eval.container import DockerSandbox
 
     fake = FakeDocker()
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake.spawn)
@@ -185,10 +185,10 @@ def test_export_patch_keeps_new_and_deleted_files_and_fails_on_oversize(tmp_path
 
 
 def test_registry_uses_native_files_and_container_commands_without_network_or_skills(tmp_path):
-    from app.eval_container import ContainerToolRegistry
+    from app.eval.container import ContainerToolRegistry
     from core.context import ContextBuilder
-    from core.models import ToolCall
-    from core.state import TaskState
+    from core.contracts import ToolCall
+    from core.task import TaskState
 
     workspace = tmp_path / "work"
     workspace.mkdir()
@@ -224,7 +224,7 @@ def test_registry_uses_native_files_and_container_commands_without_network_or_sk
     {"command": "echo x", "cwd": "/tmp"}, {"command": "echo x", "timeout": float("inf")},
 ])
 def test_invalid_commands_never_reach_docker_exec(tmp_path, monkeypatch, args):
-    from app.eval_container import DockerSandbox
+    from app.eval.container import DockerSandbox
 
     fake = FakeDocker()
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake.spawn)
@@ -241,7 +241,7 @@ def test_invalid_commands_never_reach_docker_exec(tmp_path, monkeypatch, args):
 
 
 def test_cleanup_failure_still_reaps_timed_out_cli(tmp_path, monkeypatch):
-    from app.eval_container import DockerSandbox
+    from app.eval.container import DockerSandbox
 
     async def scenario():
         fake = FakeDocker()
@@ -261,8 +261,8 @@ def test_cleanup_failure_still_reaps_timed_out_cli(tmp_path, monkeypatch):
 
 
 def test_registry_does_not_follow_predictable_temporary_symlink(tmp_path):
-    from app.eval_container import ContainerToolRegistry
-    from core.models import ToolCall
+    from app.eval.container import ContainerToolRegistry
+    from core.contracts import ToolCall
 
     workspace = tmp_path / "work"
     workspace.mkdir()
@@ -280,8 +280,8 @@ def test_registry_does_not_follow_predictable_temporary_symlink(tmp_path):
 
 
 def test_registry_rejects_backup_directory_symlink_escape(tmp_path):
-    from app.eval_container import ContainerToolRegistry
-    from core.models import ToolCall
+    from app.eval.container import ContainerToolRegistry
+    from core.contracts import ToolCall
 
     workspace = tmp_path / "work"
     workspace.mkdir()
@@ -300,7 +300,7 @@ def test_registry_rejects_backup_directory_symlink_escape(tmp_path):
 
 
 def test_missing_docker_has_actionable_error(tmp_path, monkeypatch):
-    from app.eval_container import DockerSandbox
+    from app.eval.container import DockerSandbox
 
     async def missing(*args, **kwargs):
         raise FileNotFoundError("docker")
@@ -311,7 +311,7 @@ def test_missing_docker_has_actionable_error(tmp_path, monkeypatch):
 
 
 def test_failed_copy_cleans_only_its_source_container(tmp_path, monkeypatch):
-    from app.eval_container import DockerSandbox
+    from app.eval.container import DockerSandbox
 
     fake = FakeDocker()
     fake.responses["cp"] = (1, b"missing /testbed")
@@ -326,8 +326,8 @@ def test_failed_copy_cleans_only_its_source_container(tmp_path, monkeypatch):
 
 
 def test_cancel_during_subprocess_creation_still_cleans_and_reaps(tmp_path, monkeypatch):
-    from app.eval_container import DockerSandbox
-    from app.sandbox import CommandCancelled
+    from app.eval.container import DockerSandbox
+    from app.safety.sandbox import CommandCancelled
 
     async def scenario():
         fake = FakeDocker()
@@ -358,7 +358,7 @@ def test_cancel_during_subprocess_creation_still_cleans_and_reaps(tmp_path, monk
 
 @pytest.mark.parametrize("config_text", ['{}', '{"discover": true}', '{"discover": false, "paths": ["/tmp"]}'])
 def test_registry_requires_explicitly_disabled_skill_discovery(tmp_path, config_text):
-    from app.eval_container import ContainerToolRegistry
+    from app.eval.container import ContainerToolRegistry
 
     workspace = tmp_path / "work"
     workspace.mkdir()
@@ -370,9 +370,9 @@ def test_registry_requires_explicitly_disabled_skill_discovery(tmp_path, config_
 
 
 def test_registry_recall_rejects_host_path_traversal(tmp_path):
-    from app.eval_container import ContainerToolRegistry
+    from app.eval.container import ContainerToolRegistry
     from core.context import ContextBuilder
-    from core.models import ToolCall
+    from core.contracts import ToolCall
 
     workspace = tmp_path / "work"
     workspace.mkdir()
@@ -390,9 +390,9 @@ def test_registry_recall_rejects_host_path_traversal(tmp_path):
 
 
 def test_registry_recall_rejects_nested_host_path_traversal(tmp_path):
-    from app.eval_container import ContainerToolRegistry
+    from app.eval.container import ContainerToolRegistry
     from core.context import ContextBuilder
-    from core.models import ToolCall
+    from core.contracts import ToolCall
 
     workspace = tmp_path / "work"
     workspace.mkdir()

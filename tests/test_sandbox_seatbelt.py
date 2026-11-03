@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from app import sandbox
+from app.safety import sandbox
 from app.config import Config
-from app.tools import ToolRegistry
-from core.models import ToolCall
+from app.tools.registry import ToolRegistry
+from core.contracts import ToolCall
 
 needs_seatbelt = pytest.mark.skipif(not sandbox.sandbox_available(), reason="sandbox-exec unavailable")
 probe_ok, probe_detail = sandbox.probe_sandbox()
@@ -58,7 +58,7 @@ def test_config_reads_sandbox_env(monkeypatch):
 
 
 def test_registry_rejects_sandbox_when_binary_missing(tmp_path, monkeypatch):
-    monkeypatch.setattr("app.tools.sandbox_available", lambda: False)
+    monkeypatch.setattr("app.tools.registry.sandbox_available", lambda: False)
     with pytest.raises(ValueError, match="sandbox requested"):
         ToolRegistry(tmp_path, sandbox=True)
 

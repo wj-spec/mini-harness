@@ -3,9 +3,9 @@ import os
 
 import pytest
 
-from app.session import SessionStore
-from core.models import Message, ToolCall
-from core.state import TaskState
+from app.session.store import SessionStore
+from core.contracts import Message, ToolCall
+from core.task import TaskState
 
 
 def test_session_roundtrip(tmp_path):
@@ -246,7 +246,7 @@ def test_save_state_keeps_previous_file_when_replace_fails(tmp_path, monkeypatch
     def broken_replace(source, destination):
         raise OSError("disk full")
 
-    monkeypatch.setattr("app.session.os.replace", broken_replace)
+    monkeypatch.setattr("app.session.store.os.replace", broken_replace)
     with pytest.raises(OSError):
         session.save_state(TaskState(goal="新目标"))
 

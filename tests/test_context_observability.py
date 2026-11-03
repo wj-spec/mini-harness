@@ -3,15 +3,15 @@ import copy
 import json
 import time
 
-from app.agent import Agent
+from app.runtime.agent import Agent
 from app.config import Config
 from app.events import StreamDone, StreamError, TextDelta
 from app.providers.fake import FakeProvider
-from app.session import SessionStore
-from app.tools import ToolRegistry, ToolSpec
+from app.session.store import SessionStore
+from app.tools.registry import ToolRegistry, ToolSpec
 from core.budget import BudgetPolicy
 from core.context import ContextBuilder, estimate_tokens, total_tokens
-from core.models import Message, Response, ToolCall
+from core.contracts import Message, Response, ToolCall
 from test_stdio import Harness
 
 
@@ -19,7 +19,7 @@ def test_no_trace_skips_context_snapshot_construction(tmp_path, monkeypatch):
     def unexpected_snapshot(*args, **kwargs):
         raise AssertionError("snapshot was built without an observer")
 
-    monkeypatch.setattr("app.agent.build_context_snapshot", unexpected_snapshot)
+    monkeypatch.setattr("app.runtime.agent.build_context_snapshot", unexpected_snapshot)
     provider = CapturingProvider(["ok"])
     result = asyncio.run(Agent(provider, ToolRegistry(tmp_path), context=context_for(tmp_path)).run("继续"))
 
@@ -28,13 +28,13 @@ def test_no_trace_skips_context_snapshot_construction(tmp_path, monkeypatch):
 
 
 def test_snapshot_computation_uses_run_time_without_emitting_or_starting_expired_request(tmp_path, monkeypatch):
-    from core.context_snapshot import build_context_snapshot
+    from core.context.snapshot import build_context_snapshot
 
     def slow_snapshot(*args, **kwargs):
         time.sleep(0.08)
         return build_context_snapshot(*args, **kwargs)
 
-    monkeypatch.setattr("app.agent.build_context_snapshot", slow_snapshot)
+    monkeypatch.setattr("app.runtime.agent.build_context_snapshot", slow_snapshot)
     provider = CapturingProvider(["ok"])
     agent = Agent(provider, ToolRegistry(tmp_path), context=context_for(tmp_path),
                   max_run_seconds=0.04, llm_timeout=0.01, llm_retries=0)
@@ -71,7 +71,7 @@ def test_snapshot_observer_cancellation_prevents_model_call(tmp_path):
 
 
 def test_snapshot_work_does_not_consume_model_request_timeout(tmp_path, monkeypatch):
-    from core.context_snapshot import build_context_snapshot
+    from core.context.snapshot import build_context_snapshot
 
     def slow_snapshot(*args, **kwargs):
         time.sleep(0.08)
@@ -83,7 +83,7 @@ def test_snapshot_work_does_not_consume_model_request_timeout(tmp_path, monkeypa
             async for event in super().stream(messages, tools):
                 yield event
 
-    monkeypatch.setattr("app.agent.build_context_snapshot", slow_snapshot)
+    monkeypatch.setattr("app.runtime.agent.build_context_snapshot", slow_snapshot)
     provider = YieldingProvider(["ok"])
     events = []
     agent = Agent(provider, ToolRegistry(tmp_path), context=context_for(tmp_path),

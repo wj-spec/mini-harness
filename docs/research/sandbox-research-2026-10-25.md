@@ -51,7 +51,7 @@
 
 ## 推荐方案（分阶段）
 
-1. **P1（现在）**：`app/sandbox.py` 增加可选 Seatbelt 后端：`--sandbox` / `VIBE_SANDBOX=1` 时用 `sandbox-exec -f <profile>` 包裹 `/bin/bash -lc`。
+1. **P1（现在）**：`app/safety/sandbox.py` 增加可选 Seatbelt 后端：`--sandbox` / `VIBE_SANDBOX=1` 时用 `sandbox-exec -f <profile>` 包裹 `/bin/bash -lc`。
    - 策略：允许读取系统路径与工作区（含 `/usr`、`/bin`、`/opt`、`/Library`、工具链缓存），**写仅工作区 + `/tmp`**，**默认拒绝网络**（`(deny network*)`，可用 `--sandbox-network` 放开）；`.git/` 保持可写（需要提交）但可后续收紧。
    - 沙箱拒绝要作为结构化工具错误返回（`ERROR sandbox_denied: <path/operation>`），模型能据此调整；审计、审批、Trace 不变。
    - 非 macOS 平台保持现状并提示"沙箱不可用"，不静默降级。

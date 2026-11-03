@@ -4,9 +4,9 @@ import pytest
 
 from app import __main__ as entrypoint
 from app.config import Config
-from app.session import SessionStore
-from core.models import Message
-from core.state import TaskState
+from app.session.store import SessionStore
+from core.contracts import Message
+from core.task import TaskState
 
 
 def test_retired_textual_entry_points_to_ink(tmp_path, monkeypatch, capsys):

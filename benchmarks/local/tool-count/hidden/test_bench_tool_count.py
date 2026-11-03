@@ -8,8 +8,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 from test_stdio import Harness, agent_for  # noqa: E402
 
 from app.config import Config  # noqa: E402
-from app.session import SessionStore  # noqa: E402
-from core.models import ToolCall  # noqa: E402
+from app.session.store import SessionStore  # noqa: E402
+from core.contracts import ToolCall  # noqa: E402
 
 
 def test_bench_cancelled_run_counts_every_returned_tool(tmp_path, monkeypatch):

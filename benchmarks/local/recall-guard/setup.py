@@ -1,7 +1,7 @@
 """把 recall 校验退回到不安全版本，作为 benchmark 的初始 bug。"""
 from pathlib import Path
 
-path = Path("core/context.py")
+path = Path("core/context/builder.py")
 source = path.read_text()
 old = """        elif self.offload_dir is not None:
             if not _OFFLOAD_ID.fullmatch(ref):

@@ -1,11 +1,11 @@
 import asyncio
 
-from core.models import Message, Response, ToolCall
-from app.agent import Agent, ensure_tool_pairing
+from core.contracts import Message, Response, ToolCall
+from app.runtime.agent import Agent, ensure_tool_pairing
 from app.providers.fake import FakeProvider
-from app.tools import ToolRegistry, ToolSpec
-from core.state import TaskState
-from app.policy import ApprovalDecision, ApprovalGate
+from app.tools.registry import ToolRegistry, ToolSpec
+from core.task import TaskState
+from app.safety.policy import ApprovalDecision, ApprovalGate
 from app.events import StreamDone, StreamError, TextDelta, ToolCallsReady
 
 
@@ -946,7 +946,7 @@ def test_duplicate_calls_in_one_batch_are_skipped_with_guidance(tmp_path):
 
 def test_tool_guidance_distinguishes_timeout_and_duplicate_states(tmp_path):
     agent = Agent(FakeProvider([]), ToolRegistry(tmp_path))
-    from core.progress import ProgressDecision
+    from core.task import ProgressDecision
     timeout = agent._tool_guidance(
         ToolCall("bash", {"command": "sleep 10"}),
         ProgressDecision("continue", "tool_error", 1),

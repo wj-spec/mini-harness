@@ -3,11 +3,11 @@ import json
 
 import pytest
 
-from app.tools import ToolRegistry
-from app.agent import Agent
+from app.tools.registry import ToolRegistry
+from app.runtime.agent import Agent
 from app.providers.fake import FakeProvider
 from core.context import estimate_tokens
-from core.models import Response, ToolCall
+from core.contracts import Response, ToolCall
 
 
 def put_skill(root, name, description, body="PRIVATE BODY"):

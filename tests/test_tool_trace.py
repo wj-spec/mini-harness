@@ -1,11 +1,11 @@
 import asyncio
 
-from app.agent import Agent
-from app.policy import ApprovalDecision, ApprovalGate
+from app.runtime.agent import Agent
+from app.safety.policy import ApprovalDecision, ApprovalGate
 from app.providers.fake import FakeProvider
-from app.trace import TraceRecorder
-from app.tools import ToolRegistry
-from core.models import Response, ToolCall
+from app.session.trace import TraceRecorder
+from app.tools.registry import ToolRegistry
+from core.contracts import Response, ToolCall
 
 
 def run(coro):

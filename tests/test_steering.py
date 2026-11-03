@@ -1,9 +1,9 @@
 import asyncio
 
-from app.agent import Agent
+from app.runtime.agent import Agent
 from app.providers.fake import FakeProvider
-from app.tools import ToolRegistry
-from core.models import Response, ToolCall
+from app.tools.registry import ToolRegistry
+from core.contracts import Response, ToolCall
 
 
 def run(coro):

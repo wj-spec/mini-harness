@@ -1,8 +1,8 @@
 import re
 
 from core.context import ContextBuilder, total_tokens
-from core.models import Message, ToolCall
-from core.summarize import summarize_messages
+from core.contracts import Message, ToolCall
+from core.context.summarize import summarize_messages
 
 
 def _history(count=20):

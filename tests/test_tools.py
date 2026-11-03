@@ -1,9 +1,9 @@
 import pytest
 
 from core.context import ContextBuilder
-from core.models import Message, ToolCall
-from core.state import TaskState
-from app.tools import ToolRegistry
+from core.contracts import Message, ToolCall
+from core.task import TaskState
+from app.tools.registry import ToolRegistry
 
 
 def test_read_file(tmp_path):
@@ -75,7 +75,7 @@ def test_grep_option_style_pattern_is_treated_as_pattern(tmp_path):
 
 
 def test_grep_option_style_pattern_is_treated_as_pattern_without_rg(tmp_path, monkeypatch):
-    monkeypatch.setattr("app.tools.shutil.which", lambda _: None)
+    monkeypatch.setattr("app.tools.registry.shutil.which", lambda _: None)
     (tmp_path / "a.txt").write_text("--files\n-n\n")
     ok, output = ToolRegistry(tmp_path).execute(ToolCall("grep", {"pattern": "-n"}))
     assert ok is True
@@ -96,7 +96,7 @@ def test_grep_skips_out_of_workspace_symlink(tmp_path):
     (tmp_path / "link.txt").symlink_to(outside)
     for rg_available in (True, False):
         if not rg_available:
-            import app.tools as tools_module
+            import app.tools.registry as tools_module
             original = tools_module.shutil.which
             tools_module.shutil.which = lambda _: None
         try:
@@ -111,7 +111,7 @@ def test_grep_skips_out_of_workspace_symlink(tmp_path):
 def test_grep_invalid_regex_is_error_not_no_match(tmp_path):
     (tmp_path / "a.txt").write_text("x\n")
     for rg_available in (True, False):
-        import app.tools as tools_module
+        import app.tools.registry as tools_module
         original = tools_module.shutil.which
         if not rg_available:
             tools_module.shutil.which = lambda _: None
@@ -383,7 +383,7 @@ def test_write_file_rejects_stale_read(tmp_path):
 
 def test_async_tool_runs_on_callers_event_loop(tmp_path):
     import asyncio
-    from app.tools import ToolSpec
+    from app.tools.registry import ToolSpec
 
     async def run():
         loop = asyncio.get_running_loop()
@@ -404,7 +404,7 @@ def test_async_tool_runs_on_callers_event_loop(tmp_path):
 
 def test_async_tool_timeout_cancels_operation(tmp_path):
     import asyncio
-    from app.tools import ToolSpec
+    from app.tools.registry import ToolSpec
 
     async def run():
         cancelled = asyncio.Event()
@@ -426,7 +426,7 @@ def test_async_tool_timeout_cancels_operation(tmp_path):
 
 def test_async_tool_cancel_event_stops_pending_operation(tmp_path):
     import asyncio
-    from app.tools import ToolSpec
+    from app.tools.registry import ToolSpec
 
     async def run():
         entered, stopped, cancel = asyncio.Event(), asyncio.Event(), asyncio.Event()

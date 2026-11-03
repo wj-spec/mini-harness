@@ -1,12 +1,12 @@
 import asyncio
 from types import SimpleNamespace
 
-from app import agent as agent_module
-from app.agent import Agent
-from app.policy import ApprovalDecision, ApprovalGate
+from app.runtime import agent as agent_module
+from app.runtime.agent import Agent
+from app.safety.policy import ApprovalDecision, ApprovalGate
 from app.providers.fake import FakeProvider
-from app.tools import ToolRegistry
-from core.models import Response, ToolCall
+from app.tools.registry import ToolRegistry
+from core.contracts import Response, ToolCall
 
 
 def test_human_approval_wait_does_not_consume_run_time(tmp_path, monkeypatch):

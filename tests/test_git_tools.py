@@ -4,8 +4,8 @@ import subprocess
 
 import pytest
 
-from core.models import ToolCall
-from app.tools import ToolRegistry
+from core.contracts import ToolCall
+from app.tools.registry import ToolRegistry
 
 GIT = shutil.which("git")
 pytestmark = pytest.mark.skipif(GIT is None, reason="git is not installed")

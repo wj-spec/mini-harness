@@ -1,6 +1,6 @@
 from core.context import stable_prefix_hash
-from core.models import Message
-from core.state import TaskState
+from core.contracts import Message
+from core.task import TaskState
 
 
 def test_render_and_update():

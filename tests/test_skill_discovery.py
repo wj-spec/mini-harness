@@ -3,9 +3,9 @@ from pathlib import Path
 
 import pytest
 
-from app.skills import SkillManager, discover_skills
-from app.tools import ToolRegistry
-from core.models import ToolCall
+from app.tools.skills import SkillManager, discover_skills
+from app.tools.registry import ToolRegistry
+from core.contracts import ToolCall
 
 
 def put_skill(root: Path, name: str, body: str = "正文") -> Path:
@@ -219,7 +219,7 @@ def test_large_valid_skill_is_activated_without_silent_truncation(tmp_path):
 
 
 def test_render_never_truncates_a_skill_before_explicit_activation_validation(tmp_path):
-    from app.skills import MAX_SKILL_CHARS, Skill
+    from app.tools.skills import MAX_SKILL_CHARS, Skill
 
     body = "x" * (MAX_SKILL_CHARS + 1)
     skill = Skill("over-limit", "description", body, tmp_path / "SKILL.md")

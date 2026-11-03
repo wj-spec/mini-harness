@@ -33,11 +33,11 @@ Browser Use 的详细规格见 [browser-use.md](browser-use.md)；桌面 AX 路�
 
 | 能力 | 位置 | 现状 |
 |---|---|---|
-| Agent loop | `app/agent.py` | 单进程、单 run；阶段化 `_loop` 已拆分 |
-| 工具 | `app/tools.py` | `ToolRegistry` + `ToolSpec`，全部工具对一次 run 暴露 |
-| 审批 | `app/policy.py` | `ApprovalGate`；once/session/workspace；无 handler fail closed |
-| MCP | `app/mcp.py` | FastMCP stdio 客户端；启动和调用都审批；**server 级 risk** |
-| 会话/trace | `app/session.py`、`app/stdio.py` | 单会话 JSONL + trace；单 active run |
+| Agent loop | `app/runtime/agent.py` | 单进程、单 run；阶段化 `_loop` 已拆分 |
+| 工具 | `app/tools/registry.py` | `ToolRegistry` + `ToolSpec`，全部工具对一次 run 暴露 |
+| 审批 | `app/safety/policy.py` | `ApprovalGate`；once/session/workspace；无 handler fail closed |
+| MCP | `app/tools/mcp.py` | FastMCP stdio 客户端；启动和调用都审批；**server 级 risk** |
+| 会话/trace | `app/session/store.py`、`app/stdio.py` | 单会话 JSONL + trace；单 active run |
 | UI | `tui/src/app.tsx`、`tui/src/protocol.ts` | 单 run 的审批、工具卡片、done 事件 |
 | 隔离 | `docs/specs/execution-isolation.md` | 审批 + 危险命令黑名单 + 可选 Seatbelt；不是 GUI/系统级隔离 |
 | 目标模式 | `docs/specs/goal-mode.md` | 单 Agent 多段续跑，不是多 Agent |
@@ -101,17 +101,17 @@ Browser Use 的详细规格见 [browser-use.md](browser-use.md)；桌面 AX 路�
 
 ### 2.4 MCP 作为边界
 
-现有 `app/mcp.py` 已经支持 stdio server、启动审批、工具映射和超时。把 Computer Use 放在独立 MCP server 中，有几个好处：
+现有 `app/tools/mcp.py` 已经支持 stdio server、启动审批、工具映射和超时。把 Computer Use 放在独立 MCP server 中，有几个好处：
 
 - GUI 依赖不进入 `core/`，也不污染主 Python 环境；
 - MCP server 的 GUI helper 仍受 macOS 的 responsible-process 权限规则约束；不能假设启动子进程就自动获得新的 TCC 身份；
 - MCP 工具调用沿用现有审批/审计/trace；
 - 先只读、后输入，可以用两个 server 分离 risk。
 
-限制：当前 MCP 的 `risk` 是 **server 级**（`app/mcp.py` 注册时用 `connection.server.risk`），一个 server 内所有工具同一 risk。因此 C1/C2 必须：
+限制：当前 MCP 的 `risk` 是 **server 级**（`app/tools/mcp.py` 注册时用 `connection.server.risk`），一个 server 内所有工具同一 risk。因此 C1/C2 必须：
 
 - 方案 A：拆成 `gui-observe`（read）和 `gui-act`（write）两个 server；
-- 方案 B：扩展 MCP 配置，支持 per-tool risk override；这需要改 `app/mcp.py` 并加测试。
+- 方案 B：扩展 MCP 配置，支持 per-tool risk override；这需要改 `app/tools/mcp.py` 并加测试。
 
 建议 C1 用方案 A，保持服务边界清晰；如果后续工具数量多，再引入 per-tool risk。
 
@@ -629,9 +629,9 @@ M3 write child：patch accepted/merged rate ≥ 单 Agent 直接实现的成功�
 - [执行隔离评估](execution-isolation.md)
 - [Agent loop 拆分](agent-loop-refactor.md)
 - [TUI 协议](../../tui/src/protocol.ts)
-- [工具注册表](../../app/tools.py)
-- [审批闸](../../app/policy.py)
-- [MCP 客户端](../../app/mcp.py)
+- [工具注册表](../../app/tools/registry.py)
+- [审批闸](../../app/safety/policy.py)
+- [MCP 客户端](../../app/tools/mcp.py)
 
 ---
 

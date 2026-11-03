@@ -4,12 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from app.agent import Agent
-from app.permission_policy import PermissionPolicy, PolicyError
-from app.policy import ApprovalGate, ApprovalDecision
+from app.runtime.agent import Agent
+from app.safety.permission_policy import PermissionPolicy, PolicyError
+from app.safety.policy import ApprovalGate, ApprovalDecision
 from app.providers.fake import FakeProvider
-from app.tools import ToolRegistry
-from core.models import Response, ToolCall
+from app.tools.registry import ToolRegistry
+from core.contracts import Response, ToolCall
 
 
 def _write(path: Path, document: dict) -> Path:
@@ -193,7 +193,7 @@ def test_agent_reloads_policy_each_run_and_keeps_last_valid(tmp_path, monkeypatc
 
 
 def test_autonomy_matrix():
-    from app import permissions
+    from app.safety import permissions
 
     assert permissions.autonomy_allows("ask", "write", workspace_eligible=True) is False
     assert permissions.autonomy_allows("edits", "write", workspace_eligible=True) is True

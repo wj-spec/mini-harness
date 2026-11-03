@@ -1,4 +1,4 @@
-from app.instructions import load_agents_md
+from app.profiles.instructions import load_agents_md
 
 
 def test_load_root_agents_md(tmp_path):

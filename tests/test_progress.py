@@ -1,7 +1,7 @@
 import pytest
 
-from core.models import ToolCall
-from core.progress import ProgressMonitor
+from core.contracts import ToolCall
+from core.task import ProgressMonitor
 
 
 def call(name="read_file", **args):
@@ -193,7 +193,7 @@ def test_repeated_call_hash_warns_even_when_output_changes():
 
 
 def test_artifact_progress_only_resets_on_file_or_verification_change():
-    from core.progress import ArtifactProgress
+    from core.task import ArtifactProgress
     monitor = ArtifactProgress(threshold=2, max_warnings=2)
     none = monitor.observe()
     assert (none.action, none.count) == ("continue", 1)
@@ -209,7 +209,7 @@ def test_artifact_progress_only_resets_on_file_or_verification_change():
 
 
 def test_artifact_progress_stops_after_repeated_no_progress_windows():
-    from core.progress import ArtifactProgress
+    from core.task import ArtifactProgress
     monitor = ArtifactProgress(threshold=2, max_warnings=2)
     actions = [monitor.observe().action for _ in range(4)]
     assert actions == ["continue", "warn", "continue", "stop"]

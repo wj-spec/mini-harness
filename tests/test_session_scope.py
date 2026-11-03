@@ -2,8 +2,8 @@ import json
 
 import pytest
 
-from app.session import SessionStore
-from core.models import Message
+from app.session.store import SessionStore
+from core.contracts import Message
 
 
 def conversation(tmp_path, purpose="user", *, stamp="2026-10-20T01:00:00+00:00"):

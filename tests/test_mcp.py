@@ -9,12 +9,12 @@ from pathlib import Path
 
 import pytest
 
-from app import mcp
+from app.tools import mcp
 from app.config import Config
-from app.mcp import McpManager, load_servers, parse_servers
-from app.policy import ApprovalDecision, ApprovalGate
-from app.tools import ToolRegistry
-from core.models import ToolCall
+from app.tools.mcp import McpManager, load_servers, parse_servers
+from app.safety.policy import ApprovalDecision, ApprovalGate
+from app.tools.registry import ToolRegistry
+from core.contracts import ToolCall
 
 
 FAKE_SERVER = r'''
@@ -269,9 +269,9 @@ def test_cancel_during_second_startup_approval_closes_first_server(tmp_path):
 
 
 def test_agent_requires_separate_approval_for_remote_exec_tool(tmp_path):
-    from app.agent import Agent
+    from app.runtime.agent import Agent
     from app.providers.fake import FakeProvider
-    from core.models import Response
+    from core.contracts import Response
 
     async def scenario():
         tool_marker = tmp_path / "tool-called"
@@ -312,9 +312,9 @@ def test_agent_requires_separate_approval_for_remote_exec_tool(tmp_path):
 
 
 def test_agent_cancels_running_mcp_call_with_unknown_execution_outcome(tmp_path):
-    from app.agent import Agent
+    from app.runtime.agent import Agent
     from app.providers.fake import FakeProvider
-    from core.models import Response
+    from core.contracts import Response
 
     async def scenario():
         started_marker, completed_marker = tmp_path / "tool-started", tmp_path / "tool-completed"

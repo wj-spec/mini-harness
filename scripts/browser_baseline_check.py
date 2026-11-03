@@ -18,7 +18,7 @@ BASELINE = {
 }
 CONFIGS = ("examples/browser-mcp.json", "examples/browser-actions-mcp.json")
 ENTRYPOINTS = ("scripts/browser_acceptance.py", "scripts/browser_actions_smoke.py",
-               "scripts/browser_smoke.py", "app/browser_server.py")
+               "scripts/browser_smoke.py", "app/browser/server.py")
 
 
 def check(root: Path = ROOT) -> dict:

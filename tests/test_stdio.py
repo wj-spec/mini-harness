@@ -8,18 +8,18 @@ from pathlib import Path
 
 import pytest
 
-from app import permissions
-from app.agent import Agent
+from app.safety import permissions
+from app.runtime.agent import Agent
 from app.config import Config
 from app.events import StreamDone, TextDelta
-from app.permission_policy import PermissionPolicy, Rule
-from app.policy import ApprovalGate
+from app.safety.permission_policy import PermissionPolicy, Rule
+from app.safety.policy import ApprovalGate
 from app.providers.fake import FakeProvider
-from app.session import SessionStore
+from app.session.store import SessionStore
 from app.stdio import MAX_FRAME_BYTES, _Connection, _completion_rejected_message, approval_rule_context, serve
-from app.tools import ToolRegistry
+from app.tools.registry import ToolRegistry
 from core.context import ContextBuilder
-from core.models import Response, ToolCall
+from core.contracts import Response, ToolCall
 
 
 class Harness:
@@ -364,13 +364,13 @@ def test_real_stdin_frames_stdout_json_and_eof_cleanup(tmp_path):
     code = """
 from pathlib import Path
 import sys
-from app.agent import Agent
+from app.runtime.agent import Agent
 from app.config import Config
-from app.permission_policy import PermissionPolicy, Rule
-from app.policy import ApprovalGate
+from app.safety.permission_policy import PermissionPolicy, Rule
+from app.safety.policy import ApprovalGate
 from app.providers.fake import FakeProvider
 from app.stdio import run_stdio
-from app.tools import ToolRegistry
+from app.tools.registry import ToolRegistry
 root = Path(sys.argv[1])
 class NoisyProvider(FakeProvider):
     async def stream(self, messages, tools):
@@ -410,14 +410,14 @@ def test_real_process_approval_wait_closes_without_writing(tmp_path, close_mode)
     code = """
 from pathlib import Path
 import sys
-from app.agent import Agent
+from app.runtime.agent import Agent
 from app.config import Config
-from app.permission_policy import PermissionPolicy, Rule
-from app.policy import ApprovalGate
+from app.safety.permission_policy import PermissionPolicy, Rule
+from app.safety.policy import ApprovalGate
 from app.providers.fake import FakeProvider
 from app.stdio import run_stdio
-from app.tools import ToolRegistry
-from core.models import Response, ToolCall
+from app.tools.registry import ToolRegistry
+from core.contracts import Response, ToolCall
 root = Path(sys.argv[1])
 provider = FakeProvider([Response(tool_calls=[ToolCall('write_file', {'path':'out.txt','content':'no'}, 'write1')])])
 run_stdio(Agent(provider, ToolRegistry(root), approval=ApprovalGate()), Config(workspace=root))

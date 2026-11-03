@@ -4,12 +4,12 @@ import re
 
 import pytest
 
-from app.agent import Agent
-from app.policy import ApprovalDecision, ApprovalGate
+from app.runtime.agent import Agent
+from app.safety.policy import ApprovalDecision, ApprovalGate
 from app.providers.fake import FakeProvider
-from app.session import SessionStore
+from app.session.store import SessionStore
 from core.context import ContextBuilder
-from core.models import Message, Response, ToolCall
+from core.contracts import Message, Response, ToolCall
 
 
 def test_agent_message_persists_execution_and_plain_output(tmp_path):
@@ -18,7 +18,7 @@ def test_agent_message_persists_execution_and_plain_output(tmp_path):
     async def approve(call, preview):
         return ApprovalDecision(True, "once")
 
-    from app.tools import ToolRegistry
+    from app.tools.registry import ToolRegistry
     agent = Agent(FakeProvider([
         Response(tool_calls=[ToolCall("bash", {"command": "echo actual; exit 7"}, id="c")]), "done",
     ]), ToolRegistry(tmp_path), approval=ApprovalGate(approve))

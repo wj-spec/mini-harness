@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from app.budget_checks import run_budget_checks
+from app.eval.budget_checks import run_budget_checks
 
 
 def test_context_layer_accepts_expected_stop_without_model_request(tmp_path):
@@ -78,8 +78,8 @@ def test_all_levels_are_deterministic_and_do_not_read_model_configuration(tmp_pa
 
 
 def test_fixture_approval_denial_is_error_and_leaves_fixture_unwritten(tmp_path, monkeypatch):
-    import app.budget_checks as checks
-    from app.policy import ApprovalDecision
+    import app.eval.budget_checks as checks
+    from app.safety.policy import ApprovalDecision
 
     async def deny_fixture(call, preview):
         return ApprovalDecision(not call.args.get("path", "").endswith("calc.py"), "once")
@@ -96,7 +96,7 @@ def test_fixture_approval_denial_is_error_and_leaves_fixture_unwritten(tmp_path,
 
 
 def test_false_tool_success_cannot_hide_real_verification_failure(tmp_path, monkeypatch):
-    from app.tools import ToolRegistry
+    from app.tools.registry import ToolRegistry
 
     monkeypatch.setattr(ToolRegistry, "edit_file", lambda self, **kwargs: "edited")
     report = asyncio.run(run_budget_checks(tmp_path, "compaction"))
@@ -110,7 +110,7 @@ def test_false_tool_success_cannot_hide_real_verification_failure(tmp_path, monk
 
 
 def test_layer_exception_is_recorded_as_error(tmp_path, monkeypatch):
-    from app.agent import Agent
+    from app.runtime.agent import Agent
 
     async def broken(*args, **kwargs):
         raise RuntimeError("unexpected agent failure")
@@ -124,7 +124,7 @@ def test_layer_exception_is_recorded_as_error(tmp_path, monkeypatch):
 
 
 def test_all_stops_progressing_after_failed_layer(tmp_path, monkeypatch):
-    import app.budget_checks as checks
+    import app.eval.budget_checks as checks
 
     async def unexpected(*args):
         raise RuntimeError("layer broken")
@@ -138,7 +138,7 @@ def test_all_stops_progressing_after_failed_layer(tmp_path, monkeypatch):
 
 
 def test_budget_stop_with_real_error_cannot_pass(tmp_path, monkeypatch):
-    from app.agent import Agent, AgentResult
+    from app.runtime.agent import Agent, AgentResult
 
     async def stopped_with_error(*args, **kwargs):
         result = AgentResult("stopped", 1, "stopped", {"total_tokens": 5000}, stop_reason="token_budget")

@@ -1,14 +1,14 @@
 import asyncio
 import json
 
-from app.agent import Agent
-from app.policy import ApprovalDecision, ApprovalGate
+from app.runtime.agent import Agent
+from app.safety.policy import ApprovalDecision, ApprovalGate
 from app.providers.fake import FakeProvider
-from app.session import SessionStore
-from app.tools import ToolRegistry, ToolSpec
+from app.session.store import SessionStore
+from app.tools.registry import ToolRegistry, ToolSpec
 from core.budget import BudgetPolicy
 from core.context import ContextBuilder, total_tokens
-from core.models import Message, Response, ToolCall
+from core.contracts import Message, Response, ToolCall
 
 
 def run(coro):

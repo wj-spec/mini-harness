@@ -5,13 +5,13 @@ import sys
 import pytest
 
 from app import __main__ as entrypoint
-from app.agent import Agent
+from app.runtime.agent import Agent
 from app.config import Config
 from app.providers.fake import FakeProvider
-from app.session import SessionStore
+from app.session.store import SessionStore
 from app.stdio import serve
-from app.tools import ToolRegistry
-from core.models import Message
+from app.tools.registry import ToolRegistry
+from core.contracts import Message
 
 
 def configure(tmp_path, monkeypatch):

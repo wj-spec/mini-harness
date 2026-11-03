@@ -43,7 +43,7 @@ TASKS = {
         "skills": "改动前先给方案 / 注释简洁",
     },
     "task-c": {
-        "prompt": "检查 app/user_profile.py 的 load_user_profile：如果 entries 里有重复 text 或空白 text 条目会怎样？有问题就修复并补测试。",
+        "prompt": "检查 app/profiles/user.py 的 load_user_profile：如果 entries 里有重复 text 或空白 text 条目会怎样？有问题就修复并补测试。",
         "skills": "根因定位 / 验证",
     },
 }

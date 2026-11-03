@@ -53,7 +53,7 @@ Playwright 官方 README 明确说：对 coding agent，**CLI + skills 往往比
 
 我们的选择：
 
-- **B1 先用 Playwright MCP**：现有 `app/mcp.py` 已支持 stdio MCP、启动审批、工具映射；可以先不改协议；便于验证；
+- **B1 先用 Playwright MCP**：现有 `app/tools/mcp.py` 已支持 stdio MCP、启动审批、工具映射；可以先不改协议；便于验证；
 - 如果实测 tool schema/快照 token 占用过高，再评估 Playwright CLI + skill（agent 执行命令，结果落文本/文件）；
 - 不把 Playwright 作为 `core/` 依赖；它是可选 MCP server。
 
@@ -61,14 +61,14 @@ Playwright 官方 README 明确说：对 coding agent，**CLI + skills 往往比
 
 ### 1.2 必须先补的 MCP 缺口
 
-当前 `app/mcp.py` 的 `McpServer.risk` 是 **server 级**（read/write/exec），注册时所有 remote tool 继承同一 risk。Playwright MCP 同时暴露只读快照和写动作（click/type/run code），不能把整个 server 标 read。
+当前 `app/tools/mcp.py` 的 `McpServer.risk` 是 **server 级**（read/write/exec），注册时所有 remote tool 继承同一 risk。Playwright MCP 同时暴露只读快照和写动作（click/type/run code），不能把整个 server 标 read。
 
 G0 二选一：
 
 - **方案 A（已实现）**：`McpServer` 支持 `allowed_tools`、`tool_risks`、`allowed_origins`，注册时过滤/覆盖 risk；这样只暴露 B1 白名单，后续 B2 再按工具审批；
 - 方案 B：启动两个 Playwright MCP 实例，一个只读配置、一个动作配置；但同一 package 的工具集不能由 server 端裁剪到“只读”，仍需客户端过滤，收益小。
 
-已实现的 G0（`app/mcp.py`）：
+已实现的 G0（`app/tools/mcp.py`）：
 
 - `allowed_tools`：只注册白名单工具；缺失配置的白名单工具启动失败（fail closed）；
 - `tool_risks`：工具级 risk 覆盖，`browser_navigate` 可标 `write`，其余只读；
@@ -397,7 +397,7 @@ B2 必须做到：
 - Playwright CLI（coding agent 的 token-efficient 替代）：<https://github.com/microsoft/playwright-cli>
 - MCP Security Best Practices：<https://modelcontextprotocol.io/docs/2025-11-25/tutorials/security/security_best_practices>
 - MCP Tools 规范（isError/annotations）：<https://modelcontextprotocol.io/specification/2025-11-25/server/tools.md>
-- 本仓库 [MCP 客户端](../../app/mcp.py)、[审批闸](../../app/policy.py)、[Multi-Agent 与 Computer Use](multi-agent-computer-use.md)
+- 本仓库 [MCP 客户端](../../app/tools/mcp.py)、[审批闸](../../app/safety/policy.py)、[Multi-Agent 与 Computer Use](multi-agent-computer-use.md)
 
 ---
 

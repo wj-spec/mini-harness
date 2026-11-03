@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from app import benchmark
+from app.eval import swebench as benchmark
 
 
 def test_doctor_exposes_configured_budget_without_overriding_it(monkeypatch, capsys):

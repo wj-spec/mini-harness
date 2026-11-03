@@ -11,19 +11,19 @@ import uuid
 from collections.abc import AsyncIterable, Callable
 from dataclasses import asdict, replace
 
-from app.agent import Agent, AgentResult
-from app import permissions
+from app.runtime.agent import Agent, AgentResult
+from app.safety import permissions
 from app.config import Config
-from app.evidence import format_round_evidence
-from app.project_profile import load_project_background
-from app.user_profile import load_user_profile, select_user_preferences
-from app.context_snapshot_display import snapshot_for_display
-from app.mcp import McpManager
-from app.policy import ApprovalDecision, ApprovalGate
+from app.session.evidence import format_round_evidence
+from app.profiles.project import load_project_background
+from app.profiles.user import load_user_profile, select_user_preferences
+from app.session.context_display import snapshot_for_display
+from app.tools.mcp import McpManager
+from app.safety.policy import ApprovalDecision, ApprovalGate
 from app.providers.fake import FakeProvider
 from app.providers.openai_compat import OpenAICompatProvider
-from app.session import SessionStore
-from core.models import ToolCall
+from app.session.store import SessionStore
+from core.contracts import ToolCall
 
 MAX_FRAME_BYTES = 1024 * 1024
 _OVERSIZED = object()

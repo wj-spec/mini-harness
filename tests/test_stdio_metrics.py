@@ -4,19 +4,19 @@ import math
 
 import pytest
 
-from app.agent import Agent
+from app.runtime.agent import Agent
 from app.config import Config
 from app.events import StreamDone, StreamError, TextDelta, ToolCallsReady
-from app.policy import ApprovalGate
+from app.safety.policy import ApprovalGate
 from app.providers.fake import FakeProvider
 from app.providers.openai_compat import OpenAICompatProvider
-from app.session import SessionStore
-from app.trace import Pricing
-from app.tools import ToolRegistry
+from app.session.store import SessionStore
+from app.session.trace import Pricing
+from app.tools.registry import ToolRegistry
 from core.budget import BudgetPolicy
 from core.context import ContextBuilder
-from core.models import Message, Response, ToolCall
-from core.state import TaskState
+from core.contracts import Message, Response, ToolCall
+from core.task import TaskState
 from test_stdio import Harness
 
 

@@ -6,7 +6,7 @@
 
 ## 行为
 
-新增 `./run_ink.sh` 启动 Node.js + TypeScript + React/Ink 界面，由 Node 启动 Python `./run_vibe.sh --stdio` 子进程。任务仍由同一个 `app.agent.Agent.run()` 执行，复用模型配置、上下文、预算、原生工具、审批和会话记录。`./run_vibe.sh` 是 Python 后端与 `--eval` 入口；交互界面使用 `./run_ink.sh`（Textual 已退役）。
+新增 `./run_ink.sh` 启动 Node.js + TypeScript + React/Ink 界面，由 Node 启动 Python `./run_vibe.sh --stdio` 子进程。任务仍由同一个 `app.runtime.agent.Agent.run()` 执行，复用模型配置、上下文、预算、原生工具、审批和会话记录。`./run_vibe.sh` 是 Python 后端与 `--eval` 入口；交互界面使用 `./run_ink.sh`（Textual 已退役）。
 
 本切片支持输入任务、连续流式回复、状态、工具调用与结果、单次批准 / 拒绝、取消和退出。用户明确批准前，写入与命令不能执行；界面断开不等于批准。取消后的副作用仍可能需要核对，不能把取消解释成回滚。命令执行的取消需要终止并回收进程组。
 

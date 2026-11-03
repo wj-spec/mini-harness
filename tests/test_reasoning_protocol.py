@@ -4,13 +4,13 @@ import json
 import httpx
 import pytest
 
-from app.agent import Agent
+from app.runtime.agent import Agent
 from app.events import StreamError
 from app.providers.openai_compat import OpenAICompatProvider
-from app.tools import ToolRegistry
+from app.tools.registry import ToolRegistry
 from core.budget import BudgetPolicy
 from core.context import ContextBuilder, estimate_tokens
-from core.models import Message
+from core.contracts import Message
 
 TOOLS = [{"type": "function", "function": {"name": "read_file", "parameters": {"type": "object"}}}]
 

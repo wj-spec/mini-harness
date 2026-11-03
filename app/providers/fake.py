@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Iterable
 
-from core.models import Response
+from core.contracts import Response
 
 from app.events import StreamDone, TextDelta, ToolCallsReady
 

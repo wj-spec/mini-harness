@@ -3,12 +3,12 @@ import json
 
 import pytest
 
-from app.agent import Agent
-from app.policy import ApprovalDecision, ApprovalGate
+from app.runtime.agent import Agent
+from app.safety.policy import ApprovalDecision, ApprovalGate
 from app.providers.fake import FakeProvider
-from app.tools import ToolRegistry
-from app.web_search import web_search
-from core.models import Response, ToolCall
+from app.tools.registry import ToolRegistry
+from app.tools.web_search import web_search
+from core.contracts import Response, ToolCall
 
 
 async def allow_once(call, preview):

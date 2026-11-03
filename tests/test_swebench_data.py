@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from app import swebench_data as data
+from app.eval import data
 
 
 def test_default_manifest_pins_public_dev_source_and_ten_tasks():

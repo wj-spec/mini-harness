@@ -3,9 +3,9 @@ from dataclasses import asdict
 
 import pytest
 
-from app.session import SessionStore
+from app.session.store import SessionStore
 from core.context import ContextBuilder, message_tokens, total_tokens
-from core.models import Message, Response, ToolCall, message_from_dict
+from core.contracts import Message, Response, ToolCall, message_from_dict
 
 
 def test_reasoning_metadata_is_optional_without_changing_positional_fields():

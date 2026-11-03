@@ -13,7 +13,8 @@ Ink 是唯一界面入口（Textual 已于 2026-10-23 退役）；`core/` 是可
 
 ## 规则
 
-- `core/` 只依赖标准库，不能 import `app/`、`httpx`、`rich`。
+- `core/` 只依赖标准库，不能 import `app/`、`httpx`、`rich`；内部按 `core/README.md` 分域（`contracts/budget/context/task`），根目录只允许 `__init__.py` 与这四个域目录。
+- `app/` 内部按 `app/README.md` 分域（`runtime/tools/safety/session/profiles/browser/eval`）；根目录只允许入口/共享边界文件（`__main__.py`、`stdio.py`、`config.py`、`events.py`）。
 - 改行为先加/改测试；提交前跑 `./run_tests.sh`。
 - 运行时产物写 `.vibe/`，不要提交。
 - 写文件、执行命令必须经过 `ApprovalGate`；不要绕过审批。

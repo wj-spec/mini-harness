@@ -4,10 +4,10 @@ from pathlib import Path
 import httpx
 
 from app.config import Config
-from app.eval import EvalTask, run_eval
+from app.eval.internal import EvalTask, run_eval
 from app.providers.fake import FakeProvider
 from app.providers.openai_compat import OpenAICompatProvider
-from core.models import Response, ToolCall
+from core.contracts import Response, ToolCall
 
 
 def test_eval_continues_after_announcing_action_before_any_tool_was_called(tmp_path):

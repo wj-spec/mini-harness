@@ -4,16 +4,16 @@ import signal
 
 import pytest
 
-from app.agent import Agent
+from app.runtime.agent import Agent
 from app.config import Config
-from app.policy import ApprovalGate
+from app.safety.policy import ApprovalGate
 from app.providers.fake import FakeProvider
-from app.session import SessionStore
+from app.session.store import SessionStore
 from app.stdio import serve
-from app.tools import ToolRegistry, ToolSpec
+from app.tools.registry import ToolRegistry, ToolSpec
 from core.budget import BudgetPolicy
 from core.context import ContextBuilder
-from core.models import ToolCall
+from core.contracts import ToolCall
 from test_stdio import Harness
 from test_stdio_parity import Connection, StartupManager
 

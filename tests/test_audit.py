@@ -6,13 +6,13 @@ import subprocess
 
 import pytest
 
-from app.agent import Agent
-from app.audit import audit_completion, capture_baseline
-from app.policy import ApprovalDecision, ApprovalGate
+from app.runtime.agent import Agent
+from app.session.audit import audit_completion, capture_baseline
+from app.safety.policy import ApprovalDecision, ApprovalGate
 from app.providers.fake import FakeProvider
-from app.tools import ToolRegistry
-from core.models import Response, ToolCall
-from core.state import CompletionDecision, TaskState, completion_decision
+from app.tools.registry import ToolRegistry
+from core.contracts import Response, ToolCall
+from core.task import CompletionDecision, TaskState, completion_decision
 
 def run(coro):
     return asyncio.run(coro)

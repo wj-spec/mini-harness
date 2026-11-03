@@ -50,7 +50,7 @@ TUI (Textual)
 
 **但 `core/` 还不是完全通用的 harness**：
 
-- 唯一运行 loop 在 `app/agent.py`；同步参考实现已删除。
+- 唯一运行 loop 在 `app/runtime/agent.py`；同步参考实现已删除。
 - `Message` / `ToolCall` 形状偏 OpenAI。
 - `ToolRegistry`、审批、session、trace 都在 `app/`。
 

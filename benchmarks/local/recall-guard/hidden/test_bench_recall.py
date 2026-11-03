@@ -2,9 +2,9 @@ import json
 
 import pytest
 
-from app.tools import ToolRegistry
+from app.tools.registry import ToolRegistry
 from core.context import ContextBuilder
-from core.models import ToolCall
+from core.contracts import ToolCall
 
 
 def _registry(tmp_path):

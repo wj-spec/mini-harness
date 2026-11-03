@@ -23,8 +23,10 @@ def _root(tmp_path: Path, *, pinned: str = "@playwright/mcp@0.0.83", latest: boo
             encoding="utf-8")
     (tmp_path / "pyproject.toml").write_text('dependencies = ["fastmcp==4.1.1"]\n', encoding="utf-8")
     for relative in ("scripts/browser_acceptance.py", "scripts/browser_actions_smoke.py",
-                     "scripts/browser_smoke.py", "app/browser_server.py"):
-        (tmp_path / relative).write_text("", encoding="utf-8")
+                     "scripts/browser_smoke.py", "app/browser/server.py"):
+        target = tmp_path / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("", encoding="utf-8")
     return tmp_path
 
 

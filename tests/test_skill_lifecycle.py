@@ -4,15 +4,15 @@ import threading
 
 import pytest
 
-from app.agent import Agent
+from app.runtime.agent import Agent
 from app.config import Config
-from app.policy import ApprovalDecision, ApprovalGate
+from app.safety.policy import ApprovalDecision, ApprovalGate
 from app.providers.fake import FakeProvider
-from app.tools import ToolRegistry
-from app.skills import SkillManager
+from app.tools.registry import ToolRegistry
+from app.tools.skills import SkillManager
 from core.budget import BudgetPolicy
 from core.context import ContextBuilder
-from core.models import Message, Response, ToolCall
+from core.contracts import Message, Response, ToolCall
 
 
 def skill_file(root, name="review", body="PRIVATE_SKILL_STEPS"):

@@ -10,7 +10,7 @@ import pytest
 
 from fastmcp.exceptions import ToolError
 
-from app.browser_server import BrowserWorker, create_server, read_origins
+from app.browser.server import BrowserWorker, create_server, read_origins
 
 ROOT = Path(__file__).resolve().parents[1]
 

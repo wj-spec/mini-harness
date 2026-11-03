@@ -2,7 +2,7 @@
 
 ## 目标
 
-TUI 和 eval 统一使用 `app.agent.Agent.run`，删除未接入运行入口的同步教学循环。
+TUI 和 eval 统一使用 `app.runtime.agent.Agent.run`，删除未接入运行入口的同步教学循环。
 
 ## 范围
 

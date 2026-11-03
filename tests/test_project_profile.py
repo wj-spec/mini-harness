@@ -1,7 +1,7 @@
 import json
 
-from app.agent import Agent
-from app.project_profile import (
+from app.runtime.agent import Agent
+from app.profiles.project import (
     MAX_BACKGROUND_CHARS,
     ProjectBackgroundEntry,
     load_project_background,
@@ -9,7 +9,7 @@ from app.project_profile import (
     render_project_background,
 )
 from app.providers.fake import FakeProvider
-from app.tools import ToolRegistry
+from app.tools.registry import ToolRegistry
 
 
 def _write_profile(workspace, entries):

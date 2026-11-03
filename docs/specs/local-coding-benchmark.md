@@ -44,7 +44,7 @@ SWE-bench 首题只能证明评测接入可用，内部 eval 只是文件操作�
 |---|---|---:|---:|---:|---:|---|
 | `footer-outcome` | 通过 | 24 | 425,906 | 28 | 63s | `tui/src/app.tsx` |
 | `tool-count` | 通过 | 17 | 286,104 | 22 | 71s | `app/stdio.py` |
-| `recall-guard` | 失败 | 18 | 323,430 | 23 | 70s | `core/context.py`（只加了格式校验） |
+| `recall-guard` | 失败 | 18 | 323,430 | 23 | 70s | `core/context/builder.py`（只加了格式校验） |
 
 总计 59 步、约 1.04M tokens、73 次工具调用、约 3.4 分钟；自动批准 workspace 权限各 1 次，未修改测试文件，两份通过的最终报告与证据一致。`recall-guard` 的失败分类为 `incomplete_fix`：Agent 让可见测试通过，但没有处理任务所要求的“读不到工作区外”的符号链接绕过；隐藏测试正确判负。基线之后补充了“根因与安全边界”系统提示规则（见 W1 记录），作为第一个 A/B 改动，重跑前不改变结果口径。
 

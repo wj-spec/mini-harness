@@ -1,8 +1,8 @@
 import pytest
 
-from core.models import ToolCall
-from app.patch import apply_hunks, parse_patch, render_summary
-from app.tools import ToolRegistry
+from core.contracts import ToolCall
+from app.tools.patch import apply_hunks, parse_patch, render_summary
+from app.tools.registry import ToolRegistry
 
 MODIFY_PATCH = """diff --git a/file.txt b/file.txt
 --- a/file.txt

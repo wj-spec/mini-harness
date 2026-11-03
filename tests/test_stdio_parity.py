@@ -7,18 +7,18 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.agent import Agent
+from app.runtime.agent import Agent
 from app.events import StreamDone, TextDelta, ToolCallsReady
 from app.config import Config
-from app.mcp import McpManager
-from app.policy import ApprovalGate
+from app.tools.mcp import McpManager
+from app.safety.policy import ApprovalGate
 from app.providers.fake import FakeProvider
-from app.session import SessionStore
+from app.session.store import SessionStore
 from app.stdio import MAX_FRAME_BYTES, serve
-from app.tools import ToolRegistry, ToolSpec
+from app.tools.registry import ToolRegistry, ToolSpec
 from core.context import ContextBuilder
-from core.models import Message, Response, ToolCall
-from core.state import TaskState
+from core.contracts import Message, Response, ToolCall
+from core.task import TaskState
 
 
 class Connection:
@@ -590,7 +590,7 @@ def test_real_mcp_manager_registered_tool_requires_its_own_approval(tmp_path, mo
         input_schema = {"type": "object"}
 
     async def scenario():
-        from app import mcp as mcp_module
+        from app.tools import mcp as mcp_module
 
         called = []
 

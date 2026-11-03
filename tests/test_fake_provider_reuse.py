@@ -1,8 +1,8 @@
 import asyncio
 
-from app.agent import Agent
+from app.runtime.agent import Agent
 from app.providers.fake import FakeProvider
-from app.tools import ToolRegistry
+from app.tools.registry import ToolRegistry
 
 
 def test_fake_provider_allows_followup_after_script_exhaustion(tmp_path):

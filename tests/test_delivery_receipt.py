@@ -1,4 +1,4 @@
-from core.state import TaskState, classify_task, delivery_receipt
+from core.task import TaskState, classify_task, delivery_receipt
 
 
 def test_classify_task_separates_action_and_qa():

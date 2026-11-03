@@ -1,9 +1,9 @@
 import json
 from dataclasses import asdict
 
-from app.session import SessionStore
-from core.rounds import build_round_record
-from core.state import TaskState, completion_decision
+from app.session.store import SessionStore
+from core.task import build_round_record
+from core.task import TaskState, completion_decision
 
 
 def _change():

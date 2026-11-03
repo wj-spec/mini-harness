@@ -3,9 +3,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from core.models import ToolCall  # noqa: E402
+from core.contracts import ToolCall  # noqa: E402
 
-from app.tools import ToolRegistry  # noqa: E402
+from app.tools.registry import ToolRegistry  # noqa: E402
 
 
 def test_bench_restore_blocks_write_until_reread(tmp_path):

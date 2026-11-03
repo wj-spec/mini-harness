@@ -3,8 +3,8 @@ import json
 
 import pytest
 
-from app.policy import ApprovalDecision, ApprovalGate
-from core.models import ToolCall
+from app.safety.policy import ApprovalDecision, ApprovalGate
+from core.contracts import ToolCall
 
 
 def run(coro):

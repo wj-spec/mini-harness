@@ -2,9 +2,9 @@ import asyncio
 
 import pytest
 
-from app import permissions
-from app.policy import ApprovalDecision, ApprovalGate
-from core.models import ToolCall
+from app.safety import permissions
+from app.safety.policy import ApprovalDecision, ApprovalGate
+from core.contracts import ToolCall
 
 
 def test_tier_mapping_and_fail_closed_default():

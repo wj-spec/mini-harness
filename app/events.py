@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from core.models import ToolCall
+from core.contracts import ToolCall
 
 
 @dataclass

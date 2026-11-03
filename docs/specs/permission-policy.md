@@ -1,6 +1,6 @@
 # 用户可覆盖的审批策略
 
-日期：2026-10-28。状态：已实现（`app/permission_policy.py` + `ApprovalGate.policy` + Agent 每 run 重载）；TUI 目前通过 `/permissions` 显示规则计数与错误，逐条可视化与撤销待做。
+日期：2026-10-28。状态：已实现（`app/safety/permission_policy.py` + `ApprovalGate.policy` + Agent 每 run 重载）；TUI 目前通过 `/permissions` 显示规则计数与错误，逐条可视化与撤销待做。
 
 ## 1. 目标
 
@@ -11,7 +11,7 @@
 - 限定作用域：只允许 once，或只允许 session；
 - 调整层级：把某工具归到更高/更低层级，影响可授予作用域与展示。
 
-未来新增层级时只扩 `app/permissions.py` 的 `TIERS/TIER_SCOPES`，策略文件按名字引用，无需改匹配逻辑。
+未来新增层级时只扩 `app/safety/permissions.py` 的 `TIERS/TIER_SCOPES`，策略文件按名字引用，无需改匹配逻辑。
 
 ## 2. 文件与来源
 

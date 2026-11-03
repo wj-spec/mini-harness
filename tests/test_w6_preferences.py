@@ -1,6 +1,6 @@
 import json
 
-from app.user_profile import load_user_profile, select_user_preferences
+from app.profiles.user import load_user_profile, select_user_preferences
 from scripts.w6_preferences import EMPTY_PROFILE, TASKS, W6_TEST_PREFERENCES
 
 

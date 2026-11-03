@@ -9,7 +9,7 @@
 | Playwright MCP | `@playwright/mcp@0.0.83` | `examples/browser-mcp.json`、`examples/browser-actions-mcp.json`；不得用 `@latest` |
 | Chromium | `chromium-1247`（MCP 0.0.83 匹配版本） | 仓库内 `.vibe/ms-playwright/chromium-1247` |
 | Node.js | ≥ 22（登记环境 v24.16.0） | 自检脚本读取 `node --version` |
-| fastmcp | `fastmcp==4.1.1` | `pyproject.toml`（`app/browser_server.py` 适配器依赖） |
+| fastmcp | `fastmcp==4.1.1` | `pyproject.toml`（`app/browser/server.py` 适配器依赖） |
 | Python | 3.12（`.venv`） | `uv.lock` |
 
 自检（离线、不联网、不调用模型）：

@@ -5,9 +5,9 @@ from pathlib import Path
 import pytest
 
 from app.config import Config
-from app.policy import ApprovalDecision, ApprovalGate
+from app.safety.policy import ApprovalDecision, ApprovalGate
 from app.providers.fake import FakeProvider
-from core.models import Response, ToolCall
+from core.contracts import Response, ToolCall
 
 
 TASK = {
@@ -49,7 +49,7 @@ class Sandbox:
 
 
 def test_swe_run_uses_actual_agent_and_exports_ungraded_prediction(tmp_path):
-    from app.benchmark import run_swebench
+    from app.eval.swebench import run_swebench
 
     provider = FakeProvider([
         Response(tool_calls=[ToolCall("read_file", {"path": "calc.py"}, "read")]),
@@ -80,7 +80,7 @@ def test_swe_run_uses_actual_agent_and_exports_ungraded_prediction(tmp_path):
 
 
 def test_environment_failure_is_recorded_without_fake_success(tmp_path):
-    from app.benchmark import run_swebench
+    from app.eval.swebench import run_swebench
 
     class Broken(Sandbox):
         async def open(self):
@@ -95,7 +95,7 @@ def test_environment_failure_is_recorded_without_fake_success(tmp_path):
 
 
 def test_mismatched_base_commit_never_runs_model(tmp_path):
-    from app.benchmark import run_swebench
+    from app.eval.swebench import run_swebench
 
     class WrongBase(Sandbox):
         async def run(self, *args, **kwargs):
@@ -109,7 +109,7 @@ def test_mismatched_base_commit_never_runs_model(tmp_path):
 
 
 def test_official_setup_commit_is_accepted_only_above_exact_base(tmp_path):
-    from app.benchmark import run_swebench
+    from app.eval.swebench import run_swebench
 
     class OfficialSetup(Sandbox):
         async def run(self, command, **kwargs):
@@ -121,7 +121,7 @@ def test_official_setup_commit_is_accepted_only_above_exact_base(tmp_path):
 
 
 def test_dirty_image_never_produces_a_model_prediction(tmp_path):
-    from app.benchmark import run_swebench
+    from app.eval.swebench import run_swebench
 
     class Dirty(Sandbox):
         async def export_patch(self):
@@ -136,7 +136,7 @@ def test_dirty_image_never_produces_a_model_prediction(tmp_path):
 
 
 def test_denied_container_setup_never_starts_process(tmp_path, monkeypatch):
-    from app import benchmark
+    from app.eval import swebench as benchmark
 
     async def deny(call, preview):
         return ApprovalDecision(False, "deny")
@@ -149,7 +149,7 @@ def test_denied_container_setup_never_starts_process(tmp_path, monkeypatch):
 
 
 def test_empty_patch_remains_unresolved_until_official_grade(tmp_path):
-    from app.benchmark import run_swebench
+    from app.eval.swebench import run_swebench
 
     class Empty(Sandbox):
         async def export_patch(self):
@@ -161,7 +161,7 @@ def test_empty_patch_remains_unresolved_until_official_grade(tmp_path):
 
 
 def test_agent_error_is_preserved_when_official_grade_is_unresolved(tmp_path, monkeypatch):
-    from app import benchmark
+    from app.eval import swebench as benchmark
     from app.events import StreamError
 
     class BrokenProvider(FakeProvider):
@@ -203,7 +203,7 @@ def test_agent_error_is_preserved_when_official_grade_is_unresolved(tmp_path, mo
 
 
 def test_agent_error_remains_visible_when_patch_export_also_fails(tmp_path):
-    from app import benchmark
+    from app.eval import swebench as benchmark
     from app.events import StreamError
 
     class BrokenProvider(FakeProvider):
@@ -231,7 +231,7 @@ def test_agent_error_remains_visible_when_patch_export_also_fails(tmp_path):
 
 
 def test_budget_stop_does_not_hide_simultaneous_model_error(tmp_path):
-    from app import benchmark
+    from app.eval import swebench as benchmark
     from app.events import StreamDone, StreamError
 
     class BrokenProvider:
@@ -262,7 +262,7 @@ def test_budget_stop_does_not_hide_simultaneous_model_error(tmp_path):
     ({"status": "grading_error", "error": None}, "grading_error:"),
 ])
 def test_cli_prints_per_instance_diagnostics_for_current_and_legacy_reports(tmp_path, monkeypatch, capsys, row, expected):
-    from app import benchmark
+    from app.eval import swebench as benchmark
 
     result = {"instance_id": TASK["instance_id"], "status": "unresolved", **row}
     report = {"run_dir": str(tmp_path), "total": 1, "resolved": 0, "results": [result]}
@@ -280,7 +280,7 @@ def test_cli_prints_per_instance_diagnostics_for_current_and_legacy_reports(tmp_
 
 
 def test_cli_prints_global_grading_failure(tmp_path, monkeypatch, capsys):
-    from app import benchmark
+    from app.eval import swebench as benchmark
 
     async def grade(*args, **kwargs):
         return {"run_dir": str(tmp_path), "total": 1, "resolved": None,
@@ -293,13 +293,13 @@ def test_cli_prints_global_grading_failure(tmp_path, monkeypatch, capsys):
 
 
 def test_source_fingerprint_includes_nested_provider_code(tmp_path, monkeypatch):
-    from app import benchmark
+    from app.eval import swebench as benchmark
 
     source = tmp_path / "app" / "providers" / "model.py"
     source.parent.mkdir(parents=True)
     source.write_text("version = 1\n")
     (tmp_path / "core").mkdir()
-    monkeypatch.setattr(benchmark, "__file__", str(tmp_path / "app" / "benchmark.py"))
+    monkeypatch.setattr(benchmark, "__file__", str(tmp_path / "app" / "eval" / "swebench.py"))
     original = benchmark._source_hash()
     source.write_text("version = 2\n")
     assert benchmark._source_hash() != original
@@ -307,7 +307,7 @@ def test_source_fingerprint_includes_nested_provider_code(tmp_path, monkeypatch)
 
 @pytest.mark.parametrize("task", [{**TASK, "instance_id": "../escape"}, {**TASK, "base_commit": "invalid"}])
 def test_invalid_task_rejected_before_artifacts(tmp_path, task):
-    from app.benchmark import run_swebench
+    from app.eval.swebench import run_swebench
 
     with pytest.raises(ValueError):
         asyncio.run(run_swebench([task], Config(), tmp_path, fake=True, sandbox_factory=Sandbox))
@@ -315,7 +315,7 @@ def test_invalid_task_rejected_before_artifacts(tmp_path, task):
 
 
 def test_real_run_without_credentials_fails_before_setup(tmp_path):
-    from app.benchmark import run_swebench
+    from app.eval.swebench import run_swebench
 
     with pytest.raises(ValueError, match="API"):
         asyncio.run(run_swebench([TASK], Config(api_key=""), tmp_path, sandbox_factory=Sandbox))
@@ -323,7 +323,7 @@ def test_real_run_without_credentials_fails_before_setup(tmp_path):
 
 
 def test_grade_classification_keeps_missing_results_as_errors():
-    from app.benchmark import classify_grade
+    from app.eval.swebench import classify_grade
 
     report = {"resolved_ids": ["a"], "unresolved_ids": ["b"], "error_ids": ["c"]}
     assert classify_grade(report, ["a", "b", "c", "d"]) == {
@@ -334,7 +334,7 @@ def test_grade_classification_keeps_missing_results_as_errors():
 
 
 def test_patch_failure_does_not_erase_agent_trace_or_cleanup(tmp_path):
-    from app.benchmark import run_swebench
+    from app.eval.swebench import run_swebench
 
     class BrokenPatch(Sandbox):
         async def export_patch(self):
@@ -350,7 +350,7 @@ def test_patch_failure_does_not_erase_agent_trace_or_cleanup(tmp_path):
 
 
 def test_doctor_is_read_only_and_reports_missing_prerequisites(tmp_path, monkeypatch):
-    from app import benchmark
+    from app.eval import swebench as benchmark
 
     monkeypatch.setattr(benchmark, "docker_ready", lambda host: False)
     result = benchmark.doctor(Config(api_key=""), "")
@@ -371,7 +371,7 @@ def _prior_report(root):
 
 
 def test_failed_regrading_invalidates_old_pass(tmp_path, monkeypatch):
-    from app import benchmark
+    from app.eval import swebench as benchmark
 
     _prior_report(tmp_path)
 
@@ -392,7 +392,7 @@ def test_failed_regrading_invalidates_old_pass(tmp_path, monkeypatch):
 
 
 def test_regrading_always_uses_unique_run_id_and_directory(tmp_path, monkeypatch):
-    from app import benchmark
+    from app.eval import swebench as benchmark
 
     _prior_report(tmp_path)
     seen = []
@@ -421,7 +421,7 @@ def test_regrading_always_uses_unique_run_id_and_directory(tmp_path, monkeypatch
 
 
 def test_grade_timeout_stops_its_process_group_and_exact_containers(tmp_path, monkeypatch):
-    from app import benchmark
+    from app.eval import swebench as benchmark
 
     _prior_report(tmp_path)
     killed, calls = [], []

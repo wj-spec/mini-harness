@@ -1,11 +1,11 @@
 import asyncio
 
-from app.agent import Agent
-from app.auditor import AuditRequest, ReadOnlyAuditor, parse_audit_report
-from app.policy import ApprovalDecision, ApprovalGate
+from app.runtime.agent import Agent
+from app.session.auditor import AuditRequest, ReadOnlyAuditor, parse_audit_report
+from app.safety.policy import ApprovalDecision, ApprovalGate
 from app.providers.fake import FakeProvider
-from app.tools import READ_ONLY_TOOL_NAMES, ToolRegistry
-from core.models import Response, ToolCall
+from app.tools.registry import READ_ONLY_TOOL_NAMES, ToolRegistry
+from core.contracts import Response, ToolCall
 
 
 def run(coro):

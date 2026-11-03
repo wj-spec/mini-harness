@@ -1,13 +1,13 @@
 import asyncio
 
-from app.agent import Agent
-from app.policy import ApprovalDecision, ApprovalGate
+from app.runtime.agent import Agent
+from app.safety.policy import ApprovalDecision, ApprovalGate
 from app.providers.fake import FakeProvider
-from app.session import SessionStore
-from app.tools import ToolRegistry
-from core.models import Response, ToolCall
-from core.rounds import build_round_record
-from core.state import (
+from app.session.store import SessionStore
+from app.tools.registry import ToolRegistry
+from core.contracts import Response, ToolCall
+from core.task import build_round_record
+from core.task import (
     CompletionDecision, TaskState, completion_decision, delivery_receipt,
 )
 

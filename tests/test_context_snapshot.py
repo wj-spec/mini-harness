@@ -5,8 +5,8 @@ import pytest
 
 from core.budget import BudgetPolicy
 from core.context import estimate_tokens, total_tokens
-from core.context_snapshot import build_context_snapshot
-from core.models import Message, ToolCall
+from core.context.snapshot import build_context_snapshot
+from core.contracts import Message, ToolCall
 
 
 def assert_balanced(snapshot, messages, specs):

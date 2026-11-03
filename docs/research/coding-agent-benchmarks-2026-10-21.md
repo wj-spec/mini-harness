@@ -17,7 +17,7 @@
 
 ## 当前已有能力与接入缺口
 
-根据 [建设方向](../roadmap.md)、[W1 验收](../MILESTONES.md) 和 `app/eval.py`，当前已有 10 个文件／小代码 JSON eval，支持 prompt、初始 files、checks、max_steps，报告已有 tokens、费用、耗时与步数。这可以验证 harness 回归，尚不等于标准仓库修复基准。
+根据 [建设方向](../roadmap.md)、[W1 验收](../MILESTONES.md) 和 `app/eval/internal.py`，当前已有 10 个文件／小代码 JSON eval，支持 prompt、初始 files、checks、max_steps，报告已有 tokens、费用、耗时与步数。这可以验证 harness 回归，尚不等于标准仓库修复基准。
 
 当前缺少基于 `base_commit` 的仓库准备、容器环境、正式补丁导出与独立评分；checks 仍在 Agent 可写的工作目录执行。公开基准接入前，应把评分器、隐藏测试和 gold patch 放在 Agent 无法读取或修改的位置，在干净环境应用生成补丁后评分。SWE-bench 官方已有 Docker 评测 harness；Pro V2 明确采用离线 Agent 阶段和新沙箱重评。[SWE-bench 官方仓库](https://github.com/SWE-bench/SWE-bench)、[Pro V2 协议](https://github.com/scaleapi/SWE-bench_Pro-os/blob/main/v2/README.md)
 

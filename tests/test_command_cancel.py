@@ -7,9 +7,9 @@ import sys
 
 import pytest
 
-from app.sandbox import CommandCancelled, run_command_async
-from app.tools import ToolRegistry
-from core.models import ToolCall
+from app.safety.sandbox import CommandCancelled, run_command_async
+from app.tools.registry import ToolRegistry
+from core.contracts import ToolCall
 
 
 async def wait_file(path):

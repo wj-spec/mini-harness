@@ -2,11 +2,11 @@ import asyncio
 
 import pytest
 
-from app.agent import Agent
-from app.policy import ApprovalDecision, ApprovalGate
+from app.runtime.agent import Agent
+from app.safety.policy import ApprovalDecision, ApprovalGate
 from app.providers.fake import FakeProvider
-from app.tools import ToolRegistry
-from core.models import Response, ToolCall
+from app.tools.registry import ToolRegistry
+from core.contracts import Response, ToolCall
 
 
 def test_action_preamble_gets_one_correction_before_approved_write(tmp_path):

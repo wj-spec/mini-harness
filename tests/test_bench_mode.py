@@ -8,11 +8,11 @@ import pytest
 
 from app import __main__ as entrypoint
 from app.config import Config
-from app.oneshot import OneShotOptions, run_oneshot
+from app.eval.oneshot import OneShotOptions, run_oneshot
 from app.providers.fake import FakeProvider
-from app.session import SessionStore
-from app.tools import ToolRegistry
-from core.models import Response, ToolCall
+from app.session.store import SessionStore
+from app.tools.registry import ToolRegistry
+from core.contracts import Response, ToolCall
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -84,7 +84,7 @@ def test_oneshot_without_bench_fails_closed(tmp_path):
 
 def test_bench_mode_relaxes_workspace_paths_only_when_enabled(tmp_path, monkeypatch):
     # Linux 的 tmp_path 在 /tmp 下，属于安全写根；关闭它才能验证普通模式拦截。
-    monkeypatch.setattr("app.sandbox.SAFE_WRITE_ROOTS", ())
+    monkeypatch.setattr("app.safety.sandbox.SAFE_WRITE_ROOTS", ())
     workspace = tmp_path / "repo"
     workspace.mkdir()
     outside = tmp_path / "outside"

@@ -8,7 +8,7 @@
 
 ## 原有差距
 
-- `app/tools.py` 的 bash 返回 `exit=N` 文本；执行包装只要函数正常返回就给出 `ok=True`，非零退出尚未反映到执行状态。
+- `app/tools/registry.py` 的 bash 返回 `exit=N` 文本；执行包装只要函数正常返回就给出 `ok=True`，非零退出尚未反映到执行状态。
 - `TaskState.tests_run` 把所有 bash 调用记录为测试命令，未保存退出结果。
 - `AgentResult.status=done` 表示这一轮模型结束，不能单独作为测试通过或需求验收的证据。
 

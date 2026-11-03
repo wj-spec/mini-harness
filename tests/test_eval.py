@@ -1,6 +1,6 @@
-from app.eval import EvalTask, load_tasks, run_checks, run_eval
+from app.eval.internal import EvalTask, load_tasks, run_checks, run_eval
 from app.providers.fake import FakeProvider
-from core.models import Response, ToolCall
+from core.contracts import Response, ToolCall
 
 
 def test_load_default_tasks():
@@ -112,7 +112,7 @@ def test_run_eval_rejects_empty_checks(tmp_path):
 
 
 def test_run_eval_rejects_non_done_even_when_checks_pass(tmp_path, monkeypatch):
-    from app.agent import Agent, AgentResult
+    from app.runtime.agent import Agent, AgentResult
 
     async def stopped(self, task, **kwargs):
         return AgentResult("stopped", 1, "stopped", stop_reason="max_steps")
@@ -192,7 +192,7 @@ def test_eval_config_budget_trace_and_baseline_tools(tmp_path, monkeypatch):
     import json
     from pathlib import Path
     from app.config import Config
-    from app.agent import Agent
+    from app.runtime.agent import Agent
 
     task = EvalTask(id="configured", prompt="p", files={"x": "ok"},
                     checks=[{"type": "file_equals", "path": "x", "text": "ok"}])
@@ -223,7 +223,7 @@ def test_eval_config_budget_trace_and_baseline_tools(tmp_path, monkeypatch):
 
 
 def test_command_checks_use_approval_gate(tmp_path):
-    from app.policy import ApprovalDecision, ApprovalGate
+    from app.safety.policy import ApprovalDecision, ApprovalGate
 
     async def deny(call, preview):
         return ApprovalDecision(False, "deny")

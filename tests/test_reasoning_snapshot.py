@@ -2,10 +2,10 @@ import json
 
 import pytest
 
-from app.context_snapshot_display import snapshot_for_display
+from app.session.context_display import snapshot_for_display
 from core.context import estimate_tokens, total_tokens
-from core.context_snapshot import build_context_snapshot
-from core.models import Message
+from core.context.snapshot import build_context_snapshot
+from core.contracts import Message
 
 
 def test_snapshot_counts_reasoning_in_history_and_capacity_without_exposing_it():

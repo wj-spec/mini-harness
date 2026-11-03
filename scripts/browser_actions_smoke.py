@@ -11,12 +11,12 @@ import os
 import threading
 from pathlib import Path
 
-from app.agent import Agent
-from app.mcp import McpManager
-from app.policy import ApprovalDecision, ApprovalGate
+from app.runtime.agent import Agent
+from app.tools.mcp import McpManager
+from app.safety.policy import ApprovalDecision, ApprovalGate
 from app.providers.fake import FakeProvider
-from app.tools import ToolRegistry
-from core.models import Response, ToolCall
+from app.tools.registry import ToolRegistry
+from core.contracts import Response, ToolCall
 
 ROOT = Path(__file__).resolve().parents[1]
 PAGE = b'''<!doctype html><html><head><title>B2 Fixture</title></head><body>

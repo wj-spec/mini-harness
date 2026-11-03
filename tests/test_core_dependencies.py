@@ -16,8 +16,8 @@ import core
 for module in pkgutil.iter_modules(core.__path__):
     importlib.import_module(f"core.{{module.name}}")
 
-from core.models import Message
-from core.summarize import summarize_messages
+from core.contracts import Message
+from core.context.summarize import summarize_messages
 
 assert "fix bug" in summarize_messages([Message("user", "fix bug")])
 assert not {{"app", "httpx", "rich"}}.intersection(sys.modules)

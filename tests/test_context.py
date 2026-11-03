@@ -1,4 +1,4 @@
-from core.models import Message, ToolCall
+from core.contracts import Message, ToolCall
 from core.budget import BudgetPolicy
 from core.context import ContextBuilder, estimate_tokens, stable_prefix_hash
 

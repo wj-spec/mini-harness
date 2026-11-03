@@ -114,7 +114,7 @@ Yen 与 Zhao，UIST 2024，[Memolet: Reifying the Reuse of User-AI Conversationa
 
 ### 当前代码边界与第一步
 
-当前代码没有个人长期记忆，`memory_cap` 是预算占位，[请求构建](../../app/agent.py)传给 `context.build` 的记忆用量为 0；已有的是内置指令、[启动时读取的 AGENTS](../../app/instructions.py)、TaskState、恢复历史、摘要和工具结果等任务上下文。
+当前代码没有个人长期记忆，`memory_cap` 是预算占位，[请求构建](../../app/runtime/agent.py)传给 `context.build` 的记忆用量为 0；已有的是内置指令、[启动时读取的 AGENTS](../../app/profiles/instructions.py)、TaskState、恢复历史、摘要和工具结果等任务上下文。
 
 第一个小切片应优先整理已有执行事件，形成可展开的运行轨迹，再将本次上下文来源关联到对应请求。用户偏好和画像继续作为后续能力，当前里程碑顺序仍以 MILESTONES 为准。
 
@@ -128,7 +128,7 @@ Yen 与 Zhao，UIST 2024，[Memolet: Reifying the Reuse of User-AI Conversationa
 | 故障与恢复 | 错误、重试、超时、取消、未执行和结果未知事件 | 用实际事件展示，不由额外生成的解释补全未知结果 |
 | 本次输入依据 | 最终 messages/tools 及压缩、offload 元数据 | 已发送的输入与模型自述的影响原因分别标识 |
 
-代码入口：[TraceRecorder](../../app/trace.py)、[Agent.run](../../app/agent.py)、[TUI 回调与 trace 消费](../../app/tui.py)。现有记录包括模型请求起止、重试、预算、压缩、审批等待时长及 run 终态，但尚不是完整工具生命周期。
+代码入口：[TraceRecorder](../../app/session/trace.py)、[Agent.run](../../app/runtime/agent.py)、[TUI 回调与 trace 消费](../../app/tui.py)。现有记录包括模型请求起止、重试、预算、压缩、审批等待时长及 run 终态，但尚不是完整工具生命周期。
 
 `TraceRecorder.tool_start/approval/tool_end` 虽有定义，当前主循环尚未调用它们；`on_tool` 在审批之前触发，不能将这一回调直接展示成“工具已执行”。可补充真实生命周期事件及稳定关联 ID，连接 run、模型轮次、工具调用、审批和结果。此处补的是程序事件，不增加模型调用。
 

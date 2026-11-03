@@ -2,7 +2,7 @@
 from pathlib import Path
 
 # 1. Agent 不再把 execution 附到工具消息
-path = Path("app/agent.py")
+path = Path("app/runtime/agent.py")
 source = path.read_text()
 old = '''            tool_message = Message(
                 "tool", str(output), name=call.name, tool_call_id=call.id, execution=execution,
@@ -14,7 +14,7 @@ assert source.count(old) == 1, "agent tool message changed; update execution-cha
 path.write_text(source.replace(old, new, 1))
 
 # 2. TaskState 不再记录带退出码的命令结果
-path = Path("core/state.py")
+path = Path("core/task/state.py")
 source = path.read_text()
 old = '''        if name == "bash" and args.get("command") and execution is not None:
             command = str(args["command"])

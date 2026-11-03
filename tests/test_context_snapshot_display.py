@@ -1,17 +1,17 @@
 import asyncio
 import json
 
-from app.agent import Agent
+from app.runtime.agent import Agent
 from app.config import Config
-from app.context_snapshot_display import snapshot_for_display
+from app.session.context_display import snapshot_for_display
 from app.providers.fake import FakeProvider
-from app.session import SessionStore
+from app.session.store import SessionStore
 from app.stdio import MAX_FRAME_BYTES
-from app.tools import ToolRegistry
+from app.tools.registry import ToolRegistry
 from core.budget import BudgetPolicy
 from core.context import ContextBuilder
-from core.context_snapshot import build_context_snapshot
-from core.models import Message
+from core.context.snapshot import build_context_snapshot
+from core.contracts import Message
 from test_stdio import Harness
 
 

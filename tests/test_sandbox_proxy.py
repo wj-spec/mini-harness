@@ -4,9 +4,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from app import sandbox
-from app.sandbox_proxy import AllowlistProxy, host_allowed
-from app.tools import ToolRegistry
+from app.safety import sandbox
+from app.safety.sandbox_proxy import AllowlistProxy, host_allowed
+from app.tools.registry import ToolRegistry
 
 
 def test_host_allowed_matches_exact_and_wildcard():
@@ -136,10 +136,10 @@ def test_registry_closes_proxy_when_allowlist_profile_fails(tmp_path, monkeypatc
             raise OSError("profile unavailable")
         return sandbox.SandboxSpec(kind="seatbelt", workspace=workspace)
 
-    monkeypatch.setattr("app.tools.sandbox_available", lambda: True)
-    monkeypatch.setattr("app.tools.probe_sandbox", lambda: (True, ""))
-    monkeypatch.setattr("app.tools.build_sandbox", build)
-    monkeypatch.setattr("app.tools.AllowlistProxy", lambda entries: proxy)
+    monkeypatch.setattr("app.tools.registry.sandbox_available", lambda: True)
+    monkeypatch.setattr("app.tools.registry.probe_sandbox", lambda: (True, ""))
+    monkeypatch.setattr("app.tools.registry.build_sandbox", build)
+    monkeypatch.setattr("app.tools.registry.AllowlistProxy", lambda entries: proxy)
     with pytest.raises(OSError, match="profile unavailable"):
         ToolRegistry(tmp_path, sandbox=True, sandbox_network_allow="example.com")
     assert proxy.closed

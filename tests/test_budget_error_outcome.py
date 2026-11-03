@@ -1,9 +1,9 @@
 import asyncio
 
-from app.agent import Agent
+from app.runtime.agent import Agent
 from app.events import StreamDone, StreamError, TextDelta, ToolCallsReady
-from app.tools import ToolRegistry
-from core.models import ToolCall
+from app.tools.registry import ToolRegistry
+from core.contracts import ToolCall
 
 
 def test_budget_stop_preserves_simultaneous_model_error_as_structured_outcome(tmp_path):

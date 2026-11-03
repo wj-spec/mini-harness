@@ -10,10 +10,10 @@ from types import SimpleNamespace
 import pytest
 
 from app.config import Config
-from app.agent import Agent
+from app.runtime.agent import Agent
 from app.providers.fake import FakeProvider
-from app.tools import ToolRegistry, ToolSpec
-from core.models import Response, ToolCall
+from app.tools.registry import ToolRegistry, ToolSpec
+from core.contracts import Response, ToolCall
 from scripts import browser_acceptance as launcher
 
 

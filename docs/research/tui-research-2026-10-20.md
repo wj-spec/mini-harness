@@ -27,7 +27,7 @@
 
 | 发现 | 证据与影响 | 建议方向 |
 |---|---|---|
-| 命令失败仍显示绿色 `ok` | 经过 `ApprovalGate` 实际执行 `exit 7`，工具回调仍是 `ok=True`，Agent 结束状态为 `done`；任务记录的 `Tests run` 只记下执行过的命令，不提供通过证据。`app/tools.py:194–203` 返回含退出码的字符串，`app/tui.py:343–347` 根据外层布尔值染色 | 按已有“可信命令结果”切片提供退出码、超时、取消与未知结果等明确字段，loop、记录和界面使用同一事实。执行结束、检查通过、任务完成分别呈现 |
+| 命令失败仍显示绿色 `ok` | 经过 `ApprovalGate` 实际执行 `exit 7`，工具回调仍是 `ok=True`，Agent 结束状态为 `done`；任务记录的 `Tests run` 只记下执行过的命令，不提供通过证据。`app/tools/registry.py:194–203` 返回含退出码的字符串，`app/tui.py:343–347` 根据外层布尔值染色 | 按已有“可信命令结果”切片提供退出码、超时、取消与未知结果等明确字段，loop、记录和界面使用同一事实。执行结束、检查通过、任务完成分别呈现 |
 | 流式回复与历史被分成两个区域 | `#stream` 是 `max-height: 10` 的 `Static`；每个 delta 都把累计全文交给 `Static.update`。80×24 实测中日志区域从 16 行缩到 6 行；发送 50 行时只显示 `LINE_00`–`LINE_09`，后 40 行在完成前不可见 | 一条回复从生成到完成使用同一个可滚动消息组件；跟随最新内容，用户主动回看时停止自动跟随 |
 | 调用工具前的说明从屏幕消失 | 同一回复先输出说明再调用工具时，Agent history 保留说明，`_on_tool` 却清空流式区，日志未收束这段说明。探针确认中间说明在历史中存在、界面中没有 | 在原消息位置保留说明和部分文本，再展示工具动作；显示记录独立于模型上下文的压缩窗口 |
 | 工具参数没有摘要层 | `_on_tool` 直接输出 `str(call.args)`。约 20k 字符的 `write_file` 内容实测形成约 261 行日志 | 默认显示工具、目标文件 / 命令、状态；完整参数按需展开，写改内容放审批差异视图 |
@@ -143,6 +143,6 @@ Ink 的能力依据[官方仓库](https://github.com/vadimdemedes/ink)；其主�
 
 OpenTUI 0.6.6 官方支持 Bun ≥ 1.3.14，或 Node.js ≥ 26.4.0 + ESM + `--experimental-ffi`，因此不能再称为 Bun 专用。部分扩展仍需 Bun；官方也明确 React 适配器尚无专门的 Node.js CI 通道，不能把 Core 的运行验证直接推广到每个适配器。[运行时与平台支持](https://opentui.com/docs/getting-started/runtime-support/)
 
-本地 `app/agent.py` 的 `Agent.run()` 已通过 `on_text`、`on_tool`、`on_result`、`on_context`、`on_state`、`on_message`、`on_history` 和 `trace` 回调输出信息，取消使用 `asyncio.Event`；这些是界面可替换的基础，但目前是进程内 Python 接口。若引入 Node.js 界面，建议保留 Python 的 Agent、FastMCP、ApprovalGate 与会话职责，再定义有请求标识的事件 / 控制协议：启动或恢复任务、流式内容、工具事实、审批请求与应答、取消和退出。子进程断连不能默认批准待处理操作，stdout 协议流也需与日志分离。这是对本项目的工程设计判断，尚未实现。
+本地 `app/runtime/agent.py` 的 `Agent.run()` 已通过 `on_text`、`on_tool`、`on_result`、`on_context`、`on_state`、`on_message`、`on_history` 和 `trace` 回调输出信息，取消使用 `asyncio.Event`；这些是界面可替换的基础，但目前是进程内 Python 接口。若引入 Node.js 界面，建议保留 Python 的 Agent、FastMCP、ApprovalGate 与会话职责，再定义有请求标识的事件 / 控制协议：启动或恢复任务、流式内容、工具事实、审批请求与应答、取消和退出。子进程断连不能默认批准待处理操作，stdout 协议流也需与日志分离。这是对本项目的工程设计判断，尚未实现。
 
 双进程协议增加接线与回归工作，也能为未来第二入口提供可复用边界；若多入口已经成为近期明确目标，这项成本具有建设价值。当前 roadmap 仍要求先验证单 Agent 编码闭环，因此建议先用 Textual 完成一个可靠的消息时间线和多行输入切片，再依据真实终端体验决定迁移。只有出现已测得的 Textual 瓶颈、明确的长期 TypeScript 投入，或近期多入口需求时，才改变这个选择。本补充没有安装 JavaScript 包、实现桥接或宣称跨框架性能优劣。

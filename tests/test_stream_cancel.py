@@ -2,11 +2,11 @@ import asyncio
 
 import pytest
 
-from app.agent import Agent
+from app.runtime.agent import Agent
 from app.events import StreamDone, TextDelta, ToolCallsReady
-from app.policy import ApprovalDecision, ApprovalGate
-from app.tools import ToolRegistry
-from core.models import ToolCall
+from app.safety.policy import ApprovalDecision, ApprovalGate
+from app.tools.registry import ToolRegistry
+from core.contracts import ToolCall
 
 
 class WaitingProvider:

@@ -6,11 +6,11 @@
 
 | 机制 | 位置 | 覆盖 |
 |---|---|---|
-| 写工具审批 | `app/policy.py` `ApprovalGate` | `write_file` / `edit_file` / `bash`；无处理器时 fail closed；范围 once / session / workspace；会话级撤销与审计 |
-| 危险命令黑名单 | `app/sandbox.py` `DANGEROUS_PATTERNS` | 12 条正则：`rm -rf /`、`mkfs`、`dd if=`、fork bomb、关机、`sudo`、`chmod 777 /`、force push、hard reset、`curl\|sh`、`wget\|sh` |
-| 命令执行 | `app/sandbox.py` `run_command` | `/bin/bash -lc`，cwd=工作区，`start_new_session=True`，超时 kill 进程组，输出截断 |
+| 写工具审批 | `app/safety/policy.py` `ApprovalGate` | `write_file` / `edit_file` / `bash`；无处理器时 fail closed；范围 once / session / workspace；会话级撤销与审计 |
+| 危险命令黑名单 | `app/safety/sandbox.py` `DANGEROUS_PATTERNS` | 12 条正则：`rm -rf /`、`mkfs`、`dd if=`、fork bomb、关机、`sudo`、`chmod 777 /`、force push、hard reset、`curl\|sh`、`wget\|sh` |
+| 命令执行 | `app/safety/sandbox.py` `run_command` | `/bin/bash -lc`，cwd=工作区，`start_new_session=True`，超时 kill 进程组，输出截断 |
 | 运行上限 | `app/config.py` | 单命令默认 30s；run 级 `max_run_seconds` 600s、token/费用上限 |
-| 文件工具边界 | `app/tools.py` | `read_file` / `grep` / `write_file` 解析后校验在工作区内；恢复会话强制重读 |
+| 文件工具边界 | `app/tools/registry.py` | `read_file` / `grep` / `write_file` 解析后校验在工作区内；恢复会话强制重读 |
 
 ## 已知可绕过点（按风险排序）
 
@@ -36,7 +36,7 @@
 
 ## 已实施（2026-10-25，macOS Seatbelt 可选沙箱）
 
-选型依据见 [沙箱调研](../research/sandbox-research-2026-10-25.md)。实现位于 `app/sandbox.py`：
+选型依据见 [沙箱调研](../research/sandbox-research-2026-10-25.md)。实现位于 `app/safety/sandbox.py`：
 
 - `--sandbox`（或 `VIBE_SANDBOX=1`）开启；`sandbox-exec -f <profile> /bin/bash -lc <cmd>` 包裹命令。
 - 策略：默认允许读取；**写入仅限工作区、`/tmp` 与系统临时目录**；**默认拒绝网络**（`--sandbox-network`/`VIBE_SANDBOX_NETWORK` 放开）；`~/.ssh`、`~/.aws`、`~/.gnupg`、`~/.netrc`、`~/.docker`、`~/.config/gh`、`~/.config/gcloud` 读取被拒。
@@ -53,7 +53,7 @@
 
 ## 已实施（2026-10-25，选项 B 的第一小步）
 
-`app/sandbox.py` 新增 `check_write_paths`：`bash` 的 `rm/rmdir/mv/cp/ln/tee/touch/mkdir/install/truncate/shred` 显式操作数，以及 `>`/`>>`/`>|` 重定向目标，若解析后落在工作区外且不在 `/tmp`，直接抛 `PermissionError`（错误信息 `blocked write outside workspace: <path>`）。`ToolRegistry.bash` 与 `preview` 均传入工作区；只读命令（`cat`、`grep`、`python -c` 等）不受影响。
+`app/safety/sandbox.py` 新增 `check_write_paths`：`bash` 的 `rm/rmdir/mv/cp/ln/tee/touch/mkdir/install/truncate/shred` 显式操作数，以及 `>`/`>>`/`>|` 重定向目标，若解析后落在工作区外且不在 `/tmp`，直接抛 `PermissionError`（错误信息 `blocked write outside workspace: <path>`）。`ToolRegistry.bash` 与 `preview` 均传入工作区；只读命令（`cat`、`grep`、`python -c` 等）不受影响。
 
 回归：`tests/test_sandbox.py` 覆盖家目录/绝对路径/`..` 逃逸/重定向被拒，工作区相对路径、`/tmp`、只读命令放行，既有黑名单模式仍生效，`bash` 工具路径与 `execute` 返回值一致。
 

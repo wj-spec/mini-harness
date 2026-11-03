@@ -10,12 +10,12 @@
 
 ## 当前代码核查
 
-- 分区是预算分类，底层主要仍是 `list[Message]` 和单独的工具定义。默认窗口 1,000,000，名义额度为 system 8,000、memory 64,000、tools 16,000、history 872,000，另有 output 32,000 与 scratch 8,000 预留。history 按其他输入区实际占用借用剩余额度；配置可覆盖默认值。[预算实现](../../core/budget.py)
-- system 包含基础指令、项目 AGENTS、skills 描述及动态 task_state；tools 统计工具定义，工具调用参数与返回内容属于 history。Agent 调用 builder 时 memory 用量为 0，长期记忆尚未接入。[请求构建](../../app/agent.py)
-- 普通 `ContextResult.sections` 已有四区计数，`caps` 有名义及有效额度。Ink 后端把 context 的总量与 sections 写入会话事件，但前端 metrics 只有总量；Textual 主要保留当前结果和总量/history 显示。[ContextResult](../../core/context.py)、[stdio](../../app/stdio.py)、[Textual](../../app/tui.py)、[Ink 协议](../../tui/src/protocol.ts)
-- `compact_history` 的 sections 与普通 build 不同：包含 history_before/history_after 等重叠值，以及 recent_groups/summary_layers 等非 token 指标；其 tokens 也未包含工具定义。不能直接把全部 sections 值绘为堆叠图。[压缩结果](../../core/context.py)
-- 现有 on_context 回调之后仍可能追加纠偏指令、切换到无工具的收尾请求。应在最终调用 provider 前记录统一快照，并保留请求、重试和阶段关联，避免把中间构建结果称为实际发送内容。[Agent loop](../../app/agent.py)
-- 当前分区计数是中文字符数加其他字符数约四分之一的估算，不包含完整协议开销。第三方返回的实际总 usage 不提供这些业务分区的精确归因。[估算函数](../../core/context.py)
+- 分区是预算分类，底层主要仍是 `list[Message]` 和单独的工具定义。默认窗口 1,000,000，名义额度为 system 8,000、memory 64,000、tools 16,000、history 872,000，另有 output 32,000 与 scratch 8,000 预留。history 按其他输入区实际占用借用剩余额度；配置可覆盖默认值。[预算实现](../../core/budget/policy.py)
+- system 包含基础指令、项目 AGENTS、skills 描述及动态 task_state；tools 统计工具定义，工具调用参数与返回内容属于 history。Agent 调用 builder 时 memory 用量为 0，长期记忆尚未接入。[请求构建](../../app/runtime/agent.py)
+- 普通 `ContextResult.sections` 已有四区计数，`caps` 有名义及有效额度。Ink 后端把 context 的总量与 sections 写入会话事件，但前端 metrics 只有总量；Textual 主要保留当前结果和总量/history 显示。[ContextResult](../../core/context/builder.py)、[stdio](../../app/stdio.py)、[Textual](../../app/tui.py)、[Ink 协议](../../tui/src/protocol.ts)
+- `compact_history` 的 sections 与普通 build 不同：包含 history_before/history_after 等重叠值，以及 recent_groups/summary_layers 等非 token 指标；其 tokens 也未包含工具定义。不能直接把全部 sections 值绘为堆叠图。[压缩结果](../../core/context/builder.py)
+- 现有 on_context 回调之后仍可能追加纠偏指令、切换到无工具的收尾请求。应在最终调用 provider 前记录统一快照，并保留请求、重试和阶段关联，避免把中间构建结果称为实际发送内容。[Agent loop](../../app/runtime/agent.py)
+- 当前分区计数是中文字符数加其他字符数约四分之一的估算，不包含完整协议开销。第三方返回的实际总 usage 不提供这些业务分区的精确归因。[估算函数](../../core/context/builder.py)
 
 ## 成熟方案比较
 

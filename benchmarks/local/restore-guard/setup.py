@@ -1,7 +1,7 @@
 """把恢复守卫退回无校验版本，作为 benchmark 的初始 bug。"""
 from pathlib import Path
 
-path = Path("app/tools.py")
+path = Path("app/tools/registry.py")
 source = path.read_text()
 old = '''    def _assert_fresh(self, target: Path, content: str) -> None:
         previous = self._read_hashes.get(target)

@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from core.models import Message, ToolCall
+from core.contracts import Message, ToolCall
 
 from app.events import ReasoningDelta, StreamDone, StreamError, TextDelta, ToolCallsReady
 

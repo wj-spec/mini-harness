@@ -326,21 +326,21 @@ backbone：主用 **Qwen 3.7-Plus**，泛化用 **Claude Opus 4.7**；三组自�
 
 | MEA 元素 | mini-harness 现状 | 证据 | 差距 |
 |---|---|---|---|
-| 外置任务状态 | `TaskState` 每步注入并持久化；plan/done/open 由模型 `update_task` 写，files/command 由 harness 观测 | `core/state.py:87`、`app/agent.py:561`、`app/session.py:313`、`app/tools.py:796` | 扁平字符串，无 requirement/artifact/fact、无四态、无逐条证据引用；实测长会话 plan/done/open 为空 |
-| 完成判定 | 无 tool call + 非空文本即 `done` | `app/agent.py:1030-1054` | 没有 harness 守卫；`require_tool_use` 默认关，且只保证"尝试过"不保证成功 |
-| 验证证据 | `bash(verification=true)` 是模型参数；harness 只记 exit code；独立核验只在 eval/bench | `app/tools.py:293`、`core/state.py:159`、`app/eval.py` | 运行时不跑测试、不区分"验证命令失败后的改动" |
-| 验收呈现 | `delivery_receipt` 已把"运行结束"与"任务验收"分开，并列出未验证项 | `core/state.py:30`、`app/agent.py:1285` | 只是文本提示，不阻断、不入账 |
-| 上下文 | 单 history + 压缩/offload；状态重新注入 | `app/agent.py:136`、`core/context.py` | 没有 fresh-context 轮次执行器；`/goal` 分段复用同一 history |
-| 只读审计 | `ApprovalGate`、写时 read-hash、`mutation_fingerprint` | `app/policy.py:194`、`app/tools.py:625` | 没有运行时 workspace 快照/差异/回滚，没有独立只读角色 |
-| 恢复 | session 事件 + `state.json` 原地覆盖 + 固定 resume 提示 | `app/session.py:269-329`、`app/stdio.py` | 没有可重放的 round ledger；state 无 version/seq |
-| 契约 | `add_constraint()` 有来源与顺序 | `core/state.py:129` | 没有 task contract / acceptance criteria / blocking constraints / 契约反查 |
+| 外置任务状态 | `TaskState` 每步注入并持久化；plan/done/open 由模型 `update_task` 写，files/command 由 harness 观测 | `core/task/state.py:87`、`app/runtime/agent.py:561`、`app/session/store.py:313`、`app/tools/registry.py:796` | 扁平字符串，无 requirement/artifact/fact、无四态、无逐条证据引用；实测长会话 plan/done/open 为空 |
+| 完成判定 | 无 tool call + 非空文本即 `done` | `app/runtime/agent.py:1030-1054` | 没有 harness 守卫；`require_tool_use` 默认关，且只保证"尝试过"不保证成功 |
+| 验证证据 | `bash(verification=true)` 是模型参数；harness 只记 exit code；独立核验只在 eval/bench | `app/tools/registry.py:293`、`core/task/state.py:159`、`app/eval/internal.py` | 运行时不跑测试、不区分"验证命令失败后的改动" |
+| 验收呈现 | `delivery_receipt` 已把"运行结束"与"任务验收"分开，并列出未验证项 | `core/task/state.py:30`、`app/runtime/agent.py:1285` | 只是文本提示，不阻断、不入账 |
+| 上下文 | 单 history + 压缩/offload；状态重新注入 | `app/runtime/agent.py:136`、`core/context/builder.py` | 没有 fresh-context 轮次执行器；`/goal` 分段复用同一 history |
+| 只读审计 | `ApprovalGate`、写时 read-hash、`mutation_fingerprint` | `app/safety/policy.py:194`、`app/tools/registry.py:625` | 没有运行时 workspace 快照/差异/回滚，没有独立只读角色 |
+| 恢复 | session 事件 + `state.json` 原地覆盖 + 固定 resume 提示 | `app/session/store.py:269-329`、`app/stdio.py` | 没有可重放的 round ledger；state 无 version/seq |
+| 契约 | `add_constraint()` 有来源与顺序 | `core/task/state.py:129` | 没有 task contract / acceptance criteria / blocking constraints / 契约反查 |
 | 多 Agent 基础 | M1 只读子 Agent 已设计未实现；ToolRegistry 无 subset、ApprovalGate 单对象 | `docs/specs/multi-agent-computer-use.md:45-55` | 角色隔离的前置（工具子集、父子审批、子 run trace、预算聚合）未做 |
-| 成本 | `TraceRecorder` 单 run 统计 | `app/trace.py:21` | 若加 auditor 模型调用，没有角色/子 run token 与费用聚合 |
+| 成本 | `TraceRecorder` 单 run 统计 | `app/session/trace.py:21` | 若加 auditor 模型调用，没有角色/子 run token 与费用聚合 |
 
 ### 12.3 建议分阶段（先小后大，每步先测试）
 
 **P0 确定性验收守卫（最便宜，无新增模型调用）**
-- `core/state.py` 增 `Acceptance`（编号、文本、状态、证据引用）、`Blocker`/`Missing` 结构，加纯函数 `completion_allowed(state, evidence)`；`core` 保持只依赖 stdlib。
+- `core/task/state.py` 增 `Acceptance`（编号、文本、状态、证据引用）、`Blocker`/`Missing` 结构，加纯函数 `completion_allowed(state, evidence)`；`core` 保持只依赖 stdlib。
 - `Agent._decide_after_model` 在 `_finish(done)` 前调用：动作任务若"最近一次改动后没有成功验证命令"或"验证命令 exit≠0"或"有未解决 blocker"，返回拒绝原因（注入下一轮纠偏，或收尾标 `done_unverified`），`delivery_receipt` 照实呈现。
 - 测试：fake provider 覆盖"模型说完成但没跑测试""测试失败仍说完成""测试通过后又有改动"三种场景。成本最低、直接对应本笔记 §4.6「执行报告不是验收报告」。
 - 注意：这一步不引入 auditor 角色，只把现有的 harness 观测（改动/exit code/指纹）变成可执行守卫，先解决"模型自述即完成"。
@@ -389,12 +389,12 @@ backbone：主用 **Qwen 3.7-Plus**，泛化用 **Claude Opus 4.7**；三组自�
 
 已按 P0–P2 的确定性部分落地，行为与边界见 [`docs/specs/verified-completion.md`](../specs/verified-completion.md)：
 
-- P0 完成守卫：`core/state.py` 的 `completion_decision()` + Agent 首次拒绝/二次标 `verified=False`；
-- P1 文件变动记录与轮次账本：`TaskState.file_changes/verifications`、`core/rounds.py`、`SessionStore.save_round`、`state.json` 版本化；
-- P2 确定性环境审计：`app/audit.py`（git 基线、记录 hash 核对、未归因改动、审计窗口变化），Agent 收尾接入；
+- P0 完成守卫：`core/task/state.py` 的 `completion_decision()` + Agent 首次拒绝/二次标 `verified=False`；
+- P1 文件变动记录与轮次账本：`TaskState.file_changes/verifications`、`core/task/rounds.py`、`SessionStore.save_round`、`state.json` 版本化；
+- P2 确定性环境审计：`app/session/audit.py`（git 基线、记录 hash 核对、未归因改动、审计窗口变化），Agent 收尾接入；
 - 交互入口与 `oneshot`（非 bench）默认开启，eval/bench 保持旧行为；TUI `/goal` 在 `verified=false` 时暂停而不是标记完成。
 
-2026-11-01 继续落地 P3 前置：`ToolRegistry.subset()` + `app/auditor.py` 的可选 LLM 只读审计（`VIBE_LLM_AUDITOR=1`，默认关闭）。子 Agent 使用全新上下文与 `read_file/grep/list_files/git_status/git_diff` 只读工具子集，看不到执行轨迹；输出三行控制头，只有 `complete + clean` 且确定性审计通过才保留 `verified=true`。等价于论文的 Auditor 角色，但当前只做一次、不参与重规划循环。
+2026-11-01 继续落地 P3 前置：`ToolRegistry.subset()` + `app/session/auditor.py` 的可选 LLM 只读审计（`VIBE_LLM_AUDITOR=1`，默认关闭）。子 Agent 使用全新上下文与 `read_file/grep/list_files/git_status/git_diff` 只读工具子集，看不到执行轨迹；输出三行控制头，只有 `complete + clean` 且确定性审计通过才保留 `verified=true`。等价于论文的 Auditor 角色，但当前只做一次、不参与重规划循环。
 
 同一轮补上**契约反查**（论文实现里的 `AUDITOR_CONTRACT_BACKCHECK`）：审计者先从原始任务独立重建验收约束清单，再输出 `Acceptance-constraint backcheck` 段（Contract conclusion / 约束清单 / 覆盖检查 / 逐条回查 / Blocking constraints / 建议修订）；默认严格模式 `VIBE_CONTRACT_BACKCHECK=1`，只有 `aligned`、无 blocking 且第三行控制头与结论一致才通过，否则即使 `Status=complete` 也降级为未验证。设为 0 时允许 `unknown`，但仍拒绝 `needs_revision/invalid`。
 

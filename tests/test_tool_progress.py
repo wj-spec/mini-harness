@@ -1,16 +1,16 @@
 import asyncio
 import pytest
 
-from app.agent import Agent
+from app.runtime.agent import Agent
 from app.config import Config
 from app.events import StreamError
-from app.policy import ApprovalDecision, ApprovalGate
+from app.safety.policy import ApprovalDecision, ApprovalGate
 from app.providers.fake import FakeProvider
-from app.tools import ToolRegistry, ToolSpec
-from core.models import Response, ToolCall
+from app.tools.registry import ToolRegistry, ToolSpec
+from core.contracts import Response, ToolCall
 from core.budget import BudgetPolicy
 from core.context import ContextBuilder
-from core.models import Message
+from core.contracts import Message
 
 
 def test_sixty_productive_tool_calls_can_complete(tmp_path):

@@ -3,7 +3,7 @@ import json
 
 import httpx
 
-from core.models import Message, ToolCall
+from core.contracts import Message, ToolCall
 from app.events import TextDelta, ToolCallsReady
 from app.providers.openai_compat import OpenAICompatProvider, _to_openai
 

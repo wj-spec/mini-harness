@@ -6,8 +6,8 @@ import types
 
 import pytest
 
-from app.tools import ToolRegistry
-from core.models import ToolCall
+from app.tools.registry import ToolRegistry
+from core.contracts import ToolCall
 
 
 def test_search_is_a_bounded_network_tool(tmp_path):
@@ -36,7 +36,7 @@ def test_invalid_search_does_not_start_process(tmp_path, monkeypatch, args):
 
 
 def test_result_normalization_and_untrusted_notice():
-    from app.web_search import format_results
+    from app.tools.web_search import format_results
 
     output = format_results("Python 文档", [
         {"title": "Python 官方", "href": "https://docs.python.org/3/", "body": "官方文档"},
@@ -52,7 +52,7 @@ def test_result_normalization_and_untrusted_notice():
 
 
 def test_output_size_and_result_count_are_bounded():
-    from app.web_search import format_results
+    from app.tools.web_search import format_results
 
     rows = [{"title": "中" * 10000, "href": f"https://example.com/{i}", "body": "文" * 10000} for i in range(30)]
     output = format_results("q", rows, 10)
@@ -63,7 +63,7 @@ def test_output_size_and_result_count_are_bounded():
 
 
 def test_empty_results_are_explicit():
-    from app.web_search import format_results
+    from app.tools.web_search import format_results
 
     payload = json.loads(format_results("q", [], 5))
     assert payload["results"] == []
@@ -71,14 +71,14 @@ def test_empty_results_are_explicit():
 
 
 def test_malformed_nonempty_results_are_not_reported_as_no_matches():
-    from app.web_search import format_results
+    from app.tools.web_search import format_results
 
     with pytest.raises(RuntimeError, match="no valid results"):
         format_results("q", [{"title": "missing link"}, {"href": "javascript:alert(1)"}], 5)
 
 
 def test_ddgs_adapter_uses_expected_arguments(monkeypatch):
-    from app.web_search import search_sync
+    from app.tools.web_search import search_sync
 
     calls = []
 
@@ -97,7 +97,7 @@ def test_ddgs_adapter_uses_expected_arguments(monkeypatch):
 
 
 def test_missing_dependency_has_actionable_error(monkeypatch):
-    from app.web_search import search_sync
+    from app.tools.web_search import search_sync
 
     monkeypatch.setitem(sys.modules, "ddgs", None)
     with pytest.raises(RuntimeError, match="uv sync"):
@@ -105,7 +105,7 @@ def test_missing_dependency_has_actionable_error(monkeypatch):
 
 
 def test_worker_errors_do_not_expose_proxy_credentials(monkeypatch, capsys):
-    from app import web_search as search
+    from app.tools import web_search as search
 
     proxy = "http://search-user:search-password@proxy.example:8080"
 
@@ -133,7 +133,7 @@ def test_worker_process_passes_json_without_shell(tmp_path, monkeypatch):
 
     async def spawn(*args, **kwargs):
         assert args[0] == sys.executable
-        assert args[1].endswith("app/web_search.py")
+        assert args[1].endswith("app/tools/web_search.py")
         assert kwargs["stdin"] == asyncio.subprocess.PIPE
         return Process()
 
@@ -166,7 +166,7 @@ def test_worker_failures_are_tool_errors(tmp_path, monkeypatch, payload, code, f
 
 @pytest.mark.parametrize("cancel", [False, True])
 def test_timeout_and_cancel_reap_worker(tmp_path, monkeypatch, cancel):
-    import app.web_search as search
+    import app.tools.web_search as search
 
     async def scenario():
         started = asyncio.Event()
@@ -208,7 +208,7 @@ def test_timeout_and_cancel_reap_worker(tmp_path, monkeypatch, cancel):
 
 
 def test_cancel_while_spawning_still_reaps_worker(tmp_path, monkeypatch):
-    from app.web_search import web_search
+    from app.tools.web_search import web_search
 
     async def scenario():
         spawning, release = asyncio.Event(), asyncio.Event()

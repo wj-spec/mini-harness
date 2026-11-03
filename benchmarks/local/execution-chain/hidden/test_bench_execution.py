@@ -6,12 +6,12 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from test_stdio import Harness  # noqa: E402
 
-from app.agent import Agent  # noqa: E402
+from app.runtime.agent import Agent  # noqa: E402
 from app.config import Config  # noqa: E402
-from app.policy import ApprovalDecision, ApprovalGate  # noqa: E402
+from app.safety.policy import ApprovalDecision, ApprovalGate  # noqa: E402
 from app.providers.fake import FakeProvider  # noqa: E402
-from app.tools import ToolRegistry  # noqa: E402
-from core.models import Response, ToolCall  # noqa: E402
+from app.tools.registry import ToolRegistry  # noqa: E402
+from core.contracts import Response, ToolCall  # noqa: E402
 
 
 def _agent(tmp_path):

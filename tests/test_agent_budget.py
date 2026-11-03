@@ -3,14 +3,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.agent import Agent
-from app.policy import ApprovalDecision, ApprovalGate
+from app.runtime.agent import Agent
+from app.safety.policy import ApprovalDecision, ApprovalGate
 from app.providers.fake import FakeProvider
-from app.session import SessionStore
-from app.tools import ToolRegistry, ToolSpec
+from app.session.store import SessionStore
+from app.tools.registry import ToolRegistry, ToolSpec
 from app.events import StreamError, TextDelta, StreamDone
-from core.models import Message, Response, ToolCall
-from core.state import TaskState
+from core.contracts import Message, Response, ToolCall
+from core.task import TaskState
 from core.context import ContextBuilder
 from core.budget import BudgetPolicy
 

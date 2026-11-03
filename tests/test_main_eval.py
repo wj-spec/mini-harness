@@ -3,7 +3,7 @@ import sys
 import pytest
 
 from app import __main__ as entrypoint
-from app import eval as evaluation
+from app.eval import internal as evaluation
 from app.config import Config
 
 

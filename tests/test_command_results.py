@@ -4,12 +4,12 @@ import sys
 
 import pytest
 
-from app.agent import Agent
-from app.policy import ApprovalDecision, ApprovalGate
+from app.runtime.agent import Agent
+from app.safety.policy import ApprovalDecision, ApprovalGate
 from app.providers.fake import FakeProvider
-from app.tools import ToolRegistry
-from core.models import Response, ToolCall
-from core.state import TaskState
+from app.tools.registry import ToolRegistry
+from core.contracts import Response, ToolCall
+from core.task import TaskState
 
 
 @pytest.mark.parametrize("asynchronous", [False, True])
@@ -126,7 +126,7 @@ def test_unstarted_command_does_not_claim_execution(tmp_path):
 
 
 def test_missing_exit_code_is_unknown_instead_of_success(tmp_path, monkeypatch):
-    monkeypatch.setattr("app.tools.run_command", lambda *args: (None, "last known output", False))
+    monkeypatch.setattr("app.tools.registry.run_command", lambda *args: (None, "last known output", False))
     ok, output = ToolRegistry(tmp_path).execute(ToolCall("bash", {"command": "check"}))
     assert not ok and "last known output" in output
     assert output.execution == {"status": "unknown", "exit_code": None}
@@ -173,7 +173,7 @@ def test_failed_write_is_not_recorded_as_a_changed_file():
 
 
 def test_command_results_survive_state_serialization(tmp_path):
-    from app.session import SessionStore
+    from app.session.store import SessionStore
     state = TaskState(goal="check")
     state.observe_tool("bash", {"command": "pwd"}, True, "actual output",
                        execution={"status": "succeeded", "exit_code": 0})

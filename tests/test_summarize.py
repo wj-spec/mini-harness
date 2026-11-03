@@ -1,5 +1,5 @@
-from core.models import Message, ToolCall
-from core.summarize import summarize_messages
+from core.contracts import Message, ToolCall
+from core.context.summarize import summarize_messages
 
 
 def test_summary_keeps_tool_names_and_errors():

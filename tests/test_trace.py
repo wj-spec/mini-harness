@@ -1,10 +1,10 @@
 import asyncio
 
-from app.agent import Agent
-from app.tools import ToolRegistry
-from app.trace import Pricing, TraceRecorder
+from app.runtime.agent import Agent
+from app.tools.registry import ToolRegistry
+from app.session.trace import Pricing, TraceRecorder
 from app.providers.fake import FakeProvider
-from core.models import Response
+from core.contracts import Response
 
 
 def run(coro):

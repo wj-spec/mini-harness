@@ -4,8 +4,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app.session import SessionStore
-from core.models import Message, ToolCall
+from app.session.store import SessionStore
+from core.contracts import Message, ToolCall
 from scripts.browser_acceptance_evidence import collect_report
 
 

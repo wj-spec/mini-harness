@@ -1,12 +1,12 @@
 import asyncio
 import json
 
-from app.agent import Agent
+from app.runtime.agent import Agent
 from app.config import Config
 from app.providers.fake import FakeProvider
-from app.session import SessionStore
-from app.tools import ToolRegistry
-from app.user_profile import (
+from app.session.store import SessionStore
+from app.tools.registry import ToolRegistry
+from app.profiles.user import (
     UserPreference,
     UserProfile,
     load_user_profile,

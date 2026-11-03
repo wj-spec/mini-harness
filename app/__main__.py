@@ -5,21 +5,21 @@ import os
 import sys
 from pathlib import Path
 
-from app.agent import Agent
+from app.runtime.agent import Agent
 from app.config import Config
-from app.policy import ApprovalGate
-from app.instructions import load_agents_md
-from app.mcp import McpManager
-from app.session import SessionStore
-from app.summarize import LLMSummarizer
-from app.trace import Pricing
+from app.safety.policy import ApprovalGate
+from app.profiles.instructions import load_agents_md
+from app.tools.mcp import McpManager
+from app.session.store import SessionStore
+from app.runtime.summarize import LLMSummarizer
+from app.session.trace import Pricing
 from app.providers.fake import FakeProvider
 from app.providers.openai_compat import OpenAICompatProvider
-from app.tools import ToolRegistry
+from app.tools.registry import ToolRegistry
 from core.context import ContextBuilder
-from core.models import Response, ToolCall
-from core.state import TaskState
-from core.summarize import summarize_messages
+from core.contracts import Response, ToolCall
+from core.task import TaskState
+from core.context.summarize import summarize_messages
 
 
 def _fake_demo_script() -> list:
@@ -142,7 +142,7 @@ def main() -> None:
         config.autonomy = args.autonomy
 
     if args.task is not None:
-        from app.oneshot import OneShotOptions, run_oneshot
+        from app.eval.oneshot import OneShotOptions, run_oneshot
 
         provider = build_provider(config, args.fake)
         options = OneShotOptions(
@@ -185,7 +185,7 @@ def main() -> None:
             raise SystemExit(1)
 
     if args.eval:
-        from app.eval import DEFAULT_TASKS, eval_diagnostics, eval_exit_code, load_tasks, run_eval
+        from app.eval.internal import DEFAULT_TASKS, eval_diagnostics, eval_exit_code, load_tasks, run_eval
 
         try:
             tasks = load_tasks(args.eval_tasks or DEFAULT_TASKS)
@@ -266,7 +266,7 @@ def _run(config, session, tools, approval, provider, context, state, history, ar
     pricing = Pricing(config.input_price_per_1m, config.output_price_per_1m)
     llm_auditor = None
     if config.llm_auditor and not args.chat_only:
-        from app.auditor import ReadOnlyAuditor
+        from app.session.auditor import ReadOnlyAuditor
 
         llm_auditor = ReadOnlyAuditor(
             provider, tools,

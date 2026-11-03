@@ -8,8 +8,8 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from app.browser_policy import BROWSER_READS, BROWSER_WRITES, normalized_origin
-from app.session import SessionStore
+from app.browser.policy import BROWSER_READS, BROWSER_WRITES, normalized_origin
+from app.session.store import SessionStore
 
 DRAFT = "B2 验收草稿"
 REJECTED_DRAFT = "拒绝写入"
