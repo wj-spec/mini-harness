@@ -467,6 +467,8 @@ class TaskStore:
         actor: str = "harness",
     ) -> None:
         task_id = _validate_task_id(task_id)
+        # 只为已存在的任务追加事件，避免拼写/越权创建孤儿目录
+        self.get(task_id)
         if not isinstance(event, str) or not event:
             raise ValueError("event must be a nonempty string")
         if actor not in {"user", "harness", "worker", "tui"}:
@@ -584,6 +586,7 @@ class TaskStore:
         return ended
 
     def acquire_lock(self, task_id: str) -> None:
+        self.get(task_id)  # 先校验任务存在，避免为空目录建锁
         directory = self.task_dir(task_id)
         directory.mkdir(parents=True, exist_ok=True)
         payload = {

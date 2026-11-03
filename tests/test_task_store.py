@@ -279,3 +279,11 @@ def test_unknown_fields_are_preserved(store, tmp_path):
     meta_path.write_text(json.dumps(payload), encoding="utf-8")
     loaded = store.get(record.task_id)
     assert loaded.to_dict()["future_field"] == {"kept": True}
+
+def test_writes_reject_unknown_task(store):
+    for task_id in ("t-20260101-000000-abcdef",):
+        with pytest.raises(TaskNotFound):
+            store.append_event(task_id, "task_paused")
+        with pytest.raises(TaskNotFound):
+            store.acquire_lock(task_id)
+
