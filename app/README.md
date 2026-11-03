@@ -20,6 +20,7 @@ app/
     tasks.py             # TaskRecord/TaskStore：任务身份/状态机/原子写/恢复（P0 基础）
     task_runtime.py      # TaskRuntime：stdio run.task、goal 生命周期、task_state（接入层）
     supervise.py         # WorkerSupervisor：worker.json/心跳/判死/--tasks 只读视图（P0a）
+    worker.py            # 后台 worker/attach：独立 stdio 子进程、ctrl.sock、worker.log（P0b）
   tools/                 # 工具系统
     __init__.py
     registry.py          # ToolRegistry / ToolSpec 与内置工具（原 app/tools.py）

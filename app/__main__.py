@@ -86,6 +86,9 @@ def main() -> None:
     sessions.add_argument("--session", metavar="SESSION_ID", help="恢复本工作区指定 session，不自动续跑")
     sessions.add_argument("--list-sessions", action="store_true", help="只读列出本工作区已有对话的 session 后退出")
     parser.add_argument("--tasks", action="store_true", help="只读列出最近会话的任务与 worker 状态")
+    parser.add_argument("--worker", action="store_true", help="后台 worker：执行一个 task segment 并暴露 attach socket")
+    parser.add_argument("--attach", action="store_true", help="attach 到运行中的 worker（JSONL 回放 + live）")
+    parser.add_argument("--task-id", default=None, metavar="TASK_ID", help="--worker/--attach 的目标任务")
     parser.add_argument("--eval", action="store_true", help="跑 eval 任务并退出")
     parser.add_argument("--eval-limit", type=int, default=None)
     parser.add_argument("--eval-tasks", default=None)
@@ -108,6 +111,17 @@ def main() -> None:
         or args.session is not None or args.bench
     ):
         parser.error("--tasks cannot be combined with --stdio/--eval/--list-sessions/--task/--continue/--session/--bench")
+    if args.worker or args.attach:
+        if not args.task_id or args.session is None:
+            parser.error("--worker/--attach require --task-id and --session")
+        if args.stdio or args.eval or args.eval_limit is not None or args.eval_tasks is not None:
+            parser.error("--worker/--attach cannot be combined with --stdio/--eval")
+        if args.list_sessions or args.task is not None or args.continue_session or args.tasks or args.bench:
+            parser.error("--worker/--attach cannot be combined with other modes")
+        if args.worker and args.attach:
+            parser.error("--worker and --attach are mutually exclusive")
+    elif args.task_id is not None:
+        parser.error("--task-id is only valid with --worker/--attach")
     if args.eval_limit is not None and args.eval_limit < 1:
         parser.error("--eval-limit must be positive")
     if args.task is not None:
@@ -119,7 +133,7 @@ def main() -> None:
         parser.error("--bench requires --task")
     if args.telemetry_out and args.task is None:
         parser.error("--telemetry-out requires --task")
-    if not args.stdio and not args.eval and not args.list_sessions and not args.tasks and args.task is None:
+    if not args.stdio and not args.eval and not args.list_sessions and not args.tasks and not args.worker and not args.attach and args.task is None:
         print(
             "Textual 入口已退役。交互界面请运行 ./run_ink.sh（例如 ./run_ink.sh --fake）；"
             "后端与 eval 分别使用 --stdio / --eval。",
@@ -147,6 +161,50 @@ def main() -> None:
         config.sandbox_network_allow = args.sandbox_network_allow
     if args.autonomy:
         config.autonomy = args.autonomy
+
+    if args.worker or args.attach:
+        purpose = "test" if args.test_session or args.fake or config.provider == "fake" else "user"
+        session = SessionStore.open_existing(config.workspace, args.session, purpose=purpose)
+        if session is None:
+            print(f"no session {args.session} under {config.workspace}", file=sys.stderr)
+            raise SystemExit(2)
+        from app.runtime.tasks import TaskStore
+        store = TaskStore(session.root)
+        try:
+            task = store.get(args.task_id)
+        except Exception as exc:
+            print(f"task {args.task_id} unavailable: {type(exc).__name__}: {exc}", file=sys.stderr)
+            raise SystemExit(2)
+        if Path(task.workspace).resolve() != config.workspace.resolve():
+            print(f"task workspace mismatch: {task.workspace}", file=sys.stderr)
+            raise SystemExit(2)
+        if args.attach:
+            from app.runtime.worker import attach_worker
+            raise SystemExit(attach_worker(session.root, args.task_id))
+        child_args = [sys.executable, "-m", "app", "--stdio",
+                      "--workspace", str(config.workspace), "--session", session.id]
+        if args.fake:
+            child_args.append("--fake")
+        if args.test_session:
+            child_args.append("--test-session")
+        for flag, value in (
+            ("--provider", args.provider), ("--model", args.model), ("--base-url", args.base_url),
+            ("--max-steps", str(args.max_steps) if args.max_steps is not None else None),
+            ("--autonomy", args.autonomy),
+        ):
+            if value is not None:
+                child_args.extend([flag, value])
+        if args.sandbox:
+            child_args.append("--sandbox")
+        if args.sandbox_network:
+            child_args.append("--sandbox-network")
+        if args.sandbox_network_allow:
+            child_args.extend(["--sandbox-network-allow", args.sandbox_network_allow])
+        if args.chat_only:
+            child_args.append("--chat-only")
+        child_env = {"VIBE_TASK_RUNTIME": "1", "VIBE_WORKER": "1"}
+        from app.runtime.worker import run_worker
+        raise SystemExit(run_worker(session.root, args.task_id, config.workspace, child_args, child_env))
 
     if args.tasks:
         from app.runtime.supervise import WorkerSupervisor
@@ -227,7 +285,9 @@ def main() -> None:
             )
         except ValueError as exc:
             parser.error(str(exc))
-        if resumed_session is None or not resumed_session.load_context():
+        if resumed_session is None or (
+            not resumed_session.load_context() and not os.getenv("VIBE_WORKER")
+        ):
             target = f"session {args.session}" if args.session is not None else "conversation"
             print(f"no {target} found under {config.workspace}/.vibe/sessions", file=sys.stderr)
             raise SystemExit(1)

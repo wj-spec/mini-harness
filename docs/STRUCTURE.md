@@ -43,6 +43,7 @@ mini-harness/
       tasks.py          # TaskRecord/TaskStore：任务身份、状态机、原子写、恢复（P0 基础）
       task_runtime.py   # TaskRuntime：stdio run.task、goal 任务生命周期、task_state payload
       supervise.py      # WorkerSupervisor：worker.json/心跳/判死/--tasks（P0a）
+      worker.py         # 后台 worker：独立 stdio 子进程 + ctrl.sock + attach + worker.log（P0b）
     tools/              # 工具系统
       registry.py       # 工具注册表与内置工具（read/write/bash/...）
       patch.py          # unified diff 解析、校验与 hunk 应用
@@ -147,6 +148,7 @@ mini-harness/
     test_stdio_tasks.py
     test_supervise.py
     test_cli_tasks.py
+    test_worker.py
     test_app_summarize.py
     test_state.py
     test_summarize.py
