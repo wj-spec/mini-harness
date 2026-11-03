@@ -2,11 +2,12 @@ import {spawn, type ChildProcessWithoutNullStreams} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import {StringDecoder} from 'node:string_decoder';
 import {backendCommand, backendLaunchOptions} from './backend-launch.js';
-import {BACKEND_COMMANDS, MAX_FRAME_BYTES, parseServerEvent, validateAutonomyArgs, validateClientArgs, validateSkillsArgs, type ApprovalDecision, type AutonomyCommandArgs, type BackendCommand, type ClientRequest, type CommandArgs, type ServerEvent, type SkillsCommandArgs} from './protocol.js';
+import {BACKEND_COMMANDS, MAX_FRAME_BYTES, parseServerEvent, validateAutonomyArgs, validateClientArgs, validateSkillsArgs, type ApprovalDecision, type AutonomyCommandArgs, type BackendCommand, type ClientRequest, type CommandArgs, type RunTaskMeta, type ServerEvent, type SkillsCommandArgs} from './protocol.js';
 
 export interface BackendClient {
   subscribe(listener: (event: ServerEvent) => void): () => void;
-  run(text: string): string;
+  capabilities?(): readonly string[];
+  run(text: string, task?: RunTaskMeta): string;
   command(command: BackendCommand, args?: CommandArgs): string;
   cancel(target: string): string;
   steer(target: string, text: string): string;
@@ -351,11 +352,17 @@ export function createBackendClient(options: BackendOptions = {}): BackendClient
         }
       });
     },
-    run(text) {
+    capabilities() {
+      return ready?.type === 'ready' ? ready.capabilities : [];
+    },
+    run(text, task) {
       if (!ready) throw new Error('Python 后端尚未就绪');
       if (!text.trim()) throw new Error('任务内容不能为空');
+      if (task && !(ready.type === 'ready' && ready.capabilities.includes('tasks'))) {
+        throw new Error('Python 后端未启用任务运行时');
+      }
       const id = randomUUID();
-      send({v: 1, type: 'run', id, text});
+      send(task ? {v: 1, type: 'run', id, text, task} : {v: 1, type: 'run', id, text});
       return id;
     },
     command(command, args) {

@@ -41,6 +41,7 @@ mini-harness/
       agent.py          # 唯一运行 loop：流式 + 工具执行 + context 接入
       summarize.py      # LLM 摘要 HTTP 适配器 + 确定性回退
       tasks.py          # TaskRecord/TaskStore：任务身份、状态机、原子写、恢复（P0 基础）
+      task_runtime.py   # TaskRuntime：stdio run.task、goal 任务生命周期、task_state payload
     tools/              # 工具系统
       registry.py       # 工具注册表与内置工具（read/write/bash/...）
       patch.py          # unified diff 解析、校验与 hunk 应用
@@ -141,6 +142,8 @@ mini-harness/
     test_core_layout.py
     test_app_layout.py
     test_task_store.py
+    test_task_runtime.py
+    test_stdio_tasks.py
     test_app_summarize.py
     test_state.py
     test_summarize.py
@@ -177,6 +180,7 @@ mini-harness/
     assets/             # README 与规格文档使用的图片
     specs/              # 每个切片的 spec
       task-runtime.md   # 任务运行时基础：TaskRecord/TaskStore 数据模型、状态机与恢复
+      task-runtime-integration.md  # 任务运行时接入：stdio run.task、task_state、TUI /goal
     design/             # 未来方向的分块讨论（长任务/后台/进阶模式/子 Agent），拍板后收敛为 spec
     history/            # 旧 M1–M8 模块建设计划
 

@@ -1,0 +1,159 @@
+"""stdio + TaskRuntime 接入测试（spec: docs/specs/task-runtime-integration.md）。"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import socket
+
+from app.config import Config
+from app.providers.fake import FakeProvider
+from app.runtime.agent import Agent
+from app.runtime.task_runtime import TaskRuntime
+from app.runtime.tasks import TaskStore
+from app.safety.policy import ApprovalGate
+from app.session.store import SessionStore
+from app.stdio import serve
+from app.tools.registry import ToolRegistry
+
+
+class Harness:
+    def __init__(self, agent, config, session):
+        self.incoming = asyncio.Queue()
+        self.outgoing = asyncio.Queue()
+        self.events = []
+
+        async def requests():
+            while (frame := await self.incoming.get()) is not None:
+                yield frame
+
+        def emit(event):
+            self.events.append(event)
+            self.outgoing.put_nowait(event)
+
+        self.task = asyncio.create_task(
+            serve(agent, config, session=session, requests=requests(), emit=emit)
+        )
+
+    def send(self, kind, request_id, **data):
+        self.incoming.put_nowait(json.dumps({"v": 1, "type": kind, "id": request_id, **data}))
+
+    async def until(self, kind, request_id=None):
+        async with asyncio.timeout(5):
+            while True:
+                event = await self.outgoing.get()
+                if event["type"] == kind and (request_id is None or event["id"] == request_id):
+                    return event
+
+    async def close(self):
+        self.incoming.put_nowait(None)
+        await asyncio.wait_for(self.task, 5)
+
+
+def _agent(tmp_path, script=("ok",)):
+    return Agent(FakeProvider(list(script)), ToolRegistry(tmp_path), approval=ApprovalGate())
+
+
+def _task_dir(session, task_id):
+    return session.root / "tasks" / task_id
+
+
+def test_goal_run_creates_task(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+
+    async def scenario():
+        harness = Harness(_agent(tmp_path), Config(workspace=tmp_path), session)
+        ready = await harness.until("ready")
+        assert "tasks" in ready["capabilities"]
+
+        harness.send("run", "r1", text="目标", task={"kind": "goal", "objective": "目标"})
+        state = await harness.until("task_state", "r1")
+        task_id = state["task"]["task_id"]
+        assert state["task"]["status"] == "running"
+        assert state["task"]["segment"] == 1
+        done = await harness.until("done", "r1")
+        assert done["result"]["status"] == "done"
+
+        meta = json.loads((_task_dir(session, task_id) / "meta.json").read_text(encoding="utf-8"))
+        assert meta["kind"] == "goal" and meta["status"] == "completed"
+        assert meta["segments"][0]["run_id"] == "r1"
+        state_index = next(index for index, event in enumerate(harness.events)
+                           if event["type"] == "task_state" and event["id"] == "r1")
+        done_index = next(index for index, event in enumerate(harness.events)
+                          if event["type"] == "done" and event["id"] == "r1")
+        assert state_index < done_index
+        await harness.close()
+
+    asyncio.run(scenario())
+
+
+def test_plain_run_does_not_create_tasks(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+
+    async def scenario():
+        harness = Harness(_agent(tmp_path), Config(workspace=tmp_path), session)
+        harness.send("run", "r1", text="普通任务")
+        await harness.until("done", "r1")
+        assert not (session.root / "tasks").exists()
+        await harness.close()
+
+    asyncio.run(scenario())
+
+
+def test_runtime_disabled_rejects_task_metadata(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "0")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+
+    async def scenario():
+        harness = Harness(_agent(tmp_path), Config(workspace=tmp_path), session)
+        ready = await harness.until("ready")
+        assert "tasks" not in ready["capabilities"]
+        harness.send("run", "r1", text="目标", task={"kind": "goal", "objective": "目标"})
+        error = await harness.until("error", "r1")
+        assert error["code"] == "task_runtime_disabled"
+        assert not (session.root / "tasks").exists()
+        await harness.close()
+
+    asyncio.run(scenario())
+
+
+def test_test_purpose_defaults_runtime_off(tmp_path, monkeypatch):
+    monkeypatch.delenv("VIBE_TASK_RUNTIME", raising=False)
+    session = SessionStore.new(tmp_path, "fake", purpose="test")
+
+    async def scenario():
+        harness = Harness(_agent(tmp_path), Config(workspace=tmp_path), session)
+        ready = await harness.until("ready")
+        assert "tasks" not in ready["capabilities"]
+        harness.send("run", "r1", text="目标", task={"kind": "goal", "objective": "目标"})
+        error = await harness.until("error", "r1")
+        assert error["code"] == "task_runtime_disabled"
+        await harness.close()
+
+    asyncio.run(scenario())
+
+
+def test_stale_task_is_recovered_and_announced(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    runtime = TaskRuntime(TaskStore(session.root), workspace=tmp_path)
+    run = runtime.prepare_run("old-run", {"kind": "goal", "objective": "中断目标"})
+    lock = _task_dir(session, run.task_id) / "lock"
+    lock.write_text(json.dumps({
+        "task_id": run.task_id, "pid": 999_999_999,
+        "host": socket.gethostname(), "created_at": "2026-11-03T00:00:00+00:00",
+    }), encoding="utf-8")
+
+    async def scenario():
+        harness = Harness(_agent(tmp_path), Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        notice = await harness.until("notice")
+        assert "中断任务" in notice["message"]
+        meta = json.loads((_task_dir(session, run.task_id) / "meta.json").read_text(encoding="utf-8"))
+        assert meta["status"] == "interrupted"
+        await harness.close()
+
+    asyncio.run(scenario())

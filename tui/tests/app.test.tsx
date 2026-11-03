@@ -8,7 +8,7 @@ import React from 'react';
 import {cleanup, render} from 'ink-testing-library';
 import {App} from '../src/app.js';
 import type {BackendClient} from '../src/backend.js';
-import type {ServerEvent} from '../src/protocol.js';
+import type {RunTaskMeta, ServerEvent} from '../src/protocol.js';
 import {initialState, type ViewState} from '../src/view-state.js';
 import stringWidth from 'string-width';
 import {contextSnapshot, loadedContextSnapshot} from './context-fixture.js';
@@ -16,6 +16,8 @@ import {contextSnapshot, loadedContextSnapshot} from './context-fixture.js';
 class MockClient {
   listeners = new Set<(event: ServerEvent) => void>();
   runs: string[] = [];
+  runTasks: (RunTaskMeta | undefined)[] = [];
+  capabilityList: string[] = [];
   cancellations: string[] = [];
   steers: {target: string; text: string}[] = [];
   approvals: [string, 'once' | 'session' | 'workspace' | 'deny'][] = [];
@@ -28,7 +30,8 @@ class MockClient {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
-  run(text: string) {this.runs.push(text); return `run-${this.runs.length}`;}
+  run(text: string, task?: RunTaskMeta) {this.runs.push(text); this.runTasks.push(task); return `run-${this.runs.length}`;}
+  capabilities() {return this.capabilityList;}
   cancel(id: string) {if (this.sendError) throw new Error('backend disconnected'); this.cancellations.push(id); return `cancel-${this.cancellations.length}`;}
   steer(target: string, text: string) {if (this.sendError) throw new Error('backend disconnected'); this.steers.push({target, text}); return `steer-${this.steers.length}`;}
   approve(id: string, decision: 'once' | 'session' | 'workspace' | 'deny') {if (this.sendError) throw new Error('backend disconnected'); this.approvals.push([id, decision]);}
@@ -1137,6 +1140,44 @@ test('/goal automatically continues a long task across resource pauses', async (
   await pause(30);
   assert.equal(client.runs.length, 2);
   assert.match(lastFrame() ?? '', /目标模式.*完成|目标完成/u);
+});
+
+test('/goal sends task metadata and persists the task id when the backend supports tasks', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'mini-harness-goal-task-'));
+  try {
+    const state = {...initialState, phase: 'idle' as const, workspace: '/repo', model: 'fake', sessionId: 'session-task', sessionPath: dir};
+    const client = new MockClient();
+    client.capabilityList = ['tasks'];
+    const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} initialState={state} windowSize={{columns: 120, rows: 40}}/>);
+    await pause(20);
+    client.emit({type: 'ready', workspace: '/repo', model: 'fake', session_id: 'session-task', session_path: dir, capabilities: ['tasks']});
+    client.emit({type: 'status', phase: 'idle'});
+    await pause(20);
+
+    await enter(stdin, '/goal 长任务');
+    await pause(30);
+    assert.equal(client.runs.length, 1);
+    assert.deepEqual(client.runTasks[0], {kind: 'goal', objective: '长任务'});
+
+    client.emit({type: 'task_state', id: 'run-1', task: {
+      task_id: 't-20261103-120000-abcdef', kind: 'goal', status: 'running', segment: 1,
+      objective: '长任务', goal_id: null, updated_at: '2026-11-03T12:00:00+00:00',
+    }});
+    await pause(30);
+    assert.match(lastFrame() ?? '', /任务已记录/);
+    const raw = JSON.parse(await readFile(path.join(dir, 'goal.json'), 'utf8'));
+    assert.equal(raw.taskId, 't-20261103-120000-abcdef');
+
+    client.emit({type: 'done', id: 'run-1', result: {
+      text: 'checkpoint', steps: 1, status: 'stopped', stop_reason: 'max_run_seconds',
+      usage: {total_tokens: 10}, cost_usd: 0, run_id: 'run-1',
+    }});
+    await pause(40);
+    assert.equal(client.runs.length, 2);
+    assert.equal(client.runTasks[1]?.task_id, 't-20261103-120000-abcdef');
+  } finally {
+    await rm(dir, {recursive: true, force: true});
+  }
 });
 
 test('/goal stop pauses the active goal without starting another segment', async () => {

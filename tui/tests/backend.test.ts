@@ -363,9 +363,9 @@ test('restored task progress does not disconnect actual Python startup',{skip:!e
   const workspace=await mkdtemp(path.join(base,'resume-progress-'));
   execFileSync(path.join(repoRoot,'.venv','bin','python3'),['-c',
     `import sys
-from app.session import SessionStore
-from core.models import Message
-from core.state import TaskState
+from app.session.store import SessionStore
+from core.contracts import Message
+from core.task import TaskState
 session = SessionStore.new(sys.argv[1], 'fake', purpose='test')
 session.append_message(Message('user', '继续已有计划'))
 session.append_message(Message('assistant', '已完成第一步'))
@@ -443,8 +443,8 @@ test('actual Python restores original conversation after context compaction for 
 import json
 import sys
 from dataclasses import asdict
-from app.session import SessionStore
-from core.models import Message, ToolCall
+from app.session.store import SessionStore
+from core.contracts import Message, ToolCall
 
 session = SessionStore.new(sys.argv[1], "fake", purpose="test")
 goal = Message("user", "第一轮：保留完整旧对话")

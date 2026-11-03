@@ -120,6 +120,23 @@ export interface RunResult {
   audit?: AuditSummary | null;
 }
 
+export type RunTaskMeta = {
+  kind: 'goal';
+  objective?: string;
+  task_id?: string;
+  goal_id?: string;
+};
+
+export interface TaskSnapshot {
+  task_id: string;
+  kind: string;
+  status: string;
+  segment: number;
+  objective: string;
+  goal_id: string | null;
+  updated_at: string;
+}
+
 export interface RunMetrics {
   used_tokens: number;
   limit_tokens: number;
@@ -191,12 +208,13 @@ export type ServerEvent =
   | Envelope<'approval_request', {approval_id: string; call: ToolCall; preview: string; decisions?: ApprovalDecision[]; tier?: string; tier_label?: string; rule?: ApprovalRule}>
   | Envelope<'approval_resolved', {approval_id: string; decision: ApprovalDecision}>
   | Envelope<'done', {result: RunResult}>
+  | Envelope<'task_state', {task: TaskSnapshot}>
   | Envelope<'ack', {action: 'cancel' | 'approval' | 'steer'}>
   | Envelope<'closed'>
   | Envelope<'error', {code: string; message: string}>;
 
 export type ClientRequest = (
-  | Envelope<'run', {text: string}>
+  | Envelope<'run', {text: string; task?: RunTaskMeta}>
   | Envelope<'command', {command: Exclude<BackendCommand, 'skills' | 'autonomy'>}>
   | Envelope<'command', {command: 'skills'; args?: SkillsCommandArgs}>
   | Envelope<'command', {command: 'autonomy'; args: AutonomyCommandArgs}>
@@ -320,6 +338,17 @@ function contextSnapshot(value: unknown): value is ContextSnapshot {
   return CONTEXT_SECTIONS.every(section => blockTotals[section] === sections[section]);
 }
 
+function taskSnapshot(value: unknown): value is TaskSnapshot {
+  return record(value) &&
+    typeof value.task_id === 'string' && validId(value.task_id) &&
+    typeof value.kind === 'string' &&
+    typeof value.status === 'string' &&
+    typeof value.segment === 'number' && Number.isSafeInteger(value.segment) && value.segment >= 0 &&
+    typeof value.objective === 'string' &&
+    (value.goal_id === null || typeof value.goal_id === 'string') &&
+    typeof value.updated_at === 'string';
+}
+
 export function parseServerEvent(line: string): ServerEvent {
   if (Buffer.byteLength(line, 'utf8') > MAX_FRAME_BYTES) {
     throw new Error('后端消息超过 1 MiB 帧大小上限');
@@ -390,6 +419,7 @@ export function parseServerEvent(line: string): ServerEvent {
       valid = validId(value.id) && validId(value.approval_id) && approvalDecisions.includes(String(value.decision));
       break;
     case 'done': valid = validId(value.id) && runResult(value.result); break;
+    case 'task_state': valid = validId(value.id) && taskSnapshot(value.task); break;
     case 'ack': valid = validId(value.id) && ['cancel', 'approval', 'steer'].includes(String(value.action)); break;
     case 'closed': valid = true; break;
     case 'error': valid = typeof value.code === 'string' && typeof value.message === 'string'; break;

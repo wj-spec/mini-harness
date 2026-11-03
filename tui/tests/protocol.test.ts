@@ -251,3 +251,16 @@ test('approval requests may carry structured tier and matched rule context', () 
     assert.throws(() => parseServerEvent(JSON.stringify({...enriched, ...change})), JSON.stringify(change));
   }
 });
+test('accepts task_state snapshots only when well-formed', () => {
+  const task = {task_id: 't-20261103-120000-abcdef', kind: 'goal', status: 'running', segment: 1,
+    objective: '目标', goal_id: null, updated_at: '2026-11-03T12:00:00+00:00'};
+  const frame = (change: Record<string, unknown> = {}) => JSON.stringify({v: 1, type: 'task_state', id: 'run-1', task: {...task, ...change}});
+  assert.equal(parseServerEvent(frame()).type, 'task_state');
+  for (const change of [
+    {task_id: ''}, {kind: 1}, {status: null}, {segment: -1}, {segment: 1.5},
+    {objective: null}, {goal_id: 1}, {updated_at: null},
+  ]) {
+    assert.throws(() => parseServerEvent(frame(change)));
+  }
+  assert.throws(() => parseServerEvent(JSON.stringify({v: 1, type: 'task_state', id: null, task})));
+});

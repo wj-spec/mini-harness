@@ -192,6 +192,15 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       }
     }
     if (event.type === 'approval_request') {setDetail(null); setContextOpen(false); answeredApproval.current = null;}
+    if (event.type === 'task_state' && event.id === activeRun.current) {
+      const current = goalRef.current;
+      if (current && current.taskId !== event.task.task_id) {
+        const next = {...current, taskId: event.task.task_id};
+        goalRef.current = next;
+        setGoal(next);
+        dispatch({type: 'notice', text: `任务已记录：${event.task.task_id}`});
+      }
+    }
     if (event.type === 'status' && event.phase === 'starting' && event.id) activeRun.current = event.id;
     const finished = (event.type === 'done' || event.type === 'command_result') && event.id === activeRun.current;
     if (finished) activeRun.current = null;
@@ -233,7 +242,13 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
   const reportError = (text: string) => {notice(text); setFeedback(text); setFeedbackTone('error');};
   const launchGoalSegment = (nextGoal: GoalMode, display: string) => {
     try {
-      const id = client.run(goalPrompt(nextGoal));
+      const taskEnabled = client.capabilities?.().includes('tasks') ?? false;
+      const task = taskEnabled ? {
+        kind: 'goal' as const,
+        objective: nextGoal.objective,
+        ...(nextGoal.taskId ? {task_id: nextGoal.taskId} : {}),
+      } : undefined;
+      const id = client.run(goalPrompt(nextGoal), task);
       goalRef.current = nextGoal;
       setGoal(nextGoal);
       activeRun.current = id;

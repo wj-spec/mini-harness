@@ -9,17 +9,19 @@ import {startGoal} from '../src/goal.js';
 test('goal state round-trips through the session directory', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'mini-harness-goal-'));
   try {
-    const goal = startGoal('持久化目标');
+    const goal = {...startGoal('持久化目标'), taskId: 't-20261103-120000-abcdef'};
     saveGoal(dir, goal);
     const raw = JSON.parse(await readFile(goalFilePath(dir), 'utf8'));
     assert.equal(raw.version, 1);
     assert.equal(raw.objective, '持久化目标');
     assert.equal(raw.active, true);
+    assert.equal(raw.taskId, 't-20261103-120000-abcdef');
 
     const restored = loadGoal(dir);
     assert.equal(restored?.objective, '持久化目标');
     assert.equal(restored?.active, false, 'a restarted TUI must wait for explicit /goal resume');
     assert.equal(restored?.pausedReason, 'session_restored');
+    assert.equal(restored?.taskId, 't-20261103-120000-abcdef');
 
     saveGoal(dir, {...goal, active: false, completed: true, pausedReason: null});
     assert.equal(loadGoal(dir)?.completed, true);

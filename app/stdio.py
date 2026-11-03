@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import json
 import math
+import os
 import signal
 import sys
 import time
@@ -12,6 +13,10 @@ from collections.abc import AsyncIterable, Callable
 from dataclasses import asdict, replace
 
 from app.runtime.agent import Agent, AgentResult
+from app.runtime.tasks import TaskError, TaskStore
+from app.runtime.task_runtime import (
+    TaskRuntime, TaskRuntimeDisabled, TaskRuntimeError, task_runtime_enabled,
+)
 from app.safety import permissions
 from app.config import Config
 from app.session.evidence import format_round_evidence
@@ -112,12 +117,14 @@ async def _stdin_frames():
 
 
 class _Connection:
-    def __init__(self, agent: Agent, config: Config, session: SessionStore, emit, mcp=None):
+    def __init__(self, agent: Agent, config: Config, session: SessionStore, emit, mcp=None,
+                 task_runtime: TaskRuntime | None = None):
         self.agent = agent
         self.config = config
         self.session = session
         self.emit = emit
         self.mcp = mcp
+        self.task_runtime = task_runtime
         self.seen: set[str] = set()
         self.active_id: str | None = None
         self.active: asyncio.Task | None = None
@@ -391,7 +398,7 @@ class _Connection:
                     await self.publish_loaded_context()
                 self.send("status", phase="idle")
 
-    async def run(self, request_id: str, text: str):
+    async def run(self, request_id: str, text: str, run_task=None):
         self.has_started_run = True
         result = AgentResult("cancelled", 0, "cancelled")
         completed = False
@@ -562,6 +569,15 @@ class _Connection:
                 result = replace(result, text=f"error: trace save failed: {exc}", status="error", stop_reason="")
             if self.agent.state is not None:
                 metrics.update(done=len(self.agent.state.done), planned=len(self.agent.state.plan))
+            if run_task is not None and self.task_runtime is not None:
+                try:
+                    record = self.task_runtime.finish_run(run_task, result)
+                    if record is not None:
+                        self.send("task_state", request_id,
+                                  task=self.task_runtime.payload(record))
+                except Exception as exc:
+                    self.error(request_id, "task_runtime_error",
+                               f"{type(exc).__name__}: {exc}")
             publish_metrics(force=True)
             self.send("done", request_id, result=asdict(result))
             self.active_id = None
@@ -605,8 +621,14 @@ class _Connection:
                 raise ValueError("unknown request type")
             if kind == "command" and request.get("command") in {"skills", "autonomy"} and "args" in request:
                 fields[kind] = fields[kind] | {"args"}
-            if set(request) != {"v", "type", "id"} | fields[kind]:
+            allowed = {"v", "type", "id"} | fields[kind]
+            if kind == "run" and "task" in request:
+                allowed.add("task")
+            if set(request) != allowed:
                 raise ValueError("unexpected or missing request fields")
+            task_meta = request.get("task") if kind == "run" else None
+            if task_meta is not None and not isinstance(task_meta, dict):
+                raise ValueError("run.task must be an object")
             if kind in {"run", "command"}:
                 if kind == "run" and (not isinstance(request["text"], str) or not request["text"].strip()):
                     raise ValueError("run text must be a nonempty string")
@@ -633,11 +655,28 @@ class _Connection:
                 if self.active is not None and not self.active.done():
                     self.error(request_id, "busy", "another run is active")
                     return
+                run_task = None
+                if kind == "run" and task_meta is not None:
+                    if self.task_runtime is None:
+                        self.error(request_id, "task_runtime_disabled",
+                                   "task metadata requires VIBE_TASK_RUNTIME")
+                        return
+                    try:
+                        run_task = self.task_runtime.prepare_run(request_id, task_meta)
+                    except TaskRuntimeDisabled as exc:
+                        self.error(request_id, "task_runtime_disabled", str(exc))
+                        return
+                    except (TaskRuntimeError, TaskError) as exc:
+                        self.error(request_id, "task_error", f"{type(exc).__name__}: {exc}")
+                        return
                 self.active_id = request_id
                 self.cancel = asyncio.Event()
+                if run_task is not None and self.task_runtime is not None:
+                    self.send("task_state", request_id,
+                              task=self.task_runtime.payload(run_task.record))
                 self.send("status", request_id, phase="running")
                 self.active = asyncio.create_task(
-                    self.run(request_id, request["text"]) if kind == "run"
+                    self.run(request_id, request["text"], run_task) if kind == "run"
                     else self.command(request_id, request["command"], request.get("args"))
                 )
             elif kind == "cancel":
@@ -704,7 +743,13 @@ async def serve(
     if emit is None:
         stream = sys.stdout
         emit = lambda event: print(json.dumps(event, ensure_ascii=False), file=stream, flush=True)
-    connection = _Connection(agent, config, session, emit, mcp=mcp)
+    runtime_enabled = task_runtime_enabled(session.purpose)
+    task_runtime = (
+        TaskRuntime(TaskStore(session.root), workspace=config.workspace, enabled=True)
+        if runtime_enabled else None
+    )
+    interrupted = task_runtime.recover() if task_runtime is not None else []
+    connection = _Connection(agent, config, session, emit, mcp=mcp, task_runtime=task_runtime)
     if agent.approval is None:
         agent.approval = ApprovalGate(audit_path=session.audit_path)
     previous_handler = agent.approval.handler
@@ -724,6 +769,8 @@ async def serve(
     stopped = asyncio.create_task(connection.stop.wait())
     capabilities = ["run", "cancel", "steer", "approval_once", "approval_scopes", "session_recording",
                     "metrics", "history_restore", "commands", "resume"]
+    if task_runtime is not None:
+        capabilities.append("tasks")
     if agent.tools_enabled:
         capabilities.append("native_tools")
     provider = (
@@ -740,6 +787,9 @@ async def serve(
                     autonomy_label=permissions.AUTONOMY_LABELS.get(
                         agent.autonomy, agent.autonomy),
                     skills=(agent.tools.skill_entries() if agent.tools_enabled else []))
+        for record in interrupted:
+            connection.send("notice", None,
+                            message=f"检测到中断任务 {record.task_id}（未自动重放）；可用 /goal resume 或重新开始。")
         if resumed:
             connection.restore()
         await connection.publish_loaded_context()

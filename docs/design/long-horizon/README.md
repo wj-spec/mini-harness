@@ -10,7 +10,7 @@
 - **状态流转**：讨论稿（现在）→ 用户拍板/修改 → 收敛为 `docs/specs/` 下的实现切片 spec（每切片按项目规则补验收与测试）→ 实现。**本目录保留决策记录，不直接作为实现依据。**
 - **不重复裁决已有规格**：`docs/specs/multi-agent-computer-use.md` 的 G0/M1/M2/M3、`verified-completion`、`goal-mode` 等仍是权威；本目录只在其上回答“长任务/后台/模式/委派还缺什么以及怎么接”。
 
-> 进度：01–05 已确认（§9）；06–16 已完成对 01–05 的决策对齐（§9）；06–10 用户回答与 Lead 建议已确认（§10）；11–16 用户已回答（§11）。实现：任务运行时 P0 基础（TaskRecord/TaskStore）已完成，spec 见 [task-runtime](../../specs/task-runtime.md)；接下来的 integration/worker/goal spec 按 README §2 顺序推进。
+> 进度：01–05 已确认（§9）；06–16 已完成对 01–05 的决策对齐（§9）；06–10 用户回答与 Lead 建议已确认（§10）；11–16 用户已回答（§11）。实现：任务运行时 P0 基础（TaskRecord/TaskStore）与 stdio/TUI `/goal` 接入已完成（[task-runtime](../../specs/task-runtime.md)、[integration](../../specs/task-runtime-integration.md)）；下一步 02 worker/goal。
 
 ## 1 结论地图
 

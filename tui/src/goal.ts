@@ -2,6 +2,7 @@ import type {RunResult} from './protocol.js';
 
 export type GoalMode = {
   objective: string;
+  taskId?: string;
   active: boolean;
   completed: boolean;
   segment: number;

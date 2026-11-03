@@ -800,7 +800,7 @@ def test_active_task_failure_does_not_skip_cleanup_or_hide_mcp_close_error(tmp_p
         previous_handler = agent.approval.handler
         started = asyncio.Event()
 
-        async def crash(self, request_id, text):
+        async def crash(self, request_id, text, run_task=None):
             started.set()
             raise RuntimeError("worker finalizer failed")
 
