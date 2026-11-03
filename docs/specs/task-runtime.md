@@ -1,6 +1,6 @@
 # 任务运行时基础（TaskRecord / TaskStore）
 
-日期：2026-11-03。状态：spec，待实现（P0 基础切片）；对应讨论稿 [01 任务运行时](../design/long-horizon/01-task-runtime.md) §9 已确认决策 D1。
+日期：2026-11-03。状态：P0 基础实现完成（TaskRecord/TaskStore + 回归）；stdio/TUI 接入与 worker 待下一 spec。对应讨论稿 [01 任务运行时](../design/long-horizon/01-task-runtime.md) §9 已确认决策 D1。
 本文只覆盖**持久化任务身份与生命周期**；stdio/TUI 接入、worker/attach、GoalRecord、预算账本、worktree 分别见后续 spec。
 
 ## 0 第一性原理与不变量
@@ -166,6 +166,8 @@ class TaskStore:
                goal_id=None, session_id=None) -> TaskRecord
     def get(self, task_id: str) -> TaskRecord          # 不存在 TaskNotFound；损坏 TaskCorrupt
     def list(self, *, status=None, kind=None) -> list[TaskRecord]
+    def task_dir(self, task_id) -> Path                # 校验 id/符号链接；worker/测试使用
+    def read_events(self, task_id) -> list[dict]       # 只读，损坏行跳过
     def transition(self, task_id, target, *, reason=None, data=None,
                    actor="harness") -> TaskRecord
     def append_event(self, task_id, event, *, data=None, actor="harness") -> None
@@ -178,7 +180,7 @@ class TaskStore:
 
 - `TaskRuntime`（P0 可为薄封装）负责：create 后 `running`、段开始/结束、按 AgentResult 映射迁移；具体映射在 `task-runtime-integration` spec 定义。
 - `create` 只写 meta + `task_created` 事件，不拿锁、不启动执行。
-- `get/list` 只读；`list` 按 `created_at` 升序，损坏项跳过并计数。
+- `get/list` 只读；`list` 按 `created_at` 升序，损坏项跳过并计入 `store.last_list_skipped`。
 - `start_segment` 要求 status ∈ {created, running, paused} 且无活跃段；否则 `TaskBusy`/`InvalidTaskTransition`。
 - `end_segment` 校验 `run_id` 是当前活跃段；写入 SegmentRecord 的终态；随后调用方决定 task 状态。
 - `recover_stale` 只处理 running 且锁 stale 的任务：append `lock_stale_recovered` + `task_interrupted`，状态置 `interrupted`；**不执行、不重放**。

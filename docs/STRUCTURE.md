@@ -40,6 +40,7 @@ mini-harness/
     runtime/            # Agent 运行与编排
       agent.py          # 唯一运行 loop：流式 + 工具执行 + context 接入
       summarize.py      # LLM 摘要 HTTP 适配器 + 确定性回退
+      tasks.py          # TaskRecord/TaskStore：任务身份、状态机、原子写、恢复（P0 基础）
     tools/              # 工具系统
       registry.py       # 工具注册表与内置工具（read/write/bash/...）
       patch.py          # unified diff 解析、校验与 hunk 应用
@@ -139,6 +140,7 @@ mini-harness/
     test_core_dependencies.py
     test_core_layout.py
     test_app_layout.py
+    test_task_store.py
     test_app_summarize.py
     test_state.py
     test_summarize.py

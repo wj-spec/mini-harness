@@ -17,6 +17,7 @@ app/
     __init__.py
     agent.py             # 唯一 Agent loop（原 app/agent.py）
     summarize.py         # LLM 摘要 HTTP 适配器（原 app/summarize.py）
+    tasks.py             # TaskRecord/TaskStore：任务身份/状态机/原子写/恢复（P0 基础）
   tools/                 # 工具系统
     __init__.py
     registry.py          # ToolRegistry / ToolSpec 与内置工具（原 app/tools.py）
