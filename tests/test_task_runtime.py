@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.runtime.goals import GoalStore
 from app.runtime.task_runtime import (
     RunTask,
     TaskRuntime,
@@ -147,3 +148,17 @@ def test_payload_shape(runtime):
         "task_id", "kind", "status", "segment", "objective", "goal_id", "updated_at",
     }
     runtime.finish_run(run, _result("done", verified=True))
+
+def test_goal_record_is_created_and_synced(runtime):
+    run = runtime.prepare_run("run-1", _meta())
+    goals = GoalStore(runtime.store.root)
+    record = goals.load()
+    assert record is not None and record.task_id == run.task_id
+    assert record.state == "running"
+
+    runtime.finish_run(run, _result("done", verified=True))
+    loaded = goals.load()
+    assert loaded.state == "completed"
+    assert loaded.segments[-1]["run_id"] == "run-1"
+    assert loaded.segments[-1]["status"] == "done"
+

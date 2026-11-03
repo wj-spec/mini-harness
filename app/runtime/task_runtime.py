@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from app.runtime.goals import GoalError, GoalStore
 from app.runtime.tasks import (
     InvalidTaskTransition,
     TaskBusy,
@@ -35,6 +36,7 @@ class RunTask:
     segment: int
     objective: str
     record: TaskRecord
+    goal_error: str | None = None
 
 
 def task_runtime_enabled(session_purpose: str) -> bool:
@@ -75,6 +77,7 @@ class TaskRuntime:
         self.store = store
         self.workspace = str(Path(workspace).expanduser().resolve())
         self.enabled = enabled
+        self.goals = GoalStore(self.store.root)
 
     def prepare_run(self, request_id: str, meta: dict[str, Any] | None) -> RunTask | None:
         if meta is None:
@@ -94,9 +97,15 @@ class TaskRuntime:
             self.store.release_lock(record.task_id)
             raise
         record = self.store.get(record.task_id)
+        goal_error = None
+        if record.kind == "goal":
+            try:
+                self.goals.ensure_for_task(record)
+            except GoalError as exc:
+                goal_error = f"{type(exc).__name__}: {exc}"
         return RunTask(
             task_id=record.task_id, run_id=request_id, segment=segment.segment,
-            objective=record.objective, record=record,
+            objective=record.objective, record=record, goal_error=goal_error,
         )
 
     def finish_run(self, run_task: RunTask | None, result: Any) -> TaskRecord | None:
@@ -129,6 +138,11 @@ class TaskRuntime:
             )
         finally:
             self.store.release_lock(run_task.task_id)
+        if record is not None:
+            try:
+                self.goals.sync_from_task(record)
+            except GoalError:
+                pass
         return record
 
     def recover(self) -> list[TaskRecord]:

@@ -186,6 +186,7 @@ npm --prefix tui test       # TypeScript / Ink 测试
 | [任务运行时基础](docs/specs/task-runtime.md) | TaskRecord/TaskStore 的数据模型、状态机、原子写、恢复与测试口径（P0 基础切片） |
 | [任务运行时接入](docs/specs/task-runtime-integration.md) | stdio `run.task`、`task_state` 事件、TUI `/goal` 接入、capability 门控与兼容回退 |
 | [后台进程监督](docs/specs/process-supervision.md) | worker 状态/心跳/判死、`--tasks`、`--worker/--attach`（P0a/P0b 已实现；TUI detach 随后） |
+| [GoalRecord](docs/specs/goal-record.md) | 跨段目标 schema v2、goal.json 迁移、段账本同步（P0 已实现） |
 | [规格](docs/specs/) | 每个功能切片的 spec、边界与验收口径 |
 | [Benchmark 适配（Harbor）](bench/README.md) | SWE-bench Verified / Terminal-Bench 2.1 的 Harbor 接入、单题 smoke 与限制 |
 | [调研](docs/research/) | TUI、评测、沙箱、上下文等选型记录 |

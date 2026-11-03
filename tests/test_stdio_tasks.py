@@ -79,6 +79,10 @@ def test_goal_run_creates_task(tmp_path, monkeypatch):
         meta = json.loads((_task_dir(session, task_id) / "meta.json").read_text(encoding="utf-8"))
         assert meta["kind"] == "goal" and meta["status"] == "completed"
         assert meta["segments"][0]["run_id"] == "r1"
+        goal = json.loads((session.root / "goal-record.json").read_text(encoding="utf-8"))
+        assert goal["task_id"] == task_id
+        assert goal["state"] == "completed"
+        assert goal["segments"][0]["run_id"] == "r1"
         state_index = next(index for index, event in enumerate(harness.events)
                            if event["type"] == "task_state" and event["id"] == "r1")
         done_index = next(index for index, event in enumerate(harness.events)
