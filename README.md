@@ -183,6 +183,7 @@ npm --prefix tui test       # TypeScript / Ink 测试
 | [建设方向](docs/roadmap.md) | 长期方向、阶段取舍与界面 / 全栈学习路径 |
 | [文件规划](docs/STRUCTURE.md) | 目录职责、依赖方向与新增文件约定 |
 | [完成守卫与环境审计](docs/specs/verified-completion.md) | 完成判定、文件变动账本、轮次记录与只读审计的行为/边界 |
+| [任务运行时基础](docs/specs/task-runtime.md) | TaskRecord/TaskStore 的数据模型、状态机、原子写、恢复与测试口径（P0 基础切片） |
 | [规格](docs/specs/) | 每个功能切片的 spec、边界与验收口径 |
 | [Benchmark 适配（Harbor）](bench/README.md) | SWE-bench Verified / Terminal-Bench 2.1 的 Harbor 接入、单题 smoke 与限制 |
 | [调研](docs/research/) | TUI、评测、沙箱、上下文等选型记录 |

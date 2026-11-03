@@ -174,6 +174,7 @@ mini-harness/
     STRUCTURE.md        # 本文件
     assets/             # README 与规格文档使用的图片
     specs/              # 每个切片的 spec
+      task-runtime.md   # 任务运行时基础：TaskRecord/TaskStore 数据模型、状态机与恢复
     design/             # 未来方向的分块讨论（长任务/后台/进阶模式/子 Agent），拍板后收敛为 spec
     history/            # 旧 M1–M8 模块建设计划
 

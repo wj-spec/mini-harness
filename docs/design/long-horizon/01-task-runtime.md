@@ -2,7 +2,7 @@
 
 > 状态：讨论稿（2026-11-02；2026-11-03 部分决策已确认，见 §9）；不是 spec，未承诺实现。
 > 所属：长任务与后台任务 / 第 1 块（任务模型与编排权）
-> 前置/相关：[02 后台进程监督](02-process-supervision.md)、[05 跨段目标状态](05-goal-state.md)、[06 预算账本](06-budget-ledger.md)；相关规格：[goal-mode](../../specs/goal-mode.md)、[multi-agent-computer-use](../../specs/multi-agent-computer-use.md)
+> 前置/相关：[02 后台进程监督](02-process-supervision.md)、[05 跨段目标状态](05-goal-state.md)、[06 预算账本](06-budget-ledger.md)；相关规格：[task-runtime 实现 spec](../../specs/task-runtime.md)（P0 基础）；[goal-mode](../../specs/goal-mode.md)、[multi-agent-computer-use](../../specs/multi-agent-computer-use.md)
 
 ## 1 问题与范围
 
