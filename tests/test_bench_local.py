@@ -16,7 +16,8 @@ def test_workspace_excludes_benchmark_fixtures(tmp_path):
     workspace = tmp_path / "workspace"
     bench.build_workspace(workspace)
 
-    assert (workspace / "core" / "context.py").is_file()
+    assert (workspace / "core" / "context" / "builder.py").is_file()
+    assert (workspace / "app" / "runtime" / "agent.py").is_file()
     assert (workspace / ".git").is_dir()
     assert not workspace.is_relative_to(Path(__file__).resolve().parents[1])
     for relative in ("benchmarks", "scripts/bench_local.py", "docs/specs/local-coding-benchmark.md",
