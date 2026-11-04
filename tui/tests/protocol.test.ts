@@ -264,3 +264,11 @@ test('accepts task_state snapshots only when well-formed', () => {
   }
   assert.throws(() => parseServerEvent(JSON.stringify({v: 1, type: 'task_state', id: null, task})));
 });
+test('accepts optional task hints on ready', () => {
+  const base = {v: 1, type: 'ready', id: null, workspace: '/repo', model: 'fake', session_id: 's',
+    capabilities: ['tasks']};
+  assert.equal(parseServerEvent(JSON.stringify({...base, tasks: [
+    {task_id: 't-20261103-120000-abcdef', kind: 'goal', status: 'paused', worker_status: null, stale: false},
+  ]})).type, 'ready');
+  assert.throws(() => parseServerEvent(JSON.stringify({...base, tasks: [{task_id: 'x'}]})));
+});

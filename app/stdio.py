@@ -34,13 +34,45 @@ MAX_FRAME_BYTES = 1024 * 1024
 _OVERSIZED = object()
 COMMANDS = frozenset({
     "resume", "permissions", "permissions_reset", "cost", "tools", "diff", "mcp",
-    "skills", "evidence", "autonomy",
+    "skills", "evidence", "autonomy", "tasks",
 })
 COMPLETION_CODE_LABELS = {
     "no_verification": "有文件改动但没有验证命令",
     "mutation_after_verification": "最后一次改动发生在验证之后",
     "last_verification_failed": "最后一次验证命令失败",
 }
+def _task_hints(session_root) -> list[dict]:
+    try:
+        from app.runtime.supervise import WorkerSupervisor
+
+        return [
+            {
+                "task_id": snapshot.task.task_id,
+                "kind": snapshot.task.kind,
+                "status": snapshot.task.status,
+                "worker_status": snapshot.worker.status if snapshot.worker is not None else None,
+                "stale": snapshot.stale,
+            }
+            for snapshot in WorkerSupervisor(session_root).snapshot()
+        ]
+    except Exception:
+        return []
+
+
+def _format_task_hints(hints: list[dict]) -> str:
+    if not hints:
+        return "当前会话没有任务记录。"
+    lines = ["任务："]
+    for hint in hints:
+        worker = hint.get("worker_status") or "-"
+        stale = "!" if hint.get("stale") else ""
+        lines.append(
+            f"- {hint['task_id']}  {hint['kind']}  {hint['status']}  worker={worker}{stale}"
+        )
+    lines.append("用 --attach --task-id <id> --session <id> 观察运行中的 worker。")
+    return "\n".join(lines)
+
+
 RESUME_INSTRUCTION = (
     "继续上次暂停的任务，开启新一轮预算。先核对已保存的进度和未执行操作；"
     "对于结果未知的写入或命令，先检查实际文件与执行结果，禁止直接重放。"
@@ -348,6 +380,8 @@ class _Connection:
                         text += "\n" + "\n".join(self.mcp.errors)
             elif command == "evidence":
                 text = format_round_evidence(self.session.latest_round())
+            elif command == "tasks":
+                text = _format_task_hints(_task_hints(self.session.root))
             elif command == "autonomy":
                 requested = (args or {}).get("level")
                 if requested not in permissions.AUTONOMY_LEVELS:
@@ -781,7 +815,8 @@ async def serve(
     try:
         connection.send("ready", workspace=str(config.workspace.resolve()), model=config.model,
                         session_id=session.id, session_path=str(session.root.resolve()),
-                    provider=provider, capabilities=capabilities, resumed=resumed,
+                    provider=provider, capabilities=capabilities,
+                    tasks=_task_hints(session.root), resumed=resumed,
                     session_purpose=session.purpose,
                     autonomy=agent.autonomy,
                     autonomy_label=permissions.AUTONOMY_LABELS.get(

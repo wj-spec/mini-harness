@@ -36,6 +36,7 @@ type Scroll = {follow: boolean; top: number};
 const backendCommands: Record<string, BackendCommand> = {
   '/resume': 'resume', '/continue': 'resume', '/permissions': 'permissions', '/permissions reset': 'permissions_reset',
   '/cost': 'cost', '/costs': 'cost', '/tools': 'tools', '/diff': 'diff', '/mcp': 'mcp', '/evidence': 'evidence',
+  '/task': 'tasks', '/tasks': 'tasks',
 };
 const approvalKeys: Record<string, ApprovalDecision> = {y: 'once', s: 'session', p: 'workspace', n: 'deny'};
 const FAKE_DEMO_PROMPT = '创建 .vibe/fake-demo.txt 并验证';
@@ -199,6 +200,11 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       }
     }
     if (event.type === 'approval_request') {setDetail(null); setContextOpen(false); answeredApproval.current = null;}
+    if (event.type === 'ready' && event.tasks && event.tasks.length) {
+      const running = event.tasks.filter(task => task.worker_status && task.worker_status !== 'exited' && task.worker_status !== 'failed' && task.worker_status !== 'interrupted');
+      const summary = event.tasks.slice(0, 5).map(task => `${task.task_id} ${task.status}${task.worker_status ? `/${task.worker_status}` : ''}`).join('；');
+      dispatch({type: 'notice', text: `检测到 ${event.tasks.length} 个任务${running.length ? `（${running.length} 个后台 worker 活跃）` : ''}：${summary}${event.tasks.length > 5 ? ' …' : ''}\n输入 /task 查看；后台任务可用 --attach 观察。`});
+    }
     if (event.type === 'task_state' && event.id === activeRun.current) {
       const current = goalRef.current;
       if (current && current.taskId !== event.task.task_id) {

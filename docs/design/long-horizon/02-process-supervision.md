@@ -1,7 +1,7 @@
 # 02 后台进程监督
 
 > 状态：讨论稿（2026-11-02；2026-11-03 部分决策已确认，见 §9）；不是 spec，未承诺实现。
-> 实现：P0a 监督基础、P0b worker/attach CLI、P0c TUI 退出提示+后台 worker 启动已实现（启动检测/完整 attach UI 后续），见 [process-supervision spec](../../specs/process-supervision.md)。
+> 实现：P0a 监督基础、P0b worker/attach CLI、P0c TUI 退出提示+后台 worker 启动+启动任务提示/`/task` 已实现（TUI 内 attach 重连 UI 后续），见 [process-supervision spec](../../specs/process-supervision.md)。
 > 所属：长任务与后台任务 / 第 2 块（进程生命周期与恢复）
 > 前置/相关：[01 任务运行时](01-task-runtime.md)、[05 跨段目标状态](05-goal-state.md)、[06 预算账本](06-budget-ledger.md)；相关规格：[goal-mode](../../specs/goal-mode.md)、[w2-w3-acceptance](../../specs/w2-w3-acceptance.md)
 

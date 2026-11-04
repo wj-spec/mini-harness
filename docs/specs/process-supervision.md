@@ -1,6 +1,6 @@
 # 后台进程监督（Worker / Supervisor）
 
-日期：2026-11-03。状态：P0a 基础实现完成（worker 状态/心跳/判死/`--tasks`）；P0b worker/attach CLI 基础实现（单 segment、socket 回放、审批无 attach 时 fail closed）；P0c TUI 退出提示 + 后台 worker 启动已实现（启动检测/完整 attach UI 后续）。
+日期：2026-11-03。状态：P0a 基础实现完成（worker 状态/心跳/判死/`--tasks`）；P0b worker/attach CLI 基础实现（单 segment、socket 回放、审批无 attach 时 fail closed）；P0c TUI 退出提示、后台 worker 启动、启动任务提示 + `/task` 已实现（TUI 内 attach 重连 UI 后续）。
 对应讨论稿：[02 后台进程监督](../design/long-horizon/02-process-supervision.md)（§9 已确认）、[01 任务运行时](../design/long-horizon/01-task-runtime.md)。
 依赖：[task-runtime](task-runtime.md)（TaskRecord/TaskStore）、[task-runtime-integration](task-runtime-integration.md)（run.task/task_state）。
 

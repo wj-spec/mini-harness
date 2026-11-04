@@ -161,3 +161,22 @@ def test_stale_task_is_recovered_and_announced(tmp_path, monkeypatch):
         await harness.close()
 
     asyncio.run(scenario())
+
+
+def test_tasks_command_and_ready_hint(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    store = TaskStore(session.root)
+    task = store.create(kind="goal", objective="已有任务", workspace=str(tmp_path), mode="goal")
+
+    async def scenario():
+        harness = Harness(_agent(tmp_path), Config(workspace=tmp_path), session)
+        ready = await harness.until("ready")
+        assert any(item["task_id"] == task.task_id for item in ready.get("tasks", []))
+        harness.send("command", "c1", command="tasks")
+        result = await harness.until("command_result", "c1")
+        assert task.task_id in result["text"]
+        assert "worker=" in result["text"]
+        await harness.close()
+
+    asyncio.run(scenario())

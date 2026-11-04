@@ -319,6 +319,21 @@ test('/goal quit prompt offers background handoff when a task exists', async () 
   }
 });
 
+test('/task lists session tasks and startup hints are visible', async () => {
+  const client = new MockClient();
+  const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}/>);
+  await pause(20);
+  client.emit({type: 'ready', workspace: '/repo', model: 'fake', session_id: 's', capabilities: [], tasks: [
+    {task_id: 't-20261103-120000-abcdef', kind: 'goal', status: 'paused', worker_status: 'running', stale: false},
+  ]});
+  client.emit({type: 'status', phase: 'idle'});
+  await pause(30);
+  assert.match(lastFrame() ?? '', /检测到 1 个任务/);
+  await enter(stdin, '/task');
+  await pause(20);
+  assert.deepEqual(client.commands, ['tasks']);
+  assert.match(lastFrame() ?? '', /\/task/);
+});
 test('a startup error is labeled before the backend closes', async () => {
   const client = new MockClient();
   const {lastFrame} = render(<App client={client as unknown as BackendClient}/>);
@@ -565,12 +580,12 @@ test('slash opens a scrollable command menu without overflowing the frame', asyn
   let frame = lastFrame() ?? '';
   assert.match(frame, /› \/help/);
   assert.match(frame, /查看操作帮助/);
-  assert.match(frame, /↑↓ 选择 · Tab 填充 · 1\/27/);
+  assert.match(frame, /↑↓ 选择 · Tab 填充 · 1\/29/);
   assert.ok(frame.split('\n').length <= 24);
   for (const line of frame.split('\n')) assert.ok(stringWidth(line) <= 80, line);
   stdin.write('\u001b[B');
   await pause(15);
-  assert.match(lastFrame() ?? '', /2\/27/);
+  assert.match(lastFrame() ?? '', /2\/29/);
   stdin.write('\t');
   await pause(15);
   frame = lastFrame() ?? '';
