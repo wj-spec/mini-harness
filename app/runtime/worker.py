@@ -182,6 +182,7 @@ class Worker:
         self.goal_store = GoalStore(session_root)
         self.goal_record = None
         self.inbox = ApprovalInbox(session_root)
+        self.controller: asyncio.StreamWriter | None = None
         self.active_run_id: str | None = None
         self.approval_timed_out = False
         self.workspace_lock: WorkspaceLock | None = None
@@ -535,8 +536,47 @@ class Worker:
             pass
 
     async def _client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-        self.clients.add(writer)
+        mode = "observe"
+        take_control = False
         try:
+            first = await asyncio.wait_for(reader.readline(), 10)
+            if not first:
+                return
+            try:
+                handshake = json.loads(first.decode("utf-8", errors="replace"))
+            except json.JSONDecodeError:
+                await self._send_writer(writer, {
+                    "v": 1, "type": "error", "id": None,
+                    "code": "attach_required", "message": "first frame must be attach",
+                })
+                return
+            mode = str(handshake.get("mode") or "observe")
+            take_control = bool(handshake.get("take_control"))
+            if mode not in {"control", "observe"}:
+                await self._send_writer(writer, {
+                    "v": 1, "type": "error", "id": None,
+                    "code": "attach_invalid", "message": "mode must be control or observe",
+                })
+                return
+            if mode == "control":
+                if self.controller is not None:
+                    if not take_control:
+                        await self._send_writer(writer, {
+                            "v": 1, "type": "error", "id": None,
+                            "code": "attach_denied",
+                            "message": "another controller is attached; use take_control",
+                        })
+                        return
+                    previous = self.controller
+                    self.controller = None
+                    await self._send_writer(previous, {
+                        "v": 1, "type": "error", "id": None,
+                        "code": "control_taken", "message": "another client took control",
+                    })
+                    previous.close()
+                self.controller = writer
+            self.clients.add(writer)
+            await self._send_writer(writer, {"v": 1, "type": "attach_ok", "id": None, "mode": mode})
             events_path = self.task_dir / WORKER_EVENTS_FILE
             if events_path.is_file():
                 for line in events_path.read_text(encoding="utf-8").splitlines():
@@ -562,6 +602,13 @@ class Worker:
                     continue
                 if not isinstance(frame, dict) or frame.get("v") != 1:
                     continue
+                if mode == "observe":
+                    await self._send_writer(writer, {
+                        "v": 1, "type": "error", "id": frame.get("id"),
+                        "code": "observer_readonly",
+                        "message": "observe clients cannot send control frames",
+                    })
+                    continue
                 if frame.get("type") == "approval":
                     approval_id = frame.get("approval_id")
                     decision = frame.get("decision")
@@ -573,22 +620,30 @@ class Worker:
                                 decided_by="attach", decider="user",
                             )
                         except ApprovalError as exc:
-                            writer.write((json.dumps({
+                            await self._send_writer(writer, {
                                 "v": 1, "type": "error", "id": frame.get("id"),
                                 "code": "approval_mismatch", "message": str(exc),
-                            }) + "\n").encode("utf-8"))
-                            await writer.drain()
+                            })
                             continue
                 await self.queue.put(text)
         except (ConnectionError, OSError):
             pass
         finally:
             self.clients.discard(writer)
+            if self.controller is writer:
+                self.controller = None
             writer.close()
             try:
                 await writer.wait_closed()
             except (ConnectionError, OSError):
                 pass
+
+    async def _send_writer(self, writer: asyncio.StreamWriter, payload: dict[str, Any]) -> None:
+        try:
+            writer.write((json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8"))
+            await writer.drain()
+        except (ConnectionError, OSError):
+            pass
 
 
 def run_worker(session_root: Path, task_id: str, workspace: Path,
@@ -606,7 +661,7 @@ def run_worker(session_root: Path, task_id: str, workspace: Path,
         return 130
 
 
-async def _attach_async(session_root: Path, task_id: str) -> int:
+async def _attach_async(session_root: Path, task_id: str, *, mode: str = "observe", take_control: bool = False) -> int:
     store = TaskStore(session_root)
     task_dir = store.task_dir(task_id)
     path = socket_path(task_dir, task_id)
@@ -618,6 +673,32 @@ async def _attach_async(session_root: Path, task_id: str) -> int:
     except OSError as exc:
         print(f"cannot attach: {exc}", file=sys.stderr)
         return 1
+
+    try:
+        writer.write((json.dumps({
+            "v": 1, "type": "attach", "id": f"attach-{uuid.uuid4().hex[:8]}",
+            "mode": mode, "take_control": take_control,
+        }) + "\n").encode("utf-8"))
+        await writer.drain()
+        handshake = await asyncio.wait_for(reader.readline(), 5)
+    except (OSError, asyncio.TimeoutError) as exc:
+        print(f"attach handshake failed: {exc}", file=sys.stderr)
+        writer.close()
+        return 1
+    if not handshake:
+        print("attach handshake closed", file=sys.stderr)
+        writer.close()
+        return 1
+    try:
+        reply = json.loads(handshake.decode("utf-8", errors="replace"))
+    except json.JSONDecodeError:
+        print("attach handshake returned invalid JSON", file=sys.stderr)
+        writer.close()
+        return 1
+    if reply.get("type") == "error":
+        print(f"attach denied: {reply.get('message')}", file=sys.stderr)
+        writer.close()
+        return 2
 
     async def output() -> None:
         while True:
@@ -638,10 +719,10 @@ async def _attach_async(session_root: Path, task_id: str) -> int:
                 await writer.drain()
 
     try:
-        await asyncio.wait([
-            asyncio.create_task(output()),
-            asyncio.create_task(input_pump()),
-        ], return_when=asyncio.FIRST_COMPLETED)
+        tasks = [asyncio.create_task(output())]
+        if mode == "control":
+            tasks.append(asyncio.create_task(input_pump()))
+        await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
     finally:
         writer.close()
         try:
@@ -651,8 +732,8 @@ async def _attach_async(session_root: Path, task_id: str) -> int:
     return 0
 
 
-def attach_worker(session_root: Path, task_id: str) -> int:
+def attach_worker(session_root: Path, task_id: str, *, mode: str = "observe", take_control: bool = False) -> int:
     try:
-        return asyncio.run(_attach_async(session_root, task_id))
+        return asyncio.run(_attach_async(session_root, task_id, mode=mode, take_control=take_control))
     except KeyboardInterrupt:
         return 130

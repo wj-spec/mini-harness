@@ -23,7 +23,8 @@ export interface AttachOptions {
 
 export function backendSpawnArgs(args: readonly string[], attach?: AttachOptions): string[] {
   if (attach) {
-    return ['--attach', '--task-id', attach.taskId, '--session', attach.session, ...args];
+    return ['--attach', '--task-id', attach.taskId, '--session', attach.session,
+      '--mode', 'control', ...args];
   }
   return ['--stdio', ...args];
 }

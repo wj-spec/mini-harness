@@ -155,6 +155,7 @@ mini-harness/
     test_supervise.py
     test_cli_tasks.py
     test_worker.py
+    test_worker_attach_control.py
     test_goals.py
     test_budget_ledger.py
     test_approvals.py

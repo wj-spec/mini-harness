@@ -1,6 +1,6 @@
 # 控制面 attach（TUI 连接运行中 worker，P0）
 
-日期：2026-11-03。状态：TUI attach 基础实现（`--attach-task` + `--session`，复用 worker `--attach` 中继）；v2 帧/controller 租约/observer 权限仍待后续。
+日期：2026-11-03。状态：TUI attach 基础 + worker 的 controller/observer 握手已实现（首个 control 为 controller，observer 只读，`--take-control` 显式接管；连接生命周期即租约）；v2 task/approval 帧与正式租约心跳仍待后续。
 对应讨论稿：[07 控制面与协议](../design/long-horizon/07-control-plane.md)（§9/§10 已确认）。
 依赖：[process-supervision](process-supervision.md)、[task-runtime-integration](task-runtime-integration.md)。
 

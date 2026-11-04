@@ -90,6 +90,8 @@ def main() -> None:
     parser.add_argument("--tasks", action="store_true", help="只读列出最近会话的任务与 worker 状态")
     parser.add_argument("--worker", action="store_true", help="后台 worker：执行一个 task segment 并暴露 attach socket")
     parser.add_argument("--attach", action="store_true", help="attach 到运行中的 worker（JSONL 回放 + live）")
+    parser.add_argument("--mode", choices=["observe", "control"], default="observe", help="attach 模式：observe/control")
+    parser.add_argument("--take-control", action="store_true", help="接管已有 controller")
     parser.add_argument("--task-id", default=None, metavar="TASK_ID", help="--worker/--attach 的目标任务")
     parser.add_argument("--merge-task", default=None, metavar="TASK_ID", help="合并 worktree 任务（先请求/校验审批）")
     parser.add_argument("--approve-merge", default=None, metavar="APPROVAL_ID", help="批准并执行 merge（需 --merge-task）")
@@ -123,6 +125,9 @@ def main() -> None:
     if args.worker or args.attach:
         if not args.task_id or args.session is None:
             parser.error("--worker/--attach require --task-id and --session")
+        if args.mode != "observe" or args.take_control:
+            if not args.attach:
+                parser.error("--mode/--take-control require --attach")
         if args.stdio or args.eval or args.eval_limit is not None or args.eval_tasks is not None:
             parser.error("--worker/--attach cannot be combined with --stdio/--eval")
         if args.list_sessions or args.task is not None or args.continue_session or args.tasks or args.bench:
@@ -261,7 +266,10 @@ def main() -> None:
             raise SystemExit(2)
         if args.attach:
             from app.runtime.worker import attach_worker
-            raise SystemExit(attach_worker(session.root, args.task_id))
+            raise SystemExit(attach_worker(
+                session.root, args.task_id, mode=args.mode,
+                take_control=args.take_control,
+            ))
         child_args = [sys.executable, "-m", "app", "--stdio",
                       "--workspace", str(config.workspace), "--session", session.id]
         if args.fake:
