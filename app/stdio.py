@@ -469,6 +469,8 @@ class _Connection:
 
         def record_trace(event):
             nonlocal terminal_trace, observed_tools
+            if run_task is not None and self.task_runtime is not None:
+                self.task_runtime.record_trace(run_task, event)
             trace_identity.update({key: event[key] for key in ("run_id", "model") if key in event})
             if event["type"] == "context_snapshot":
                 self.session.append_trace(event)

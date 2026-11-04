@@ -83,6 +83,11 @@ def test_goal_run_creates_task(tmp_path, monkeypatch):
         assert goal["task_id"] == task_id
         assert goal["state"] == "completed"
         assert goal["segments"][0]["run_id"] == "r1"
+        budget = [json.loads(line) for line in (session.root / "budget.jsonl").read_text(
+            encoding="utf-8").splitlines() if line.strip()]
+        assert any(entry["entry_kind"] == "task_close" and entry["terminal_status"] == "completed"
+                   for entry in budget)
+        assert any(entry["entry_kind"] == "llm" for entry in budget)
         state_index = next(index for index, event in enumerate(harness.events)
                            if event["type"] == "task_state" and event["id"] == "r1")
         done_index = next(index for index, event in enumerate(harness.events)

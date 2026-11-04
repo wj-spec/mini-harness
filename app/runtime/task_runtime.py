@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from app.runtime.budget import BudgetError, BudgetLedger
 from app.runtime.goals import GoalError, GoalStore
 from app.runtime.tasks import (
     InvalidTaskTransition,
@@ -78,6 +79,7 @@ class TaskRuntime:
         self.workspace = str(Path(workspace).expanduser().resolve())
         self.enabled = enabled
         self.goals = GoalStore(self.store.root)
+        self.budget = BudgetLedger(self.store.root)
 
     def prepare_run(self, request_id: str, meta: dict[str, Any] | None) -> RunTask | None:
         if meta is None:
@@ -107,6 +109,19 @@ class TaskRuntime:
             task_id=record.task_id, run_id=request_id, segment=segment.segment,
             objective=record.objective, record=record, goal_error=goal_error,
         )
+
+    def record_trace(self, run_task: RunTask | None, event: dict[str, Any]) -> None:
+        if run_task is None:
+            return
+        record = run_task.record
+        try:
+            self.budget.on_trace(
+                task_id=run_task.task_id, goal_id=record.goal_id,
+                parent_id=record.parent_id, node_kind=record.kind,
+                segment=run_task.segment, run_id=run_task.run_id, event=event,
+            )
+        except BudgetError:
+            pass
 
     def finish_run(self, run_task: RunTask | None, result: Any) -> TaskRecord | None:
         if run_task is None:
@@ -139,6 +154,21 @@ class TaskRuntime:
         finally:
             self.store.release_lock(run_task.task_id)
         if record is not None:
+            try:
+                self.budget.close_segment(
+                    task_id=run_task.task_id, goal_id=record.goal_id,
+                    parent_id=record.parent_id, node_kind=record.kind,
+                    segment=run_task.segment, run_id=run_task.run_id,
+                    status=segment_status, stop_reason=reason,
+                )
+                if record.status in {"completed", "failed", "cancelled"}:
+                    self.budget.close_task(
+                        task_id=run_task.task_id, goal_id=record.goal_id,
+                        parent_id=record.parent_id, node_kind=record.kind,
+                        status=record.status, reason=reason,
+                    )
+            except BudgetError:
+                pass
             try:
                 self.goals.sync_from_task(record)
             except GoalError:

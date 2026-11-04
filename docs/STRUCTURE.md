@@ -151,6 +151,7 @@ mini-harness/
     test_cli_tasks.py
     test_worker.py
     test_goals.py
+    test_budget.py
     test_app_summarize.py
     test_state.py
     test_summarize.py
@@ -190,6 +191,7 @@ mini-harness/
       task-runtime-integration.md  # 任务运行时接入：stdio run.task、task_state、TUI /goal
       process-supervision.md       # 后台进程监督：worker 状态/心跳/--tasks（P0a）
       goal-record.md              # GoalRecord：目标 schema v2、迁移与段同步（P0）
+      budget-ledger.md            # 预算账本：budget.jsonl、trace 接线与终态结算（P0）
     design/             # 未来方向的分块讨论（长任务/后台/进阶模式/子 Agent），拍板后收敛为 spec
     history/            # 旧 M1–M8 模块建设计划
 
