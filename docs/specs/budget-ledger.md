@@ -1,6 +1,6 @@
 # 预算账本（BudgetLedger，P0）
 
-日期：2026-11-03。状态：P0 实现完成（append-only `budget.jsonl` + TaskRuntime/stdio 接线）；硬上限执行、预留、per-child 在 P1。
+日期：2026-11-03。状态：P0 实现完成 + P1 `check_start` 硬上限已接 TaskRuntime（`VIBE_TASK_BUDGET_HARD=1` 时按 task budget 拒绝启动）；记账/终态；预留、per-child、soft-budget 体验仍待后续。
 对应讨论稿：[06 预算账本](../design/long-horizon/06-budget-ledger.md)（§9/§10 已确认）。
 依赖：[task-runtime](task-runtime.md)、[goal-record](goal-record.md)。
 

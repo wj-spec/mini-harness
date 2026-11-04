@@ -179,6 +179,40 @@ class BudgetLedger:
             "tool_calls": tool_calls, "entries": entries,
         }
 
+    def check_start(
+        self, task_id: str, *,
+        max_tokens: int = 0, max_wall_seconds: float = 0,
+        started_at: str | None = None, now: Any = None,
+    ) -> dict[str, Any]:
+        totals = self.totals(task_id=task_id)
+        if max_tokens > 0 and totals["tokens_total"] >= max_tokens:
+            return {
+                "allowed": False, "reason": "task_token_budget",
+                "used_tokens": totals["tokens_total"], "limit_tokens": max_tokens,
+                "remaining_tokens": 0,
+            }
+        if max_wall_seconds > 0 and started_at:
+            from datetime import datetime, timezone
+            current = now or datetime.now(timezone.utc)
+            try:
+                started = datetime.fromisoformat(started_at)
+                if started.tzinfo is None:
+                    started = started.replace(tzinfo=timezone.utc)
+                elapsed = (current - started).total_seconds()
+            except (ValueError, TypeError):
+                elapsed = 0.0
+            if elapsed >= max_wall_seconds:
+                return {
+                    "allowed": False, "reason": "task_wall_budget",
+                    "used_seconds": elapsed, "limit_seconds": max_wall_seconds,
+                    "remaining_seconds": 0,
+                }
+        return {
+            "allowed": True, "reason": None,
+            "used_tokens": totals["tokens_total"], "limit_tokens": max_tokens,
+            "remaining_tokens": max(0, max_tokens - totals["tokens_total"]) if max_tokens else 0,
+        }
+
     def task_terminal(self, task_id: str) -> str | None:
         for entry in reversed(self.entries(task_id=task_id)):
             if entry.get("entry_kind") == "task_close":

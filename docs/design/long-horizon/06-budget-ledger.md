@@ -1,7 +1,7 @@
 # 06 预算账本
 
 > 状态：讨论稿（2026-11-02；2026-11-03 01–05 决策对齐见 §9，用户回答见 §10）；不是 spec，未承诺实现。
-> 实现：P0 账本（budget.jsonl + TaskRuntime/stdio 接线 + 终态结算）已实现，见 [budget-ledger spec](../../specs/budget-ledger.md)；硬上限/预留/per-child 在 P1。
+> 实现：P0 账本 + P1 `check_start` 硬上限（`VIBE_TASK_BUDGET_HARD=1`）已实现，见 [budget-ledger spec](../../specs/budget-ledger.md)；预留/per-child/TUI 预算提示后续。
 > 所属：长任务与后台任务 / 第 6 块（预算、成本与资源账本）
 > 前置/相关：[01 任务运行时](01-task-runtime.md)、[02 后台进程监督](02-process-supervision.md)、[05 跨段目标状态](05-goal-state.md)、[16 子 Agent](16-subagent-integration.md)；相关规格：[practical-use-reliability](../../specs/practical-use-reliability.md)、[history-compression](../../specs/history-compression.md)、[goal-mode](../../specs/goal-mode.md)
 

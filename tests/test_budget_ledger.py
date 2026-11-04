@@ -67,3 +67,23 @@ def test_task_runtime_hooks_ledger(tmp_path):
     kinds = [entry["entry_kind"] for entry in budget.entries(task_id=run.task_id)]
     assert kinds.count("segment_close") == 1
     assert kinds.count("task_close") == 1
+
+
+def test_check_start_hard_budget(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from app.runtime.task_runtime import TaskBudgetExceeded, TaskRuntime
+    from app.runtime.tasks import TaskStore
+
+    session = tmp_path / "session"
+    store = TaskStore(session)
+    task = store.create(kind="goal", objective="预算硬上限", workspace=str(tmp_path), mode="goal",
+                        budget={"max_goal_tokens": 5})
+    runtime = TaskRuntime(store, workspace=tmp_path)
+    run = runtime.prepare_run("run-1", {"kind": "goal", "task_id": task.task_id, "objective": "预算硬上限"})
+    runtime.record_trace(run, {"type": "llm_end", "prompt_tokens": 4, "completion_tokens": 2,
+                               "cost_usd": 0, "usage_estimated": False})
+    runtime.finish_run(run, SimpleNamespace(status="stopped", verified=None, stop_reason="max_run_seconds"))
+    monkeypatch.setenv("VIBE_TASK_BUDGET_HARD", "1")
+    with pytest.raises(TaskBudgetExceeded):
+        runtime.prepare_run("run-2", {"kind": "goal", "task_id": task.task_id, "objective": "预算硬上限"})

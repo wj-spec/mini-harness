@@ -15,7 +15,8 @@ from dataclasses import asdict, replace
 from app.runtime.agent import Agent, AgentResult
 from app.runtime.tasks import TaskError, TaskStore
 from app.runtime.task_runtime import (
-    TaskRuntime, TaskRuntimeDisabled, TaskRuntimeError, task_runtime_enabled,
+    TaskBudgetExceeded, TaskRuntime, TaskRuntimeDisabled, TaskRuntimeError,
+    task_runtime_enabled,
 )
 from app.safety import permissions
 from app.config import Config
@@ -724,6 +725,9 @@ class _Connection:
                         run_task = self.task_runtime.prepare_run(request_id, task_meta)
                     except TaskRuntimeDisabled as exc:
                         self.error(request_id, "task_runtime_disabled", str(exc))
+                        return
+                    except TaskBudgetExceeded as exc:
+                        self.error(request_id, "task_budget_exceeded", str(exc))
                         return
                     except (TaskRuntimeError, TaskError) as exc:
                         self.error(request_id, "task_error", f"{type(exc).__name__}: {exc}")

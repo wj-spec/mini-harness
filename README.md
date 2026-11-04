@@ -187,7 +187,7 @@ npm --prefix tui test       # TypeScript / Ink 测试
 | [任务运行时接入](docs/specs/task-runtime-integration.md) | stdio `run.task`、`task_state` 事件、TUI `/goal` 接入、capability 门控与兼容回退 |
 | [后台进程监督](docs/specs/process-supervision.md) | worker 状态/心跳/判死、`--tasks`、`--worker/--attach`、TUI 退出转入后台、启动任务提示/`/task`（P0a/P0b/P0c 基础已实现） |
 | [GoalRecord](docs/specs/goal-record.md) | 跨段目标 schema v2、goal.json 迁移、段账本同步、worker 续段提示/决策（P0/P1a 已实现） |
-| [预算账本](docs/specs/budget-ledger.md) | task/goal/segment 的 append-only budget.jsonl、trace 接线与终态结算（P0 已实现） |
+| [预算账本](docs/specs/budget-ledger.md) | task/goal/segment 的 append-only budget.jsonl、trace 接线、终态结算与 check_start 硬上限（P0/P1 部分已实现） |
 | [审批收件箱](docs/specs/approval-inbox.md) | approvals.jsonl、一次性审批/过期/归属/脱敏、worker 接线与 approval_timeout、`/approvals` 列表（P0/P1 部分已实现；TUI 决定 UI 后续） |
 | [工作区隔离](docs/specs/workspace-isolation.md) | workspace 单写者锁、git worktree、worker 接线、MergeGate（审批/漂移/脏工作区拦截）（P0/P1 部分已实现） |
 | [规格](docs/specs/) | 每个功能切片的 spec、边界与验收口径 |

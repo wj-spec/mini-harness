@@ -30,6 +30,12 @@ class TaskRuntimeDisabled(TaskRuntimeError):
     pass
 
 
+class TaskBudgetExceeded(TaskRuntimeError):
+    def __init__(self, check: dict[str, Any]):
+        self.check = check
+        super().__init__(f"budget exceeded: {check.get('reason')}")
+
+
 @dataclass(frozen=True)
 class RunTask:
     task_id: str
@@ -81,6 +87,10 @@ class TaskRuntime:
         self.goals = GoalStore(self.store.root)
         self.budget = BudgetLedger(self.store.root)
 
+    @staticmethod
+    def _budget_hard_enabled() -> bool:
+        return os.getenv("VIBE_TASK_BUDGET_HARD", "").strip().lower() in {"1", "true", "yes"}
+
     def prepare_run(self, request_id: str, meta: dict[str, Any] | None) -> RunTask | None:
         if meta is None:
             return None
@@ -92,6 +102,19 @@ class TaskRuntime:
             record = self._attach(task_id, parsed)
         else:
             record = self._create(parsed)
+        if self._budget_hard_enabled():
+            check = self.budget.check_start(
+                record.task_id,
+                max_tokens=int(record.budget.get("max_goal_tokens", 0) or 0),
+                max_wall_seconds=float(record.budget.get("max_wall_seconds", 0) or 0),
+                started_at=record.created_at,
+            )
+            if not check["allowed"]:
+                try:
+                    self.store.release_lock(record.task_id)
+                except Exception:
+                    pass
+                raise TaskBudgetExceeded(check)
         try:
             record = self.store.transition(record.task_id, "running", reason="run_start")
             segment = self.store.start_segment(record.task_id, run_id=request_id)
