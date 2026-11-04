@@ -277,12 +277,46 @@ test('explicit resume reaches the backend once and uses the cancellable command 
   assert.equal(client.runs.length, 0);
 });
 
-test('Ctrl+Q gracefully shuts down even during a run', async () => {
-  const {client, stdin} = await mount();
+test('Ctrl+Q prompts before shutting down during a run', async () => {
+  const {client, stdin, lastFrame} = await mount();
   await enter(stdin, 'work');
   stdin.write('\u0011');
+  await pause(120);
+  assert.equal(client.shutdowns, 0);
+  assert.match(lastFrame() ?? '', /退出选项/);
+  stdin.write('2');
   await pause(25);
   assert.equal(client.shutdowns, 1);
+});
+
+test('/goal quit prompt offers background handoff when a task exists', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'mini-harness-quit-goal-'));
+  try {
+    const state = {...initialState, phase: 'idle' as const, workspace: '/repo', model: 'fake', sessionId: 'session-quit', sessionPath: dir};
+    const client = new MockClient();
+    client.capabilityList = ['tasks'];
+    const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} initialState={state} windowSize={{columns: 120, rows: 40}}/>);
+    await pause(20);
+    client.emit({type: 'ready', workspace: '/repo', model: 'fake', session_id: 'session-quit', session_path: dir, capabilities: ['tasks']});
+    client.emit({type: 'status', phase: 'idle'});
+    await pause(20);
+    await enter(stdin, '/goal 后台目标');
+    await pause(20);
+    client.emit({type: 'task_state', id: 'run-1', task: {
+      task_id: 't-20261103-120000-abcdef', kind: 'goal', status: 'running', segment: 1,
+      objective: '后台目标', goal_id: null, updated_at: '2026-11-03T12:00:00+00:00',
+    }});
+    await pause(20);
+    stdin.write('\u0011');
+    await pause(80);
+    assert.match(lastFrame() ?? '', /转入后台/);
+    assert.match(lastFrame() ?? '', /等待完成/);
+    stdin.write('4');
+    await pause(20);
+    assert.equal(client.shutdowns, 0);
+  } finally {
+    await rm(dir, {recursive: true, force: true});
+  }
 });
 
 test('a startup error is labeled before the backend closes', async () => {
@@ -783,6 +817,8 @@ test('queued follow-ups never start while quitting', async () => {
   await enter(stdin, 'first task');
   await enter(stdin, '/followup 排队消息');
   stdin.write('\u0011');
+  await pause(25);
+  stdin.write('2');
   await pause(25);
   client.emit(completed('run-1'));
   await pause(20);

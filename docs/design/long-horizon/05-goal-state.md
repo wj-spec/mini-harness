@@ -1,7 +1,7 @@
 # 05 跨段目标状态
 
 > 状态：讨论稿（2026-11-02；2026-11-03 部分决策已确认，见 §9）；不是 spec，未承诺实现。
-> 实现：P0 基础（GoalRecord schema/迁移/段同步 + TaskRuntime 接入）已实现，见 [goal-record spec](../../specs/goal-record.md)；TUI v2 与段决策迁 Python 见后续。
+> 实现：P0 基础 + P1a worker 续段提示/决策（GoalRecord schema/迁移/段同步/`goal_prompt`/`continue_decision`）已实现，见 [goal-record spec](../../specs/goal-record.md)；TUI v2 读取与用户确认 UI 见后续。
 > 所属：长任务与后台任务 / 第 5 块（目标、计划与段账本）
 > 前置/相关：[01 任务运行时](01-task-runtime.md)、[02 后台进程监督](02-process-supervision.md)、[06 预算账本](06-budget-ledger.md)；相关规格：[goal-mode](../../specs/goal-mode.md)、[verified-completion](../../specs/verified-completion.md)、[w2-w3-acceptance](../../specs/w2-w3-acceptance.md)
 

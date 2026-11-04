@@ -1,9 +1,11 @@
+import {spawn} from 'node:child_process';
 import {rmSync} from 'node:fs';
 import path from 'node:path';
 import React, {useEffect, useMemo, useReducer, useRef, useState} from 'react';
 import {CommandMenu} from './command-menu.js';
 import {Box, Text, useApp, useInput, usePaste, useWindowSize} from 'ink';
 import type {BackendClient} from './backend.js';
+import {backendCommand, backendLaunchOptions} from './backend-launch.js';
 import {AUTONOMY_LABELS, AUTONOMY_LEVELS, commandMatches} from './protocol.js';
 import {approvalTitle, splitApprovalPreview} from './approval-view.js';
 import {buildSkillMenu} from './skills-menu.js';
@@ -99,6 +101,11 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
   };
   const history = useMemo(() => state.entries.filter(entry => entry.kind === 'task').map(entry => entry.text), [state.entries]);
   const {exit} = useApp();
+  type QuitOption = {label: string; action: () => void; disabled?: boolean};
+  const [quitPrompt, setQuitPrompt] = useState<{options: QuitOption[]; index: number} | null>(null);
+  const waitForExit = useRef(false);
+  const backgroundAfterRun = useRef(false);
+  const shutdownRef = useRef<() => void>(() => {});
   const terminal = useWindowSize();
   const columns = Math.max(1, windowSize?.columns ?? terminal.columns);
   const rows = Math.max(1, windowSize?.rows ?? terminal.rows);
@@ -209,6 +216,11 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
     dispatch({type: 'event', event});
     if (finished && event.type === 'done') {
       if (goalDoneRef.current?.(event.result)) return;
+      if (waitForExit.current) {
+        waitForExit.current = false;
+        shutdownRef.current();
+        return;
+      }
       if (event.result.status === 'done' || event.result.status === 'stopped') autoObserveRef.current?.();
       if (event.result.status === 'cancelled') {
         const dropped = followups.current.length;
@@ -262,10 +274,37 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       return false;
     }
   };
+  const spawnBackgroundWorker = (taskId: string) => {
+    try {
+      const args = ['--worker', '--workspace', state.workspace, '--session', state.sessionId, '--task-id', taskId];
+      if (state.provider === 'fake') args.push('--fake');
+      if (state.sessionPurpose === 'test') args.push('--test-session');
+      const child = spawn(backendCommand, args, {...backendLaunchOptions(), detached: true, stdio: 'ignore'});
+      child.unref();
+      dispatch({type: 'notice', text: `已转入后台：task ${taskId}；worker 继续执行，重开 TUI 后用 /task 查看。`});
+      return true;
+    } catch (error) {
+      dispatch({type: 'notice', text: `转入后台失败：${String(error)}`});
+      return false;
+    }
+  };
   const handleGoalDone = (result: RunResult): boolean => {
     const current = goalRef.current;
     if (!current?.active) return false;
     const decision = goalDecision(current, result);
+    if (backgroundAfterRun.current) {
+      backgroundAfterRun.current = false;
+      goalRef.current = {...current, active: false, pausedReason: 'background_worker'};
+      setGoal(goalRef.current);
+      if (current.taskId) spawnBackgroundWorker(current.taskId);
+      shutdownRef.current();
+      return true;
+    }
+    if (waitForExit.current) {
+      waitForExit.current = false;
+      shutdownRef.current();
+      return true;
+    }
     goalRef.current = decision.goal;
     setGoal(decision.goal);
     dispatch({type: 'notice', text: decision.notice});
@@ -372,6 +411,57 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       notice(`退出时发生错误：${String(error)}`);
       exit(error instanceof Error ? error : new Error(String(error)));
     });
+  };
+  shutdownRef.current = shutdown;
+  const requestShutdown = () => {
+    if (closing.current) return;
+    const goal = goalRef.current;
+    const running = Boolean(activeRun.current) || ['running', 'waiting_approval', 'stopping'].includes(state.phase);
+    if (!running && !goal?.active) {shutdown(); return;}
+    const options: {label: string; action: () => void; disabled?: boolean}[] = [];
+    if (goal?.active) {
+      options.push({
+        label: goal.taskId && state.workspace && state.sessionId ? '转入后台（本段结束后）' : '转入后台（当前任务缺少 task 记录，暂不可用）',
+        disabled: !(goal.taskId && state.workspace && state.sessionId),
+        action: () => {
+          if (!goal?.taskId) return;
+          const activeNow = Boolean(activeRun.current) || ['running', 'waiting_approval', 'stopping'].includes(latestState.current.phase);
+          backgroundAfterRun.current = true;
+          if (!activeNow) {
+            backgroundAfterRun.current = false;
+            spawnBackgroundWorker(goal.taskId);
+            shutdown();
+          } else {
+            notice('当前段结束后转入后台；请保持窗口打开直到该段收尾。');
+          }
+        },
+      });
+    }
+    options.push({
+      label: '等待完成（当前运行结束后退出）',
+      action: () => {
+        waitForExit.current = true;
+        const activeNow = Boolean(activeRun.current) || ['running', 'waiting_approval', 'stopping'].includes(latestState.current.phase);
+        if (!activeNow) {waitForExit.current = false; shutdown();}
+        else notice('等待当前运行结束后退出…');
+      },
+    });
+    options.push({
+      label: '停止任务并退出',
+      action: () => {
+        if (activeRun.current) {
+          try {client.cancel(activeRun.current);} catch {}
+        }
+        if (goalRef.current?.active) {
+          const stopped = {...goalRef.current, active: false, pausedReason: 'user_stopped'};
+          goalRef.current = stopped;
+          setGoal(stopped);
+        }
+        shutdown();
+      },
+    });
+    options.push({label: '取消关闭', action: () => setQuitPrompt(null)});
+    setQuitPrompt({options, index: 0});
   };
   const navigate = (target: number) => {
     const current = viewport.current;
@@ -686,7 +776,33 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
 
   useInput((keyInput, key) => {
     if (key.eventType === 'release') return;
-    if (key.ctrl && keyInput === 'q') {shutdown(); return;}
+    if (quitPrompt) {
+      const options = quitPrompt.options;
+      const choose = (index: number) => {
+        const option = options[index];
+        if (!option || option.disabled) return;
+        setQuitPrompt(null);
+        option.action();
+      };
+      if (key.escape) {setQuitPrompt(null); return;}
+      if (key.upArrow || key.downArrow) {
+        const delta = key.upArrow ? -1 : 1;
+        setQuitPrompt(current => {
+          if (!current) return current;
+          let index = current.index;
+          for (let step = 0; step < current.options.length; step += 1) {
+            index = (index + delta + current.options.length) % current.options.length;
+            if (!current.options[index]?.disabled) break;
+          }
+          return {...current, index};
+        });
+        return;
+      }
+      if (key.return) {choose(quitPrompt.index); return;}
+      if (/^[1-9]$/.test(keyInput ?? '')) {choose(Number(keyInput) - 1); return;}
+      return;
+    }
+    if (key.ctrl && keyInput === 'q') {requestShutdown(); return;}
     if (key.ctrl && keyInput === 'y') {copyCurrent(); return;}
     if (key.ctrl && keyInput === 'g') {openSidebarPanel(); return;}
     if (key.ctrl && keyInput === 'c') {
@@ -697,7 +813,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
           dispatch({type: 'cancel'});
           dispatch({type: 'notice', text: '停止请求已发送，等待后端确认…'});
         } catch (error) {reportError(`取消请求未送达：${String(error)}`);}
-      } else if (!state.activeId) shutdown();
+      } else if (!state.activeId) requestShutdown();
       return;
     }
     if (key.pageUp) {moveReading(-Math.max(1, bodyRows - 1)); return;}
@@ -746,7 +862,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
     const text = value.trim();
     if (!text || quitting) return;
     setSelection(null);
-    if (text === '/quit' || text === '/exit') {setInput(''); shutdown(); return;}
+    if (text === '/quit' || text === '/exit') {setInput(''); requestShutdown(); return;}
     if (text === '/context') {setInput(''); openContext(); return;}
     if (text === '/copy') {setInput(''); copyCurrent(); return;}
     if (text === '/sidebar setup') {setInput(''); setupSidebarConfig(); return;}
@@ -891,7 +1007,12 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       <ReadingPane title={paneTitle} lines={lines} top={top} height={paneRows} columns={readerColumns} palette={palette} overlay={readerFocused} selection={selection}/>
       {sidebar ? <><Box width={1}/><StatusPanel state={state} columns={32} height={paneRows} palette={palette}/></> : null}
     </Box>
-    <Box backgroundColor={state.approval ? palette.surfaces.warning : readerFocused ? palette.surface : palette.focus} height={composerRows + 2} width={columns} paddingX={2} paddingY={1} flexShrink={0}>
+    {quitPrompt ? <Box flexDirection="column" backgroundColor={palette.surfaces.warning} height={Math.max(composerRows + 2, quitPrompt.options.length + 3)} width={columns} paddingX={2} paddingY={1} flexShrink={0}>
+      <Text color={palette.foreground} bold>退出选项（↑↓ 选择 · Enter 确认 · Esc 取消）</Text>
+      {quitPrompt.options.map((option, index) => <Text key={option.label} color={option.disabled ? palette.secondary : index === quitPrompt.index ? palette.warning : palette.foreground}>
+        {index === quitPrompt.index ? '› ' : '  '}{index + 1}. {option.label}
+      </Text>)}
+    </Box> : <Box backgroundColor={state.approval ? palette.surfaces.warning : readerFocused ? palette.surface : palette.focus} height={composerRows + 2} width={columns} paddingX={2} paddingY={1} flexShrink={0}>
       <Composer value={input} onChange={text => {setMenuIndex(0); setInput(text);}} onSubmit={submit} history={history} disabled={composerDisabled} disabledHint={unavailableHint} focused={!readerFocused && !quitting} placeholder={effectivePlaceholder} columns={Math.max(1, columns - 4)} maxRows={composerRows} accentColor={palette.accent} warningColor={palette.warning} foregroundColor={palette.foreground} secondaryColor={palette.secondary}
         menu={menuRows ? {
           count: menuMatches.length,
@@ -899,7 +1020,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
           onMove: delta => setMenuIndex(position => (position + delta + menuMatches.length) % menuMatches.length),
           onAccept: () => {const next = menuMatches[menuPosition]; setMenuIndex(0); setInput(next);},
         } : undefined}/>
-    </Box>
+    </Box>}
     {menuRows ? <CommandMenu matches={menuMatches} index={menuPosition} rows={menuRows} columns={columns} accentColor={palette.accent} foregroundColor={palette.foreground} secondaryColor={palette.secondary} surfaceColor={palette.surface} descriptions={skillMenu?.descriptions}/> : null}
     <Text color={state.error || state.phase === 'closed' || (feedback && feedbackTone === 'error') ? palette.error : state.approval ? palette.warning : palette.foreground}>{fitText(feedback || `${phase}${resultReason(state.lastResult) ? ` · ${resultReason(state.lastResult)}` : ''}${metricsText(state) ? `  ·  ${metricsText(state)}` : ''}`, columns)}</Text>
     <Text color={palette.secondary}>{fitText(hint, columns)}</Text>

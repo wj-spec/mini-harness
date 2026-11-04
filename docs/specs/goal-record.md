@@ -1,6 +1,6 @@
 # GoalRecord：跨段目标状态（P0 基础）
 
-日期：2026-11-03。状态：P0 基础实现完成（GoalRecord schema/迁移/段同步 + TaskRuntime 接入）；TUI 迁移与段决策迁 Python 在 P1。
+日期：2026-11-03。状态：P0 基础实现完成（GoalRecord schema/迁移/段同步 + TaskRuntime 接入）；P1a 的 worker 续段提示与继续决策（`goal_prompt`/`continue_decision`）已实现；TUI v2 读取与用户确认 UI 仍在 P1。
 对应讨论稿：[05 跨段目标状态](../design/long-horizon/05-goal-state.md)（§9 已确认）。
 依赖：[task-runtime](task-runtime.md)（TaskRecord）、[task-runtime-integration](task-runtime-integration.md)（goal task 接入）。
 

@@ -322,3 +322,79 @@ class GoalStore:
         )
         self.save(record)
         return record
+
+
+RESOURCE_STOPS = frozenset({"max_run_seconds", "token_budget", "cost_budget", "max_steps"})
+
+
+def goal_prompt(record: GoalRecord, *, segment: int, stop_reason: str | None = None) -> str:
+    """由 GoalRecord 生成段提示；P1 先供 worker 续段使用。"""
+    criteria = [
+        item for item in record.acceptance_criteria
+        if item.get("confirmed") is True and isinstance(item.get("text"), str)
+    ]
+    lines = []
+    if segment <= 1:
+        lines.append("[GOAL MODE]")
+        lines.append(f"目标：{record.objective}")
+        lines.append("这是一个可能跨多个运行段的长任务。先核对工作区，再分步执行；不要停在计划或空泛总结上。")
+    else:
+        lines.append(f"[GOAL MODE · 第 {segment} 段]")
+        lines.append(f"继续目标：{record.objective}")
+        lines.append(f"上一段因 {stop_reason or '资源暂停'} 结束。先核对实际工作区与已保存进度，再继续未完成部分；不要重复已完成的工作。")
+    if criteria:
+        lines.append("已确认验收标准：")
+        lines.extend(f"- {item.get('text')}" for item in criteria)
+    open_items = [
+        item for item in record.open_items
+        if item.get("status") in {"open", "blocked"} and isinstance(item.get("text"), str)
+    ]
+    if open_items:
+        lines.append("未完成/阻塞：")
+        lines.extend(f"- [{item.get('status')}] {item.get('text')}" for item in open_items)
+    if record.constraints:
+        texts = [item.get("text") for item in record.constraints if isinstance(item.get("text"), str)]
+        if texts:
+            lines.append("约束：")
+            lines.extend(f"- {text}" for text in texts)
+    lines.append("目标真正达成后给出最终答复；暂时无法推进时说明具体阻塞。")
+    return "\n".join(lines)
+
+
+def continue_decision(
+    record: GoalRecord,
+    task: TaskRecord,
+    result_status: str,
+    stop_reason: str,
+    *,
+    max_segments: int = 8,
+    max_seconds: float = 4 * 60 * 60,
+    max_tokens: int = 0,
+    now: datetime | None = None,
+) -> tuple[bool, str | None]:
+    """返回 (是否继续下一段, 停止原因)。P1 先复刻 TUI goalDecision 的资源停止规则。"""
+    if result_status != "stopped" or stop_reason not in RESOURCE_STOPS:
+        return False, stop_reason or result_status or "stopped"
+    segments = max(len(record.segments), len(task.segments))
+    if segments >= max_segments:
+        return False, "goal_max_segments"
+    current = now or datetime.now(timezone.utc)
+    try:
+        started = datetime.fromisoformat(record.created_at)
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+        if (current - started).total_seconds() >= max_seconds:
+            return False, "goal_max_seconds"
+    except (ValueError, TypeError):
+        pass
+    if max_tokens > 0:
+        used = 0
+        for segment in record.segments:
+            usage = segment.get("usage") if isinstance(segment, dict) else None
+            if isinstance(usage, dict):
+                value = usage.get("total_tokens")
+                if isinstance(value, int):
+                    used += value
+        if used >= max_tokens:
+            return False, "goal_max_tokens"
+    return True, None

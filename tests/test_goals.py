@@ -6,7 +6,10 @@ import json
 
 import pytest
 
-from app.runtime.goals import GOAL_SCHEMA_VERSION, GoalCorrupt, GoalError, GoalRecord, GoalStore
+from app.runtime.goals import (
+    GOAL_SCHEMA_VERSION, GoalCorrupt, GoalError, GoalRecord, GoalStore,
+    continue_decision, goal_prompt,
+)
 from app.runtime.tasks import TaskStore
 
 
@@ -108,3 +111,50 @@ def test_active_other_goal_is_rejected(tmp_path):
     other = tasks.create(kind="goal", objective="另一个", workspace=str(tmp_path), mode="goal")
     with pytest.raises(GoalError):
         goals.ensure_for_task(other)
+
+def _record(tmp_path, **overrides):
+    _, _, task = _task(tmp_path)
+    values = dict(
+        schema_version=GOAL_SCHEMA_VERSION, goal_id="g-1", task_id=task.task_id,
+        objective="目标", state="running", created_at="2026-11-03T00:00:00+00:00",
+        updated_at="2026-11-03T00:00:00+00:00",
+    )
+    values.update(overrides)
+    return task, GoalRecord(**values)
+
+
+def test_goal_prompt_includes_confirmed_criteria_and_open_items(tmp_path):
+    task, record = _record(
+        tmp_path,
+        acceptance_criteria=[
+            {"id": "ac1", "text": "测试通过", "confirmed": True},
+            {"id": "ac2", "text": "未确认", "confirmed": False},
+        ],
+        open_items=[{"text": "待办", "status": "open"}],
+        constraints=[{"text": "不要改测试"}],
+    )
+    prompt = goal_prompt(record, segment=2, stop_reason="max_run_seconds")
+    assert "[GOAL MODE · 第 2 段]" in prompt
+    assert "测试通过" in prompt and "未确认" not in prompt
+    assert "待办" in prompt and "不要改测试" in prompt
+
+
+def test_continue_decision_only_for_resource_stops(tmp_path):
+    from datetime import datetime, timezone
+    from datetime import datetime
+    now = datetime.fromisoformat("2026-11-03T00:10:00+00:00")
+    task, record = _record(tmp_path)
+    assert continue_decision(record, task, "stopped", "max_run_seconds", now=now)[0] is True
+    assert continue_decision(record, task, "done", "", now=now)[0] is False
+    assert continue_decision(record, task, "stopped", "no_progress", now=now)[0] is False
+    assert continue_decision(record, task, "cancelled", "", now=now)[0] is False
+    # 段数上限
+    record.segments = [{"segment": 1}, {"segment": 2}]
+    task.segments = [None, None]  # type: ignore[list-item]
+    assert continue_decision(record, task, "stopped", "max_run_seconds", max_segments=2, now=now)[1] == "goal_max_segments"
+    # 总时长上限
+    old = datetime(2026, 11, 1, tzinfo=timezone.utc)
+    record.segments = []
+    task.segments = []  # type: ignore[assignment]
+    assert continue_decision(record, task, "stopped", "max_run_seconds", max_seconds=1, now=datetime(2026, 11, 4, tzinfo=timezone.utc))[1] == "goal_max_seconds"
+

@@ -90,3 +90,43 @@ def test_attach_without_worker_socket_fails_cleanly(tmp_path, capsys):
     session, store, task = _seed(tmp_path)
     assert attach_worker(session.root, task.task_id) == 1
     assert "worker socket not found" in capsys.readouterr().err
+
+
+def test_worker_goal_loop_continues_resource_stops(tmp_path):
+    import asyncio
+
+    from app.runtime.worker import Worker
+
+    session = SessionStore.new(tmp_path, "fake", purpose="test")
+    store = TaskStore(session.root)
+    task = store.create(kind="goal", objective="循环目标", workspace=str(tmp_path), mode="goal")
+    count_file = tmp_path / "runs.txt"
+    script = tmp_path / "child.py"
+    script.write_text(
+        "import json, sys\n"
+        "from pathlib import Path\n"
+        f"count_file = Path({str(count_file)!r})\n"
+        "count = 0\n"
+        "for line in sys.stdin:\n"
+        "    req = json.loads(line)\n"
+        "    if req.get('type') == 'run':\n"
+        "        count += 1\n"
+        "        count_file.write_text(str(count))\n"
+        "        stopped = count == 1\n"
+        "        result = {'text': 'x', 'steps': 1, 'status': 'stopped' if stopped else 'done',\n"
+        "                  'stop_reason': 'max_run_seconds' if stopped else '',\n"
+        "                  'usage': {}, 'cost_usd': 0, 'run_id': req['id']}\n"
+        "        print(json.dumps({'v': 1, 'type': 'done', 'id': req['id'], 'result': result}), flush=True)\n"
+        "    elif req.get('type') == 'shutdown':\n"
+        "        break\n",
+        encoding="utf-8",
+    )
+    worker = Worker(
+        session_root=session.root, task_id=task.task_id, workspace=tmp_path,
+        child_args=[sys.executable, str(script)],
+        child_env={"VIBE_TASK_RUNTIME": "1"},
+    )
+    assert asyncio.run(worker.run()) == 0
+    assert count_file.read_text(encoding="utf-8") == "2"
+    state = json.loads((store.task_dir(task.task_id) / "worker.json").read_text(encoding="utf-8"))
+    assert state["status"] == "exited"

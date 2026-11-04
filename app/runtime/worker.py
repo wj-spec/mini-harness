@@ -19,6 +19,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from app.runtime.goals import GoalStore, continue_decision, goal_prompt
 from app.runtime.supervise import (
     WORKER_HEARTBEAT_TTL_SECONDS,
     WorkerState,
@@ -170,6 +171,8 @@ class Worker:
         self.done = asyncio.Event()
         self.stopping = asyncio.Event()
         self.exit_code = 0
+        self.goal_store = GoalStore(session_root)
+        self.goal_record = None
 
     @staticmethod
     def _now() -> str:
@@ -187,6 +190,11 @@ class Worker:
         if Path(task.workspace).resolve() != Path(self.workspace).resolve():
             raise WorkerError("task workspace mismatch")
         store.recover_stale()
+        if task.kind == "goal":
+            try:
+                self.goal_record = self.goal_store.ensure_for_task(task)
+            except Exception:
+                self.goal_record = None
         self.task_dir.mkdir(parents=True, exist_ok=True)
         _rotate_log(self.task_dir / WORKER_LOG_FILE)
         _acquire_worker_lock(self.task_dir)
@@ -286,17 +294,21 @@ class Worker:
 
     async def _queue_initial_run(self) -> None:
         # 子进程 serve 启动后会读 stdin；初始 run 挂上已有 task。
+        task = TaskStore(self.session_root).get(self.task_id)
+        if self.goal_record is not None:
+            text = goal_prompt(self.goal_record, segment=max(1, len(task.segments) + 1))
+        else:
+            text = task.objective
+        await self._queue_run(text)
+
+    async def _queue_run(self, text: str) -> None:
         request_id = f"worker-{uuid.uuid4().hex[:12]}"
         frame = {
-            "v": 1, "type": "run", "id": request_id,
-            "text": self._objective(),
-            "task": {"kind": "goal", "task_id": self.task_id, "objective": self._objective()},
+            "v": 1, "type": "run", "id": request_id, "text": text,
+            "task": {"kind": "goal", "task_id": self.task_id,
+                     "objective": TaskStore(self.session_root).get(self.task_id).objective},
         }
         await self.queue.put(json.dumps(frame, ensure_ascii=False))
-
-    def _objective(self) -> str:
-        from app.runtime.tasks import TaskStore
-        return TaskStore(self.session_root).get(self.task_id).objective
 
     async def _heartbeat(self) -> None:
         interval = _heartbeat_interval()
@@ -331,10 +343,44 @@ class Worker:
                 event = json.loads(text)
             except json.JSONDecodeError:
                 continue
-            if event.get("type") in {"done", "closed"}:
+            if event.get("type") == "closed":
                 self.done.set()
+            elif event.get("type") == "done":
+                await self._handle_done(event)
             if event.get("type") == "approval_request":
                 asyncio.create_task(self._deny_after(event))
+
+    async def _handle_done(self, event: dict[str, Any]) -> None:
+        if self.goal_record is None:
+            self.done.set()
+            return
+        result = event.get("result") if isinstance(event.get("result"), dict) else {}
+        status = str(result.get("status") or "")
+        stop_reason = str(result.get("stop_reason") or "")
+        try:
+            task = TaskStore(self.session_root).get(self.task_id)
+            self.goal_record = self.goal_store.load() or self.goal_record
+            cont, reason = continue_decision(
+                self.goal_record, task, status, stop_reason,
+                max_segments=int(os.getenv("VIBE_GOAL_MAX_SEGMENTS", "8")),
+                max_seconds=float(os.getenv("VIBE_GOAL_SECONDS", str(4 * 60 * 60))),
+            )
+        except (OSError, ValueError, Exception):
+            self.done.set()
+            return
+        if not cont:
+            if reason:
+                try:
+                    TaskStore(self.session_root).append_event(
+                        self.task_id, "goal_worker_stopped", data={"reason": reason},
+                    )
+                except Exception:
+                    pass
+            self.done.set()
+            return
+        segment = max(1, len(task.segments) + 1)
+        text = goal_prompt(self.goal_record, segment=segment, stop_reason=stop_reason)
+        await self._queue_run(text)
 
     async def _deny_after(self, event: dict[str, Any]) -> None:
         # 无人 attach 时 fail closed；有 controller 时把决定权留给它。
