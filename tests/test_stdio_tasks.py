@@ -10,6 +10,7 @@ import socket
 from app.config import Config
 from app.providers.fake import FakeProvider
 from app.runtime.agent import Agent
+from app.runtime.approvals import ApprovalInbox
 from app.runtime.task_runtime import TaskRuntime
 from app.runtime.tasks import TaskStore
 from app.safety.policy import ApprovalGate
@@ -182,6 +183,10 @@ def test_tasks_command_and_ready_hint(tmp_path, monkeypatch):
         result = await harness.until("command_result", "c1")
         assert task.task_id in result["text"]
         assert "worker=" in result["text"]
+        ApprovalInbox(session.root).submit(task.task_id, tool="bash", tier="exec")
+        harness.send("command", "c2", command="approvals")
+        approvals = await harness.until("command_result", "c2")
+        assert "待审批" in approvals["text"] and "bash" in approvals["text"]
         await harness.close()
 
     asyncio.run(scenario())

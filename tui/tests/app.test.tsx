@@ -333,6 +333,9 @@ test('/task lists session tasks and startup hints are visible', async () => {
   await pause(20);
   assert.deepEqual(client.commands, ['tasks']);
   assert.match(lastFrame() ?? '', /\/task/);
+  await enter(stdin, '/approvals');
+  await pause(20);
+  assert.deepEqual(client.commands, ['tasks', 'approvals']);
 });
 test('a startup error is labeled before the backend closes', async () => {
   const client = new MockClient();
@@ -580,12 +583,12 @@ test('slash opens a scrollable command menu without overflowing the frame', asyn
   let frame = lastFrame() ?? '';
   assert.match(frame, /› \/help/);
   assert.match(frame, /查看操作帮助/);
-  assert.match(frame, /↑↓ 选择 · Tab 填充 · 1\/29/);
+  assert.match(frame, /↑↓ 选择 · Tab 填充 · 1\/30/);
   assert.ok(frame.split('\n').length <= 24);
   for (const line of frame.split('\n')) assert.ok(stringWidth(line) <= 80, line);
   stdin.write('\u001b[B');
   await pause(15);
-  assert.match(lastFrame() ?? '', /2\/29/);
+  assert.match(lastFrame() ?? '', /2\/30/);
   stdin.write('\t');
   await pause(15);
   frame = lastFrame() ?? '';

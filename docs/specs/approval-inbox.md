@@ -1,6 +1,6 @@
 # 审批收件箱（ApprovalInbox，P0）
 
-日期：2026-11-03。状态：P0 基础 + P1 的 worker 接线已实现（approval_request→inbox、attach 决定→resolve、无决定超时 expire + task failed(approval_timeout)）；stdio 非 worker 路径与 TUI 收件箱 UI 仍待后续。
+日期：2026-11-03。状态：P0 基础 + P1 的 worker 接线、stdio/TUI `/approvals` 只读列表已实现（approval_request→inbox、attach 决定→resolve、无决定超时 expire + task failed(approval_timeout)）；TUI 收件箱决定 UI 仍待后续。
 对应讨论稿：[03 无人值守审批](../design/long-horizon/03-unattended-approval.md)（§9 已确认）。
 依赖：[task-runtime](task-runtime.md)、[process-supervision](process-supervision.md)。
 

@@ -34,7 +34,7 @@ MAX_FRAME_BYTES = 1024 * 1024
 _OVERSIZED = object()
 COMMANDS = frozenset({
     "resume", "permissions", "permissions_reset", "cost", "tools", "diff", "mcp",
-    "skills", "evidence", "autonomy", "tasks",
+    "skills", "evidence", "autonomy", "tasks", "approvals",
 })
 COMPLETION_CODE_LABELS = {
     "no_verification": "有文件改动但没有验证命令",
@@ -57,6 +57,27 @@ def _task_hints(session_root) -> list[dict]:
         ]
     except Exception:
         return []
+
+
+def _format_approvals(session_root) -> str:
+    from app.runtime.approvals import ApprovalInbox
+
+    try:
+        pending = ApprovalInbox(session_root).pending()
+    except Exception as exc:
+        return f"审批收件箱不可读：{type(exc).__name__}: {exc}"
+    if not pending:
+        return "当前没有待审批项。"
+    lines = ["待审批："]
+    for item in pending:
+        expires = item.get("expires_at") or "-"
+        lines.append(
+            f"- {item.get('approval_id')}  task={item.get('task_id')}  "
+            f"{item.get('tool')}  tier={item.get('tier') or '-'}  "
+            f"requester={item.get('requester')}  expires={expires}"
+        )
+    lines.append("决定可在 attach 客户端或用收件箱 API/后续 /approvals 决定命令完成。")
+    return "\n".join(lines)
 
 
 def _format_task_hints(hints: list[dict]) -> str:
@@ -382,6 +403,8 @@ class _Connection:
                 text = format_round_evidence(self.session.latest_round())
             elif command == "tasks":
                 text = _format_task_hints(_task_hints(self.session.root))
+            elif command == "approvals":
+                text = _format_approvals(self.session.root)
             elif command == "autonomy":
                 requested = (args or {}).get("level")
                 if requested not in permissions.AUTONOMY_LEVELS:

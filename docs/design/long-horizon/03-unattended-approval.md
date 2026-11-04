@@ -1,7 +1,7 @@
 # 03 无人值守审批：收件箱、归属与过期
 
 > 状态：讨论稿（2026-11-02；2026-11-03 部分决策已确认，见 §9）；不是 spec，未承诺实现。
-> 实现：P0 收件箱 + P1 worker 接线（request→inbox、attach→resolve、超时 expire + task failed(approval_timeout)）已实现，见 [approval-inbox spec](../../specs/approval-inbox.md)；stdio 非 worker 路径与 TUI 收件箱 UI 后续。
+> 实现：P0 收件箱 + P1 worker 接线（request→inbox、attach→resolve、超时 expire + task failed(approval_timeout)）+ stdio/TUI `/approvals` 只读列表已实现，见 [approval-inbox spec](../../specs/approval-inbox.md)；TUI 决定 UI 后续。
 > 所属：长任务与后台任务 / 第 3 块
 > 前置/相关：[01 任务运行时](01-task-runtime.md)、[02 后台进程监督](02-process-supervision.md)、[04 隔离与并发](04-isolation-concurrency.md)、[07 控制面与协议](07-control-plane.md)、[09 无人值守安全默认值](09-unattended-safety.md)、[16 子 Agent 的有机结合](16-subagent-integration.md)；相关规格：[审批层级与作用域](../../specs/approval-tiers.md)、[用户可覆盖的审批策略](../../specs/permission-policy.md)、[目标模式](../../specs/goal-mode.md)、[多 Agent 与 Computer Use](../../specs/multi-agent-computer-use.md)
 
