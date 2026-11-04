@@ -19,6 +19,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from app.runtime.approvals import ApprovalError, ApprovalInbox
 from app.runtime.goals import GoalStore, continue_decision, goal_prompt
 from app.runtime.supervise import (
     WORKER_HEARTBEAT_TTL_SECONDS,
@@ -173,6 +174,9 @@ class Worker:
         self.exit_code = 0
         self.goal_store = GoalStore(session_root)
         self.goal_record = None
+        self.inbox = ApprovalInbox(session_root)
+        self.active_run_id: str | None = None
+        self.approval_timed_out = False
 
     @staticmethod
     def _now() -> str:
@@ -285,6 +289,10 @@ class Worker:
             if self.child is not None and self.child.returncode is None:
                 self.child.kill()
                 await self.child.wait()
+            try:
+                self.inbox.expire(self.task_id, reason="worker_exit")
+            except Exception:
+                pass
             _release_worker_files(self.task_dir)
             log_handle.close()
 
@@ -303,6 +311,7 @@ class Worker:
 
     async def _queue_run(self, text: str) -> None:
         request_id = f"worker-{uuid.uuid4().hex[:12]}"
+        self.active_run_id = request_id
         frame = {
             "v": 1, "type": "run", "id": request_id, "text": text,
             "task": {"kind": "goal", "task_id": self.task_id,
@@ -348,9 +357,20 @@ class Worker:
             elif event.get("type") == "done":
                 await self._handle_done(event)
             if event.get("type") == "approval_request":
-                asyncio.create_task(self._deny_after(event))
+                await self._record_approval(event)
 
     async def _handle_done(self, event: dict[str, Any]) -> None:
+        if self.approval_timed_out:
+            self.approval_timed_out = False
+            try:
+                store = TaskStore(self.session_root)
+                task = store.get(self.task_id)
+                if task.status not in {"completed", "failed", "cancelled"}:
+                    store.transition(self.task_id, "failed", reason="approval_timeout")
+            except Exception:
+                pass
+            self.done.set()
+            return
         if self.goal_record is None:
             self.done.set()
             return
@@ -382,17 +402,49 @@ class Worker:
         text = goal_prompt(self.goal_record, segment=segment, stop_reason=stop_reason)
         await self._queue_run(text)
 
-    async def _deny_after(self, event: dict[str, Any]) -> None:
-        # 无人 attach 时 fail closed；有 controller 时把决定权留给它。
-        await asyncio.sleep(_env_float("VIBE_WORKER_APPROVAL_TIMEOUT", DEFAULT_APPROVAL_TIMEOUT))
-        if self.clients:
-            return
+    async def _record_approval(self, event: dict[str, Any]) -> None:
         approval_id = event.get("approval_id")
-        if isinstance(approval_id, str):
-            await self.queue.put(json.dumps({
-                "v": 1, "type": "approval", "id": f"worker-deny-{uuid.uuid4().hex[:8]}",
-                "approval_id": approval_id, "decision": "deny",
-            }))
+        if not isinstance(approval_id, str):
+            return
+        call = event.get("call") if isinstance(event.get("call"), dict) else {}
+        timeout = _env_float("VIBE_WORKER_APPROVAL_TIMEOUT", DEFAULT_APPROVAL_TIMEOUT)
+        from datetime import datetime, timedelta, timezone
+        expires_at = (datetime.now(timezone.utc) + timedelta(seconds=timeout)).isoformat()
+        try:
+            self.inbox.submit(
+                self.task_id, approval_id=approval_id,
+                tool=str(call.get("name") or "tool"), tier=event.get("tier"),
+                decisions=[str(item) for item in event.get("decisions", [])],
+                requester="parent", preview=str(event.get("preview") or ""),
+                preview_ref=f"worker-events:{approval_id}",
+                expires_at=expires_at, session_id=self.session_root.name,
+            )
+        except ApprovalError:
+            return
+        asyncio.create_task(self._approval_deadline(approval_id, timeout))
+
+    async def _approval_deadline(self, approval_id: str, timeout: float) -> None:
+        await asyncio.sleep(timeout)
+        pending = {item["approval_id"] for item in self.inbox.pending(self.task_id)}
+        if approval_id not in pending:
+            return
+        self.inbox.expire(self.task_id, reason="approval_timeout")
+        self.approval_timed_out = True
+        try:
+            TaskStore(self.session_root).append_event(
+                self.task_id, "approval_timeout", data={"approval_id": approval_id},
+            )
+        except Exception:
+            pass
+        await self._cancel_active_run()
+
+    async def _cancel_active_run(self) -> None:
+        if not self.active_run_id:
+            return
+        await self.queue.put(json.dumps({
+            "v": 1, "type": "cancel", "id": f"worker-cancel-{uuid.uuid4().hex[:8]}",
+            "target": self.active_run_id,
+        }))
 
     async def _broadcast(self, text: str) -> None:
         frame = (text.rstrip("\n") + "\n").encode("utf-8")
@@ -446,6 +498,23 @@ class Worker:
                     continue
                 if not isinstance(frame, dict) or frame.get("v") != 1:
                     continue
+                if frame.get("type") == "approval":
+                    approval_id = frame.get("approval_id")
+                    decision = frame.get("decision")
+                    if isinstance(approval_id, str) and isinstance(decision, str):
+                        try:
+                            self.inbox.resolve(
+                                self.task_id, approval_id, decision=decision,
+                                scope=decision if decision != "deny" else "deny",
+                                decided_by="attach", decider="user",
+                            )
+                        except ApprovalError as exc:
+                            writer.write((json.dumps({
+                                "v": 1, "type": "error", "id": frame.get("id"),
+                                "code": "approval_mismatch", "message": str(exc),
+                            }) + "\n").encode("utf-8"))
+                            await writer.drain()
+                            continue
                 await self.queue.put(text)
         except (ConnectionError, OSError):
             pass

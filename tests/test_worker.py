@@ -130,3 +130,43 @@ def test_worker_goal_loop_continues_resource_stops(tmp_path):
     assert count_file.read_text(encoding="utf-8") == "2"
     state = json.loads((store.task_dir(task.task_id) / "worker.json").read_text(encoding="utf-8"))
     assert state["status"] == "exited"
+
+
+def test_worker_approval_timeout_fails_task_and_expires_inbox(tmp_path, monkeypatch):
+    import asyncio
+
+    from app.runtime.worker import Worker
+
+    monkeypatch.setenv("VIBE_WORKER_APPROVAL_TIMEOUT", "0.2")
+    session = SessionStore.new(tmp_path, "fake", purpose="test")
+    store = TaskStore(session.root)
+    task = store.create(kind="goal", objective="审批超时目标", workspace=str(tmp_path), mode="goal")
+    store.transition(task.task_id, "running")
+    store.transition(task.task_id, "paused")
+    script = tmp_path / "approval_child.py"
+    script.write_text(
+        "import json, sys\n"
+        "approval_sent = False\n"
+        "for line in sys.stdin:\n"
+        "    req = json.loads(line)\n"
+        "    if req.get('type') == 'run' and not approval_sent:\n"
+        "        approval_sent = True\n"
+        "        print(json.dumps({'v': 1, 'type': 'approval_request', 'id': req['id'],\n"
+        "              'approval_id': 'a1', 'call': {'id': 'c1', 'name': 'bash', 'args': {}},\n"
+        "              'preview': 'rm -rf build', 'decisions': ['once', 'deny'], 'tier': 'exec'}), flush=True)\n"
+        "    elif req.get('type') == 'cancel':\n"
+        "        print(json.dumps({'v': 1, 'type': 'done', 'id': req['target'],\n"
+        "              'result': {'text': 'cancelled', 'steps': 1, 'status': 'cancelled',\n"
+        "                          'stop_reason': 'cancelled', 'usage': {}, 'cost_usd': 0, 'run_id': req['target']}}), flush=True)\n"
+        "    elif req.get('type') == 'shutdown':\n"
+        "        break\n",
+        encoding="utf-8",
+    )
+    worker = Worker(
+        session_root=session.root, task_id=task.task_id, workspace=tmp_path,
+        child_args=[sys.executable, str(script)], child_env={"VIBE_TASK_RUNTIME": "1"},
+    )
+    assert asyncio.run(worker.run()) == 0
+    assert store.get(task.task_id).status == "failed"
+    items = worker.inbox.items(task.task_id)
+    assert items and all(item["status"] == "expired" for item in items)
