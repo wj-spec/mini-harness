@@ -205,7 +205,12 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
     if (event.type === 'ready' && event.tasks && event.tasks.length) {
       const running = event.tasks.filter(task => task.worker_status && task.worker_status !== 'exited' && task.worker_status !== 'failed' && task.worker_status !== 'interrupted');
       const summary = event.tasks.slice(0, 5).map(task => `${task.task_id} ${task.status}${task.worker_status ? `/${task.worker_status}` : ''}`).join('；');
-      dispatch({type: 'notice', text: `检测到 ${event.tasks.length} 个任务${running.length ? `（${running.length} 个后台 worker 活跃）` : ''}：${summary}${event.tasks.length > 5 ? ' …' : ''}\n输入 /task 查看；后台任务可用 --attach 观察。`});
+      dispatch({type: 'notice', text: `检测到 ${event.tasks.length} 个任务${running.length ? `（${running.length} 个后台 worker 活跃）` : ''}：${summary}${event.tasks.length > 5 ? ' …' : ''}\n输入 /task 查看；attach：./run_ink.sh --attach-task <task_id> --session <session_id>`});
+    }
+    if (event.type === 'task_snapshot') {
+      lastTaskId.current = event.task.task_id;
+      const worker = event.task.worktree ? ` · worktree ${event.task.worktree.branch}` : '';
+      dispatch({type: 'notice', text: `已 attach：${event.task.task_id} ${event.task.status} · 段 ${event.task.segment}${worker} · 待审批 ${event.approvals.length}`});
     }
     if (event.type === 'task_state') {
       lastTaskId.current = event.task.task_id;

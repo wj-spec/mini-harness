@@ -603,6 +603,7 @@ class Worker:
                 self.controller_heartbeat_at = time.monotonic()
             self.clients.add(writer)
             await self._send_writer(writer, {"v": 1, "type": "attach_ok", "id": None, "mode": mode})
+            await self._send_snapshot(writer)
             events_path = self.task_dir / WORKER_EVENTS_FILE
             if events_path.is_file():
                 for line in events_path.read_text(encoding="utf-8").splitlines():
@@ -666,6 +667,41 @@ class Worker:
                 await writer.wait_closed()
             except (ConnectionError, OSError):
                 pass
+
+    async def _send_snapshot(self, writer: asyncio.StreamWriter) -> None:
+        try:
+            task = TaskStore(self.session_root).get(self.task_id)
+        except Exception:
+            return
+        worktree = None
+        try:
+            path = self.task_dir / "worktree.json"
+            if path.is_file():
+                value = json.loads(path.read_text(encoding="utf-8"))
+                worktree = {"path": value.get("path"), "branch": value.get("branch"),
+                            "base_commit": value.get("base_commit")}
+        except (OSError, json.JSONDecodeError):
+            worktree = None
+        pending = []
+        try:
+            pending = [
+                {"approval_id": item.get("approval_id"), "tool": item.get("tool"),
+                 "tier": item.get("tier"), "requester": item.get("requester"),
+                 "expires_at": item.get("expires_at")}
+                for item in self.inbox.pending(self.task_id)
+            ]
+        except Exception:
+            pending = []
+        await self._send_writer(writer, {
+            "v": 1, "type": "task_snapshot", "id": None,
+            "task": {
+                "task_id": task.task_id, "kind": task.kind, "status": task.status,
+                "segment": task.segments[-1].segment if task.segments else 0,
+                "objective": task.objective, "goal_id": task.goal_id,
+                "worktree": worktree,
+            },
+            "approvals": pending,
+        })
 
     async def _send_writer(self, writer: asyncio.StreamWriter, payload: dict[str, Any]) -> None:
         try:

@@ -272,3 +272,12 @@ test('accepts optional task hints on ready', () => {
   ]})).type, 'ready');
   assert.throws(() => parseServerEvent(JSON.stringify({...base, tasks: [{task_id: 'x'}]})));
 });
+test('accepts attach task_snapshot with approvals', () => {
+  const frame = {v: 1, type: 'task_snapshot', id: null,
+    task: {task_id: 't-20261103-120000-abcdef', kind: 'goal', status: 'running', segment: 1,
+      objective: '目标', goal_id: null,
+      worktree: {path: '/tmp/wt', branch: 'vibe/s-t', base_commit: 'abc'}},
+    approvals: [{approval_id: 'a-1', tool: 'bash', tier: 'exec', requester: 'parent', expires_at: null}]};
+  assert.equal(parseServerEvent(JSON.stringify(frame)).type, 'task_snapshot');
+  assert.throws(() => parseServerEvent(JSON.stringify({...frame, approvals: null})));
+});

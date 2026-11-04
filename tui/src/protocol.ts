@@ -135,6 +135,24 @@ export interface TaskHint {
   stale: boolean;
 }
 
+export interface AttachTaskSnapshot {
+  task_id: string;
+  kind: string;
+  status: string;
+  segment: number;
+  objective: string;
+  goal_id: string | null;
+  worktree: {path: string; branch: string; base_commit: string} | null;
+}
+
+export interface AttachApprovalItem {
+  approval_id: string;
+  tool: string;
+  tier: string | null;
+  requester: string;
+  expires_at: string | null;
+}
+
 export interface TaskSnapshot {
   task_id: string;
   kind: string;
@@ -217,6 +235,7 @@ export type ServerEvent =
   | Envelope<'approval_resolved', {approval_id: string; decision: ApprovalDecision}>
   | Envelope<'done', {result: RunResult}>
   | Envelope<'task_state', {task: TaskSnapshot}>
+  | Envelope<'task_snapshot', {task: AttachTaskSnapshot; approvals: AttachApprovalItem[]}>
   | Envelope<'ack', {action: 'cancel' | 'approval' | 'steer'}>
   | Envelope<'closed'>
   | Envelope<'error', {code: string; message: string}>;
@@ -346,6 +365,27 @@ function contextSnapshot(value: unknown): value is ContextSnapshot {
   return CONTEXT_SECTIONS.every(section => blockTotals[section] === sections[section]);
 }
 
+function attachTaskSnapshot(value: unknown): value is AttachTaskSnapshot {
+  return record(value) &&
+    typeof value.task_id === 'string' && validId(value.task_id) &&
+    typeof value.kind === 'string' && typeof value.status === 'string' &&
+    typeof value.segment === 'number' && Number.isSafeInteger(value.segment) && value.segment >= 0 &&
+    typeof value.objective === 'string' &&
+    (value.goal_id === null || typeof value.goal_id === 'string') &&
+    (value.worktree === null || (record(value.worktree) &&
+      typeof value.worktree.path === 'string' && typeof value.worktree.branch === 'string' &&
+      typeof value.worktree.base_commit === 'string'));
+}
+
+function attachApprovals(value: unknown): value is AttachApprovalItem[] {
+  return Array.isArray(value) && value.every(item => record(item) &&
+    typeof item.approval_id === 'string' && validId(item.approval_id) &&
+    typeof item.tool === 'string' &&
+    (item.tier === null || typeof item.tier === 'string') &&
+    typeof item.requester === 'string' &&
+    (item.expires_at === null || typeof item.expires_at === 'string'));
+}
+
 function taskHint(value: unknown): value is TaskHint {
   return record(value) &&
     typeof value.task_id === 'string' && validId(value.task_id) &&
@@ -437,6 +477,7 @@ export function parseServerEvent(line: string): ServerEvent {
       break;
     case 'done': valid = validId(value.id) && runResult(value.result); break;
     case 'task_state': valid = validId(value.id) && taskSnapshot(value.task); break;
+    case 'task_snapshot': valid = value.id === null && attachTaskSnapshot(value.task) && attachApprovals(value.approvals); break;
     case 'ack': valid = validId(value.id) && ['cancel', 'approval', 'steer'].includes(String(value.action)); break;
     case 'closed': valid = true; break;
     case 'error': valid = typeof value.code === 'string' && typeof value.message === 'string'; break;

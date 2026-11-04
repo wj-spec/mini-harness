@@ -32,6 +32,9 @@ async def _connect(path: str, mode: str, *, take_control: bool = False):
                               "take_control": take_control}) + "\n").encode())
     await writer.drain()
     reply = json.loads((await asyncio.wait_for(reader.readline(), 2)).decode())
+    if reply.get("type") == "attach_ok":
+        snapshot = json.loads((await asyncio.wait_for(reader.readline(), 2)).decode())
+        assert snapshot["type"] == "task_snapshot"
     return reader, writer, reply
 
 
