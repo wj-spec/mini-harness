@@ -183,6 +183,7 @@ class Worker:
         self.goal_record = None
         self.inbox = ApprovalInbox(session_root)
         self.controller: asyncio.StreamWriter | None = None
+        self.controller_heartbeat_at: float | None = None
         self.active_run_id: str | None = None
         self.approval_timed_out = False
         self.workspace_lock: WorkspaceLock | None = None
@@ -289,6 +290,7 @@ class Worker:
                 asyncio.create_task(self._feed_child()),
                 asyncio.create_task(self._read_child(events_path)),
                 asyncio.create_task(self._watch_stop()),
+                asyncio.create_task(self._watch_controller()),
             ]
             await self._queue_initial_run()
             waiters = [asyncio.create_task(self.done.wait()), asyncio.create_task(self.stopping.wait())]
@@ -371,6 +373,29 @@ class Worker:
                      "objective": TaskStore(self.session_root).get(self.task_id).objective},
         }
         await self.queue.put(json.dumps(frame, ensure_ascii=False))
+
+    def controller_expired(self, *, ttl: float | None = None, now: float | None = None) -> bool:
+        if self.controller is None or self.controller_heartbeat_at is None:
+            return False
+        ttl = ttl if ttl is not None else _env_float("VIBE_ATTACH_CONTROL_TTL", 30.0)
+        current = now if now is not None else time.monotonic()
+        return current - self.controller_heartbeat_at > ttl
+
+    async def _watch_controller(self) -> None:
+        while True:
+            await asyncio.sleep(2.0)
+            if not self.controller_expired():
+                continue
+            writer = self.controller
+            self.controller = None
+            self.controller_heartbeat_at = None
+            if writer is not None:
+                await self._send_writer(writer, {
+                    "v": 1, "type": "error", "id": None,
+                    "code": "control_expired",
+                    "message": "controller heartbeat expired; control released",
+                })
+                writer.close()
 
     async def _watch_stop(self) -> None:
         path = Path(self.workspace) / ".vibe" / "stop"
@@ -575,6 +600,7 @@ class Worker:
                     })
                     previous.close()
                 self.controller = writer
+                self.controller_heartbeat_at = time.monotonic()
             self.clients.add(writer)
             await self._send_writer(writer, {"v": 1, "type": "attach_ok", "id": None, "mode": mode})
             events_path = self.task_dir / WORKER_EVENTS_FILE
@@ -601,6 +627,9 @@ class Worker:
                 except json.JSONDecodeError:
                     continue
                 if not isinstance(frame, dict) or frame.get("v") != 1:
+                    continue
+                if mode == "control" and frame.get("type") == "attach_heartbeat":
+                    self.controller_heartbeat_at = time.monotonic()
                     continue
                 if mode == "observe":
                     await self._send_writer(writer, {
@@ -719,11 +748,25 @@ async def _attach_async(session_root: Path, task_id: str, *, mode: str = "observ
                 await writer.drain()
 
     try:
+        async def heartbeats() -> None:
+            while True:
+                await asyncio.sleep(10.0)
+                writer.write((json.dumps({
+                    "v": 1, "type": "attach_heartbeat",
+                    "id": f"hb-{uuid.uuid4().hex[:8]}",
+                }) + "\n").encode("utf-8"))
+                await writer.drain()
+
         tasks = [asyncio.create_task(output())]
         if mode == "control":
             tasks.append(asyncio.create_task(input_pump()))
+            tasks.append(asyncio.create_task(heartbeats()))
         await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
     finally:
+        for task in locals().get("tasks", []):
+            task.cancel()
+        if "tasks" in locals():
+            await asyncio.gather(*tasks, return_exceptions=True)
         writer.close()
         try:
             await writer.wait_closed()

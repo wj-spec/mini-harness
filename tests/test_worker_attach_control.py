@@ -96,3 +96,13 @@ def test_controller_can_resolve_approval_and_forward_frame(tmp_path):
             await server.wait_closed()
 
     asyncio.run(scenario())
+
+
+def test_controller_heartbeat_expiry(tmp_path):
+    import time
+    session, store, task, worker = _worker(tmp_path)
+    assert not worker.controller_expired(ttl=5)
+    worker.controller = object()
+    worker.controller_heartbeat_at = time.monotonic() - 10
+    assert worker.controller_expired(ttl=5)
+    assert not worker.controller_expired(ttl=60)
