@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -90,6 +91,10 @@ def main() -> None:
     parser.add_argument("--worker", action="store_true", help="后台 worker：执行一个 task segment 并暴露 attach socket")
     parser.add_argument("--attach", action="store_true", help="attach 到运行中的 worker（JSONL 回放 + live）")
     parser.add_argument("--task-id", default=None, metavar="TASK_ID", help="--worker/--attach 的目标任务")
+    parser.add_argument("--merge-task", default=None, metavar="TASK_ID", help="合并 worktree 任务（先请求/校验审批）")
+    parser.add_argument("--approve-merge", default=None, metavar="APPROVAL_ID", help="批准并执行 merge（需 --merge-task）")
+    parser.add_argument("--stop", action="store_true", help="workspace kill switch：停止所有本机 worker")
+    parser.add_argument("--stop-task", default=None, metavar="TASK_ID", help="只停止指定 worker")
     parser.add_argument("--eval", action="store_true", help="跑 eval 任务并退出")
     parser.add_argument("--eval-limit", type=int, default=None)
     parser.add_argument("--eval-tasks", default=None)
@@ -125,6 +130,21 @@ def main() -> None:
             parser.error("--worker and --attach are mutually exclusive")
     elif args.task_id is not None:
         parser.error("--task-id is only valid with --worker/--attach")
+    if args.merge_task is not None:
+        if args.session is None or args.continue_session:
+            parser.error("--merge-task requires a concrete --session")
+        if args.stdio or args.eval or args.task is not None or args.list_sessions or args.tasks or args.worker or args.attach or args.stop or args.bench:
+            parser.error("--merge-task cannot be combined with other modes")
+    elif args.approve_merge is not None:
+        parser.error("--approve-merge requires --merge-task")
+    if args.stop:
+        if args.stop_task is not None or args.workspace is None:
+            if args.workspace is None:
+                parser.error("--stop requires --workspace")
+        if args.stdio or args.eval or args.task is not None or args.list_sessions or args.tasks or args.worker or args.attach or args.merge_task is not None or args.bench:
+            parser.error("--stop cannot be combined with other modes")
+    elif args.stop_task is not None:
+        parser.error("--stop-task requires --stop")
     if args.eval_limit is not None and args.eval_limit < 1:
         parser.error("--eval-limit must be positive")
     if args.task is not None:
@@ -136,7 +156,7 @@ def main() -> None:
         parser.error("--bench requires --task")
     if args.telemetry_out and args.task is None:
         parser.error("--telemetry-out requires --task")
-    if not args.stdio and not args.eval and not args.list_sessions and not args.tasks and not args.worker and not args.attach and args.task is None:
+    if not args.stdio and not args.eval and not args.list_sessions and not args.tasks and not args.worker and not args.attach and args.merge_task is None and not args.stop and args.task is None:
         print(
             "Textual 入口已退役。交互界面请运行 ./run_ink.sh（例如 ./run_ink.sh --fake）；"
             "后端与 eval 分别使用 --stdio / --eval。",
@@ -166,6 +186,56 @@ def main() -> None:
         config.sandbox_network_allow = args.sandbox_network_allow
     if args.autonomy:
         config.autonomy = args.autonomy
+
+    if args.merge_task is not None:
+        purpose = "test" if args.test_session or args.fake or config.provider == "fake" else "user"
+        session = SessionStore.open_existing(config.workspace, args.session, purpose=purpose)
+        if session is None:
+            print(f"no session {args.session} under {config.workspace}", file=sys.stderr)
+            raise SystemExit(2)
+        from app.runtime.tasks import TaskStore
+        try:
+            task = TaskStore(session.root).get(args.merge_task)
+        except Exception as exc:
+            print(f"task {args.merge_task} unavailable: {exc}", file=sys.stderr)
+            raise SystemExit(2)
+        if Path(task.workspace).resolve() != config.workspace.resolve():
+            print("task workspace mismatch", file=sys.stderr)
+            raise SystemExit(2)
+        from app.runtime.approvals import ApprovalError, ApprovalInbox
+        from app.runtime.merge import MergeError, MergeGate
+
+        gate = MergeGate(config.workspace)
+        try:
+            if args.approve_merge:
+                try:
+                    ApprovalInbox(session.root).resolve(
+                        task.task_id, args.approve_merge, decision="once",
+                        decided_by="user", decider="user",
+                    )
+                except ApprovalError as exc:
+                    print(f"approval failed: {exc}", file=sys.stderr)
+                    raise SystemExit(2)
+                result = gate.apply(task.task_id, session_root=session.root)
+                print(json.dumps(result, ensure_ascii=False, indent=2))
+                return
+            candidate = gate.prepare(task.task_id)
+            print(candidate.diff_stat or "(empty diff)")
+            approval = gate.request_approval(task.task_id, session_root=session.root)
+            print(f"merge approval requested: {approval['approval_id']}")
+            print(f"rerun with --approve-merge {approval['approval_id']}")
+            raise SystemExit(2)
+        except MergeError as exc:
+            print(f"merge failed: {exc}", file=sys.stderr)
+            raise SystemExit(2)
+
+    if args.stop:
+        from app.runtime.killswitch import stop_workers
+
+        results = stop_workers(config.workspace, task_id=args.stop_task)
+        print(json.dumps({"stop_file": str(Path(config.workspace) / ".vibe" / "stop"),
+                          "workers": results}, ensure_ascii=False, indent=2))
+        return
 
     if args.worker or args.attach:
         purpose = "test" if args.test_session or args.fake or config.provider == "fake" else "user"

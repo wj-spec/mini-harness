@@ -262,6 +262,7 @@ class Worker:
                 lambda reader, writer: self._client(reader, writer), path=str(sock_path),
             )
             os.chmod(sock_path, 0o600)
+            self._started_wall = time.time()
             self.child = await asyncio.create_subprocess_exec(
                 *self.child_args,
                 stdin=asyncio.subprocess.PIPE,
@@ -276,6 +277,7 @@ class Worker:
             tasks = [
                 asyncio.create_task(self._feed_child()),
                 asyncio.create_task(self._read_child(events_path)),
+                asyncio.create_task(self._watch_stop()),
             ]
             await self._queue_initial_run()
             waiters = [asyncio.create_task(self.done.wait()), asyncio.create_task(self.stopping.wait())]
@@ -358,6 +360,18 @@ class Worker:
                      "objective": TaskStore(self.session_root).get(self.task_id).objective},
         }
         await self.queue.put(json.dumps(frame, ensure_ascii=False))
+
+    async def _watch_stop(self) -> None:
+        path = Path(self.workspace) / ".vibe" / "stop"
+        while True:
+            await asyncio.sleep(0.2)
+            try:
+                if path.exists() and path.stat().st_mtime >= getattr(self, "_started_wall", 0):
+                    self.stopping.set()
+                    await self._cancel_active_run()
+                    return
+            except OSError:
+                return
 
     async def _heartbeat(self) -> None:
         interval = _heartbeat_interval()

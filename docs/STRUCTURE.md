@@ -49,6 +49,7 @@ mini-harness/
       approvals.py      # ApprovalInbox：approvals.jsonl、一次性审批/过期/脱敏（P0）
       workspace.py      # WorkspaceLock / WorktreeManager：单写者锁与 git worktree 隔离（P0）
       merge.py          # MergeGate：worktree 合并审批、漂移/脏工作区/冲突拦截（P1）
+      killswitch.py     # workspace kill switch：stop 信号/SIGTERM→SIGKILL/worker 状态（P1）
     tools/              # 工具系统
       registry.py       # 工具注册表与内置工具（read/write/bash/...）
       patch.py          # unified diff 解析、校验与 hunk 应用
@@ -159,6 +160,8 @@ mini-harness/
     test_approvals.py
     test_workspace.py
     test_merge.py
+    test_killswitch.py
+    test_cli_merge_stop.py
     test_app_summarize.py
     test_state.py
     test_summarize.py
