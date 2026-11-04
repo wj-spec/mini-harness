@@ -75,6 +75,7 @@ def main() -> None:
     parser.add_argument("--model", default=None)
     parser.add_argument("--base-url", default=None)
     parser.add_argument("--workspace", default=None)
+    parser.add_argument("--tools-root", default=None, help="工具写入根（worktree 隔离用；会话仍用 --workspace）")
     parser.add_argument("--sandbox", action="store_true", help="用 macOS Seatbelt 沙箱执行命令（写入限工作区与临时目录）")
     parser.add_argument("--sandbox-network", action="store_true", help="沙箱内允许网络（默认拒绝）")
     parser.add_argument("--sandbox-network-allow", default=None, metavar="HOSTS", help="沙箱内只允许这些域名（逗号分隔，隐含 --sandbox）")
@@ -98,6 +99,8 @@ def main() -> None:
     parser.add_argument("--runtime-dir", default=None, help="跑分会话/offload/telemetry 的运行时目录")
     args = parser.parse_args()
 
+    if args.tools_root and not (args.stdio or args.worker or args.attach):
+        parser.error("--tools-root is only valid with --stdio/--worker/--attach")
     if args.stdio and (
         args.eval
         or args.eval_limit is not None or args.eval_tasks is not None
@@ -149,6 +152,8 @@ def main() -> None:
         config.base_url = args.base_url
     if args.workspace:
         config.workspace = Path(args.workspace)
+    if args.tools_root:
+        config.tools_root = Path(args.tools_root)
     if args.max_steps is not None:
         config.max_steps = args.max_steps
     if args.sandbox:
@@ -353,7 +358,7 @@ def main() -> None:
 
     approval = ApprovalGate(audit_path=session.audit_path)
     try:
-        tools = ToolRegistry(config.workspace, context=context, state=state,
+        tools = ToolRegistry(config.tools_root or config.workspace, context=context, state=state,
                              skills_config=config.skills_config,
                              sandbox=config.sandbox, sandbox_network=config.sandbox_network,
                              sandbox_network_allow=config.sandbox_network_allow)

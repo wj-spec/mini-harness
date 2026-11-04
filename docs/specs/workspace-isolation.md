@@ -1,6 +1,6 @@
 # 工作区隔离（WorkspaceLock / WorktreeManager，P0）
 
-日期：2026-11-03。状态：P0 基础实现（单写者互斥锁 + git worktree 创建/列表/清理/差异）；合并门禁与 worker/TUI 接线在 P1。
+日期：2026-11-03。状态：P0 基础 + P1 worker 接线已实现（worker 写任务 acquire workspace lock、git worktree 创建、`--tools-root` 指向 worktree、任务结束后保留 worktree）；合并门禁/kill switch/非 git 拒绝策略仍待后续。
 对应讨论稿：[04 隔离与并发](../design/long-horizon/04-isolation-concurrency.md)（§9 已确认）。
 依赖：[task-runtime](task-runtime.md)、[process-supervision](process-supervision.md)。
 

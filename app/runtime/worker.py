@@ -28,6 +28,13 @@ from app.runtime.supervise import (
     write_worker_state,
 )
 from app.runtime.tasks import TaskStore
+from app.runtime.workspace import (
+    WorktreeError,
+    WorktreeManager,
+    WorkspaceBusy,
+    WorkspaceLock,
+    acquire_workspace_lock,
+)
 
 WORKER_EVENTS_FILE = "worker-events.jsonl"
 WORKER_SOCKET_FILE = "ctrl.sock"
@@ -177,6 +184,8 @@ class Worker:
         self.inbox = ApprovalInbox(session_root)
         self.active_run_id: str | None = None
         self.approval_timed_out = False
+        self.workspace_lock: WorkspaceLock | None = None
+        self.worktree = None
 
     @staticmethod
     def _now() -> str:
@@ -199,7 +208,35 @@ class Worker:
                 self.goal_record = self.goal_store.ensure_for_task(task)
             except Exception:
                 self.goal_record = None
+        try:
+            self.workspace_lock = acquire_workspace_lock(
+                self.workspace, task_id=self.task_id, session_id=self.session_root.name,
+            )
+        except WorkspaceBusy as exc:
+            raise WorkerError(f"workspace busy: {exc}") from exc
         self.task_dir.mkdir(parents=True, exist_ok=True)
+        if os.getenv("VIBE_WORKTREE", "1").strip().lower() not in {"0", "false", "off", "no"}:
+            try:
+                self.worktree = WorktreeManager(self.workspace).create(
+                    self.task_id, self.session_root.name,
+                )
+                (self.task_dir / "worktree.json").write_text(
+                    json.dumps(self.worktree.to_dict(), ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+                self.child_args = [
+                    *self.child_args, "--tools-root", str(self.worktree.path),
+                ]
+                try:
+                    store.append_event(
+                        self.task_id, "worktree_created",
+                        data={"path": str(self.worktree.path), "branch": self.worktree.branch,
+                              "base_commit": self.worktree.base_commit},
+                    )
+                except Exception:
+                    pass
+            except WorktreeError:
+                self.worktree = None
         _rotate_log(self.task_dir / WORKER_LOG_FILE)
         _acquire_worker_lock(self.task_dir)
         (self.task_dir / WORKER_PID_FILE).write_text(f"{os.getpid()}\n", encoding="utf-8")
@@ -293,6 +330,9 @@ class Worker:
                 self.inbox.expire(self.task_id, reason="worker_exit")
             except Exception:
                 pass
+            if self.workspace_lock is not None:
+                self.workspace_lock.release()
+                self.workspace_lock = None
             _release_worker_files(self.task_dir)
             log_handle.close()
 

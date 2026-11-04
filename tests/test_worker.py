@@ -170,3 +170,39 @@ def test_worker_approval_timeout_fails_task_and_expires_inbox(tmp_path, monkeypa
     assert store.get(task.task_id).status == "failed"
     items = worker.inbox.items(task.task_id)
     assert items and all(item["status"] == "expired" for item in items)
+
+
+def test_worker_uses_git_worktree_when_available(tmp_path):
+    import shutil
+    import subprocess
+
+    git = shutil.which("git")
+    if git is None:
+        pytest.skip("git required")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run([git, "init", "-q"], cwd=repo, check=True)
+    subprocess.run([git, "config", "user.email", "test@example.com"], cwd=repo, check=True)
+    subprocess.run([git, "config", "user.name", "Test"], cwd=repo, check=True)
+    (repo / ".gitignore").write_text(".vibe/\n", encoding="utf-8")
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    subprocess.run([git, "add", "."], cwd=repo, check=True)
+    subprocess.run([git, "commit", "-qm", "initial"], cwd=repo, check=True)
+
+    session = SessionStore.new(repo, "fake", purpose="test")
+    store = TaskStore(session.root)
+    task = store.create(kind="goal", objective="worktree 目标", workspace=str(repo), mode="goal")
+    env = _env(tmp_path)
+    env["VIBE_TASK_RUNTIME"] = "1"
+    proc = subprocess.run(
+        [sys.executable, "-m", "app", "--worker", "--fake", "--workspace", str(repo),
+         "--session", session.id, "--task-id", task.task_id],
+        capture_output=True, text=True, cwd=Path(__file__).resolve().parents[1], env=env, timeout=60,
+    )
+    assert proc.returncode == 0, proc.stderr
+    worktree = repo / ".vibe" / "worktrees" / task.task_id
+    assert worktree.is_dir()
+    assert (store.task_dir(task.task_id) / "worktree.json").is_file()
+    assert not (repo / ".vibe" / "workspace.lock").exists()
+    meta = json.loads((store.task_dir(task.task_id) / "meta.json").read_text(encoding="utf-8"))
+    assert meta["status"] == "completed"
