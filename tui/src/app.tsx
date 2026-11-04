@@ -1,4 +1,4 @@
-import {spawn} from 'node:child_process';
+import {spawn, spawnSync} from 'node:child_process';
 import {rmSync} from 'node:fs';
 import path from 'node:path';
 import React, {useEffect, useMemo, useReducer, useRef, useState} from 'react';
@@ -107,6 +107,8 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
   const waitForExit = useRef(false);
   const backgroundAfterRun = useRef(false);
   const shutdownRef = useRef<() => void>(() => {});
+  const lastTaskId = useRef<string | null>(null);
+  const mergeApprovalId = useRef<string | null>(null);
   const terminal = useWindowSize();
   const columns = Math.max(1, windowSize?.columns ?? terminal.columns);
   const rows = Math.max(1, windowSize?.rows ?? terminal.rows);
@@ -205,6 +207,12 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       const summary = event.tasks.slice(0, 5).map(task => `${task.task_id} ${task.status}${task.worker_status ? `/${task.worker_status}` : ''}`).join('；');
       dispatch({type: 'notice', text: `检测到 ${event.tasks.length} 个任务${running.length ? `（${running.length} 个后台 worker 活跃）` : ''}：${summary}${event.tasks.length > 5 ? ' …' : ''}\n输入 /task 查看；后台任务可用 --attach 观察。`});
     }
+    if (event.type === 'task_state') {
+      lastTaskId.current = event.task.task_id;
+    }
+    if (event.type === 'ready' && event.tasks?.length && !lastTaskId.current) {
+      lastTaskId.current = event.tasks[0]?.task_id ?? null;
+    }
     if (event.type === 'task_state' && event.id === activeRun.current) {
       const current = goalRef.current;
       if (current && current.taskId !== event.task.task_id) {
@@ -280,7 +288,20 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       return false;
     }
   };
+  const workspaceIsGit = () => {
+    if (!state.workspace) return false;
+    try {
+      const result = spawnSync('git', ['-C', state.workspace, 'rev-parse', '--show-toplevel'], {encoding: 'utf8'});
+      return result.status === 0;
+    } catch {
+      return false;
+    }
+  };
   const spawnBackgroundWorker = (taskId: string) => {
+    if (!workspaceIsGit()) {
+      dispatch({type: 'notice', text: '非 git 工作区不能转入后台写任务；请先 git init 或选择停止/等待。'});
+      return false;
+    }
     try {
       const args = ['--worker', '--workspace', state.workspace, '--session', state.sessionId, '--task-id', taskId];
       if (state.provider === 'fake') args.push('--fake');
@@ -400,6 +421,14 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       reportError(`写入 Ghostty 侧栏配置失败：${String(error)}`);
     }
   };
+  const runVibe = (args: string[]) => {
+    try {
+      const result = spawnSync(backendCommand, args, {...backendLaunchOptions(), encoding: 'utf8', timeout: 120_000});
+      return {ok: result.status === 0, text: `${result.stdout ?? ''}${result.stderr ?? ''}`.trim()};
+    } catch (error) {
+      return {ok: false, text: String(error)};
+    }
+  };
   const shutdown = () => {
     if (closing.current) return;
     closing.current = true;
@@ -427,8 +456,8 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
     const options: {label: string; action: () => void; disabled?: boolean}[] = [];
     if (goal?.active) {
       options.push({
-        label: goal.taskId && state.workspace && state.sessionId ? '转入后台（本段结束后）' : '转入后台（当前任务缺少 task 记录，暂不可用）',
-        disabled: !(goal.taskId && state.workspace && state.sessionId),
+        label: !goal.taskId || !state.workspace || !state.sessionId ? '转入后台（当前任务缺少 task 记录，暂不可用）' : (workspaceIsGit() ? '转入后台（本段结束后）' : '转入后台（非 git 工作区不可用）'),
+        disabled: !(goal.taskId && state.workspace && state.sessionId && workspaceIsGit()),
         action: () => {
           if (!goal?.taskId) return;
           const activeNow = Boolean(activeRun.current) || ['running', 'waiting_approval', 'stopping'].includes(latestState.current.phase);
@@ -924,6 +953,35 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
         dispatch({type: 'begin_command', id, command: 'autonomy'});
         setFeedback('');
       } catch (error) {reportError(`授权档位未送达：${String(error)}`);}
+      return;
+    }
+    if (text === '/stop-workers' || text === '/workers stop') {
+      setInput('');
+      if (!state.workspace) {notice('尚未连接工作区。'); return;}
+      const result = runVibe(['--stop', '--workspace', state.workspace]);
+      notice(result.ok ? result.text || '已写入停止信号。' : `停止失败：${result.text}`);
+      return;
+    }
+    if (text === '/merge' || text.startsWith('/merge ')) {
+      setInput('');
+      if (!state.workspace || !state.sessionId) {notice('尚未连接工作区/会话。'); return;}
+      const taskId = lastTaskId.current ?? goalRef.current?.taskId ?? null;
+      if (!taskId) {notice('当前会话没有可合并的 task；先运行 /task 查看。'); return;}
+      const parts = text.split(/\s+/);
+      const base = ['--merge-task', taskId, '--session', state.sessionId, '--workspace', state.workspace];
+      if (state.provider === 'fake') base.push('--fake');
+      if (state.sessionPurpose === 'test') base.push('--test-session');
+      if (parts[1] === 'approve') {
+        const approvalId = parts[2] ?? mergeApprovalId.current;
+        if (!approvalId) {notice('没有待批准的 merge approval id；先 /merge 请求。'); return;}
+        const result = runVibe([...base, '--approve-merge', approvalId]);
+        notice(result.ok ? result.text : `合并失败：${result.text}`);
+        return;
+      }
+      const result = runVibe(base);
+      const match = result.text.match(/merge approval requested: (\S+)/);
+      if (match) mergeApprovalId.current = match[1];
+      notice(result.ok ? result.text : `${result.text}${match ? `\n用 /merge approve ${match[1]} 批准并合并。` : ''}`);
       return;
     }
     const parts = text.split(/\s+/);

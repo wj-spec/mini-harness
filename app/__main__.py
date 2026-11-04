@@ -93,6 +93,7 @@ def main() -> None:
     parser.add_argument("--task-id", default=None, metavar="TASK_ID", help="--worker/--attach 的目标任务")
     parser.add_argument("--merge-task", default=None, metavar="TASK_ID", help="合并 worktree 任务（先请求/校验审批）")
     parser.add_argument("--approve-merge", default=None, metavar="APPROVAL_ID", help="批准并执行 merge（需 --merge-task）")
+    parser.add_argument("--merge-verify", action="append", default=None, metavar="CMD", help="合并后验证命令（可重复）")
     parser.add_argument("--stop", action="store_true", help="workspace kill switch：停止所有本机 worker")
     parser.add_argument("--stop-task", default=None, metavar="TASK_ID", help="只停止指定 worker")
     parser.add_argument("--eval", action="store_true", help="跑 eval 任务并退出")
@@ -137,6 +138,8 @@ def main() -> None:
             parser.error("--merge-task cannot be combined with other modes")
     elif args.approve_merge is not None:
         parser.error("--approve-merge requires --merge-task")
+    if args.merge_verify is not None and args.merge_task is None:
+        parser.error("--merge-verify requires --merge-task")
     if args.stop:
         if args.stop_task is not None or args.workspace is None:
             if args.workspace is None:
@@ -216,7 +219,10 @@ def main() -> None:
                 except ApprovalError as exc:
                     print(f"approval failed: {exc}", file=sys.stderr)
                     raise SystemExit(2)
-                result = gate.apply(task.task_id, session_root=session.root)
+                result = gate.apply(
+                    task.task_id, session_root=session.root,
+                    verify_commands=args.merge_verify,
+                )
                 print(json.dumps(result, ensure_ascii=False, indent=2))
                 return
             candidate = gate.prepare(task.task_id)

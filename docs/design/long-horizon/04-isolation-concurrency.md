@@ -1,7 +1,7 @@
 # 04 隔离与并发：单写者、worktree 与合并门禁
 
 > 状态：讨论稿（2026-11-02；2026-11-03 部分决策已确认，见 §9）；不是 spec，未承诺实现。
-> 实现：P0 单写者锁 + WorktreeManager + worker 接线 + MergeGate + CLI `--stop`/`--merge-task` 已实现，见 [workspace-isolation spec](../../specs/workspace-isolation.md)；TUI merge 入口、非 git 策略后续。
+> 实现：P0 单写者锁 + WorktreeManager + worker 接线 + MergeGate + CLI/TUI stop/merge + 合并后验证 + 非 git 默认拒绝已实现，见 [workspace-isolation spec](../../specs/workspace-isolation.md)。
 > 所属：长任务与后台任务 / 第 4 块
 > 前置/相关：[01 任务运行时](01-task-runtime.md)、[02 后台进程监督](02-process-supervision.md)、[03 无人值守审批](03-unattended-approval.md)、[07 控制面与协议](07-control-plane.md)、[09 无人值守安全默认值](09-unattended-safety.md)、[16 子 Agent 的有机结合](16-subagent-integration.md)；相关规格：[执行隔离评估](../../specs/execution-isolation.md)、[多 Agent 与 Computer Use](../../specs/multi-agent-computer-use.md)、[Git 只读工具](../../specs/git-readonly-tools.md)、[沙箱调研](../../research/sandbox-research-2026-10-25.md)
 

@@ -235,8 +235,18 @@ class Worker:
                     )
                 except Exception:
                     pass
-            except WorktreeError:
+            except WorktreeError as exc:
+                if os.getenv("VIBE_ALLOW_NON_GIT", "").strip().lower() not in {"1", "true", "yes"}:
+                    raise WorkerError(
+                        "non-git workspace: background writes require a git worktree; "
+                        "set VIBE_ALLOW_NON_GIT=1 only for read-only tasks"
+                    ) from exc
                 self.worktree = None
+                try:
+                    store.append_event(self.task_id, "non_git_shared_workspace",
+                                       data={"workspace": str(self.workspace)})
+                except Exception:
+                    pass
         _rotate_log(self.task_dir / WORKER_LOG_FILE)
         _acquire_worker_lock(self.task_dir)
         (self.task_dir / WORKER_PID_FILE).write_text(f"{os.getpid()}\n", encoding="utf-8")

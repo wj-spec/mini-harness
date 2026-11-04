@@ -34,6 +34,7 @@ def _env(tmp_path):
         "VIBE_TASK_RUNTIME": "1",
         "VIBE_WORKER_SOCKET_DIR": str(tmp_path / "sockets"),
         "VIBE_WORKER_HEARTBEAT_SECONDS": "0.2",
+        "VIBE_ALLOW_NON_GIT": "1",
     }
 
 
@@ -92,8 +93,9 @@ def test_attach_without_worker_socket_fails_cleanly(tmp_path, capsys):
     assert "worker socket not found" in capsys.readouterr().err
 
 
-def test_worker_goal_loop_continues_resource_stops(tmp_path):
+def test_worker_goal_loop_continues_resource_stops(tmp_path, monkeypatch):
     import asyncio
+    monkeypatch.setenv("VIBE_ALLOW_NON_GIT", "1")
 
     from app.runtime.worker import Worker
 
@@ -134,6 +136,7 @@ def test_worker_goal_loop_continues_resource_stops(tmp_path):
 
 def test_worker_approval_timeout_fails_task_and_expires_inbox(tmp_path, monkeypatch):
     import asyncio
+    monkeypatch.setenv("VIBE_ALLOW_NON_GIT", "1")
 
     from app.runtime.worker import Worker
 
@@ -206,3 +209,15 @@ def test_worker_uses_git_worktree_when_available(tmp_path):
     assert not (repo / ".vibe" / "workspace.lock").exists()
     meta = json.loads((store.task_dir(task.task_id) / "meta.json").read_text(encoding="utf-8"))
     assert meta["status"] == "completed"
+
+
+def test_worker_rejects_non_git_without_opt_in(tmp_path):
+    session, store, task = _seed(tmp_path)
+    env = _env(tmp_path)
+    env.pop("VIBE_ALLOW_NON_GIT", None)
+    proc = subprocess.run(
+        _worker_cmd(session, task), capture_output=True, text=True,
+        cwd=Path(__file__).resolve().parents[1], env=env, timeout=30,
+    )
+    assert proc.returncode == 3
+    assert "non-git workspace" in proc.stderr

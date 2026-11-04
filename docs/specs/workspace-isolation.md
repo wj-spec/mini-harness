@@ -1,6 +1,6 @@
 # 工作区隔离（WorkspaceLock / WorktreeManager，P0）
 
-日期：2026-11-03。状态：P0 基础 + P1 worker 接线 + MergeGate + CLI kill switch/merge 入口已实现（`--stop`、`--merge-task`/`--approve-merge`；合并需 inbox 审批、漂移/脏工作区拦截、合并后 `post_merge_verified=false`）；TUI merge 入口、非 git 写拒绝仍待后续。
+日期：2026-11-03。状态：P0 基础 + P1 worker 接线 + MergeGate + CLI kill switch/merge + 合并后验证 + TUI `/stop-workers`/`/merge` + 非 git 默认拒绝已实现（worker 无 worktree 时默认拒绝，`VIBE_ALLOW_NON_GIT=1` 仅用于只读）；剩余为更完整的 TUI 交互与 stale 清理提示。
 对应讨论稿：[04 隔离与并发](../design/long-horizon/04-isolation-concurrency.md)（§9 已确认）。
 依赖：[task-runtime](task-runtime.md)、[process-supervision](process-supervision.md)。
 

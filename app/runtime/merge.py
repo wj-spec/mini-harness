@@ -136,6 +136,8 @@ class MergeGate:
     def apply(
         self, task_id: str, *, session_root: str | Path,
         message: str | None = None,
+        verify_commands: list[str] | None = None,
+        verify_timeout: float = 300.0,
     ) -> dict[str, Any]:
         approval = self.approval_for(task_id, session_root=session_root)
         if approval is None:
@@ -156,9 +158,28 @@ class MergeGate:
             _git(self.repo_root, "merge", "--abort")
             raise MergeConflict(result.stderr.strip() or "merge conflict", files=files)
         merged_commit = _git_checked(self.repo_root, "rev-parse", "HEAD")
+        verification: list[dict[str, Any]] = []
+        for command in verify_commands or []:
+            try:
+                result = subprocess.run(
+                    command, shell=True, cwd=self.workspace, capture_output=True,
+                    text=True, timeout=verify_timeout,
+                )
+                verification.append({
+                    "command": command, "exit_code": result.returncode,
+                    "ok": result.returncode == 0,
+                    "output": (result.stdout + result.stderr)[-4000:],
+                })
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                verification.append({
+                    "command": command, "exit_code": None, "ok": False,
+                    "error": f"{type(exc).__name__}: {exc}",
+                })
+        post_merge_verified = bool(verification) and all(item["ok"] for item in verification)
         return {
             "merged": True, "commit": merged_commit, "branch": candidate.branch,
             "base_commit": candidate.base_commit, "changed_files": candidate.changed_files,
-            "diff_stat": candidate.diff_stat, "post_merge_verified": False,
+            "diff_stat": candidate.diff_stat, "post_merge_verified": post_merge_verified,
+            "verification": verification,
             "approval_id": approval.get("approval_id"),
         }

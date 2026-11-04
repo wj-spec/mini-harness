@@ -333,6 +333,8 @@ test('/task lists session tasks and startup hints are visible', async () => {
   await pause(20);
   assert.deepEqual(client.commands, ['tasks']);
   assert.match(lastFrame() ?? '', /\/task/);
+  client.emit({type: 'command_result', id: 'command-1', command: 'tasks', text: '任务列表'});
+  await pause(20);
   await enter(stdin, '/approvals');
   await pause(20);
   assert.deepEqual(client.commands, ['tasks', 'approvals']);

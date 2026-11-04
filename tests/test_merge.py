@@ -81,3 +81,16 @@ def test_merge_blocks_dirty_main(repo):
     (repo / "dirty.txt").write_text("dirty\n", encoding="utf-8")
     with pytest.raises(MergeDirty):
         gate.apply(task.task_id, session_root=session.root)
+
+def test_merge_runs_post_merge_verification(repo):
+    session, task = _task(repo)
+    _prepare_with_change(repo, session, task)
+    gate = MergeGate(repo)
+    approval = gate.request_approval(task.task_id, session_root=session.root)
+    ApprovalInbox(session.root).resolve(task.task_id, approval["approval_id"], decision="once")
+    result = gate.apply(
+        task.task_id, session_root=session.root,
+        verify_commands=["test -f feature.txt", "test -f missing.txt"],
+    )
+    assert result["post_merge_verified"] is False
+    assert [item["ok"] for item in result["verification"]] == [True, False]
