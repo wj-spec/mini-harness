@@ -16,9 +16,22 @@ export interface BackendClient {
   start(): void;
 }
 
+export interface AttachOptions {
+  taskId: string;
+  session: string;
+}
+
+export function backendSpawnArgs(args: readonly string[], attach?: AttachOptions): string[] {
+  if (attach) {
+    return ['--attach', '--task-id', attach.taskId, '--session', attach.session, ...args];
+  }
+  return ['--stdio', ...args];
+}
+
 export interface BackendOptions {
   repoRoot?: string;
   args?: readonly string[];
+  attach?: AttachOptions;
   shutdownTimeoutMs?: number;
   killTimeoutMs?: number;
   onDiagnostic?: (message: string) => void;
@@ -297,7 +310,7 @@ export function createBackendClient(options: BackendOptions = {}): BackendClient
       exitedPromise = new Promise<void>(resolve => {markExited = resolve;});
       closedPromise = new Promise<void>(resolve => {markClosed = resolve;});
       try {
-        child = spawn(backendCommand, ['--stdio', ...args], {
+        child = spawn(backendCommand, backendSpawnArgs(args, options.attach), {
           ...backendLaunchOptions(options),
           detached: process.platform !== 'win32',
           stdio: ['pipe', 'pipe', 'pipe'],

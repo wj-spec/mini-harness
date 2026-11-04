@@ -4,7 +4,7 @@ import {spawn} from 'node:child_process';
 import {constants} from 'node:os';
 import {render} from 'ink';
 import {App} from './app.js';
-import {createBackendClient} from './backend.js';
+import {createBackendClient, type AttachOptions} from './backend.js';
 import {validateClientArgs} from './protocol.js';
 import {createTerminalInput} from './terminal-input.js';
 import {backendCommand, backendLaunchOptions} from './backend-launch.js';
@@ -22,6 +22,7 @@ const help = `vibe Ink — 个人编码工作台
   --chat-only             只对话，不加载工具
   --continue              恢复当前工作区最近有对话的普通会话
   --session SESSION_ID    恢复当前工作区指定普通会话
+  --attach-task TASK_ID   连接到运行中的后台 worker（需配合 --session）
   --list-sessions         只读列出当前工作区普通会话后退出（无需交互终端）
   --test-session          显式进入测试会话范围，恢复和列表也仅限测试会话
   --sandbox               用 macOS Seatbelt 沙箱执行命令（写入限工作区，默认断网）
@@ -74,17 +75,40 @@ Ctrl+C 取消任务或 MCP 初始化，空闲时退出；Ctrl+Q 退出。
 交互入口为 ./run_ink.sh；Python 后端使用 ./run_vibe.sh --stdio，eval 使用 ./run_vibe.sh --eval。
 `;
 
+function extractAttach(args: string[]): {args: string[]; attach?: AttachOptions; error?: string} {
+  const index = args.indexOf('--attach-task');
+  if (index < 0) return {args};
+  const taskId = args[index + 1];
+  if (!taskId || taskId.startsWith('--')) return {args: [], error: '--attach-task requires TASK_ID'};
+  const rest = args.filter((_value, position) => position !== index && position !== index + 1);
+  const sessionIndex = rest.indexOf('--session');
+  const session = sessionIndex >= 0 ? rest[sessionIndex + 1] : undefined;
+  if (!session || session.startsWith('--')) return {args: [], error: '--attach-task requires --session SESSION_ID'};
+  return {args: rest, attach: {taskId, session}};
+}
+
 async function main() {
   const args = process.argv.slice(2);
   if (args.includes('--help') || args.includes('-h')) {
     process.stdout.write(help);
     return;
   }
+  const extracted = extractAttach(args);
+  if (extracted.error) {
+    process.stderr.write(`${extracted.error}\n`);
+    process.exitCode = 2;
+    return;
+  }
   let checkedArgs: string[];
   try {
-    checkedArgs = validateClientArgs(args);
+    checkedArgs = validateClientArgs(extracted.args);
   } catch (error) {
     process.stderr.write(`${(error as Error).message}\n`);
+    process.exitCode = 2;
+    return;
+  }
+  if (extracted.attach && checkedArgs.includes('--list-sessions')) {
+    process.stderr.write('--attach-task cannot be combined with --list-sessions\n');
     process.exitCode = 2;
     return;
   }
@@ -103,7 +127,7 @@ async function main() {
     process.exitCode = 2;
     return;
   }
-  const client = createBackendClient({args: checkedArgs});
+  const client = createBackendClient({args: checkedArgs, attach: extracted.attach});
   const stdin = createTerminalInput(process.stdin);
   let instance: ReturnType<typeof render>;
   try {
