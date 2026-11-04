@@ -45,6 +45,8 @@ mini-harness/
       supervise.py      # WorkerSupervisor：worker.json/心跳/判死/--tasks（P0a）
       worker.py         # 后台 worker：独立 stdio 子进程 + ctrl.sock + attach + worker.log（P0b）
       goals.py          # GoalRecord v2：目标状态/迁移/段账本同步（P0）
+      budget.py         # BudgetLedger：budget.jsonl 追加、totals、段/任务结算（P0）
+      approvals.py      # ApprovalInbox：approvals.jsonl、一次性审批/过期/脱敏（P0）
     tools/              # 工具系统
       registry.py       # 工具注册表与内置工具（read/write/bash/...）
       patch.py          # unified diff 解析、校验与 hunk 应用
@@ -151,7 +153,8 @@ mini-harness/
     test_cli_tasks.py
     test_worker.py
     test_goals.py
-    test_budget.py
+    test_budget_ledger.py
+    test_approvals.py
     test_app_summarize.py
     test_state.py
     test_summarize.py
@@ -192,6 +195,7 @@ mini-harness/
       process-supervision.md       # 后台进程监督：worker 状态/心跳/--tasks（P0a）
       goal-record.md              # GoalRecord：目标 schema v2、迁移与段同步（P0）
       budget-ledger.md            # 预算账本：budget.jsonl、trace 接线与终态结算（P0）
+      approval-inbox.md           # 审批收件箱：approvals.jsonl、一次性审批/过期/脱敏（P0）
     design/             # 未来方向的分块讨论（长任务/后台/进阶模式/子 Agent），拍板后收敛为 spec
     history/            # 旧 M1–M8 模块建设计划
 
