@@ -47,6 +47,7 @@ mini-harness/
       goals.py          # GoalRecord v2：目标状态/迁移/段账本同步（P0）
       budget.py         # BudgetLedger：budget.jsonl 追加、totals、段/任务结算（P0）
       approvals.py      # ApprovalInbox：approvals.jsonl、一次性审批/过期/脱敏（P0）
+      workspace.py      # WorkspaceLock / WorktreeManager：单写者锁与 git worktree 隔离（P0）
     tools/              # 工具系统
       registry.py       # 工具注册表与内置工具（read/write/bash/...）
       patch.py          # unified diff 解析、校验与 hunk 应用
@@ -155,6 +156,7 @@ mini-harness/
     test_goals.py
     test_budget_ledger.py
     test_approvals.py
+    test_workspace.py
     test_app_summarize.py
     test_state.py
     test_summarize.py
@@ -196,6 +198,7 @@ mini-harness/
       goal-record.md              # GoalRecord：目标 schema v2、迁移与段同步（P0）
       budget-ledger.md            # 预算账本：budget.jsonl、trace 接线与终态结算（P0）
       approval-inbox.md           # 审批收件箱：approvals.jsonl、一次性审批/过期/脱敏（P0）
+      workspace-isolation.md      # 工作区隔离：单写者锁、git worktree、diff（P0）
     design/             # 未来方向的分块讨论（长任务/后台/进阶模式/子 Agent），拍板后收敛为 spec
     history/            # 旧 M1–M8 模块建设计划
 
