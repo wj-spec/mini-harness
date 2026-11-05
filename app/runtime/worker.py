@@ -577,6 +577,12 @@ class Worker:
                 return
             mode = str(handshake.get("mode") or "observe")
             take_control = bool(handshake.get("take_control"))
+            capabilities = {
+                str(item) for item in handshake.get("capabilities", [])
+                if isinstance(item, str)
+            } if isinstance(handshake.get("capabilities", []), list) else set()
+            negotiated = ["task_snapshot", "approval_list", "control_lease"]
+            capabilities = capabilities or set()
             if mode not in {"control", "observe"}:
                 await self._send_writer(writer, {
                     "v": 1, "type": "error", "id": None,
@@ -602,8 +608,12 @@ class Worker:
                 self.controller = writer
                 self.controller_heartbeat_at = time.monotonic()
             self.clients.add(writer)
-            await self._send_writer(writer, {"v": 1, "type": "attach_ok", "id": None, "mode": mode})
-            await self._send_snapshot(writer)
+            await self._send_writer(writer, {
+                "v": 1, "type": "attach_ok", "id": None, "mode": mode,
+                "capabilities": [item for item in negotiated if item in capabilities],
+            })
+            if "task_snapshot" in capabilities:
+                await self._send_snapshot(writer)
             events_path = self.task_dir / WORKER_EVENTS_FILE
             if events_path.is_file():
                 for line in events_path.read_text(encoding="utf-8").splitlines():
@@ -743,6 +753,7 @@ async def _attach_async(session_root: Path, task_id: str, *, mode: str = "observ
         writer.write((json.dumps({
             "v": 1, "type": "attach", "id": f"attach-{uuid.uuid4().hex[:8]}",
             "mode": mode, "take_control": take_control,
+            "capabilities": ["task_snapshot", "approval_list", "control_lease"],
         }) + "\n").encode("utf-8"))
         await writer.drain()
         handshake = await asyncio.wait_for(reader.readline(), 5)

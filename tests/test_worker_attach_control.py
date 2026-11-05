@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+
+import pytest
 import os
 import socket
 import tempfile
@@ -26,13 +28,16 @@ def _worker(tmp_path):
     return session, store, task, worker
 
 
-async def _connect(path: str, mode: str, *, take_control: bool = False):
+async def _connect(path: str, mode: str, *, take_control: bool = False,
+                   capabilities: list[str] | None = None):
     reader, writer = await asyncio.open_unix_connection(path)
+    caps = ["task_snapshot", "approval_list", "control_lease"] if capabilities is None else capabilities
     writer.write((json.dumps({"v": 1, "type": "attach", "id": "h", "mode": mode,
-                              "take_control": take_control}) + "\n").encode())
+                              "take_control": take_control,
+                              "capabilities": caps}) + "\n").encode())
     await writer.drain()
     reply = json.loads((await asyncio.wait_for(reader.readline(), 2)).decode())
-    if reply.get("type") == "attach_ok":
+    if reply.get("type") == "attach_ok" and "task_snapshot" in caps:
         snapshot = json.loads((await asyncio.wait_for(reader.readline(), 2)).decode())
         assert snapshot["type"] == "task_snapshot"
     return reader, writer, reply
@@ -109,3 +114,23 @@ def test_controller_heartbeat_expiry(tmp_path):
     worker.controller_heartbeat_at = time.monotonic() - 10
     assert worker.controller_expired(ttl=5)
     assert not worker.controller_expired(ttl=60)
+
+def test_attach_without_snapshot_capability_gets_no_snapshot(tmp_path):
+    session, store, task, worker = _worker(tmp_path)
+    path = str(Path(tempfile.mkdtemp(prefix="vibe-attach-")) / "ctrl.sock")
+
+    async def scenario():
+        server = await asyncio.start_unix_server(worker._client, path=path)
+        try:
+            reader, writer, reply = await _connect(path, "observe", capabilities=[])
+            assert reply["type"] == "attach_ok"
+            assert reply["capabilities"] == []
+            import asyncio as _asyncio
+            with pytest.raises(_asyncio.TimeoutError):
+                await _asyncio.wait_for(reader.readline(), 0.2)
+            writer.close()
+        finally:
+            server.close()
+            await server.wait_closed()
+
+    asyncio.run(scenario())
