@@ -206,6 +206,7 @@ mini-harness/
       approval-inbox.md           # 审批收件箱：approvals.jsonl、一次性审批/过期/脱敏（P0）
       workspace-isolation.md      # 工作区隔离：单写者锁、git worktree、diff（P0）
       control-plane-attach.md     # 控制面 attach：TUI 连接运行中 worker（P0）
+      acceptance-report.md        # 全链路验收收束：验证结果、限制与复现命令
     design/             # 未来方向的分块讨论（长任务/后台/进阶模式/子 Agent），拍板后收敛为 spec
     history/            # 旧 M1–M8 模块建设计划
 
