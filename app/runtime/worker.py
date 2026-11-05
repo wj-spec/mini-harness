@@ -780,6 +780,11 @@ def run_worker(session_root: Path, task_id: str, workspace: Path,
         session_root=session_root, task_id=task_id, workspace=workspace,
         child_args=child_args, child_env=child_env,
     )
+    print(
+        f"worker: task {task_id} running; log: {session_root}/tasks/{task_id}/worker.log "
+        f"(Ctrl+C to stop)",
+        file=sys.stderr, flush=True,
+    )
     try:
         return asyncio.run(worker.run())
     except WorkerError as exc:

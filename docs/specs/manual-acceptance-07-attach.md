@@ -81,19 +81,26 @@ cd "$PROJECT"
 
 ### TC-02 worker 运行与 TUI attach（v2 snapshot）
 
-Terminal A：
+> **worker 命令会一直阻塞，这是正常的**：它就是后台 worker 进程，不要 Ctrl+C；保持该终端运行，再换到 Terminal B 操作。
+> **每个终端是独立 shell**：Terminal B 不会自动继承 Terminal A 的 `$WS/$SESSION/$TASK`；请重新 export，或使用下面的绝对路径。
+
+Terminal A（保持运行）：把下面命令里的路径换成你的实际值；启动后会看到
+`worker: task … running; log: …`，命令保持运行。
 
 ```bash
-cd "$PROJECT"
+cd /Users/endless/Desktop/self_project/mini-harness
 VIBE_TASK_RUNTIME=1 VIBE_FAKE_DELAY_SECONDS=120 \
-  ./run_vibe.sh --worker --fake --workspace "$WS" --session "$SESSION" --task-id "$TASK"
+  ./run_vibe.sh --worker --fake \
+  --workspace /private/tmp/vibe-acceptance \
+  --session 20261105-153810-796928 \
+  --task-id t-20261105-073810-af1e46
 ```
 
-Terminal B：
+Terminal B（独立 shell，使用绝对路径避免变量丢失）：
 
 ```bash
-cd "$PROJECT"
-./run_vibe.sh --tasks --workspace "$WS" --fake
+cd /Users/endless/Desktop/self_project/mini-harness
+./run_vibe.sh --tasks --fake --workspace /private/tmp/vibe-acceptance
 ```
 
 预期：列出 `$TASK`，worker=`running`；`<WS>/.vibe/worktrees/$TASK/` 存在。
@@ -111,6 +118,8 @@ cd "$PROJECT"
    `./run_ink.sh --attach-task $TASK --session $SESSION --workspace $WS --fake`；
 3. 输入 `/attach now`：当前 TUI 退出并重启到 attach 模式；
 4. 重启后应显示 `已 attach：$TASK …` 或等价提示；
+   - 若 `/attach` 只打印命令而没有 attach 成功：先确认 Terminal A 的 worker 仍在运行；
+     Ctrl+C 停止 worker 后 `/attach` 只是生成命令，不会复活进程；
 5. 输入 `/task` 仍能列出任务；等待 fake 延迟结束，应看到 done/任务完成；
 6. 结束后 worker 退出；退出 TUI。
 
