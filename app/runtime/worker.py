@@ -240,6 +240,10 @@ class Worker:
                     pass
             except WorktreeError as exc:
                 if os.getenv("VIBE_ALLOW_NON_GIT", "").strip().lower() not in {"1", "true", "yes"}:
+                    if self.workspace_lock is not None:
+                        self.workspace_lock.release()
+                        self.workspace_lock = None
+                    _release_worker_files(self.task_dir)
                     raise WorkerError(
                         "non-git workspace: background writes require a git worktree; "
                         "set VIBE_ALLOW_NON_GIT=1 only for read-only tasks"

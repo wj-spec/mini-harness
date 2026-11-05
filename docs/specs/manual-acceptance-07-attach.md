@@ -181,8 +181,10 @@ cd "$PROJECT"
 预期输出：
 
 - `FIRST {"v":1,"type":"attach_ok",..., "mode":"observe", "capabilities":[...]}`
-- `FRAME {"v":1,"type":"approval_list",...}` 或 `task_snapshot`（取决于发送顺序/请求）
-- 不应出现 controller 权限错误。
+- `FRAME {"v":1,"type":"task_snapshot",...}`
+- 回放若干 `ready`/history 帧后，`FRAME` 中应出现 `{"type":"approval_list",...}`
+- 不应出现 controller 权限错误（`observer_readonly` 仅在发控制帧时出现）。
+- 探针默认 `--listen-seconds 2`；回放较大时可加 `--listen-seconds 5` 并用 `grep` 过滤 `attachment/task_snapshot/approval_list`。
 
 验证 observer 不能控制：
 

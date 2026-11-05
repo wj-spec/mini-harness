@@ -221,3 +221,5 @@ def test_worker_rejects_non_git_without_opt_in(tmp_path):
     )
     assert proc.returncode == 3
     assert "non-git workspace" in proc.stderr
+    assert not (tmp_path / ".vibe" / "workspace.lock").exists()
+    assert not (store.task_dir(task.task_id) / "worker.lock").exists()
