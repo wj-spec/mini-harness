@@ -821,7 +821,18 @@ async def _attach_async(session_root: Path, task_id: str, *, mode: str = "observ
     task_dir = store.task_dir(task_id)
     path = socket_path(task_dir, task_id)
     if not path.exists():
-        print(f"worker socket not found: {path}", file=sys.stderr)
+        detail = ""
+        try:
+            task = store.get(task_id)
+            state = read_worker_state(task_dir)
+            detail = f" task={task.status} worker={state.status if state else 'none'}"
+        except Exception:
+            pass
+        print(
+            f"worker socket not found: {path}{detail}; "
+            "the worker is not running—rerun --worker for this task before attaching",
+            file=sys.stderr,
+        )
         return 1
     try:
         reader, writer = await asyncio.open_unix_connection(str(path))

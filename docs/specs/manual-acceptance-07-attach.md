@@ -89,7 +89,7 @@ Terminal A（保持运行）：把下面命令里的路径换成你的实际值�
 
 ```bash
 cd /Users/endless/Desktop/self_project/mini-harness
-VIBE_TASK_RUNTIME=1 VIBE_FAKE_DELAY_SECONDS=120 \
+VIBE_TASK_RUNTIME=1 VIBE_FAKE_DELAY_SECONDS=600 \
   ./run_vibe.sh --worker --fake \
   --workspace /private/tmp/vibe-acceptance \
   --session 20261105-153810-796928 \
@@ -105,7 +105,7 @@ cd /Users/endless/Desktop/self_project/mini-harness
 
 预期：列出 `$TASK`，worker=`running`；`<WS>/.vibe/worktrees/$TASK/` 存在。
 
-在 worker 完成前（120s 内）打开 TUI：
+在 worker 完成前（600s 内）打开 TUI：
 
 ```bash
 ./run_ink.sh --fake --workspace "$WS" --session "$SESSION"
@@ -120,7 +120,7 @@ cd /Users/endless/Desktop/self_project/mini-harness
 4. 重启后应显示 `已 attach：$TASK …` 或等价提示；
    - 若 `/attach` 只打印命令而没有 attach 成功：先确认 Terminal A 的 worker 仍在运行；
      Ctrl+C 停止 worker 后 `/attach` 只是生成命令，不会复活进程；
-5. 输入 `/task` 仍能列出任务；等待 fake 延迟结束，应看到 done/任务完成；
+5. 输入 `/task` 仍能列出任务；等待 fake 延迟结束（600s），应看到 done/任务完成；
 6. 结束后 worker 退出；退出 TUI。
 
 **通过标准**：
@@ -230,7 +230,7 @@ cd "$PROJECT"
 
 ### TC-06 detach 后 worker 继续
 
-准备一个耗时 worker（同 TC-02，`VIBE_FAKE_DELAY_SECONDS=120`，新 seed/task）。
+准备一个耗时 worker（同 TC-02，`VIBE_FAKE_DELAY_SECONDS=600`，新 seed/task）。
 
 1. TUI `/attach now` 连接；
 2. 按 Ctrl+Q 退出 attach TUI（注意选择“停止/等待/取消”相关提示时**不要停止任务**，直接退出 attach 即可；若提示需要确认，选择退出但保留 worker）；
@@ -350,6 +350,9 @@ TC-09 [ ] pass [ ] fail  证据：
 - **TUI 显示“Python 后端断开”（任务-only session）**
   - 原因：seed 的 session 没有消息历史，旧 CLI 会拒绝 `--session`，后端退出 1。
   - 现在已支持“有 task 目录但无消息”的 session；更新代码后直接重跑 TC-01 即可，不需要重新 seed。
+- **attach 报 `worker socket not found`**
+  - 原因：worker 已经结束（`--tasks` 的 WORKER 列显示 exited/killed/interrupted）。
+  - 处理：重新启动 `--worker`；paused task 会复用已有 worktree 继续。attach 只在 worker 运行期间可用。
 - **worker 报 `non-git workspace`，但工作区已经是 git 仓库**
   - 原因（已修复）：上一次 worker 被中断后留下了同 task 的 worktree，旧逻辑把 “worktree already exists” 误判成非 git。
   - 处理：更新代码后直接重跑 worker；它会复用已有 worktree，不会再次创建或报错。
