@@ -127,6 +127,15 @@ async function main() {
     process.exitCode = 2;
     return;
   }
+  try {
+    // 某些伪终端/IDE 面板 isTTY=true 但 setRawMode 会 EIO；提前给出可操作错误，
+    // 避免 Ink 启动后抛未处理的 'error' 事件。
+    process.stdin.setRawMode?.(false);
+  } catch {
+    process.stderr.write('当前终端无法进入 raw mode（setRawMode EIO）。请在真实交互终端中运行 ./run_ink.sh。\n');
+    process.exitCode = 2;
+    return;
+  }
   const client = createBackendClient({args: checkedArgs, attach: extracted.attach});
   const stdin = createTerminalInput(process.stdin);
   let instance: ReturnType<typeof render>;
