@@ -9,7 +9,7 @@
 |---|---|---|
 | Python 全量回归 | `./run_tests.sh` | **1284 passed, 13 skipped**（约 32s） |
 | 运行时定向验收 | `./run_tests.sh tests/test_task_store.py tests/test_task_runtime.py tests/test_stdio_tasks.py tests/test_worker.py tests/test_worker_attach_control.py tests/test_goals.py tests/test_budget_ledger.py tests/test_approvals.py tests/test_workspace.py tests/test_merge.py tests/test_killswitch.py tests/test_cli_tasks.py tests/test_cli_merge_stop.py` | **81 passed, 0 failed** |
-| TUI 构建 + 测试 | `cd tui && npm test` | **354 passed / 1 failed**；失败项为 `cli.test` 的 pty smoke，环境报 `out of pty devices`，非功能断言失败 |
+| TUI 构建 + 测试 | `cd tui && npm test` | **354 passed / 1 failed**；失败项为 `cli.test` 的 pty smoke，环境报 `out of pty devices`；`npm test` 已固定 `NO_COLOR=1` 避免终端颜色环境差异 |
 | 文档链接 | 65 个 docs/specs + long-horizon 文档的相对链接扫描 | **0 失效** |
 | CLI smoke | `./run_vibe.sh --tasks` | 输出 `no tasks under <workspace>`，退出 0 |
 | 工作树 | `git status --short` | 干净（报告提交前） |

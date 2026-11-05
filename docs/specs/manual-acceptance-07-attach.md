@@ -11,8 +11,11 @@
   ```bash
   cd "$PROJECT"
   ./run_tests.sh
-  cd tui && npm test && cd ..
+  cd tui
+  npm test
+  cd ..
   ```
+  注意：不要复制行内注释到命令里；`run_tests.sh` 必须在项目根目录执行。
 - **不要**在 CI/无 pty 的沙箱里做交互步骤；TUI 会提示需要交互终端。
 - 验收过程会产生 scratch 目录 `/tmp/vibe-acceptance`，可随时删除。
 
@@ -21,7 +24,7 @@
 | 检查 | 期望 |
 |---|---|
 | `./run_tests.sh` | 1284 passed，13 skipped，退出 0 |
-| `cd tui && npm test` | 355 tests：真实终端下应 355 passed；本环境 354 passed / 1 pty 失败 |
+| `cd tui && npm test` | 355 tests：真实终端下应 355 passed；`npm test` 已固定 `NO_COLOR=1`，不受终端颜色环境影响；本环境只剩 1 个 pty smoke 失败 |
 | `./run_vibe.sh --tasks` | 输出 `no tasks under …`，退出 0 |
 
 ## 1 准备 scratch git 工作区
@@ -326,6 +329,18 @@ TC-09 [ ] pass [ ] fail  证据：
 - 任务目录 `meta.json`、`worker.json`、`approvals.jsonl`、`worker.log`；
 - `git -C "$WS" status --porcelain` 与 worktree 列表；
 - 若协议错误，附 attach 进程 stderr/JSONL 帧。
+
+## 4.1 常见失败排查
+
+- **`./run_tests.sh` 输出 `rootdir: /`、`collected 0 items`、`ERROR: file or directory not found: #`**
+  - 原因：没有在项目根目录执行，或把行内注释 `# …` 和命令一起传给了 shell/工具。
+  - 处理：先 `cd /Users/endless/Desktop/self_project/mini-harness`，单独执行 `./run_tests.sh`；不要把注释复制进命令行。
+- **TUI 测试出现 `S20 M0 T30 H50`、`/resume`、菜单描述等断言失败**
+  - 原因：终端颜色环境不同，ANSI 码插入了断言文本。
+  - 处理：`tui/package.json` 的 `npm test` 已固定 `NO_COLOR=1`；重新 `cd tui && npm test`。不要用 `node --test dist/...` 绕过该脚本。
+- **TUI 测试 `out of pty devices`**
+  - 原因：当前终端/沙箱无可用 pty。
+  - 处理：换真实交互终端执行；这是本环境唯一预期失败项。
 
 ## 5 清理
 
