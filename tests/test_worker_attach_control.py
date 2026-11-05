@@ -31,7 +31,7 @@ def _worker(tmp_path):
 async def _connect(path: str, mode: str, *, take_control: bool = False,
                    capabilities: list[str] | None = None):
     reader, writer = await asyncio.open_unix_connection(path)
-    caps = ["task_snapshot", "approval_list", "control_lease"] if capabilities is None else capabilities
+    caps = ["task_snapshot", "approval_list", "approval_decide", "control_lease"] if capabilities is None else capabilities
     writer.write((json.dumps({"v": 1, "type": "attach", "id": "h", "mode": mode,
                               "take_control": take_control,
                               "capabilities": caps}) + "\n").encode())
@@ -61,6 +61,11 @@ def test_controller_observer_and_takeover(tmp_path):
             assert observer["type"] == "attach_ok" and observer["mode"] == "observe"
             observer_writer.write((json.dumps({"v": 1, "type": "cancel", "id": "c",
                                                "target": "run"}) + "\n").encode())
+            await observer_writer.drain()
+            error = json.loads((await asyncio.wait_for(observer_reader.readline(), 2)).decode())
+            assert error["code"] == "observer_readonly"
+            observer_writer.write((json.dumps({"v": 1, "type": "approval_decide", "id": "d",
+                                               "approval_id": "a1", "decision": "once"}) + "\n").encode())
             await observer_writer.drain()
             error = json.loads((await asyncio.wait_for(observer_reader.readline(), 2)).decode())
             assert error["code"] == "observer_readonly"
@@ -128,6 +133,39 @@ def test_attach_without_snapshot_capability_gets_no_snapshot(tmp_path):
             import asyncio as _asyncio
             with pytest.raises(_asyncio.TimeoutError):
                 await _asyncio.wait_for(reader.readline(), 0.2)
+            writer.close()
+        finally:
+            server.close()
+            await server.wait_closed()
+
+    asyncio.run(scenario())
+
+
+def test_v2_task_snapshot_approval_list_and_decide(tmp_path):
+    session, store, task, worker = _worker(tmp_path)
+    path = str(Path(tempfile.mkdtemp(prefix="vibe-attach-")) / "ctrl.sock")
+    inbox = ApprovalInbox(session.root)
+    requested = inbox.submit(task.task_id, tool="bash")
+
+    async def scenario():
+        server = await asyncio.start_unix_server(worker._client, path=path)
+        try:
+            reader, writer, reply = await _connect(path, "control")
+            assert reply["type"] == "attach_ok"
+            assert "approval_decide" in reply["capabilities"]
+            writer.write((json.dumps({"v": 1, "type": "approval_list_request", "id": "l1"}) + "\n").encode())
+            await writer.drain()
+            listed = json.loads((await asyncio.wait_for(reader.readline(), 2)).decode())
+            assert listed["type"] == "approval_list"
+            assert listed["id"] == "l1" and listed["approvals"][0]["approval_id"] == requested["approval_id"]
+
+            writer.write((json.dumps({"v": 1, "type": "approval_decide", "id": "d1",
+                                      "approval_id": requested["approval_id"], "decision": "once"}) + "\n").encode())
+            await writer.drain()
+            await asyncio.sleep(0.05)
+            assert inbox.items(task.task_id)[0]["status"] == "resolved"
+            forwarded = json.loads(worker.queue.get_nowait())
+            assert forwarded["type"] == "approval" and forwarded["decision"] == "once"
             writer.close()
         finally:
             server.close()

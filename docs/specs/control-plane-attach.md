@@ -1,6 +1,6 @@
 # 控制面 attach（TUI 连接运行中 worker，P0）
 
-日期：2026-11-03。状态：TUI attach + controller/observer + 心跳租约 + `task_snapshot` + capability 协商 + replay/live 锁 + TUI `/attach`（提示命令）与 `/attach now`（重启进入 attach）已实现；v2 正式帧仍待后续。
+日期：2026-11-03。状态：TUI attach + controller/observer + 心跳租约 + capability 协商 + replay/live 锁 + `/attach`/`/attach now` + attach v2 帧（`task_snapshot_request`、`approval_list_request`、`approval_decide`）已实现；完整 v2 stdio 双栈/协议升级仍待后续。
 对应讨论稿：[07 控制面与协议](../design/long-horizon/07-control-plane.md)（§9/§10 已确认）。
 依赖：[process-supervision](process-supervision.md)、[task-runtime-integration](task-runtime-integration.md)。
 

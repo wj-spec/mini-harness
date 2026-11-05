@@ -410,7 +410,12 @@ export function createBackendClient(options: BackendOptions = {}): BackendClient
       if (!approvalId || approvalId.length > 128 || !['once', 'session', 'workspace', 'deny'].includes(decision)) throw new Error('审批响应无效');
       const approval = pendingApprovals.get(approvalId);
       if (!approval || !(approval.decisions ?? ['once', 'deny']).includes(decision)) throw new Error('审批已失效或超出允许范围');
-      send({v: 1, type: 'approval', id: randomUUID(), approval_id: approvalId, decision});
+      const id = randomUUID();
+      if (options.attach) {
+        send({v: 1, type: 'approval_decide', id, approval_id: approvalId, decision});
+      } else {
+        send({v: 1, type: 'approval', id, approval_id: approvalId, decision});
+      }
       pendingApprovals.delete(approvalId);
     },
     shutdown,

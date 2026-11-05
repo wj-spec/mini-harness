@@ -236,6 +236,7 @@ export type ServerEvent =
   | Envelope<'done', {result: RunResult}>
   | Envelope<'task_state', {task: TaskSnapshot}>
   | Envelope<'task_snapshot', {task: AttachTaskSnapshot; approvals: AttachApprovalItem[]}>
+  | Envelope<'approval_list', {approvals: AttachApprovalItem[]}>
   | Envelope<'ack', {action: 'cancel' | 'approval' | 'steer'}>
   | Envelope<'closed'>
   | Envelope<'error', {code: string; message: string}>;
@@ -248,6 +249,7 @@ export type ClientRequest = (
   | Envelope<'cancel', {target: string}>
   | Envelope<'steer', {target: string; text: string}>
   | Envelope<'approval', {approval_id: string; decision: ApprovalDecision}>
+  | Envelope<'approval_decide', {approval_id: string; decision: ApprovalDecision}>
   | Envelope<'shutdown'>
 ) & {id: string};
 
@@ -478,6 +480,7 @@ export function parseServerEvent(line: string): ServerEvent {
     case 'done': valid = validId(value.id) && runResult(value.result); break;
     case 'task_state': valid = validId(value.id) && taskSnapshot(value.task); break;
     case 'task_snapshot': valid = value.id === null && attachTaskSnapshot(value.task) && attachApprovals(value.approvals); break;
+    case 'approval_list': valid = (value.id === null || validId(value.id)) && attachApprovals(value.approvals); break;
     case 'ack': valid = validId(value.id) && ['cancel', 'approval', 'steer'].includes(String(value.action)); break;
     case 'closed': valid = true; break;
     case 'error': valid = typeof value.code === 'string' && typeof value.message === 'string'; break;

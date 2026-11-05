@@ -141,6 +141,8 @@ mini-harness/
   scripts/doctor.py     # 首用环境自检（--doctor；仅标准库，缺项给命令）
   .env.example          # 环境变量模板（不含真实 key，.env 不提交）
   scripts/setup-ghostty-sidebar.sh # 写入右侧 quick terminal 配置（幂等）
+  scripts/acceptance_seed_task.py  # 07 attach 人工验收：创建隔离 test session/task（可带 worktree）
+  scripts/acceptance_attach_probe.py # 07 attach 人工验收：controller/observer/v2 帧低层探针
   AGENTS.md             # 项目规则（自举）
 
   tests/                # 镜像模块
@@ -207,6 +209,7 @@ mini-harness/
       workspace-isolation.md      # 工作区隔离：单写者锁、git worktree、diff（P0）
       control-plane-attach.md     # 控制面 attach：TUI 连接运行中 worker（P0）
       acceptance-report.md        # 全链路验收收束：验证结果、限制与复现命令
+      manual-acceptance-07-attach.md  # 07 v2/TUI attach 真实终端人工验收步骤与用例
     design/             # 未来方向的分块讨论（长任务/后台/进阶模式/子 Agent），拍板后收敛为 spec
     history/            # 旧 M1–M8 模块建设计划
 

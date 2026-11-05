@@ -585,7 +585,7 @@ class Worker:
                 str(item) for item in handshake.get("capabilities", [])
                 if isinstance(item, str)
             } if isinstance(handshake.get("capabilities", []), list) else set()
-            negotiated = ["task_snapshot", "approval_list", "control_lease"]
+            negotiated = ["task_snapshot", "approval_list", "approval_decide", "control_lease"]
             capabilities = capabilities or set()
             if mode not in {"control", "observe"}:
                 await self._send_writer(writer, {
@@ -648,12 +648,40 @@ class Worker:
                 if mode == "control" and frame.get("type") == "attach_heartbeat":
                     self.controller_heartbeat_at = time.monotonic()
                     continue
+                if frame.get("type") == "task_snapshot_request":
+                    await self._send_snapshot(writer)
+                    continue
+                if frame.get("type") == "approval_list_request":
+                    await self._send_approval_list(writer, frame.get("id"))
+                    continue
                 if mode == "observe":
                     await self._send_writer(writer, {
                         "v": 1, "type": "error", "id": frame.get("id"),
                         "code": "observer_readonly",
                         "message": "observe clients cannot send control frames",
                     })
+                    continue
+                if frame.get("type") == "approval_decide":
+                    approval_id = frame.get("approval_id")
+                    decision = frame.get("decision")
+                    if not isinstance(approval_id, str) or not isinstance(decision, str):
+                        continue
+                    try:
+                        self.inbox.resolve(
+                            self.task_id, approval_id, decision=decision,
+                            scope=decision if decision != "deny" else "deny",
+                            decided_by="attach", decider="user",
+                        )
+                    except ApprovalError as exc:
+                        await self._send_writer(writer, {
+                            "v": 1, "type": "error", "id": frame.get("id"),
+                            "code": "approval_mismatch", "message": str(exc),
+                        })
+                        continue
+                    await self.queue.put(json.dumps({
+                        "v": 1, "type": "approval", "id": frame.get("id"),
+                        "approval_id": approval_id, "decision": decision,
+                    }, ensure_ascii=False))
                     continue
                 if frame.get("type") == "approval":
                     approval_id = frame.get("approval_id")
@@ -719,6 +747,21 @@ class Worker:
             "approvals": pending,
         })
 
+    async def _send_approval_list(self, writer: asyncio.StreamWriter, request_id: Any = None) -> None:
+        try:
+            items = [
+                {"approval_id": item.get("approval_id"), "tool": item.get("tool"),
+                 "tier": item.get("tier"), "requester": item.get("requester"),
+                 "expires_at": item.get("expires_at"), "status": item.get("status")}
+                for item in self.inbox.items(self.task_id)
+                if item.get("status") in {"pending", "resolved", "expired"}
+            ]
+        except Exception:
+            items = []
+        await self._send_writer(writer, {
+            "v": 1, "type": "approval_list", "id": request_id, "approvals": items,
+        })
+
     async def _send_writer(self, writer: asyncio.StreamWriter, payload: dict[str, Any]) -> None:
         try:
             writer.write((json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8"))
@@ -759,7 +802,7 @@ async def _attach_async(session_root: Path, task_id: str, *, mode: str = "observ
         writer.write((json.dumps({
             "v": 1, "type": "attach", "id": f"attach-{uuid.uuid4().hex[:8]}",
             "mode": mode, "take_control": take_control,
-            "capabilities": ["task_snapshot", "approval_list", "control_lease"],
+            "capabilities": ["task_snapshot", "approval_list", "approval_decide", "control_lease"],
         }) + "\n").encode("utf-8"))
         await writer.drain()
         handshake = await asyncio.wait_for(reader.readline(), 5)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import os
 from collections.abc import AsyncIterator, Iterable
 
 from core.contracts import Response
@@ -19,6 +21,12 @@ class FakeProvider:
     async def stream(self, messages, tools) -> AsyncIterator[object]:
         self.seen.append(list(messages))
         self.seen_tools.append(list(tools))
+        try:
+            delay = float(os.getenv("VIBE_FAKE_DELAY_SECONDS", "0") or 0)
+        except ValueError:
+            delay = 0.0
+        if delay > 0:
+            await asyncio.sleep(delay)
         if self.i >= len(self.script):
             yield TextDelta("[fake provider exhausted]")
             yield StreamDone()
