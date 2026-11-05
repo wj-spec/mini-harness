@@ -9,7 +9,7 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/src/cli.js",
-    "test": "npm run build && node --test dist/tests/*.test.js"
+    "test": "npm run build && NO_COLOR=1 node --test dist/tests/*.test.js"
   },
   "dependencies": {
     "chalk": "6.0.1",
