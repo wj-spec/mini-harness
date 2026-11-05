@@ -338,6 +338,9 @@ test('/task lists session tasks and startup hints are visible', async () => {
   await enter(stdin, '/approvals');
   await pause(20);
   assert.deepEqual(client.commands, ['tasks', 'approvals']);
+  await enter(stdin, '/attach');
+  await pause(20);
+  assert.match(lastFrame() ?? '', /--attach-task t-20261103-120000-abcdef/);
 });
 test('a startup error is labeled before the backend closes', async () => {
   const client = new MockClient();

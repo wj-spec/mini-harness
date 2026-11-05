@@ -205,7 +205,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
     if (event.type === 'ready' && event.tasks && event.tasks.length) {
       const running = event.tasks.filter(task => task.worker_status && task.worker_status !== 'exited' && task.worker_status !== 'failed' && task.worker_status !== 'interrupted');
       const summary = event.tasks.slice(0, 5).map(task => `${task.task_id} ${task.status}${task.worker_status ? `/${task.worker_status}` : ''}`).join('；');
-      dispatch({type: 'notice', text: `检测到 ${event.tasks.length} 个任务${running.length ? `（${running.length} 个后台 worker 活跃）` : ''}：${summary}${event.tasks.length > 5 ? ' …' : ''}\n输入 /task 查看；attach：./run_ink.sh --attach-task <task_id> --session <session_id>`});
+      dispatch({type: 'notice', text: `检测到 ${event.tasks.length} 个任务${running.length ? `（${running.length} 个后台 worker 活跃）` : ''}：${summary}${event.tasks.length > 5 ? ' …' : ''}\n输入 /task 查看；/attach 生成 attach 命令。`});
     }
     if (event.type === 'task_snapshot') {
       lastTaskId.current = event.task.task_id;
@@ -965,6 +965,15 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       if (!state.workspace) {notice('尚未连接工作区。'); return;}
       const result = runVibe(['--stop', '--workspace', state.workspace]);
       notice(result.ok ? result.text || '已写入停止信号。' : `停止失败：${result.text}`);
+      return;
+    }
+    if (text === '/attach' || text.startsWith('/attach ')) {
+      setInput('');
+      if (!state.workspace || !state.sessionId) {notice('尚未连接工作区/会话。'); return;}
+      const requested = text.split(/\s+/)[1] ?? lastTaskId.current ?? goalRef.current?.taskId ?? null;
+      if (!requested) {notice('当前会话没有可 attach 的 task；先运行 /task 查看。'); return;}
+      const fake = state.provider === 'fake' || state.sessionPurpose === 'test' ? ' --fake' : '';
+      notice(`运行以下命令连接后台任务：\n./run_ink.sh --attach-task ${requested} --session ${state.sessionId} --workspace ${state.workspace}${fake}`);
       return;
     }
     if (text === '/merge' || text.startsWith('/merge ')) {
