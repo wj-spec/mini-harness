@@ -973,7 +973,21 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
       const requested = text.split(/\s+/)[1] ?? lastTaskId.current ?? goalRef.current?.taskId ?? null;
       if (!requested) {notice('当前会话没有可 attach 的 task；先运行 /task 查看。'); return;}
       const fake = state.provider === 'fake' || state.sessionPurpose === 'test' ? ' --fake' : '';
-      notice(`运行以下命令连接后台任务：\n./run_ink.sh --attach-task ${requested} --session ${state.sessionId} --workspace ${state.workspace}${fake}`);
+      const parts = text.split(/\s+/);
+      if (parts[1] === 'now' || parts[1] === '--now') {
+        try {
+          const args = ['--attach-task', requested, '--session', state.sessionId, '--workspace', state.workspace];
+          if (fake) args.push('--fake');
+          const child = spawn('./run_ink.sh', args, {...backendLaunchOptions(), stdio: 'inherit'});
+          child.unref();
+          notice('正在重启为 attach 模式…');
+          setTimeout(() => exit(), 150);
+        } catch (error) {
+          notice(`启动 attach TUI 失败：${String(error)}`);
+        }
+        return;
+      }
+      notice(`运行以下命令连接后台任务：\n./run_ink.sh --attach-task ${requested} --session ${state.sessionId} --workspace ${state.workspace}${fake}\n或用 /attach now 直接重启进入。`);
       return;
     }
     if (text === '/merge' || text.startsWith('/merge ')) {
