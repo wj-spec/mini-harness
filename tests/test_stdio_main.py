@@ -86,3 +86,18 @@ main()
     events = [json.loads(line) for line in result.stdout.splitlines()]
     assert events[0]["type"] == "ready"
     assert events[-1]["type"] == "closed"
+
+
+def test_stdio_opens_task_only_session_without_messages(tmp_path, monkeypatch):
+    import app.stdio
+    from app.runtime.tasks import TaskStore
+    from app.session.store import SessionStore
+
+    session = SessionStore.new(tmp_path, "fake", purpose="test")
+    TaskStore(session.root).create(kind="goal", objective="task only", workspace=str(tmp_path), mode="goal")
+    opened = []
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path))
+    monkeypatch.setattr(app.stdio, "run_stdio", lambda agent, config, session=None, **options: opened.append(session))
+    monkeypatch.setattr(sys, "argv", ["vibe", "--stdio", "--fake", "--session", session.id])
+    entrypoint.main()
+    assert opened and opened[0].id == session.id

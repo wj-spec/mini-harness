@@ -374,8 +374,17 @@ def main() -> None:
             )
         except ValueError as exc:
             parser.error(str(exc))
+        has_tasks = False
+        if resumed_session is not None:
+            try:
+                tasks_dir = resumed_session.root / "tasks"
+                has_tasks = tasks_dir.is_dir() and any(tasks_dir.iterdir())
+            except OSError:
+                has_tasks = False
         if resumed_session is None or (
-            not resumed_session.load_context() and not os.getenv("VIBE_WORKER")
+            not resumed_session.load_context()
+            and not os.getenv("VIBE_WORKER")
+            and not has_tasks
         ):
             target = f"session {args.session}" if args.session is not None else "conversation"
             print(f"no {target} found under {config.workspace}/.vibe/sessions", file=sys.stderr)

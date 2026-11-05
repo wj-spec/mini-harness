@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT))
 from app.runtime.tasks import TaskStore  # noqa: E402
 from app.runtime.workspace import WorktreeManager  # noqa: E402
 from app.session.store import SessionStore  # noqa: E402
+from core.contracts import Message  # noqa: E402
 
 
 def main() -> None:
@@ -30,6 +31,7 @@ def main() -> None:
     if not workspace.is_dir():
         raise SystemExit(f"workspace not found: {workspace}")
     session = SessionStore.new(workspace, "fake", purpose="test")
+    session.append_message(Message("user", args.objective))
     task = TaskStore(session.root).create(
         kind="goal", objective=args.objective, workspace=str(workspace), mode="goal",
     )
