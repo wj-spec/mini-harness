@@ -219,10 +219,40 @@ class Worker:
             raise WorkerError(f"workspace busy: {exc}") from exc
         self.task_dir.mkdir(parents=True, exist_ok=True)
         if os.getenv("VIBE_WORKTREE", "1").strip().lower() not in {"0", "false", "off", "no"}:
+            allow_non_git = os.getenv("VIBE_ALLOW_NON_GIT", "").strip().lower() in {"1", "true", "yes"}
+            manager = None
             try:
-                self.worktree = WorktreeManager(self.workspace).create(
-                    self.task_id, self.session_root.name,
+                manager = WorktreeManager(self.workspace)
+            except WorktreeError as exc:
+                if not allow_non_git:
+                    if self.workspace_lock is not None:
+                        self.workspace_lock.release()
+                        self.workspace_lock = None
+                    _release_worker_files(self.task_dir)
+                    raise WorkerError(
+                        "non-git workspace: background writes require a git worktree; "
+                        "set VIBE_ALLOW_NON_GIT=1 only for read-only tasks"
+                    ) from exc
+            if manager is not None:
+                existing = next(
+                    (item for item in manager.list()
+                     if item.task_id == self.task_id and item.status == "active"
+                     and item.path.is_dir()),
+                    None,
                 )
+                try:
+                    if existing is not None:
+                        self.worktree = existing
+                        reused = True
+                    else:
+                        self.worktree = manager.create(self.task_id, self.session_root.name)
+                        reused = False
+                except WorktreeError as exc:
+                    if self.workspace_lock is not None:
+                        self.workspace_lock.release()
+                        self.workspace_lock = None
+                    _release_worker_files(self.task_dir)
+                    raise WorkerError(f"worktree setup failed: {exc}") from exc
                 (self.task_dir / "worktree.json").write_text(
                     json.dumps(self.worktree.to_dict(), ensure_ascii=False, indent=2),
                     encoding="utf-8",
@@ -232,22 +262,14 @@ class Worker:
                 ]
                 try:
                     store.append_event(
-                        self.task_id, "worktree_created",
+                        self.task_id,
+                        "worktree_reused" if reused else "worktree_created",
                         data={"path": str(self.worktree.path), "branch": self.worktree.branch,
                               "base_commit": self.worktree.base_commit},
                     )
                 except Exception:
                     pass
-            except WorktreeError as exc:
-                if os.getenv("VIBE_ALLOW_NON_GIT", "").strip().lower() not in {"1", "true", "yes"}:
-                    if self.workspace_lock is not None:
-                        self.workspace_lock.release()
-                        self.workspace_lock = None
-                    _release_worker_files(self.task_dir)
-                    raise WorkerError(
-                        "non-git workspace: background writes require a git worktree; "
-                        "set VIBE_ALLOW_NON_GIT=1 only for read-only tasks"
-                    ) from exc
+            elif allow_non_git:
                 self.worktree = None
                 try:
                     store.append_event(self.task_id, "non_git_shared_workspace",

@@ -223,3 +223,39 @@ def test_worker_rejects_non_git_without_opt_in(tmp_path):
     assert "non-git workspace" in proc.stderr
     assert not (tmp_path / ".vibe" / "workspace.lock").exists()
     assert not (store.task_dir(task.task_id) / "worker.lock").exists()
+
+
+def test_worker_reuses_existing_worktree(tmp_path):
+    import shutil
+    import subprocess
+
+    git = shutil.which("git")
+    if git is None:
+        pytest.skip("git required")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run([git, "init", "-q"], cwd=repo, check=True)
+    subprocess.run([git, "config", "user.email", "test@example.com"], cwd=repo, check=True)
+    subprocess.run([git, "config", "user.name", "Test"], cwd=repo, check=True)
+    (repo / ".gitignore").write_text(".vibe/\n", encoding="utf-8")
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    subprocess.run([git, "add", "."], cwd=repo, check=True)
+    subprocess.run([git, "commit", "-qm", "initial"], cwd=repo, check=True)
+
+    session = SessionStore.new(repo, "fake", purpose="test")
+    store = TaskStore(session.root)
+    task = store.create(kind="goal", objective="reuse worktree", workspace=str(repo), mode="goal")
+    from app.runtime.workspace import WorktreeManager
+    existing = WorktreeManager(repo).create(task.task_id, session.id)
+
+    env = _env(tmp_path)
+    env["VIBE_TASK_RUNTIME"] = "1"
+    proc = subprocess.run(
+        [sys.executable, "-m", "app", "--worker", "--fake", "--workspace", str(repo),
+         "--session", session.id, "--task-id", task.task_id],
+        capture_output=True, text=True, cwd=Path(__file__).resolve().parents[1], env=env, timeout=60,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "non-git workspace" not in proc.stderr
+    assert existing.path.is_dir()
+    assert json.loads((store.task_dir(task.task_id) / "meta.json").read_text(encoding="utf-8"))["status"] == "completed"

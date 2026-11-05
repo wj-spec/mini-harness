@@ -1,7 +1,7 @@
 # 07 v2 + TUI attach 人工验收步骤
 
 日期：2026-11-05。适用基线：本轮 v2 `task_snapshot/approval_list/approval_decide` 与 TUI attach 实现。
-自动验收结果：Python **1285 passed / 13 skipped**；TUI **354/355**（当前执行环境无 pty，`cli.test.ts` 的交互 smoke 失败；人工验收必须在**真实 pty 终端**中跑）。
+自动验收结果：Python **1286 passed / 13 skipped**；TUI **354/355**（当前执行环境无 pty，`cli.test.ts` 的交互 smoke 失败；人工验收必须在**真实 pty 终端**中跑）。
 
 ## 0 前置条件
 
@@ -23,7 +23,7 @@
 
 | 检查 | 期望 |
 |---|---|
-| `./run_tests.sh` | 1285 passed，13 skipped，退出 0 |
+| `./run_tests.sh` | 1286 passed，13 skipped，退出 0 |
 | `cd tui && npm test` | 355 tests：真实终端下应 355 passed；`npm test` 已固定 `NO_COLOR=1`，不受终端颜色环境影响；本环境只剩 1 个 pty smoke 失败 |
 | `./run_vibe.sh --tasks` | 输出 `no tasks under …`，退出 0 |
 
@@ -350,6 +350,9 @@ TC-09 [ ] pass [ ] fail  证据：
 - **TUI 显示“Python 后端断开”（任务-only session）**
   - 原因：seed 的 session 没有消息历史，旧 CLI 会拒绝 `--session`，后端退出 1。
   - 现在已支持“有 task 目录但无消息”的 session；更新代码后直接重跑 TC-01 即可，不需要重新 seed。
+- **worker 报 `non-git workspace`，但工作区已经是 git 仓库**
+  - 原因（已修复）：上一次 worker 被中断后留下了同 task 的 worktree，旧逻辑把 “worktree already exists” 误判成非 git。
+  - 处理：更新代码后直接重跑 worker；它会复用已有 worktree，不会再次创建或报错。
 - **TUI 测试 `out of pty devices`**
   - 原因：当前终端/沙箱无可用 pty。
   - 处理：换真实交互终端执行；这是本环境唯一预期失败项。
