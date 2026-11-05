@@ -174,6 +174,7 @@ class Worker:
             started_at=self._now(), heartbeat_at=self._now(),
         )
         self.clients: set[asyncio.StreamWriter] = set()
+        self.events_lock = asyncio.Lock()
         self.queue: asyncio.Queue[str] = asyncio.Queue()
         self.child: asyncio.subprocess.Process | None = None
         self.done = asyncio.Event()
@@ -436,8 +437,11 @@ class Worker:
             text = line.decode("utf-8", errors="replace").rstrip("\n")
             if not text:
                 continue
-            _write_json_line(events_path, {"raw": text})
-            await self._broadcast(text)
+            # 与 attach 回放共用一把锁：读到的事件要么进 replay、要么进 live，
+            # 不会既在 replay 又在 live（也不丢中间帧）。
+            async with self.events_lock:
+                _write_json_line(events_path, {"raw": text})
+                await self._broadcast(text)
             try:
                 event = json.loads(text)
             except json.JSONDecodeError:
@@ -607,7 +611,6 @@ class Worker:
                     previous.close()
                 self.controller = writer
                 self.controller_heartbeat_at = time.monotonic()
-            self.clients.add(writer)
             await self._send_writer(writer, {
                 "v": 1, "type": "attach_ok", "id": None, "mode": mode,
                 "capabilities": [item for item in negotiated if item in capabilities],
@@ -615,17 +618,20 @@ class Worker:
             if "task_snapshot" in capabilities:
                 await self._send_snapshot(writer)
             events_path = self.task_dir / WORKER_EVENTS_FILE
-            if events_path.is_file():
-                for line in events_path.read_text(encoding="utf-8").splitlines():
-                    if not line.strip():
-                        continue
-                    try:
-                        raw = json.loads(line).get("raw")
-                    except json.JSONDecodeError:
-                        continue
-                    if isinstance(raw, str):
-                        writer.write((raw.rstrip("\n") + "\n").encode("utf-8"))
-                await writer.drain()
+            async with self.events_lock:
+                if events_path.is_file():
+                    for line in events_path.read_text(encoding="utf-8").splitlines():
+                        if not line.strip():
+                            continue
+                        try:
+                            raw = json.loads(line).get("raw")
+                        except json.JSONDecodeError:
+                            continue
+                        if isinstance(raw, str):
+                            writer.write((raw.rstrip("\n") + "\n").encode("utf-8"))
+                    await writer.drain()
+                # 回放完成后再加入 live 集合，锁保证回放快照与 live 分界。
+                self.clients.add(writer)
             while True:
                 line = await reader.readline()
                 if not line:
