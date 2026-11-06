@@ -35,3 +35,14 @@ def test_notifications_rejects_other_modes(monkeypatch, capsys):
         entrypoint.main()
     assert error.value.code == 2
     assert "--notifications cannot be combined" in capsys.readouterr().err
+
+
+def test_notification_kind_filter(tmp_path, monkeypatch, capsys):
+    notify(tmp_path, "worker_started", task_id="t-1")
+    notify(tmp_path, "plan_acceptance", task_id="t-1", status=True)
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path))
+    monkeypatch.setattr("sys.argv", ["vibe", "--notifications", "--notification-kind", "plan_acceptance"])
+    entrypoint.main()
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["count"] == 1
+    assert payload["notifications"][0]["kind"] == "plan_acceptance"

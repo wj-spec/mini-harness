@@ -95,6 +95,7 @@ def main() -> None:
     sessions.add_argument("--list-sessions", action="store_true", help="只读列出本工作区已有对话的 session 后退出")
     parser.add_argument("--tasks", action="store_true", help="只读列出最近会话的任务与 worker 状态")
     parser.add_argument("--notifications", action="store_true", help="只读输出本工作区最近的本地通知")
+    parser.add_argument("--notification-kind", default=None, metavar="KIND", help="与 --notifications 搭配，只显示指定 kind")
     parser.add_argument("--plans", action="store_true", help="只读列出本工作区会话的计划版本")
     parser.add_argument("--acceptance", action="store_true", help="只读列出本工作区会话的计划验收结果")
     parser.add_argument("--worker", action="store_true", help="后台 worker：执行一个 task segment 并暴露 attach socket")
@@ -135,6 +136,8 @@ def main() -> None:
         or args.session is not None or args.bench
     ):
         parser.error("--tasks cannot be combined with --stdio/--eval/--list-sessions/--task/--continue/--session/--bench")
+    if args.notification_kind is not None and not args.notifications:
+        parser.error("--notification-kind requires --notifications")
     if args.notifications and (
         args.stdio or args.eval or args.eval_limit is not None or args.eval_tasks is not None
         or args.list_sessions or args.task is not None or args.continue_session
@@ -320,6 +323,8 @@ def main() -> None:
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return
 
+    if args.notification_kind is not None and not args.notifications:
+        parser.error("--notification-kind requires --notifications")
     if args.notifications and (
         args.stdio or args.eval or args.eval_limit is not None or args.eval_tasks is not None
         or args.list_sessions or args.task is not None or args.continue_session
@@ -475,6 +480,8 @@ def main() -> None:
         from app.runtime.notifications import read_notifications
 
         items = read_notifications(config.workspace)
+        if args.notification_kind:
+            items = [item for item in items if item.get("kind") == args.notification_kind]
         recent = items[-50:]
         print(json.dumps({"workspace": str(config.workspace), "count": len(recent),
                           "notifications": recent}, ensure_ascii=False, indent=2))
