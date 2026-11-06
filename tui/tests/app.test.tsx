@@ -1964,3 +1964,33 @@ test('plan overlay shows approval metadata', async () => {
     await rm(dir, {recursive: true, force: true});
   }
 });
+
+test('plan overlay shows saved acceptance result', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'mini-harness-plan-acceptance-'));
+  try {
+    const taskDir = path.join(dir, 'tasks', 't-20261103-120000-abcdef');
+    const planDir = path.join(taskDir, 'plan');
+    await mkdir(planDir, {recursive: true});
+    await writeFile(path.join(planDir, 'plan.v1.json'), JSON.stringify({
+      schema_version: 1, plan_id: 'pl-acc', task_id: 't-20261103-120000-abcdef',
+      version: 1, status: 'approved', objective: '验收计划', acceptance_criteria: [],
+      steps: [{step_id: 's1', title: '读', kind: 'read'}],
+    }));
+    await writeFile(path.join(taskDir, 'acceptance.v1.json'), JSON.stringify({
+      schema_version: 1, plan_version: 1, status: false, codes: ['acceptance_failed'],
+      results: {v1: {ok: false}},
+    }));
+    const client = new MockClient();
+    client.capabilityList = ['tasks'];
+    const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}/>);
+    await pause(20);
+    client.emit({type: 'ready', workspace: '/tmp/repo', model: 'fake', session_id: 'test',
+      session_path: dir, capabilities: ['tasks']});
+    client.emit({type: 'status', phase: 'idle'});
+    await pause(20);
+    await enter(stdin, '/plan');
+    assert.match(lastFrame() ?? '', /验收结果：✗ 失败/);
+  } finally {
+    await rm(dir, {recursive: true, force: true});
+  }
+});
