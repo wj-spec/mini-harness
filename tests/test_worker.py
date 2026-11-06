@@ -132,6 +132,9 @@ def test_worker_goal_loop_continues_resource_stops(tmp_path, monkeypatch):
     assert count_file.read_text(encoding="utf-8") == "2"
     state = json.loads((store.task_dir(task.task_id) / "worker.json").read_text(encoding="utf-8"))
     assert state["status"] == "exited"
+    from app.runtime.notifications import read_notifications
+    kinds = [item["kind"] for item in read_notifications(tmp_path)]
+    assert "goal_segment" in kinds and "worker_exited" in kinds
 
 
 def test_worker_approval_timeout_fails_task_and_expires_inbox(tmp_path, monkeypatch):

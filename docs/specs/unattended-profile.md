@@ -34,6 +34,7 @@
 - worker-events.jsonl 支持启动时按大小轮转（`VIBE_WORKER_EVENTS_MAX_BYTES/BACKUPS`）。
 - 本地通知：worker 生命周期写 `.vibe/notifications.jsonl`（started/exited/stop_requested/approval_timeout/task_deadline_exceeded），
   Plan 提出/审批/验收写 `plan_proposed`/`plan_approved`/`plan_rejected`/`plan_acceptance`，子 Agent 完成写 `subagent_finished`，
+  goal 续段/停止写 `goal_segment`/`goal_stopped`，
   写任务等待 workspace lock 时写 `workspace_queued`；merge 生命周期写
   `merge_approval_requested`/`merge_completed`/`merge_failed`，供后续告警渠道消费；
   stdio command `notifications` 与 TUI `/notifications` 可查看最近通知。

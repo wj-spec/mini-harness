@@ -603,6 +603,7 @@ class Worker:
             return
         if not cont:
             if reason:
+                notify(self.workspace, "goal_stopped", task_id=self.task_id, reason=reason)
                 try:
                     TaskStore(self.session_root).append_event(
                         self.task_id, "goal_worker_stopped", data={"reason": reason},
@@ -612,6 +613,7 @@ class Worker:
             self.done.set()
             return
         segment = max(1, len(task.segments) + 1)
+        notify(self.workspace, "goal_segment", task_id=self.task_id, segment=segment)
         text = goal_prompt(self.goal_record, segment=segment, stop_reason=stop_reason)
         await self._queue_run(text)
 
