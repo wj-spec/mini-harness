@@ -29,11 +29,12 @@
 
 `app/runtime/verification.py`：
 
-- `run_verification_plan(acceptance, workspace, approval_gate, retries=0)`：
+- `run_verification_plan(acceptance, workspace, approval_gate, retries=0, timeout=300)`：
   - 只执行 `source ∈ project_profile/plan_approval` 的命令；
   - 每条命令走 ApprovalGate.request（risk=exec）；拒绝则不执行；
   - 通过 `run_command_async` 执行，记录 exit/timed_out/digest/output；
-  - 汇总 `acceptance.status(results)` 三态与原因码。
+  - 汇总 `acceptance.status(results)` 三态与原因码；
+  - 单命令超时可用 `VIBE_ACCEPTANCE_TIMEOUT_SECONDS`（默认 300，范围 1–3600）。
 - `trusted_commands()`、`command_digest()`。
 - 测试：成功/失败、不可信命令不执行、审批拒绝不执行、digest。
 

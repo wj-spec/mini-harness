@@ -981,9 +981,14 @@ class _Connection:
                                 retries = int(os.getenv("VIBE_ACCEPTANCE_RETRIES", "0"))
                             except ValueError:
                                 retries = 0
+                            try:
+                                timeout = float(os.getenv("VIBE_ACCEPTANCE_TIMEOUT_SECONDS", "300"))
+                            except ValueError:
+                                timeout = 300.0
                             verification = await run_verification_plan(
                                 acceptance, self.agent.tools.root, self.agent.approval,
                                 retries=max(0, min(retries, 3)),
+                                timeout=max(1.0, min(timeout, 3600.0)),
                             )
                             try:
                                 from app.runtime.acceptance import save_acceptance_result
