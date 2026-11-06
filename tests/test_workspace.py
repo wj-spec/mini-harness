@@ -84,3 +84,24 @@ def test_worktree_list_reports_missing_path_stale(repo):
 def test_non_git_workspace_is_rejected(tmp_path):
     with pytest.raises(WorktreeError):
         WorktreeManager(tmp_path)
+
+
+def test_workspace_lock_wait_queues_second_writer(tmp_path):
+    from app.runtime.workspace import acquire_workspace_lock
+
+    first = acquire_workspace_lock(tmp_path, task_id="t-1", session_id="s-1")
+    # 另一个线程释放锁后，第二个 acquire 的等待应成功。
+    import threading
+    import time
+    released = threading.Event()
+
+    def release():
+        time.sleep(0.3)
+        first.release()
+        released.set()
+
+    threading.Thread(target=release, daemon=True).start()
+    second = acquire_workspace_lock(tmp_path, task_id="t-2", session_id="s-2", wait_seconds=2.0, poll_seconds=0.05)
+    assert released.is_set()
+    assert second.task_id == "t-2"
+    second.release()

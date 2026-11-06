@@ -193,16 +193,25 @@ def run_scenario(scenario: dict, run_dir: Path, run_index: int) -> dict:
         elif action == "two_slot":
             assert wait_for(lambda: worker_socket.exists(), 10), "worker socket did not appear"
             second_session, second_task = create_task(workspace, scenario["objective"] + " second")
-            second_meta = workspace / ".vibe" / "sessions" / second_session / "tasks" / second_task / "meta.json"
+            second_env = dict(env)
+            second_env.update({str(k): str(v) for k, v in scenario.get("secondary_env", {}).items()})
             second = subprocess.run(
                 [sys.executable, "-m", "app", "--worker", "--fake",
                  "--workspace", str(workspace), "--session", second_session, "--task-id", second_task],
-                cwd=ROOT, env=env, capture_output=True, text=True, timeout=30,
+                cwd=ROOT, env=second_env, capture_output=True, text=True,
+                timeout=scenario.get("timeout_seconds", 90),
             )
-            secondary = {"exit_code": second.returncode, "stderr": second.stderr[-2000:]}
-            from app.runtime.killswitch import stop_workers
-            stop_workers(workspace)
-            proc.wait(timeout=15)
+            proc.wait(timeout=scenario.get("timeout_seconds", 90))
+            secondary_dir = workspace / ".vibe" / "sessions" / second_session / "tasks" / second_task
+            secondary_meta = read_json(secondary_dir / "meta.json") or {}
+            secondary_worker = read_json(secondary_dir / "worker.json") or {}
+            secondary = {
+                "exit_code": second.returncode,
+                "stderr": second.stderr[-2000:],
+                "task_status": secondary_meta.get("status"),
+                "worker_status": secondary_worker.get("status"),
+                "segments": len(secondary_meta.get("segments") or []),
+            }
         elif action == "stop":
             assert wait_for(lambda: worker_socket.exists(), 10), "worker socket did not appear"
             time.sleep(0.5)
@@ -274,6 +283,14 @@ def validate(scenario: dict, result: dict) -> list[str]:
         stderr = (result.get("secondary") or {}).get("stderr") or ""
         if expected["secondary_error_contains"] not in stderr:
             errors.append(f"secondary stderr missing {expected['secondary_error_contains']!r}")
+    if "secondary_task_status" in expected:
+        actual = (result.get("secondary") or {}).get("task_status")
+        if actual != expected["secondary_task_status"]:
+            errors.append(f"secondary task={actual} expected {expected['secondary_task_status']}")
+    if "secondary_worker_status" in expected:
+        actual = (result.get("secondary") or {}).get("worker_status")
+        if actual != expected["secondary_worker_status"]:
+            errors.append(f"secondary worker={actual} expected {expected['secondary_worker_status']}")
     if "event_contains" in expected:
         if expected["event_contains"] not in result.get("events_text", ""):
             errors.append(f"event missing {expected['event_contains']}")

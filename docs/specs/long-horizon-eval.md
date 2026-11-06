@@ -19,7 +19,7 @@
   3. `kill-switch`：stop → worker killed、stop file；
   4. `restart-attach`：attach observer 后任务继续完成；
   5. `crash-no-rerun`：kill -9 进程组 → supervisor recover → task interrupted，已执行段不重跑；
-  6. `two-slot-write-serial`：同 workspace 第二个 worker 被 workspace lock 拒绝（当前是拒绝而非排队）；
+  6. `two-slot-write-serial`：第二个写 worker 通过 `VIBE_WORKSPACE_LOCK_WAIT=30` 排队，第一个完成后串行执行；默认仍立即拒绝；
   7. `goal-criteria-pending`：未确认 `acceptance_criteria` → worker 启动前退出，task 保持 created；
   8. `no-duplicate-effects`：崩溃恢复后 changed files 为空；
   9. `goal-multisegment`：max_steps 资源停止后续段，2 段完成。
@@ -34,7 +34,7 @@
 
 ## 未完成（P0 剩余）
 
-- `two-slot-write-serial` 当前验证的是 workspace lock 拒绝第二个 worker，不是设计中的两任务排队/写串行读并发槽位；
+- `two-slot-write-serial` 已覆盖写任务排队串行；只读任务并发与文件集并行仍待后续；
 - 多段场景目前 1 个（goal-multisegment），其余场景为单段；
 - 故障注入器仍是脚本内直连（kill -9/stop/attach），无 5xx/时钟/seed/trace 摘要；
 - 成本 cap、token/成本指标、`agent_version`、真实模型 P1；

@@ -245,8 +245,16 @@ class Worker:
                     pass
                 return 0
         try:
+            wait_seconds = _env_float("VIBE_WORKSPACE_LOCK_WAIT", 0.0)
+            if wait_seconds > 0:
+                try:
+                    store.append_event(self.task_id, "workspace_waiting",
+                                       data={"max_wait_seconds": wait_seconds})
+                except Exception:
+                    pass
             self.workspace_lock = acquire_workspace_lock(
                 self.workspace, task_id=self.task_id, session_id=self.session_root.name,
+                wait_seconds=wait_seconds,
             )
         except WorkspaceBusy as exc:
             raise WorkerError(f"workspace busy: {exc}") from exc

@@ -74,15 +74,22 @@ def _lock_path(workspace: str | Path) -> Path:
 
 def acquire_workspace_lock(
     workspace: str | Path, *, task_id: str, session_id: str,
+    wait_seconds: float = 0.0, poll_seconds: float = 0.2,
 ) -> WorkspaceLock:
-    """写任务互斥锁；读任务不调用。O_EXCL + 同 host pid 判死回收。"""
+    """写任务互斥锁；读任务不调用。O_EXCL + 同 host pid 判死回收。
+
+    wait_seconds>0 时排队等待锁（两任务写串行），默认 0=立即拒绝。
+    """
+    import time
+
     path = _lock_path(workspace)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "task_id": task_id, "session_id": session_id, "pid": os.getpid(),
         "host": socket.gethostname(), "created_at": _now(),
     }
-    for attempt in range(2):
+    deadline = time.monotonic() + max(0.0, wait_seconds)
+    while True:
         try:
             descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         except FileExistsError:
@@ -91,17 +98,17 @@ def acquire_workspace_lock(
             except (OSError, json.JSONDecodeError):
                 existing = {}
             if existing.get("host") == socket.gethostname() and _pid_alive(existing.get("pid")):
+                if time.monotonic() < deadline:
+                    time.sleep(poll_seconds)
+                    continue
                 raise WorkspaceBusy(
                     f"workspace locked by task {existing.get('task_id')} (pid {existing.get('pid')})"
                 )
             path.unlink(missing_ok=True)
-            if attempt == 1:
-                raise WorkspaceBusy("workspace lock is stale but could not be reclaimed")
             continue
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
             handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
         return WorkspaceLock(path=path, task_id=task_id, session_id=session_id, pid=os.getpid())
-    raise WorkspaceBusy("workspace lock unavailable")
 
 
 def _git(workspace: Path, *args: str) -> str:
