@@ -632,6 +632,8 @@ class Worker:
         profile = self.profile
         if profile is not None and not profile.allows_tool(tool_name, worktree=self.worktree is not None):
             reason = profile.denial_reason(tool_name, worktree=self.worktree is not None)
+            notify(self.workspace, "unattended_denied", task_id=self.task_id,
+                   approval_id=approval_id, tool=tool_name, reason=reason)
             try:
                 TaskStore(self.session_root).append_event(
                     self.task_id, "unattended_denied",

@@ -61,3 +61,6 @@ def test_worker_auto_denies_exec_approval_without_inbox(tmp_path):
     assert frame["type"] == "approval" and frame["decision"] == "deny"
     events = (store.task_dir(task.task_id) / "events.jsonl").read_text(encoding="utf-8")
     assert "unattended_denied" in events
+    from app.runtime.notifications import read_notifications
+    notices = [item for item in read_notifications(tmp_path) if item["kind"] == "unattended_denied"]
+    assert notices and notices[-1]["tool"] == "bash"

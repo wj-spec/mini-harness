@@ -35,7 +35,7 @@
 - 红队清单：`python3 scripts/redteam_unattended.py --workspace <ws>` 只读检查默认拒绝矩阵
   （读/写/worktree/exec/network/mcp/browser/未知工具），exit 1 表示偏离预期；测试见 `tests/test_redteam_unattended.py`。
 - 本地通知：worker 生命周期写 `.vibe/notifications.jsonl`（started/exited/stop_requested/approval_requested/approval_timeout/task_deadline_exceeded），
-  Plan 绑定/提出/审批/验收写 `plan_binding`/`plan_proposed`/`plan_approved`/`plan_rejected`/`plan_acceptance`，子 Agent 完成写 `subagent_finished`，
+  拒绝工具调用写 `unattended_denied`；Plan 绑定/提出/审批/验收写 `plan_binding`/`plan_proposed`/`plan_approved`/`plan_rejected`/`plan_acceptance`，子 Agent 完成写 `subagent_finished`，
   goal 续段/停止写 `goal_segment`/`goal_stopped`，
   写任务等待 workspace lock 时写 `workspace_queued`；
 - `.vibe/notifications.jsonl` 超过 `VIBE_NOTIFICATIONS_MAX_BYTES`（默认 8 MiB）时
