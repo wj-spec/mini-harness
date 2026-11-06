@@ -688,3 +688,27 @@ def test_plan_acceptance_shows_saved_result(tmp_path, monkeypatch):
         await harness.close()
 
     asyncio.run(scenario())
+
+
+def test_plan_command_edits_step_title(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    task_id = "t-20261106-000000-abcdef"
+    task_dir = session.root / "tasks" / task_id
+    from app.runtime.plan import Plan, load_plan, propose_plan
+    plan = Plan.from_dict({"schema_version": 1, "plan_id": "pl-edit-step", "task_id": task_id,
+                           "objective": "编辑", "steps": [{"step_id": "s1", "title": "旧标题"}]})
+    propose_plan(task_dir, plan)
+
+    async def scenario():
+        harness = Harness(_agent(tmp_path), Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("command", "c-edit", command="plan",
+                     args={"action": "edit-step", "step_id": "s1", "title": "新标题"})
+        result = await harness.until("command_result", "c-edit")
+        assert "新标题" in result["text"]
+        revised = load_plan(task_dir / "plan" / "plan.v2.json")
+        assert revised.steps[0].title == "新标题" and revised.status == "draft"
+        await harness.close()
+
+    asyncio.run(scenario())

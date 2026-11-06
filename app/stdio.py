@@ -447,6 +447,20 @@ class _Connection:
                 approve_plan(path.parent.parent, plan, approved_by="user", approval_id=None)
             elif action == "reject":
                 reject_plan(path.parent.parent, plan, rejected_by="user", reason="user rejected")
+            elif action == "edit-step":
+                from app.runtime.plan import revise_plan
+                step_id = str((args or {}).get("step_id", "")).strip()
+                title = str((args or {}).get("title", "")).strip()
+                steps = plan.to_dict().get("steps", [])
+                if not any(str(item.get("step_id")) == step_id for item in steps):
+                    return f"计划中没有步骤 {step_id}"
+                for item in steps:
+                    if str(item.get("step_id")) == step_id:
+                        item["title"] = title
+                try:
+                    plan = revise_plan(path.parent.parent, plan, steps=steps, requester="user")
+                except (PlanError, ValueError) as exc:
+                    return f"计划步骤修订失败：{exc}"
             elif action == "revise":
                 from app.runtime.plan import PlanError, revise_plan
                 try:
@@ -1066,12 +1080,17 @@ class _Connection:
                     if not isinstance(args, dict):
                         raise ValueError("command args must be an object")
                     if request["command"] == "plan":
-                        if set(args) - {"action", "objective", "step_id", "version_a", "version_b"} or args.get("action", "show") not in {"show", "list", "step", "diff", "acceptance", "approve", "reject", "revise"}:
-                            raise ValueError("plan args allowed: action=show|list|step|diff|acceptance|approve|reject|revise")
+                        if set(args) - {"action", "objective", "step_id", "title", "version_a", "version_b"} or args.get("action", "show") not in {"show", "list", "step", "edit-step", "diff", "acceptance", "approve", "reject", "revise"}:
+                            raise ValueError("plan args allowed: action=show|list|step|edit-step|diff|acceptance|approve|reject|revise")
                         if args.get("action") == "revise" and (not isinstance(args.get("objective"), str) or not args["objective"].strip()):
                             raise ValueError("plan revise requires a nonempty objective")
                         if args.get("action") == "step" and (not isinstance(args.get("step_id"), str) or not args["step_id"].strip()):
                             raise ValueError("plan step requires a nonempty step_id")
+                        if args.get("action") == "edit-step":
+                            if not isinstance(args.get("step_id"), str) or not args["step_id"].strip():
+                                raise ValueError("plan edit-step requires a nonempty step_id")
+                            if not isinstance(args.get("title"), str) or not args["title"].strip():
+                                raise ValueError("plan edit-step requires a nonempty title")
                         if args.get("action") == "diff":
                             for key in ("version_a", "version_b"):
                                 if not isinstance(args.get(key), int) or isinstance(args.get(key), bool) or args[key] < 1:

@@ -1695,6 +1695,18 @@ test('/plan submits a plan-mode run and /plan renders the latest artifact', asyn
   }
 });
 
+test('/plan edit-step sends step title', async () => {
+  const client = new MockClient();
+  client.capabilityList = ['tasks'];
+  const {stdin} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}/>);
+  await pause(20);
+  client.emit({type: 'ready', workspace: '/tmp/repo', model: 'fake', session_id: 'test', capabilities: ['tasks']});
+  client.emit({type: 'status', phase: 'idle'});
+  await pause(20);
+  await enter(stdin, '/plan edit-step s1 新标题');
+  assert.deepEqual(client.commandArgs.at(-1), {action: 'edit-step', step_id: 's1', title: '新标题'});
+});
+
 test('/plan acceptance sends backend acceptance command', async () => {
   const client = new MockClient();
   client.capabilityList = ['tasks'];
