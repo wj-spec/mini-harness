@@ -193,6 +193,7 @@ npm --prefix tui test       # TypeScript / Ink 测试
 | [控制面 attach](docs/specs/control-plane-attach.md) | TUI attach、controller/observer、心跳租约、capability、replay/live 锁、attach v2 帧、`/attach`/`/attach now`（P0 已实现；完整 v2 双栈后续） |
 | [全链路验收收束](docs/specs/acceptance-report.md) | 2026-11-05 运行时/worker/GoalRecord/预算/审批/隔离/attach 的验证结果、限制与复现命令 |
 | [07 attach 人工验收](docs/specs/manual-acceptance-07-attach.md) | 真实 pty 下的 TUI attach/v2 帧/审批/observer/接管/stop/merge 步骤与测试用例 |
+| [07 attach 人工验收记录](docs/specs/manual-acceptance-07-results.md) | 2026-11-06 人工验收进展：TC-01–03 通过、修复项、待测 TC-04–09 |
 | [规格](docs/specs/) | 每个功能切片的 spec、边界与验收口径 |
 | [Benchmark 适配（Harbor）](bench/README.md) | SWE-bench Verified / Terminal-Bench 2.1 的 Harbor 接入、单题 smoke 与限制 |
 | [调研](docs/research/) | TUI、评测、沙箱、上下文等选型记录 |

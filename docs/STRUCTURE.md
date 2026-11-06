@@ -210,6 +210,7 @@ mini-harness/
       control-plane-attach.md     # 控制面 attach：TUI 连接运行中 worker（P0）
       acceptance-report.md        # 全链路验收收束：验证结果、限制与复现命令
       manual-acceptance-07-attach.md  # 07 v2/TUI attach 真实终端人工验收步骤与用例
+      manual-acceptance-07-results.md # 07 attach 人工验收记录（进行中）
     design/             # 未来方向的分块讨论（长任务/后台/进阶模式/子 Agent），拍板后收敛为 spec
     history/            # 旧 M1–M8 模块建设计划
 
