@@ -182,7 +182,8 @@ def test_tasks_command_and_ready_hint(tmp_path, monkeypatch):
         harness.send("command", "c1", command="tasks")
         result = await harness.until("command_result", "c1")
         assert task.task_id in result["text"]
-        assert "worker=" in result["text"]
+        assert "worker=" in result["text"] and "mode=goal" in result["text"]
+        assert ready["tasks"][0].get("mode") == "goal"
         ApprovalInbox(session.root).submit(task.task_id, tool="bash", tier="exec")
         harness.send("command", "c2", command="approvals")
         approvals = await harness.until("command_result", "c2")

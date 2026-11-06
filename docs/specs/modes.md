@@ -19,6 +19,7 @@
   - task payload 增加 `mode`。
 - stdio：
   - `ready.capabilities` 在任务运行时开启时增加 `modes`；
+  - `ready.tasks` / `--tasks` / TUI `/task` 展示 task mode、plan_id、parent_id；
   - `mode=chat` 的 run 临时关闭 agent tools（provider 不收到 tools），run 结束后恢复；
   - `mode=act` 保持正常工具路径。
 - TUI：

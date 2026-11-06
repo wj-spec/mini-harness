@@ -53,6 +53,9 @@ def _task_hints(session_root) -> list[dict]:
                 "status": snapshot.task.status,
                 "worker_status": snapshot.worker.status if snapshot.worker is not None else None,
                 "stale": snapshot.stale,
+                "mode": snapshot.task.mode,
+                "parent_id": snapshot.task.parent_id,
+                "plan_id": snapshot.task.plan_id,
             }
             for snapshot in WorkerSupervisor(session_root).snapshot()
         ]
@@ -88,8 +91,16 @@ def _format_task_hints(hints: list[dict]) -> str:
     for hint in hints:
         worker = hint.get("worker_status") or "-"
         stale = "!" if hint.get("stale") else ""
+        extras = []
+        if hint.get("mode"):
+            extras.append(f"mode={hint['mode']}")
+        if hint.get("plan_id"):
+            extras.append(f"plan={hint['plan_id']}")
+        if hint.get("parent_id"):
+            extras.append(f"parent={hint['parent_id']}")
+        suffix = (" " + " ".join(extras)) if extras else ""
         lines.append(
-            f"- {hint['task_id']}  {hint['kind']}  {hint['status']}  worker={worker}{stale}"
+            f"- {hint['task_id']}  {hint['kind']}  {hint['status']}  worker={worker}{stale}{suffix}"
         )
     lines.append("用 --attach --task-id <id> --session <id> 观察运行中的 worker。")
     return "\n".join(lines)

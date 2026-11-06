@@ -152,6 +152,9 @@ export interface TaskHint {
   status: string;
   worker_status: string | null;
   stale: boolean;
+  mode?: string;
+  parent_id?: string | null;
+  plan_id?: string | null;
 }
 
 export interface AttachTaskSnapshot {
@@ -414,7 +417,10 @@ function taskHint(value: unknown): value is TaskHint {
     typeof value.task_id === 'string' && validId(value.task_id) &&
     typeof value.kind === 'string' && typeof value.status === 'string' &&
     (value.worker_status === null || typeof value.worker_status === 'string') &&
-    typeof value.stale === 'boolean';
+    typeof value.stale === 'boolean' &&
+    (value.mode === undefined || typeof value.mode === 'string') &&
+    (value.parent_id === undefined || value.parent_id === null || typeof value.parent_id === 'string') &&
+    (value.plan_id === undefined || value.plan_id === null || typeof value.plan_id === 'string');
 }
 
 function taskSnapshot(value: unknown): value is TaskSnapshot {
