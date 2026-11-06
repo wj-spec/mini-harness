@@ -1,6 +1,6 @@
 # 15 计划验收与完成验证
 
-> 状态：讨论稿（2026-11-02；2026-11-03 01–05 决策对齐见 §9，06–10 对齐见 §10，用户回答见 §11）；不是 spec，未承诺实现。
+> 状态：讨论稿（2026-11-02；2026-11-03 01–05 决策对齐见 §9，06–10 对齐见 §10，用户回答见 §11）；P0 验收映射与三态已实现，见 [plan-acceptance spec](../../specs/plan-acceptance.md)。
 > 所属：进阶模式 / 第 6 块
 > 前置/相关：**前置切片：完成验证门**（上一轮提出的独立切片，不在本目录；01–05 决策记录中也称其为“15 块的完成验证门”，指同一件事）、[14 计划执行绑定](14-plan-execution-binding.md)、[13 计划审批门](13-plan-approval-gate.md)、[05 目标状态](05-goal-state.md)、[16 子 Agent 的有机结合](16-subagent-integration.md)；相关规格：[完成守卫与审计](../../specs/verified-completion.md)、[goal-mode](../../specs/goal-mode.md)、[审批层级与作用域](../../specs/approval-tiers.md)
 
