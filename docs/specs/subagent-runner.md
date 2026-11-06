@@ -20,7 +20,8 @@
   - `run_subagent_batch`：max_children（默认 4）、max_concurrency（默认 2），共享父取消，结果按输入顺序返回。
 - stdio command `explore`（args `{prompt}`）与 TUI `/explore <任务>`：
   - 使用当前 provider 在只读子集上运行子 Agent；
-  - command_result 返回 `子 Agent <status>：<summary>`；
+  - command_result 返回 `子 Agent <status>：<summary>` + 子任务 id；
+  - 创建 TaskRecord(kind=subagent)，可在 `/task`/`--tasks` 看到；
   - 不发任务事件、不写工作区。
   - 可选 trace JSONL（child trace 目录约定待定）；
   - 可选 `session_root`/`parent_task_id`：创建 `TaskRecord(kind=subagent, parent_id=...)`，
@@ -32,7 +33,7 @@
 ## 未完成（P0 剩余）
 
 - 父任务预算硬上限对子 usage 的强制（当前只记账，不阻断）；
-- 与后台任务槽位/预算联动的扇出调度；stdio 子任务事件。
+- 与后台任务槽位/预算联动的扇出调度；stdio 子任务事件（当前已有子 TaskRecord 与摘要）。
 - 父任务收件箱审批归属（requester=child）；
 - stdio 事件/attach 显示；
 - 模型 `delegate` 工具（P2，需模式/预算闸）；

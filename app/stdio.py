@@ -442,8 +442,11 @@ class _Connection:
                     self.agent.provider, self.agent.tools.root,
                     str((args or {}).get("prompt", "")),
                     max_steps=6, max_run_tokens=20_000, max_run_seconds=60.0,
+                    session_root=self.session.root,
                 )
                 text = f"子 Agent {sub.status}：{sub.summary}"
+                if sub.task_id:
+                    text += f"\n任务：{sub.task_id}"
                 if sub.error:
                     text += f"\n错误：{sub.error}"
             elif command == "tasks":
