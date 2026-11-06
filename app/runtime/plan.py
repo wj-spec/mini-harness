@@ -257,3 +257,94 @@ def render_plan(plan: Plan) -> str:
         if step.verification:
             lines.append(f"   verification: {json.dumps(step.verification, ensure_ascii=False)}")
     return "\n".join(lines)
+
+
+def content_hash(plan: Plan) -> str:
+    payload = plan.to_dict()
+    payload["approval"] = {}
+    payload["status"] = "draft"
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+
+
+def _audit(task_dir: str | Path, event: str, **data: Any) -> None:
+    directory = Path(task_dir)
+    directory.mkdir(parents=True, exist_ok=True)
+    record = {
+        "schema_version": 1,
+        "event": event,
+        "ts": datetime.now(timezone.utc).isoformat(),
+        **data,
+    }
+    with (directory / "audit.jsonl").open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def propose_plan(task_dir: str | Path, plan: Plan, *, requester: str = "harness") -> Path:
+    if plan.status not in {"draft", "proposed"}:
+        raise PlanError(f"cannot propose plan in status {plan.status}")
+    plan.status = "proposed"
+    path = save_plan(task_dir, plan)
+    _audit(task_dir, "plan_proposed", task_id=plan.task_id, plan_id=plan.plan_id,
+           version=plan.version, plan_hash=content_hash(plan), requester=requester)
+    return path
+
+
+def approve_plan(
+    task_dir: str | Path, plan: Plan, *,
+    approved_by: str, capability: str = "plan.review",
+    approval_id: str | None = None, decider: str = "user",
+) -> Path:
+    if capability != "plan.review":
+        raise PlanError("plan approval requires plan.review capability")
+    if plan.status != "proposed":
+        raise PlanError(f"cannot approve plan in status {plan.status}")
+    if not approved_by.strip():
+        raise PlanError("approved_by must be nonempty")
+    now = datetime.now(timezone.utc).isoformat()
+    plan_hash = content_hash(plan)
+    plan.status = "approved"
+    plan.approval = {
+        "approved_by": approved_by.strip(),
+        "approved_at": now,
+        "approval_id": approval_id,
+        "plan_hash": plan_hash,
+        "capability": capability,
+        "requester": "harness",
+        "decider": decider,
+    }
+    path = save_plan(task_dir, plan)
+    _audit(task_dir, "plan_approved", task_id=plan.task_id, plan_id=plan.plan_id,
+           version=plan.version, plan_hash=plan_hash, approver=approved_by,
+           decider=decider, capability=capability, approval_id=approval_id)
+    return path
+
+
+def reject_plan(
+    task_dir: str | Path, plan: Plan, *,
+    rejected_by: str, reason: str = "", decider: str = "user",
+) -> Path:
+    if plan.status not in {"proposed", "approved"}:
+        raise PlanError(f"cannot reject plan in status {plan.status}")
+    plan.status = "draft"
+    plan.approval = {
+        "approved_by": None, "approved_at": None, "approval_id": None,
+        "plan_hash": None, "capability": None,
+        "requester": "harness", "decider": decider,
+        "rejected_by": rejected_by, "rejected_reason": reason,
+    }
+    path = save_plan(task_dir, plan)
+    _audit(task_dir, "plan_rejected", task_id=plan.task_id, plan_id=plan.plan_id,
+           version=plan.version, rejected_by=rejected_by, reason=reason, decider=decider)
+    return path
+
+
+def can_execute(plan: Plan) -> bool:
+    return (
+        plan.status == "approved"
+        and isinstance(plan.approval, dict)
+        and plan.approval.get("capability") == "plan.review"
+        and plan.approval.get("plan_hash") == content_hash(plan)
+        and bool(plan.approval.get("approved_by"))
+    )

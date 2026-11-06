@@ -198,6 +198,7 @@ npm --prefix tui test       # TypeScript / Ink 测试
 | [无人值守 profile P0](docs/specs/unattended-profile.md) | 后台保守 profile：只读/worktree 写、exec/网络/MCP/remote 默认拒绝、auto-deny 审计 |
 | [任务模式 P0](docs/specs/modes.md) | chat/act 写入 TaskRecord.mode；chat 不发送 tools；TUI `/chat` `/act` |
 | [结构化 Plan P0](docs/specs/plan-artifact.md) | Plan schema 校验、原子版本存储、plan_hash、终端渲染 |
+| [计划审批门 P0](docs/specs/plan-approval.md) | plan propose/approve/reject、content hash、plan.review capability、审计事件 |
 | [规格](docs/specs/) | 每个功能切片的 spec、边界与验收口径 |
 | [Benchmark 适配（Harbor）](bench/README.md) | SWE-bench Verified / Terminal-Bench 2.1 的 Harbor 接入、单题 smoke 与限制 |
 | [调研](docs/research/) | TUI、评测、沙箱、上下文等选型记录 |

@@ -1,6 +1,6 @@
 # 13 计划审批门
 
-> 状态：讨论稿（2026-11-02；2026-11-03 01–05 决策对齐见 §9，06–10 对齐见 §10，用户回答见 §11）；不是 spec，未承诺实现。
+> 状态：讨论稿（2026-11-02；2026-11-03 01–05 决策对齐见 §9，06–10 对齐见 §10，用户回答见 §11）；P0 plan 状态机/hash/审计已实现，见 [plan-approval spec](../../specs/plan-approval.md)。
 > 所属：进阶模式 / 第 4 块
 > 前置/相关：[12 结构化 Plan 产物](12-plan-artifact.md)、[11 模式契约](11-mode-contracts.md)、[14 计划执行绑定](14-plan-execution-binding.md)、[16 子 Agent 的有机结合](16-subagent-integration.md)；相关规格：[审批层级与作用域](../../specs/approval-tiers.md)、[完成守卫与审计](../../specs/verified-completion.md)
 

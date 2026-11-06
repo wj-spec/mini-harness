@@ -77,3 +77,52 @@ def test_unknown_schema_and_render(tmp_path):
 
 def test_plan_path_layout(tmp_path):
     assert plan_path(tmp_path, 3) == tmp_path / "plan" / "plan.v3.json"
+
+
+def _accepted_plan():
+    return Plan.from_dict(_plan(
+        acceptance_criteria=[{"id": "ac1", "text": "通过", "confirmed": False}],
+    ))
+
+
+def test_plan_approval_gate_and_audit(tmp_path):
+    from app.runtime.plan import (
+        approve_plan, can_execute, content_hash, propose_plan, reject_plan,
+    )
+
+    plan = _accepted_plan()
+    assert not can_execute(plan)
+    propose_plan(tmp_path, plan)
+    assert plan.status == "proposed" and not can_execute(plan)
+    approve_plan(tmp_path, plan, approved_by="user", approval_id="a-1")
+    assert plan.status == "approved" and can_execute(plan)
+    assert plan.approval["plan_hash"] == content_hash(plan)
+    events = [json.loads(line) for line in (tmp_path / "audit.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert [event["event"] for event in events] == ["plan_proposed", "plan_approved"]
+    assert events[-1]["approver"] == "user"
+
+    rejected = _accepted_plan()
+    propose_plan(tmp_path, rejected)
+    reject_plan(tmp_path, rejected, rejected_by="user", reason="范围太大")
+    assert rejected.status == "draft" and not can_execute(rejected)
+
+
+def test_plan_approval_requires_capability_and_proposed(tmp_path):
+    from app.runtime.plan import approve_plan, propose_plan
+
+    plan = _accepted_plan()
+    with pytest.raises(PlanError):
+        approve_plan(tmp_path, plan, approved_by="user")
+    propose_plan(tmp_path, plan)
+    with pytest.raises(PlanError):
+        approve_plan(tmp_path, plan, approved_by="user", capability="other")
+
+
+def test_plan_content_changed_after_approval_is_not_executable(tmp_path):
+    from app.runtime.plan import approve_plan, can_execute, propose_plan
+
+    plan = _accepted_plan()
+    propose_plan(tmp_path, plan)
+    approve_plan(tmp_path, plan, approved_by="user")
+    plan.objective = "偷偷扩大范围"
+    assert not can_execute(plan)
