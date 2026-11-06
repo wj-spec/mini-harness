@@ -32,6 +32,8 @@
 - CLI `--pause-task TASK_ID --workspace PATH`：SIGTERM 暂停指定 worker，保留 worktree，不写 `.vibe/stop`；`--stop/--stop-task` 仍是 kill switch。
 - 测试：`tests/test_unattended.py`（默认拒绝、profile 覆盖/未知字段、worker 自动 deny + audit）、`tests/test_sandbox.py`（env scrub）、`tests/test_cli_merge_stop.py`（pause）。
 - worker-events.jsonl 支持启动时按大小轮转（`VIBE_WORKER_EVENTS_MAX_BYTES/BACKUPS`）。
+- 红队清单：`python3 scripts/redteam_unattended.py --workspace <ws>` 只读检查默认拒绝矩阵
+  （读/写/worktree/exec/network/mcp/browser/未知工具），exit 1 表示偏离预期；测试见 `tests/test_redteam_unattended.py`。
 - 本地通知：worker 生命周期写 `.vibe/notifications.jsonl`（started/exited/stop_requested/approval_requested/approval_timeout/task_deadline_exceeded），
   Plan 绑定/提出/审批/验收写 `plan_binding`/`plan_proposed`/`plan_approved`/`plan_rejected`/`plan_acceptance`，子 Agent 完成写 `subagent_finished`，
   goal 续段/停止写 `goal_segment`/`goal_stopped`，
