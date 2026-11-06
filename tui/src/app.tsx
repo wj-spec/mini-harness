@@ -121,6 +121,13 @@ function latestPlanText(sessionPath: string, full = false): string | null {
     } else if (approval.stale === true) {
       lines.push('批准：已 stale');
     }
+    const reviewTtl = Number(process.env.VIBE_PLAN_REVIEW_TIMEOUT_SECONDS ?? 0);
+    if (reviewTtl > 0 && payload.status === 'proposed') {
+      const remaining = reviewTtl - (Date.now() - best.mtime) / 1000;
+      lines.push(remaining > 0
+        ? `审批剩余：${Math.ceil(remaining)}s`
+        : '审批窗口已过期；请修订后重新提出');
+    }
     const criteria = Array.isArray(payload.acceptance_criteria) ? payload.acceptance_criteria : [];
     if (criteria.length) {
       lines.push('验收标准：');
