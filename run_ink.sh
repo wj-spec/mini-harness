@@ -26,8 +26,17 @@ if [ ! -d tui/node_modules/ink ]; then
   exit 2
 fi
 
-if [ "${VIBE_TUI_SKIP_BUILD:-0}" != "1" ]; then
+need_build=0
+if [ ! -f tui/dist/src/cli.js ]; then
+  need_build=1
+elif find tui/src -type f -newer tui/dist/src/cli.js -print -quit | grep -q .; then
+  need_build=1
+fi
+if [ "$need_build" = "1" ] && [ "${VIBE_TUI_SKIP_BUILD:-0}" != "1" ]; then
   # 构建自己的 stdin 与交互终端隔离，避免 npm/tsc 改变终端输入状态。
   npm --prefix tui run build --silent < /dev/null
+  stty sane < /dev/tty 2>/dev/null || true
 fi
-exec node tui/dist/src/cli.js "$@"
+# 不用 exec：让 node 作为子进程拿到自己的前后台进程组，避免脚本进程组
+# 在某些终端上无法设置 raw mode。
+node tui/dist/src/cli.js "$@"
