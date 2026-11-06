@@ -1,7 +1,7 @@
 # 07 控制面与协议：从单连接单任务到可 attach 的任务生命周期
 
 > 状态：讨论稿（2026-11-02；2026-11-03 01–05 决策对齐见 §9，用户回答见 §10）；不是 spec，未承诺实现。
-> 实现：P0 TUI attach + controller/observer + 心跳租约 + capability 协商 + replay/live 锁 + attach v2 帧（snapshot/approval list/decide）+ `/attach`/`/attach now` 已实现，见 [control-plane-attach spec](../../specs/control-plane-attach.md)；完整 v2 stdio 双栈后续。
+> 实现：P0 TUI attach + controller/observer + 心跳租约 + capability 协商 + replay/live 锁 + attach v2 帧 + `/attach`/`/attach now` 已实现；人工验收 TC-01–09 通过（[记录](../../specs/manual-acceptance-07-results.md)）；完整 v2 stdio 双栈后续。
 > 实现 spec：[task-runtime-integration](../../specs/task-runtime-integration.md)（P0 已实现：run.task / task_state / TUI `/goal`；attach/v2 在后续切片）。
 > 所属：长任务与后台任务 / 第 7 块（控制面与协议）
 > 前置/相关：[01 任务运行时](01-task-runtime.md)、[02 后台进程监督](02-process-supervision.md)、[03 无人值守审批](03-unattended-approval.md)、[08 长任务评测](08-long-horizon-eval.md)、[16 子 Agent 的有机结合](16-subagent-integration.md)；相关规格：[goal-mode](../../specs/goal-mode.md)、[ink-parity](../../specs/ink-parity.md)、[Harness 技术方案](../../HARNESS.md)
