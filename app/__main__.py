@@ -94,6 +94,7 @@ def main() -> None:
     sessions.add_argument("--session", metavar="SESSION_ID", help="恢复本工作区指定 session，不自动续跑")
     sessions.add_argument("--list-sessions", action="store_true", help="只读列出本工作区已有对话的 session 后退出")
     parser.add_argument("--tasks", action="store_true", help="只读列出最近会话的任务与 worker 状态")
+    parser.add_argument("--notifications", action="store_true", help="只读输出本工作区最近的本地通知")
     parser.add_argument("--worker", action="store_true", help="后台 worker：执行一个 task segment 并暴露 attach socket")
     parser.add_argument("--attach", action="store_true", help="attach 到运行中的 worker（JSONL 回放 + live）")
     parser.add_argument("--mode", choices=["observe", "control"], default="observe", help="attach 模式：observe/control")
@@ -132,6 +133,14 @@ def main() -> None:
         or args.session is not None or args.bench
     ):
         parser.error("--tasks cannot be combined with --stdio/--eval/--list-sessions/--task/--continue/--session/--bench")
+    if args.notifications and (
+        args.stdio or args.eval or args.eval_limit is not None or args.eval_tasks is not None
+        or args.list_sessions or args.task is not None or args.continue_session
+        or args.session is not None or args.bench or args.tasks or args.worker or args.attach
+        or args.stop or args.stop_task is not None or args.pause_task is not None
+        or args.merge_task is not None or args.cleanup_logs
+    ):
+        parser.error("--notifications cannot be combined with other modes")
     if args.worker or args.attach:
         if not args.task_id or args.session is None:
             parser.error("--worker/--attach require --task-id and --session")
@@ -186,7 +195,7 @@ def main() -> None:
         parser.error("--bench requires --task")
     if args.telemetry_out and args.task is None:
         parser.error("--telemetry-out requires --task")
-    if not args.stdio and not args.eval and not args.list_sessions and not args.tasks and not args.worker and not args.attach and args.merge_task is None and not args.stop and args.pause_task is None and not args.cleanup_logs and args.task is None:
+    if not args.stdio and not args.eval and not args.list_sessions and not args.tasks and not args.notifications and not args.worker and not args.attach and args.merge_task is None and not args.stop and args.pause_task is None and not args.cleanup_logs and args.task is None:
         print(
             "Textual 入口已退役。交互界面请运行 ./run_ink.sh（例如 ./run_ink.sh --fake）；"
             "后端与 eval 分别使用 --stdio / --eval。",
@@ -285,6 +294,14 @@ def main() -> None:
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return
 
+    if args.notifications and (
+        args.stdio or args.eval or args.eval_limit is not None or args.eval_tasks is not None
+        or args.list_sessions or args.task is not None or args.continue_session
+        or args.session is not None or args.bench or args.tasks or args.worker or args.attach
+        or args.stop or args.stop_task is not None or args.pause_task is not None
+        or args.merge_task is not None or args.cleanup_logs
+    ):
+        parser.error("--notifications cannot be combined with other modes")
     if args.worker or args.attach:
         purpose = "test" if args.test_session or args.fake or config.provider == "fake" else "user"
         session = SessionStore.open_existing(config.workspace, args.session, purpose=purpose)
@@ -331,6 +348,14 @@ def main() -> None:
         child_env = {"VIBE_TASK_RUNTIME": "1", "VIBE_WORKER": "1"}
         from app.runtime.worker import run_worker
         raise SystemExit(run_worker(session.root, args.task_id, config.workspace, child_args, child_env))
+
+    if args.notifications:
+        from app.runtime.notifications import read_notifications
+
+        items = read_notifications(config.workspace)
+        print(json.dumps({"workspace": str(config.workspace), "notifications": items[-50:]},
+                         ensure_ascii=False, indent=2))
+        return
 
     if args.tasks:
         from app.runtime.supervise import WorkerSupervisor

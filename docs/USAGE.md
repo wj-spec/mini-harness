@@ -714,6 +714,7 @@ VIBE_DEBUG=1 ./run_ink.sh --workspace /path/to/repo
 
 ```bash
 ./run_vibe.sh --tasks --workspace /path/to/repo
+./run_vibe.sh --notifications --workspace /path/to/repo
 ./run_vibe.sh --worker --fake --workspace /path/to/repo --session SID --task-id TID
 ./run_vibe.sh --attach --mode observe --workspace /path/to/repo --session SID --task-id TID
 ./run_vibe.sh --stop --workspace /path/to/repo
@@ -726,4 +727,4 @@ VIBE_DEBUG=1 ./run_ink.sh --workspace /path/to/repo
 {"schema_version":1,"allow_exec":true}
 ```
 
-通知记录在 `.vibe/notifications.jsonl`，可用 `/notifications` 查看。
+通知记录在 `.vibe/notifications.jsonl`，可用 `/notifications`、`--notifications` 查看（JSON，最多 50 条）。
