@@ -434,3 +434,19 @@ def test_bound_plan_acceptance_failure_reports_command(tmp_path, monkeypatch):
         await harness.close()
 
     asyncio.run(scenario())
+
+
+def test_explore_command_runs_readonly_subagent(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    (tmp_path / "README.md").write_text("hello\n", encoding="utf-8")
+
+    async def scenario():
+        harness = Harness(_agent(tmp_path, script=("子 Agent 摘要",)), Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("command", "c-explore", command="explore", args={"prompt": "读 README"})
+        result = await harness.until("command_result", "c-explore")
+        assert "子 Agent" in result["text"] and "子 Agent 摘要" in result["text"]
+        await harness.close()
+
+    asyncio.run(scenario())

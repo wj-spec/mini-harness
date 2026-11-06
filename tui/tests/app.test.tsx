@@ -603,12 +603,12 @@ test('slash opens a scrollable command menu without overflowing the frame', asyn
   let frame = lastFrame() ?? '';
   assert.match(frame, /› \/help/);
   assert.match(frame, /查看操作帮助/);
-  assert.match(frame, /↑↓ 选择 · Tab 填充 · 1\/33/);
+  assert.match(frame, /↑↓ 选择 · Tab 填充 · 1\/34/);
   assert.ok(frame.split('\n').length <= 24);
   for (const line of frame.split('\n')) assert.ok(stringWidth(line) <= 80, line);
   stdin.write('\u001b[B');
   await pause(15);
-  assert.match(lastFrame() ?? '', /2\/33/);
+  assert.match(lastFrame() ?? '', /2\/34/);
   stdin.write('\t');
   await pause(15);
   frame = lastFrame() ?? '';
@@ -1613,6 +1613,19 @@ test('/chat and /act submit run tasks with mode metadata', async () => {
   await enter(stdin, '/act 改代码');
   assert.deepEqual(client.runTasks[1], {kind: 'run', mode: 'act', objective: '改代码'});
   assert.match(lastFrame() ?? '', /改代码/);
+});
+
+test('/explore sends a read-only subagent command', async () => {
+  const client = new MockClient();
+  client.capabilityList = ['tasks', 'modes'];
+  const {stdin} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}/>);
+  await pause(20);
+  client.emit({type: 'ready', workspace: '/tmp/repo', model: 'fake', session_id: 'test', capabilities: ['tasks', 'modes']});
+  client.emit({type: 'status', phase: 'idle'});
+  await pause(20);
+  await enter(stdin, '/explore 读 README');
+  assert.equal(client.commands.at(-1), 'explore');
+  assert.deepEqual(client.commandArgs.at(-1), {prompt: '读 README'});
 });
 
 test('/plan submits a plan-mode run and /plan renders the latest artifact', async () => {

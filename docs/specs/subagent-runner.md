@@ -1,6 +1,6 @@
 # 只读子 Agent runner P0
 
-状态：2026-11-06 P0 实现（harness 内部只读 runner + 子 TaskRecord/usage/取消级联/批量扇出上限）；父预算硬上限、stdio 事件、模型 delegate 待后续。
+状态：2026-11-06 P0 实现（harness 内部只读 runner + 子 TaskRecord/usage/取消级联/批量扇出上限 + /explore）；父预算硬上限、stdio 事件、模型 delegate 待后续。
 设计来源：[16 子 Agent 的有机结合](../design/long-horizon/16-subagent-integration.md)。
 
 ## 已实现
@@ -17,7 +17,11 @@
   - 独立 history、无审批（ApprovalGate=None）；
   - 预算参数 max_steps/max_run_tokens/max_run_seconds；
   - cancel event + parent_cancel 级联；depth/max_depth（默认 1）拒绝嵌套；
-  - `run_subagent_batch`：max_children（默认 4）、max_concurrency（默认 2），共享父取消。
+  - `run_subagent_batch`：max_children（默认 4）、max_concurrency（默认 2），共享父取消，结果按输入顺序返回。
+- stdio command `explore`（args `{prompt}`）与 TUI `/explore <任务>`：
+  - 使用当前 provider 在只读子集上运行子 Agent；
+  - command_result 返回 `子 Agent <status>：<summary>`；
+  - 不发任务事件、不写工作区。
   - 可选 trace JSONL（child trace 目录约定待定）；
   - 可选 `session_root`/`parent_task_id`：创建 `TaskRecord(kind=subagent, parent_id=...)`，
     start/end segment、任务状态 completed/failed/cancelled、

@@ -1162,6 +1162,17 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       } catch (error) {notice(`未能提交计划任务：${String(error)}`);}
       return;
     }
+    const exploreMatch = /^\/explore\s+([\s\S]+)$/.exec(text);
+    if (exploreMatch) {
+      if (state.phase !== 'idle' || activeRun.current) {notice('当前有运行中任务；结束后再探索。'); return;}
+      try {
+        const id = client.command('explore', {prompt: exploreMatch[1]!.trim()});
+        activeRun.current = id;
+        dispatch({type: 'begin_command', id, command: 'explore'});
+        setInput('');
+      } catch (error) {notice(`探索未送达：${String(error)}`);}
+      return;
+    }
     const modeMatch = /^\/(chat|act)\s+([\s\S]+)$/.exec(text);
     if (modeMatch) {
       const mode = modeMatch[1] as 'chat' | 'act';

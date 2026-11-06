@@ -35,7 +35,7 @@ MAX_FRAME_BYTES = 1024 * 1024
 _OVERSIZED = object()
 COMMANDS = frozenset({
     "resume", "permissions", "permissions_reset", "cost", "tools", "diff", "mcp",
-    "skills", "evidence", "autonomy", "tasks", "approvals", "plan",
+    "skills", "evidence", "autonomy", "tasks", "approvals", "plan", "explore",
 })
 COMPLETION_CODE_LABELS = {
     "no_verification": "有文件改动但没有验证命令",
@@ -436,6 +436,16 @@ class _Connection:
                 text = format_round_evidence(self.session.latest_round())
             elif command == "plan":
                 text = self._plan_command((args or {}).get("action", "show"))
+            elif command == "explore":
+                from app.runtime.subagents import run_subagent
+                sub = await run_subagent(
+                    self.agent.provider, self.agent.tools.root,
+                    str((args or {}).get("prompt", "")),
+                    max_steps=6, max_run_tokens=20_000, max_run_seconds=60.0,
+                )
+                text = f"子 Agent {sub.status}：{sub.summary}"
+                if sub.error:
+                    text += f"\n错误：{sub.error}"
             elif command == "tasks":
                 text = _format_task_hints(_task_hints(self.session.root))
             elif command == "approvals":
@@ -868,7 +878,7 @@ class _Connection:
             }
             if not isinstance(kind, str) or kind not in fields:
                 raise ValueError("unknown request type")
-            if kind == "command" and request.get("command") in {"skills", "autonomy", "plan"} and "args" in request:
+            if kind == "command" and request.get("command") in {"skills", "autonomy", "plan", "explore"} and "args" in request:
                 fields[kind] = fields[kind] | {"args"}
             allowed = {"v", "type", "id"} | fields[kind]
             if kind == "run" and "task" in request:
@@ -890,6 +900,9 @@ class _Connection:
                     if request["command"] == "plan":
                         if set(args) - {"action"} or args.get("action", "show") not in {"show", "approve", "reject"}:
                             raise ValueError("plan args must contain only action=show|approve|reject")
+                    elif request["command"] == "explore":
+                        if set(args) != {"prompt"} or not isinstance(args.get("prompt"), str) or not args["prompt"].strip():
+                            raise ValueError("explore args must contain only a nonempty prompt")
                     else:
                         if set(args) - {"action", "name"}:
                             raise ValueError("skills args must contain only action and name")
