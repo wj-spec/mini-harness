@@ -449,6 +449,14 @@ def main() -> None:
                             plan = load_plan(file)
                         except (PlanError, OSError):
                             continue
+                        acceptance = None
+                        try:
+                            from app.runtime.acceptance import load_acceptance_result
+                            saved = load_acceptance_result(task_path, plan.version)
+                            if saved is not None:
+                                acceptance = saved.get("status")
+                        except Exception:
+                            pass
                         rows.append({
                             "workspace": str(config.workspace),
                             "session": session_path.name,
@@ -457,6 +465,7 @@ def main() -> None:
                             "version": plan.version,
                             "status": plan.status,
                             "stale": bool(plan.approval.get("stale")),
+                            "acceptance": acceptance,
                             "objective": plan.objective,
                         })
         print(json.dumps({"plans": rows[-100:]}, ensure_ascii=False, indent=2))

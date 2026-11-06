@@ -731,5 +731,5 @@ VIBE_DEBUG=1 ./run_ink.sh --workspace /path/to/repo
 ```
 
 通知记录在 `.vibe/notifications.jsonl`，可用 `/notifications`、`--notifications` 查看（JSON，最多 50 条）。
-`--plans` 只读列出本工作区会话的计划版本（session/task/plan_id/version/status/objective）。
+`--plans` 只读列出本工作区会话的计划版本（session/task/plan_id/version/status/stale/acceptance/objective）。
 `--acceptance` 只读列出计划验收结果（plan_id/objective/plan_version/status/codes/命令数，最多 100 条）。
