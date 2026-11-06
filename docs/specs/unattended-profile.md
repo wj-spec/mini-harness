@@ -31,7 +31,8 @@
 - `run_command`/`run_command_async` 使用 `scrubbed_command_env`：保留 PATH/HOME/语言/工具链变量，剥离 `*KEY*/*TOKEN*/*SECRET*/*PASSWORD*` 等凭据变量；`env_extra` 显式覆盖。
 - CLI `--pause-task TASK_ID --workspace PATH`：SIGTERM 暂停指定 worker，保留 worktree，不写 `.vibe/stop`；`--stop/--stop-task` 仍是 kill switch。
 - 测试：`tests/test_unattended.py`（默认拒绝、profile 覆盖/未知字段、worker 自动 deny + audit）、`tests/test_sandbox.py`（env scrub）、`tests/test_cli_merge_stop.py`（pause）。
-- 本地通知：worker 生命周期写 `.vibe/notifications.jsonl`（started/exited/stop_requested/approval_timeout/task_deadline_exceeded），供后续告警渠道消费。
+- 本地通知：worker 生命周期写 `.vibe/notifications.jsonl`（started/exited/stop_requested/approval_timeout/task_deadline_exceeded），供后续告警渠道消费；
+  stdio command `notifications` 与 TUI `/notifications` 可查看最近通知。
 - 日志保留：`--cleanup-logs --workspace <ws> [--log-max-bytes N] [--log-dry-run]` 显式轮转会话 `trace.jsonl`（`.1`…备份），写 `.vibe/retention.jsonl` 审计；`events.jsonl` 不轮转，避免破坏会话恢复。
 - 自动 trace 轮转：追加 trace 前检查 `VIBE_TRACE_MAX_BYTES`（默认 0=关闭）/`VIBE_TRACE_BACKUPS`，超过阈值即轮转；`events.jsonl` 仍不轮转。
 - 两任务写串行：`VIBE_WORKSPACE_LOCK_WAIT=<seconds>` 让第二个 worker 排队等待 workspace lock（默认 0=立即拒绝）；`bench_long` 的 two-slot 场景覆盖。

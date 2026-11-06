@@ -35,7 +35,7 @@ MAX_FRAME_BYTES = 1024 * 1024
 _OVERSIZED = object()
 COMMANDS = frozenset({
     "resume", "permissions", "permissions_reset", "cost", "tools", "diff", "mcp",
-    "skills", "evidence", "autonomy", "tasks", "approvals", "plan", "explore",
+    "skills", "evidence", "autonomy", "tasks", "approvals", "plan", "explore", "notifications",
 })
 COMPLETION_CODE_LABELS = {
     "no_verification": "有文件改动但没有验证命令",
@@ -436,6 +436,17 @@ class _Connection:
                 text = format_round_evidence(self.session.latest_round())
             elif command == "plan":
                 text = self._plan_command((args or {}).get("action", "show"))
+            elif command == "notifications":
+                from app.runtime.notifications import read_notifications
+                items = read_notifications(self.agent.tools.root)[-20:]
+                if not items:
+                    text = "当前没有通知。"
+                else:
+                    text = "最近通知：\n" + "\n".join(
+                        f"- {item.get('ts', '')} {item.get('kind', '')} "
+                        f"task={item.get('task_id', '-')} {item.get('status', '')}".rstrip()
+                        for item in items
+                    )
             elif command == "explore":
                 from app.runtime.subagents import run_subagent
                 sub = await run_subagent(

@@ -453,3 +453,21 @@ def test_explore_command_runs_readonly_subagent(tmp_path, monkeypatch):
         await harness.close()
 
     asyncio.run(scenario())
+
+
+def test_notifications_command_lists_recent(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    from app.runtime.notifications import notify
+    notify(tmp_path, "worker_started", task_id="t-1")
+    notify(tmp_path, "worker_exited", task_id="t-1", status="exited")
+
+    async def scenario():
+        harness = Harness(_agent(tmp_path), Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("command", "c-notify", command="notifications")
+        result = await harness.until("command_result", "c-notify")
+        assert "worker_started" in result["text"] and "worker_exited" in result["text"]
+        await harness.close()
+
+    asyncio.run(scenario())
