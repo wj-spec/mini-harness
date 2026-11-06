@@ -659,6 +659,8 @@ class Worker:
             )
         except ApprovalError:
             return
+        notify(self.workspace, "approval_requested", task_id=self.task_id,
+               approval_id=approval_id, tool=tool_name, tier=event.get("tier"))
         asyncio.create_task(self._approval_deadline(approval_id, timeout))
 
     async def _approval_deadline(self, approval_id: str, timeout: float) -> None:

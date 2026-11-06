@@ -178,6 +178,9 @@ def test_worker_approval_timeout_fails_task_and_expires_inbox(tmp_path, monkeypa
     assert store.get(task.task_id).status == "failed"
     items = worker.inbox.items(task.task_id)
     assert items and all(item["status"] == "expired" for item in items)
+    from app.runtime.notifications import read_notifications
+    kinds = [item["kind"] for item in read_notifications(tmp_path)]
+    assert "approval_requested" in kinds and "approval_timeout" in kinds
 
 
 def test_worker_uses_git_worktree_when_available(tmp_path):
