@@ -290,7 +290,7 @@ export function App({client, attach = false, initialState = emptyState, windowSi
   const waitForExit = useRef(false);
   const backgroundAfterRun = useRef(false);
   const pendingBackgroundPlan = useRef(false);
-  const backgroundSpawnRef = useRef<((taskId: string) => void) | null>(null);
+  const backgroundSpawnRef = useRef<((taskId: string) => boolean) | null>(null);
   const shutdownRef = useRef<() => void>(() => {});
   const lastTaskId = useRef<string | null>(null);
   const mergeApprovalId = useRef<string | null>(null);
@@ -402,8 +402,12 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       const match = /task_id=(t-[A-Za-z0-9-]+)/.exec(String(event.text ?? ''));
       if (match && backgroundSpawnRef.current) {
         try {
-          backgroundSpawnRef.current(match[1]!);
-          shutdownRef.current();
+          const spawned = backgroundSpawnRef.current(match[1]!);
+          if (spawned) {
+            shutdownRef.current();
+          } else {
+            dispatch({type: 'notice', text: `后台 worker 未启动；task ${match[1]} 已创建，可稍后用 /task 或 --worker 启动。`});
+          }
         } catch (error) {
           dispatch({type: 'notice', text: `后台计划启动失败：${String(error)}`});
         }

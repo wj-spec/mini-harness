@@ -2026,3 +2026,18 @@ test('/plan background sends prepare-background command', async () => {
   assert.equal(client.commands.at(-1), 'plan');
   assert.deepEqual(client.commandArgs.at(-1), {action: 'prepare-background'});
 });
+
+test('/plan background keeps TUI when worker spawn fails', async () => {
+  const client = new MockClient();
+  client.capabilityList = ['tasks'];
+  const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}/>);
+  await pause(20);
+  client.emit({type: 'ready', workspace: '/tmp/repo', model: 'fake', session_id: 'test', capabilities: ['tasks']});
+  client.emit({type: 'status', phase: 'idle'});
+  await pause(20);
+  await enter(stdin, '/plan background');
+  const id = `command-${client.commands.length}`;
+  client.emit({type: 'command_result', id, text: 'background task prepared: task_id=t-20261106-000000-abcdef plan_id=pl-1 version=1'});
+  await pause(30);
+  assert.match(lastFrame() ?? '', /后台 worker 未启动/);
+});

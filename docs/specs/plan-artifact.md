@@ -44,7 +44,8 @@
   - `/plan approve`、`/plan reject` 通过后端 `plan` command 处理最近计划（stdio 本地 user 决定）。
   - `/plan execute` 读取最近 approved 计划，提交带 `plan_id/plan_version` 的 act run。
   - `/plan background` 准备后台 task（TaskRecord kind=run + plan binding），启动 detached worker 后 TUI 可退出；
-    worker 的 run 帧携带 kind=run/mode/plan_id/plan_version，由 TaskRuntime 绑定计划门禁。
+    worker 的 run 帧携带 kind=run/mode/plan_id/plan_version，由 TaskRuntime 绑定计划门禁；
+    worker 启动失败时 TUI 保留并提示 task 已创建，可稍后手动启动。
 
 ## 未完成（P0 剩余）
 
