@@ -80,3 +80,37 @@ def test_subagent_usage_is_recorded_in_parent_ledger(tmp_path):
     ledger = (session.root / "budget.jsonl").read_text(encoding="utf-8")
     assert '"node_kind": "subagent"' in ledger
     assert f'"parent_id": "{parent.task_id}"' in ledger
+
+
+def test_subagent_depth_limit_and_parent_cancel(tmp_path, monkeypatch):
+    import asyncio
+    from app.runtime.tasks import TaskStore
+    from app.session.store import SessionStore
+
+    monkeypatch.setenv("VIBE_FAKE_DELAY_SECONDS", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="test")
+    parent = TaskStore(session.root).create(
+        kind="goal", objective="parent", workspace=str(tmp_path), mode="goal",
+    )
+    with pytest.raises(SubagentError):
+        asyncio.run(run_subagent(FakeProvider(["x"]), tmp_path, "x", depth=2, max_depth=1))
+
+    async def scenario():
+        parent_cancel = asyncio.Event()
+
+        async def set_cancel():
+            await asyncio.sleep(0.1)
+            parent_cancel.set()
+
+        setter = asyncio.create_task(set_cancel())
+        result = await run_subagent(
+            FakeProvider(["慢任务"]), tmp_path, "慢任务",
+            parent_cancel=parent_cancel, session_root=session.root,
+            parent_task_id=parent.task_id,
+        )
+        await setter
+        assert result.status == "cancelled"
+        child = TaskStore(session.root).get(result.task_id)
+        assert child.status == "cancelled"
+
+    asyncio.run(scenario())

@@ -74,6 +74,9 @@ async def run_subagent(
     max_run_tokens: int = 40_000,
     max_run_seconds: float = 120.0,
     cancel: asyncio.Event | None = None,
+    parent_cancel: asyncio.Event | None = None,
+    depth: int = 0,
+    max_depth: int = 1,
     trace_path: str | Path | None = None,
     session_root: str | Path | None = None,
     parent_task_id: str | None = None,
@@ -84,6 +87,8 @@ async def run_subagent(
     """
     if not isinstance(objective, str) or not objective.strip():
         raise SubagentError("objective must be a nonempty string")
+    if depth > max_depth:
+        raise SubagentError(f"subagent depth {depth} exceeds max_depth {max_depth}")
     workspace = Path(workspace)
     from app.runtime.tasks import TaskStore
 
@@ -105,6 +110,24 @@ async def run_subagent(
         max_run_tokens=max_run_tokens, max_run_seconds=max_run_seconds,
         completion_guard=False, workspace_audit=False,
     )
+    watcher = None
+    if parent_cancel is not None:
+        if cancel is None:
+            cancel = parent_cancel
+        else:
+            combined = asyncio.Event()
+
+            async def forward() -> None:
+                waiters = [asyncio.create_task(cancel.wait()), asyncio.create_task(parent_cancel.wait())]
+                try:
+                    await asyncio.wait(waiters, return_when=asyncio.FIRST_COMPLETED)
+                finally:
+                    for task in waiters:
+                        task.cancel()
+                combined.set()
+
+            watcher = asyncio.create_task(forward())
+            cancel = combined
     started = _now()
     trace_file = Path(trace_path) if trace_path is not None else None
     trace_handle = None
@@ -135,6 +158,8 @@ async def run_subagent(
     except asyncio.CancelledError:
         raise
     finally:
+        if watcher is not None:
+            watcher.cancel()
         if trace_handle is not None:
             trace_handle.close()
     status_map = {"done": "ok", "cancelled": "cancelled", "stopped": "budget_exceeded", "error": "error"}
