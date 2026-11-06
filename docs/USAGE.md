@@ -703,7 +703,7 @@ VIBE_DEBUG=1 ./run_ink.sh --workspace /path/to/repo
 - `/plan execute`：用最近 approved 计划创建 act run（绑定 `plan_id/plan_version`）；
 - `/plan background`：准备后台 task 并启动 detached worker，适用于长计划；
 - `/explore <任务>`：只读子 Agent 探索，创建 `kind=subagent` 任务；
-- `/notifications`：查看后台 worker 本地通知。
+- `/notifications [kind]`：查看后台 worker 本地通知，可按 kind 过滤。
 
 绑定计划的 run 会：
 

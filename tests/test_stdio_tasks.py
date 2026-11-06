@@ -791,3 +791,22 @@ def test_plan_prepare_background_creates_task(tmp_path, monkeypatch):
         await harness.close()
 
     asyncio.run(scenario())
+
+
+def test_notifications_command_filters_kind(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    from app.runtime.notifications import notify
+    notify(tmp_path, "worker_started", task_id="t-1")
+    notify(tmp_path, "plan_acceptance", task_id="t-1", status=True)
+
+    async def scenario():
+        harness = Harness(_agent(tmp_path), Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("command", "c-kind", command="notifications", args={"kind": "plan_acceptance"})
+        result = await harness.until("command_result", "c-kind")
+        assert "plan_acceptance" in result["text"]
+        assert "worker_started" not in result["text"]
+        await harness.close()
+
+    asyncio.run(scenario())

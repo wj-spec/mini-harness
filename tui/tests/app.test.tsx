@@ -1625,6 +1625,12 @@ test('/notifications sends backend command', async () => {
   await pause(20);
   await enter(stdin, '/notifications');
   assert.equal(client.commands.at(-1), 'notifications');
+  client.emit({type: 'command_result', id: 'command-1', text: '通知'});
+  client.emit({type: 'status', phase: 'idle'});
+  await pause(20);
+  await enter(stdin, '/notifications plan_acceptance');
+  assert.equal(client.commands.at(-1), 'notifications');
+  assert.deepEqual(client.commandArgs.at(-1), {kind: 'plan_acceptance'});
 });
 
 test('/explore sends a read-only subagent command', async () => {

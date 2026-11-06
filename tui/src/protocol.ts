@@ -34,7 +34,14 @@ export type SkillsCommandArgs = {action?: 'list' | 'refresh' | 'activate' | 'unl
 export type AutonomyCommandArgs = {level: AutonomyLevel};
 export type PlanCommandArgs = {action?: 'show' | 'list' | 'step' | 'edit-step' | 'diff' | 'acceptance' | 'prepare-background' | 'approve' | 'reject' | 'revise'; objective?: string; step_id?: string; title?: string; version_a?: number; version_b?: number};
 export type ExploreCommandArgs = {prompt: string};
-export type CommandArgs = SkillsCommandArgs | AutonomyCommandArgs | PlanCommandArgs | ExploreCommandArgs;
+export type NotificationsCommandArgs = {kind?: string};
+export type CommandArgs = SkillsCommandArgs | AutonomyCommandArgs | PlanCommandArgs | ExploreCommandArgs | NotificationsCommandArgs;
+export function validateNotificationsArgs(value: unknown): asserts value is NotificationsCommandArgs {
+  if (!record(value) || Object.keys(value).some(key => key !== 'kind') ||
+      (value.kind !== undefined && (typeof value.kind !== 'string' || !value.kind.trim()))) {
+    throw new Error('notifications 参数只允许非空 kind');
+  }
+}
 export function validateExploreArgs(value: unknown): asserts value is ExploreCommandArgs {
   if (!record(value) || Object.keys(value).some(key => key !== 'prompt') ||
       typeof value.prompt !== 'string' || !value.prompt.trim()) {

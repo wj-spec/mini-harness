@@ -1494,10 +1494,12 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       } catch (error) {notice(`未能提交计划任务：${String(error)}`);}
       return;
     }
-    if (text === '/notifications') {
+    const notificationsMatch = /^\/notifications(?:\s+(\S+))?$/.exec(text);
+    if (notificationsMatch) {
       if (state.phase !== 'idle' || activeRun.current) {notice('当前有运行中任务；结束后再查看通知。'); return;}
       try {
-        const id = client.command('notifications');
+        const kind = notificationsMatch[1]?.trim();
+        const id = client.command('notifications', kind ? {kind} : undefined);
         activeRun.current = id;
         dispatch({type: 'begin_command', id, command: 'notifications'});
         setInput('');

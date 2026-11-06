@@ -599,7 +599,11 @@ class _Connection:
                 text = self._plan_command((args or {}).get("action", "show"), args or {})
             elif command == "notifications":
                 from app.runtime.notifications import read_notifications
-                items = read_notifications(self.agent.tools.root)[-20:]
+                items = read_notifications(self.agent.tools.root)
+                kind = (args or {}).get("kind")
+                if kind:
+                    items = [item for item in items if item.get("kind") == kind]
+                items = items[-20:]
                 if not items:
                     text = "当前没有通知。"
                 else:
@@ -1142,7 +1146,7 @@ class _Connection:
             }
             if not isinstance(kind, str) or kind not in fields:
                 raise ValueError("unknown request type")
-            if kind == "command" and request.get("command") in {"skills", "autonomy", "plan", "explore"} and "args" in request:
+            if kind == "command" and request.get("command") in {"skills", "autonomy", "plan", "explore", "notifications"} and "args" in request:
                 fields[kind] = fields[kind] | {"args"}
             allowed = {"v", "type", "id"} | fields[kind]
             if kind == "run" and "task" in request:
@@ -1177,6 +1181,9 @@ class _Connection:
                             for key in ("version_a", "version_b"):
                                 if not isinstance(args.get(key), int) or isinstance(args.get(key), bool) or args[key] < 1:
                                     raise ValueError(f"plan diff requires positive integer {key}")
+                    elif request["command"] == "notifications":
+                        if set(args) - {"kind"} or ("kind" in args and (not isinstance(args.get("kind"), str) or not args["kind"].strip())):
+                            raise ValueError("notifications args must contain only a nonempty kind")
                     elif request["command"] == "explore":
                         if set(args) != {"prompt"} or not isinstance(args.get("prompt"), str) or not args["prompt"].strip():
                             raise ValueError("explore args must contain only a nonempty prompt")
