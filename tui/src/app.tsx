@@ -133,6 +133,7 @@ export function App({client, attach = false, initialState = emptyState, windowSi
   const [contextOpen, setContextOpen] = useState(false);
   const [planOpen, setPlanOpen] = useState(false);
   const [planLines, setPlanLines] = useState<string[]>([]);
+  const [planSelection, setPlanSelection] = useState(0);
   const [contextSelection, setContextSelection] = useState<string | null>(null);
   const [overlayScroll, setOverlayScroll] = useState({key: '', top: 0});
   const [reading, setReading] = useState(false);
@@ -229,10 +230,11 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       ...textLines(approvalView.body, bodyColumns),
     ];
     if (contextOpen) return contextLines(state.contextSnapshots, contextSelection, bodyColumns);
-    if (planOpen) return planLines.flatMap(line => textLines(line, bodyColumns));
+    if (planOpen) return planLines.flatMap((line, index) =>
+      textLines(`${index === planSelection ? '› ' : '  '}${line}`, bodyColumns));
     if (detailEntry) return detailLines(detailEntry, bodyColumns);
     return isEmpty ? welcomeLines(state, bodyColumns) : transcript;
-  }, [state.approval, approvalView, contextOpen, planOpen, planLines, state.contextSnapshots, contextSelection, detailEntry, bodyColumns, isEmpty, transcript]);
+  }, [state.approval, approvalView, contextOpen, planOpen, planLines, planSelection, state.contextSnapshots, contextSelection, detailEntry, bodyColumns, isEmpty, transcript]);
   const maximum = Math.max(0, lines.length - bodyRows);
   const top = overlayKey ? Math.min(overlayScroll.key === overlayKey ? overlayScroll.top : 0, maximum) :
     isEmpty ? Math.min(scroll.top, maximum) : scroll.follow ? maximum : Math.min(scroll.top, maximum);
@@ -941,6 +943,14 @@ export function App({client, attach = false, initialState = emptyState, windowSi
     if ((readerFocused || key.ctrl) && (home || end)) {navigate(home ? 0 : viewport.current.maximum); return;}
     if (key.escape && selection) {setSelection(null); return;}
     if (key.escape && !state.approval && planOpen) {setPlanOpen(false); return;}
+    if (planOpen && (key.upArrow || key.downArrow)) {
+      const next = Math.max(0, Math.min(planLines.length - 1, planSelection + (key.upArrow ? -1 : 1)));
+      setPlanSelection(next);
+      const maxTop = Math.max(0, planLines.length - bodyRows);
+      const nextTop = Math.max(0, Math.min(maxTop, next - Math.floor(bodyRows / 2)));
+      setOverlayScroll({key: 'plan', top: nextTop});
+      return;
+    }
     if (key.escape && !state.approval && contextOpen) {setContextOpen(false); return;}
     if (key.escape && !state.approval && detailEntry) {setDetail(null); return;}
     if (key.escape && reading && !state.approval) {setReading(false); return;}
@@ -1121,6 +1131,7 @@ export function App({client, attach = false, initialState = emptyState, windowSi
         return;
       }
       setPlanLines(rendered.split('\n'));
+      setPlanSelection(0);
       setPlanOpen(true);
       setOverlayScroll({key: 'plan', top: 0});
       return;
