@@ -29,6 +29,7 @@ class ModeProfile:
 READ_ONLY_TOOLS = (
     "read_file", "list_files", "grep", "git_status", "git_diff",
 )
+PLAN_TOOLS = READ_ONLY_TOOLS + ("submit_plan",)
 
 MODE_PROFILES: dict[str, ModeProfile] = {
     "chat": ModeProfile(
@@ -47,7 +48,7 @@ MODE_PROFILES: dict[str, ModeProfile] = {
         capability=("task.*", "approval.decide"),
     ),
     "plan": ModeProfile(
-        mode="plan", tools=READ_ONLY_TOOLS, system="plan_only", isolation="shared_readonly",
+        mode="plan", tools=PLAN_TOOLS, system="plan_only", isolation="shared_readonly",
         approval="ask", completion={"criteria_required": True},
         capability=("task.*", "plan.review"),
         delegation={"model_initiated": False},

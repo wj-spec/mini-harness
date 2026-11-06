@@ -24,7 +24,7 @@
 - 工具执行前门禁：未批准 plan 的写/执行 deny(`plan_not_approved`)，当前只有 `can_execute` 纯函数；
 - 审批队列/任务级 deadline → `failed(approval_timeout)` 接线；
 - steering/偏离后 plan 变 stale 与重批；
-- `submit_plan` 工具与 `kind=plan` task 接线；
+- `submit_plan` 工具已接 plan profile；`kind=plan` task 的 TUI 创建/展示未接；
 - stdio 帧/`plan.review` capability 协商；
 - TUI 计划卡片、折叠/分页、批准/拒绝/编辑；
 - 验收标准确认与 GoalRecord 同步。

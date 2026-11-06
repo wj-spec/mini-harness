@@ -460,9 +460,16 @@ class _Connection:
         self.has_started_run = True
         previous_tools_enabled = self.agent.tools_enabled
         previous_tools = self.agent.tools
+        plan_tool_registered = False
         if run_task is not None:
             from app.runtime.modes import ModeError, resolve_profile, validate_profile_tools
             profile = resolve_profile(run_task.record.mode)
+            if profile.mode == "plan":
+                from app.runtime.tasks import TaskStore
+                self.agent.tools.register_plan_tool(
+                    TaskStore(self.session.root).task_dir(run_task.task_id),
+                )
+                plan_tool_registered = True
             try:
                 validate_profile_tools(profile, self.agent.tools.names())
             except ModeError as exc:
@@ -667,6 +674,8 @@ class _Connection:
             self.active_id = None
             self.agent.tools_enabled = previous_tools_enabled
             self.agent.tools = previous_tools
+            if plan_tool_registered:
+                previous_tools.unregister("submit_plan")
             if not self.stop.is_set():
                 self.send("status", phase="idle")
 

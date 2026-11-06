@@ -126,3 +126,26 @@ def test_plan_content_changed_after_approval_is_not_executable(tmp_path):
     approve_plan(tmp_path, plan, approved_by="user")
     plan.objective = "偷偷扩大范围"
     assert not can_execute(plan)
+
+
+def test_submit_plan_tool_writes_proposed_plan(tmp_path):
+    import asyncio
+
+    from app.tools.registry import ToolRegistry
+    from core.contracts import ToolCall
+
+    registry = ToolRegistry(tmp_path)
+    task_dir = tmp_path / ".vibe" / "sessions" / "s" / "tasks" / "t-20261106-000000-abcdef"
+    task_dir.mkdir(parents=True)
+    registry.register_plan_tool(task_dir)
+    ok, text = asyncio.run(registry.execute_async(ToolCall("submit_plan", {
+        "objective": "计划目标",
+        "steps": [{"step_id": "s1", "title": "读代码", "kind": "read"}],
+    })))
+    assert ok and "plan proposed" in text
+    plan_file = task_dir / "plan" / "plan.v1.json"
+    assert plan_file.exists()
+    plan = load_plan(plan_file)
+    assert plan.status == "proposed" and plan.task_id == "t-20261106-000000-abcdef"
+    assert "plan_proposed" in (task_dir / "audit.jsonl").read_text(encoding="utf-8")
+    registry.unregister("submit_plan")

@@ -19,12 +19,16 @@
   - `load_plan` / `load_plan_ref`；
   - `plan_hash()`（canonical JSON sha256）；
   - `render_plan()`：目标、状态、验收标准（候选/已确认）、全部步骤（不截断前 5 条）。
+- `submit_plan` 工具（仅 plan profile 的 run 注册）：
+  - 模型提交 objective/steps/criteria 等，校验后写任务目录并置 proposed；
+  - 返回 `plan proposed: <plan_id> v1`，不执行工作区写；
+  - run 结束注销，act/chat 不可见。
 - 测试：`tests/test_plan_artifact.py`（roundtrip/hash/原子写、6 类非法输入、环检测、
-  unknown schema、渲染、路径布局）。
+  unknown schema、渲染、路径布局、submit_plan 工具写 proposed）。
 
 ## 未完成（P0 剩余）
 
-- `submit_plan` 工具与 plan task 接线（仅 plan profile 可见）；
+- `submit_plan` 已接 plan profile；TUI `/plan` 展示/审批未接；
 - plan.review 审批门（13）与 `plan_proposed/plan_approved` 审计事件；
 - 执行绑定/步骤证据（14）、计划验收（15）；
 - TUI `/plan` 渲染与编辑入口；

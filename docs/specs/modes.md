@@ -10,7 +10,7 @@
   - chat：无工具、`chat_only`、shared_readonly；
   - act：`*` 工具、`default`、shared_readonly；
   - goal：`*` 工具、worktree_write；
-  - plan：只读工具 + `plan_only`、plan.review capability；
+  - plan：只读工具 + `submit_plan`、`plan_only`、plan.review capability；
   - `resolve_profile`/`validate_profile_tools` 校验未知 mode/缺失工具。
 - `TaskRuntime`：
   - `run.task` 支持 `kind=run`（chat/act）与 `kind=goal`（goal），`mode` 写入 `TaskRecord`；

@@ -903,6 +903,58 @@ class ToolRegistry:
     def register(self, spec: ToolSpec) -> None:
         self._tools[spec.name] = spec
 
+    def unregister(self, name: str) -> None:
+        self._tools.pop(name, None)
+
+    def register_plan_tool(self, task_dir: str | Path) -> None:
+        """只在 plan task 的 run 内注册 submit_plan（写任务目录产物，不碰工作区）。"""
+        from app.runtime.plan import Plan, PlanError, save_plan, propose_plan
+
+        directory = Path(task_dir)
+        task_id = directory.name
+
+        def submit_plan(**payload) -> str:
+            import uuid
+            plan = Plan.from_dict({
+                "schema_version": 1,
+                "plan_id": payload.pop("plan_id", f"pl-{uuid.uuid4().hex[:12]}"),
+                "task_id": task_id,
+                "version": 1,
+                "status": "draft",
+                "objective": payload.get("objective"),
+                "steps": payload.get("steps"),
+                "acceptance_criteria": payload.get("acceptance_criteria", []),
+                "source": {"mode": "plan"},
+                "constraints": payload.get("constraints", []),
+                "out_of_scope": payload.get("out_of_scope", []),
+                "open_questions": payload.get("open_questions", []),
+            })
+            propose_plan(directory, plan)
+            return f"plan proposed: {plan.plan_id} v{plan.version}"
+
+        self._tools["submit_plan"] = ToolSpec(
+            name="submit_plan",
+            description=(
+                "Submit a structured plan for user review. Only available in plan mode. "
+                "The plan is saved in the task directory as proposed, not executed."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "objective": {"type": "string", "minLength": 1, "maxLength": 4000},
+                    "steps": {"type": "array", "minItems": 1},
+                    "acceptance_criteria": {"type": "array"},
+                    "constraints": {"type": "array", "items": {"type": "string"}},
+                    "out_of_scope": {"type": "array", "items": {"type": "string"}},
+                    "open_questions": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["objective", "steps"],
+                "additionalProperties": False,
+            },
+            fn=submit_plan,
+            risk="read",
+        )
+
     def specs(self) -> list[dict]:
         return [
             {
