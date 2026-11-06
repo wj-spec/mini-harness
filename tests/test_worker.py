@@ -351,3 +351,37 @@ def test_worker_workspace_wait_timeout_marks_failed(tmp_path, monkeypatch):
     from app.runtime.notifications import read_notifications
     queued = [item for item in read_notifications(repo) if item["kind"] == "workspace_queued"]
     assert queued and queued[-1]["task_id"] == task.task_id
+
+
+def test_worker_sends_run_task_meta_for_prepared_plan(tmp_path, monkeypatch):
+    import asyncio
+    monkeypatch.setenv("VIBE_ALLOW_NON_GIT", "1")
+    from app.runtime.worker import Worker
+
+    session = SessionStore.new(tmp_path, "fake", purpose="test")
+    store = TaskStore(session.root)
+    task = store.create(kind="run", objective="后台计划", workspace=str(tmp_path),
+                        mode="act", plan_id="pl-bg", plan_version=2, session_id=session.id)
+    captured = tmp_path / "task.json"
+    script = tmp_path / "child.py"
+    script.write_text(
+        "import json, sys\n"
+        "from pathlib import Path\n"
+        f"captured = Path({str(captured)!r})\n"
+        "for line in sys.stdin:\n"
+        "    req = json.loads(line)\n"
+        "    if req.get('type') == 'run':\n"
+        "        captured.write_text(json.dumps(req['task']))\n"
+        "        result = {'text': 'x', 'steps': 1, 'status': 'done', 'stop_reason': '',\n"
+        "                  'usage': {}, 'cost_usd': 0, 'run_id': req['id']}\n"
+        "        print(json.dumps({'v': 1, 'type': 'done', 'id': req['id'], 'result': result}), flush=True)\n"
+        "    elif req.get('type') == 'shutdown':\n"
+        "        break\n",
+        encoding="utf-8",
+    )
+    worker = Worker(session_root=session.root, task_id=task.task_id, workspace=tmp_path,
+                    child_args=[sys.executable, str(script)], child_env={"VIBE_TASK_RUNTIME": "1"})
+    assert asyncio.run(worker.run()) == 0
+    meta = json.loads(captured.read_text(encoding="utf-8"))
+    assert meta["kind"] == "run" and meta["mode"] == "act"
+    assert meta["plan_id"] == "pl-bg" and meta["plan_version"] == 2

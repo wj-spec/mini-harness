@@ -184,3 +184,9 @@ vibe --tasks [--workspace PATH] [--fake]
 - worker 启动时按 `VIBE_WORKER_EVENTS_MAX_BYTES`（默认 64 MiB）与
   `VIBE_WORKER_EVENTS_BACKUPS`（默认 3）轮转 `worker-events.jsonl`；
 - 旧事件保留 `.1/.2` 备份，attach 回放只读取当前文件，避免无限增长。
+
+## 后台 plan task（P1 补充）
+
+- `/plan background` 创建 kind=run 的 TaskRecord 后启动 worker；
+- worker 的 `run.task` 帧携带 `kind=run/mode/plan_id/plan_version`，
+  由 TaskRuntime 继续执行计划绑定与 step/验收门禁。

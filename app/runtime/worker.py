@@ -468,10 +468,16 @@ class Worker:
     async def _queue_run(self, text: str) -> None:
         request_id = f"worker-{uuid.uuid4().hex[:12]}"
         self.active_run_id = request_id
+        task = TaskStore(self.session_root).get(self.task_id)
+        meta = {"kind": task.kind, "task_id": self.task_id, "objective": task.objective}
+        if task.kind == "run":
+            meta["mode"] = task.mode
+            if task.plan_id:
+                meta["plan_id"] = task.plan_id
+                meta["plan_version"] = task.plan_version
         frame = {
             "v": 1, "type": "run", "id": request_id, "text": text,
-            "task": {"kind": "goal", "task_id": self.task_id,
-                     "objective": TaskStore(self.session_root).get(self.task_id).objective},
+            "task": meta,
         }
         await self.queue.put(json.dumps(frame, ensure_ascii=False))
 
