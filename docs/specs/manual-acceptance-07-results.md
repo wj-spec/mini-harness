@@ -15,7 +15,7 @@
 | TC-01 TUI 基线 | 通过 | TUI 打开、`/task` 可用、Ctrl+Q 退出 |
 | TC-02 worker + attach | **通过** | worker 运行；`/attach now` 进入 attach；收到 task_snapshot；任务完成 |
 | TC-03 审批流 | **通过** | attach 后出现 write_file 审批面板；`y` 后 `approvals.jsonl` 出现 `resolved`（decided_by=attach）；task=`completed`；worktree 内有 `.vibe/fake-demo.txt`，主工作区没有 |
-| TC-04 observer 只读 | 待确认 | observer 探针输出待补 |
+| TC-04 observer 只读 | **通过** | observer 收到 attach_ok(mode=observe)+task_snapshot+approval_list；`cancel` 返回 `observer_readonly` |
 | TC-05 controller 接管 | **通过** | probe 收到 attach_ok(mode=control)+task_snapshot；原 TUI 显示 `control_taken: another client took control`（截图证据） |
 | TC-06 detach 后继续 | 待测 | — |
 | TC-07 kill switch | 待测 | — |
