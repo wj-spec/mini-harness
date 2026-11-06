@@ -118,7 +118,7 @@ class StepLedger:
         return record
 
     def add_evidence(self, step_id: str, *, kind: str, ref: str, ok: bool = True) -> StepRecord:
-        if kind not in {"file_change", "verification", "command_ok", "manual"}:
+        if kind not in {"file_change", "verification", "command_ok", "manual", "read"}:
             raise ExecutionError(f"invalid evidence kind: {kind!r}")
         if not isinstance(ref, str) or not ref.strip():
             raise ExecutionError("evidence ref must be a nonempty string")

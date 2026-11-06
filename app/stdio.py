@@ -495,6 +495,9 @@ class _Connection:
         previous_tools_enabled = self.agent.tools_enabled
         previous_tools = self.agent.tools
         plan_tool_registered = False
+        plan_context = None
+        active_plan_step = {"step_id": None}
+        plan_step_tools_registered = False
         if run_task is not None:
             from app.runtime.modes import ModeError, resolve_profile, validate_profile_tools
             profile = resolve_profile(run_task.record.mode)
@@ -530,12 +533,55 @@ class _Connection:
             if found is None:
                 self.agent.approval.execution_gate = lambda _call: "plan_not_approved"
             else:
-                _, bound_plan = found
+                bound_task_dir, bound_plan = found
                 if not can_execute(bound_plan):
                     reason = "plan_stale" if bound_plan.status == "approved" else "plan_not_approved"
                     self.agent.approval.execution_gate = lambda _call: reason
                 else:
                     self.agent.approval.execution_gate = None
+                    from app.runtime.plan_execution import ExecutionError, StepLedger, load_ledger, save_ledger
+                    try:
+                        ledger = load_ledger(bound_task_dir, bound_plan.version)
+                    except ExecutionError:
+                        ledger = StepLedger.from_plan(bound_plan)
+                        save_ledger(bound_task_dir, ledger)
+                    plan_context = {"plan": bound_plan, "ledger": ledger, "task_dir": bound_task_dir}
+
+                    def start_plan_step(step_id: str) -> str:
+                        if not ledger.can_execute_step(bound_plan, step_id):
+                            return f"ERROR step_blocked: {step_id} dependencies not done"
+                        try:
+                            ledger.start_step(step_id)
+                        except ExecutionError as exc:
+                            return f"ERROR {exc}"
+                        active_plan_step["step_id"] = step_id
+                        save_ledger(bound_task_dir, ledger)
+                        return f"started {step_id}"
+
+                    def complete_plan_step(step_id: str) -> str:
+                        try:
+                            record = ledger.complete_step(bound_plan, step_id)
+                        except ExecutionError as exc:
+                            return f"ERROR {exc}"
+                        save_ledger(bound_task_dir, ledger)
+                        return f"step {step_id}: {record.status}"
+
+                    from app.tools.registry import ToolSpec
+                    self.agent.tools.register(ToolSpec(
+                        name="start_plan_step",
+                        description="Start a step from the approved plan before doing its work.",
+                        parameters={"type": "object", "properties": {"step_id": {"type": "string"}},
+                                    "required": ["step_id"], "additionalProperties": False},
+                        fn=start_plan_step,
+                    ))
+                    self.agent.tools.register(ToolSpec(
+                        name="complete_plan_step",
+                        description="Complete a plan step only after its required evidence exists.",
+                        parameters={"type": "object", "properties": {"step_id": {"type": "string"}},
+                                    "required": ["step_id"], "additionalProperties": False},
+                        fn=complete_plan_step,
+                    ))
+                    plan_step_tools_registered = True
         result = AgentResult("cancelled", 0, "cancelled")
         completed = False
         metrics = {
@@ -555,6 +601,20 @@ class _Connection:
         def tool_result(call, ok, output):
             nonlocal observed_tools
             observed_tools += 1
+            if plan_context is not None and active_plan_step["step_id"] and call.name not in {"start_plan_step", "complete_plan_step"}:
+                step_id = active_plan_step["step_id"]
+                kind = "read"
+                if call.name in {"write_file", "edit_file", "apply_patch"}:
+                    kind = "file_change"
+                elif call.name == "bash":
+                    kind = "command_ok"
+                ref = str(call.args.get("path") or call.args.get("command") or call.name)
+                try:
+                    from app.runtime.plan_execution import save_ledger
+                    plan_context["ledger"].add_evidence(step_id, kind=kind, ref=ref, ok=bool(ok))
+                    save_ledger(plan_context["task_dir"], plan_context["ledger"])
+                except Exception:
+                    pass
             execution = executions.pop(id(call), None)
             self.send("tool_result", request_id, call=asdict(call), ok=ok, output=output,
                       **({"execution": execution} if execution is not None else {}))
@@ -725,6 +785,9 @@ class _Connection:
                 self.agent.approval.execution_gate = previous_gate
             if plan_tool_registered:
                 previous_tools.unregister("submit_plan")
+            if plan_step_tools_registered:
+                previous_tools.unregister("start_plan_step")
+                previous_tools.unregister("complete_plan_step")
             if not self.stop.is_set():
                 self.send("status", phase="idle")
 

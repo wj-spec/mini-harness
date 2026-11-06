@@ -21,12 +21,17 @@
 - `plan_complete(plan)`：所有非 skipped 步骤 done；
 - `can_execute_step`：依赖均已 done；
 - 原子存储 `task_dir/plan/execution.v<version>.json`；
-- 展示：stdio `plan show` 与 TUI `/plan` 会附带 step status/evidence 数。
+- 展示：stdio `plan show` 与 TUI `/plan` 会附带 step status/evidence 数；
+- bound plan 的执行 run 注册 `start_plan_step` / `complete_plan_step` 工具：
+  - start 校验依赖并置 in_progress；
+  - 之后的 read/write/bash 工具结果自动写 evidence（read/file_change/command_ok，ok 标记）；
+  - complete 只在该步证据满足时成功；
+  - run 结束注销工具并持久化 execution.vN.json。
 - `load_ledger` 未知 schema fail closed。
 
 ## 未完成（P0 剩余）
 
-- Agent 工具执行后按 step 切分证据；
+- 工具证据按 active step 记录已接；自动将工具调用映射到计划外/偏差检测未接；
 - 模型 `complete_step` 请求由 harness 证据校验（当前只有模块 API）；
 - 偏离检测（计划外文件）和重规划；
 - 每步预算/成本归因；

@@ -270,3 +270,47 @@ def test_plan_command_approves_latest_plan(tmp_path, monkeypatch):
         await harness.close()
 
     asyncio.run(scenario())
+
+
+def test_bound_plan_step_tools_record_evidence_and_complete(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    (tmp_path / "README.md").write_text("hello\n", encoding="utf-8")
+    plan_task = "t-20261106-000000-abcdef"
+    plan_dir = session.root / "tasks" / plan_task
+    from app.runtime.plan import Plan, approve_plan, propose_plan
+    from app.runtime.plan_execution import load_ledger
+    plan = Plan.from_dict({
+        "schema_version": 1, "plan_id": "pl-1", "task_id": plan_task,
+        "objective": "执行计划",
+        "steps": [{"step_id": "s1", "title": "读 README", "kind": "read"}],
+    })
+    propose_plan(plan_dir, plan)
+    approve_plan(plan_dir, plan, approved_by="user")
+    from core.contracts import Response, ToolCall
+    agent = Agent(FakeProvider([
+        Response(tool_calls=[ToolCall("start_plan_step", {"step_id": "s1"}, id="t1")]),
+        Response(tool_calls=[ToolCall("read_file", {"path": "README.md"}, id="t2")]),
+        Response(tool_calls=[ToolCall("complete_plan_step", {"step_id": "s1"}, id="t3")]),
+        "计划步骤完成",
+    ]), ToolRegistry(tmp_path), approval=ApprovalGate())
+    agent.approval.handler = None
+
+    async def scenario():
+        harness = Harness(agent, Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("run", "r-plan-step", text="执行", task={
+            "kind": "run", "mode": "act", "objective": "执行",
+            "plan_id": "pl-1", "plan_version": 1,
+        })
+        done = await harness.until("done", "r-plan-step")
+        assert done["result"]["status"] == "done"
+        ledger = load_ledger(plan_dir, 1)
+        assert ledger.steps["s1"].status == "done"
+        assert any(item["kind"] == "read" for item in ledger.steps["s1"].evidence)
+        assert agent.tools.names() == ["web_search", "read_file", "grep", "list_files", "git_status",
+                                      "git_diff", "write_file", "edit_file", "apply_patch", "bash",
+                                      "list_skills", "load_skill", "unload_skill"]
+        await harness.close()
+
+    asyncio.run(scenario())
