@@ -1,0 +1,9 @@
+{
+  "id": "restart-attach",
+  "description": "运行中 attach 观察，detach 后任务继续完成",
+  "objective": "长任务评测：attach 后继续",
+  "action": "attach",
+  "worker_env": {"VIBE_FAKE_DELAY_SECONDS": "8"},
+  "expected": {"task_status": ["completed"], "worker_status": ["exited"], "min_segments": 1},
+  "timeout_seconds": 90
+}

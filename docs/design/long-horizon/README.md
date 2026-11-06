@@ -10,7 +10,7 @@
 - **状态流转**：讨论稿（现在）→ 用户拍板/修改 → 收敛为 `docs/specs/` 下的实现切片 spec（每切片按项目规则补验收与测试）→ 实现。**本目录保留决策记录，不直接作为实现依据。**
 - **不重复裁决已有规格**：`docs/specs/multi-agent-computer-use.md` 的 G0/M1/M2/M3、`verified-completion`、`goal-mode` 等仍是权威；本目录只在其上回答“长任务/后台/模式/委派还缺什么以及怎么接”。
 
-> 进度：01–05 已确认（§9）；06–16 已完成对 01–05 的决策对齐（§9）；06–10 用户回答与 Lead 建议已确认（§10）；11–16 用户已回答（§11）。实现：任务运行时、worker、GoalRecord、预算、审批、worktree/merge、attach 已形成闭环；验收结果见 [acceptance-report](../../specs/acceptance-report.md)。
+> 进度：01–05 已确认（§9）；06–16 已完成对 01–05 的决策对齐（§9）；06–10 用户回答与 Lead 建议已确认（§10）；11–16 用户已回答（§11）。实现：任务运行时、worker、GoalRecord、预算、审批、worktree/merge、attach 已形成闭环；07 人工验收 TC-01–09 通过；08 P0 已有 4 类 fake worker 场景（[spec](../../specs/long-horizon-eval.md)）。
 
 ## 1 结论地图
 

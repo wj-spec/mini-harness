@@ -1,0 +1,9 @@
+{
+  "id": "kill-switch",
+  "description": "运行中通过 kill switch 停止 worker",
+  "objective": "长任务评测：kill switch",
+  "action": "stop",
+  "worker_env": {"VIBE_FAKE_DELAY_SECONDS": "60"},
+  "expected": {"task_status": ["paused", "cancelled", "failed"], "worker_status": ["killed"], "stop_file": true},
+  "timeout_seconds": 60
+}

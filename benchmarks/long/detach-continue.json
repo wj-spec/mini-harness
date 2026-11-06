@@ -1,0 +1,9 @@
+{
+  "id": "detach-continue",
+  "description": "worker 后台执行，不 attach，任务应自然完成",
+  "objective": "长任务评测：detach 后继续",
+  "action": "wait",
+  "worker_env": {"VIBE_FAKE_DELAY_SECONDS": "2"},
+  "expected": {"task_status": ["completed"], "worker_status": ["exited"], "min_segments": 1},
+  "timeout_seconds": 60
+}

@@ -1,0 +1,20 @@
+{
+  "id": "approval-timeout",
+  "description": "无人 attach 审批时 required 审批超时，任务应 failed/approval_timeout",
+  "objective": "长任务评测：审批超时",
+  "action": "approval_timeout",
+  "worker_env": {
+    "VIBE_FAKE_DEMO": "1",
+    "VIBE_WORKER_APPROVAL_TIMEOUT": "1"
+  },
+  "expected": {
+    "task_status": [
+      "failed"
+    ],
+    "worker_status": [
+      "exited"
+    ],
+    "approval_status": "expired"
+  },
+  "timeout_seconds": 60
+}

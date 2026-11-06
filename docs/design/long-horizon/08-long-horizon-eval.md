@@ -1,6 +1,6 @@
 # 08 长任务评测：从单题跑分到可重放、可封顶的长程验收
 
-> 状态：讨论稿（2026-11-02；2026-11-03 01–05 决策对齐见 §9，用户回答见 §10）；不是 spec，未承诺实现。
+> 状态：讨论稿（2026-11-02；2026-11-03 01–05 决策对齐见 §9，用户回答见 §10）；P0 已有 4 类 fake worker 场景实现，见 [long-horizon-eval spec](../../specs/long-horizon-eval.md)。
 > 所属：长任务与后台任务 / 第 8 块（长任务评测）
 > 前置/相关：[01 任务运行时](01-task-runtime.md)、[02 后台进程监督](02-process-supervision.md)、[03 无人值守审批](03-unattended-approval.md)、[04 隔离与并发](04-isolation-concurrency.md)、[05 目标状态](05-goal-state.md)、[06 预算账本](06-budget-ledger.md)、[07 控制面与协议](07-control-plane.md)、[16 子 Agent 的有机结合](16-subagent-integration.md)；相关规格：[evaluation](../../specs/evaluation.md)、[local-coding-benchmark](../../specs/local-coding-benchmark.md)、[harbor-benchmark-lessons](../../specs/harbor-benchmark-lessons.md)、[verified-completion](../../specs/verified-completion.md)
 
