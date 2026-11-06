@@ -55,3 +55,15 @@ def test_cleanup_logs_cli(monkeypatch, capsys, tmp_path):
     out = json.loads(capsys.readouterr().out)
     assert out["rotated"] and out["rotated"][0]["rotated"] is True
     assert (session / "trace.jsonl.1").exists()
+
+
+def test_session_append_trace_auto_rotates(monkeypatch, tmp_path):
+    from app.session.store import SessionStore
+
+    monkeypatch.setenv("VIBE_TRACE_MAX_BYTES", "100")
+    monkeypatch.setenv("VIBE_TRACE_BACKUPS", "2")
+    session = SessionStore(tmp_path)
+    for _ in range(20):
+        session.append_trace({"type": "run_start", "run_id": "r", "pad": "x" * 20})
+    assert (tmp_path / "trace.jsonl.1").exists()
+    assert session.trace_path.exists()

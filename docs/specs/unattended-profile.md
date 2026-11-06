@@ -32,13 +32,14 @@
 - CLI `--pause-task TASK_ID --workspace PATH`：SIGTERM 暂停指定 worker，保留 worktree，不写 `.vibe/stop`；`--stop/--stop-task` 仍是 kill switch。
 - 测试：`tests/test_unattended.py`（默认拒绝、profile 覆盖/未知字段、worker 自动 deny + audit）、`tests/test_sandbox.py`（env scrub）、`tests/test_cli_merge_stop.py`（pause）。
 - 日志保留：`--cleanup-logs --workspace <ws> [--log-max-bytes N] [--log-dry-run]` 显式轮转会话 `trace.jsonl`（`.1`…备份），写 `.vibe/retention.jsonl` 审计；`events.jsonl` 不轮转，避免破坏会话恢复。
+- 自动 trace 轮转：追加 trace 前检查 `VIBE_TRACE_MAX_BYTES`（默认 0=关闭）/`VIBE_TRACE_BACKUPS`，超过阈值即轮转；`events.jsonl` 仍不轮转。
 - 两任务写串行：`VIBE_WORKSPACE_LOCK_WAIT=<seconds>` 让第二个 worker 排队等待 workspace lock（默认 0=立即拒绝）；`bench_long` 的 two-slot 场景覆盖。
 - 任务级 deadline：`VIBE_TASK_DEADLINE_SECONDS`（默认 0=关闭）从 worker 启动计 wall；到期写 `task_deadline_exceeded`、取消运行，任务 running/paused 置 `failed`/created 置 `cancelled`。
 
 ## 未完成（P0 剩余）
 
 - `bash` 子进程环境已按通用 allowlist scrub；模型 provider key 与工具链的细粒度注入仍需后续设计；
-- 日志保留：trace 显式轮转已实现；events 软上限、自动轮转/告警、审批/审计保留时长仍待；
+- 日志保留：trace 显式+自动轮转已实现；events 软上限、告警、审批/审计保留时长仍待；
 - 只读任务并发/文件集并行；`--pause-task`、两任务写串行、任务级 deadline 已有基础实现；
 - merge 审批默认值与 profile 的联动仍是现有 MergeGate 行为；
 - profile 变更的审批/审计入口（当前只能改文件）；

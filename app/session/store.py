@@ -197,8 +197,21 @@ class SessionStore:
 
     def append_trace(self, event: dict) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
+        self._maybe_rotate_trace()
         with open(self.trace_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(event, ensure_ascii=False) + "\n")
+
+    def _maybe_rotate_trace(self) -> None:
+        import os
+        try:
+            max_bytes = int(os.getenv("VIBE_TRACE_MAX_BYTES", "0") or 0)
+            backups = int(os.getenv("VIBE_TRACE_BACKUPS", "3"))
+        except ValueError:
+            return
+        if max_bytes <= 0:
+            return
+        from app.session.retention import rotate_file
+        rotate_file(self.trace_path, max_bytes=max_bytes, backups=backups)
 
     def cost_summary(self) -> dict:
         if not self.trace_path.exists():
