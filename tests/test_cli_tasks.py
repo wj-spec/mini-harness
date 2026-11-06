@@ -33,9 +33,9 @@ def test_tasks_lists_latest_session_tasks(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr("sys.argv", ["vibe", "--tasks", "--workspace", str(tmp_path)])
     entrypoint.main()
     out = capsys.readouterr().out
-    assert "TASK_ID" in out and "WORKER" in out
+    assert "TASK_ID" in out and "WORKER" in out and "PLAN" in out
     assert "长任务目标" in out
-    assert "running" in out
+    assert "goal" in out and "running" in out
 
 
 def test_tasks_without_session_is_read_only(tmp_path, monkeypatch, capsys):

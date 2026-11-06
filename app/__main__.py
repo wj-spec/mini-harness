@@ -503,7 +503,7 @@ def main() -> None:
         if not snapshots:
             print(f"no tasks under {session_root}")
             return
-        print("TASK_ID\tKIND\tSTATUS\tSEGMENTS\tWORKER\tPID\tHEARTBEAT\tSTALE\tOBJECTIVE")
+        print("TASK_ID\tKIND\tMODE\tSTATUS\tSEGMENTS\tWORKER\tPID\tHEARTBEAT\tSTALE\tPLAN\tPARENT\tOBJECTIVE")
         for snapshot in snapshots:
             task = snapshot.task
             worker = snapshot.worker
@@ -511,12 +511,15 @@ def main() -> None:
             print("\t".join([
                 task.task_id,
                 task.kind,
+                task.mode,
                 task.status,
                 str(segment),
                 worker.status if worker is not None else "-",
                 str(worker.pid) if worker is not None else "-",
                 worker.heartbeat_at if worker is not None else "-",
                 "!" if snapshot.stale else "-",
+                f"{task.plan_id}v{task.plan_version}" if task.plan_id else "-",
+                task.parent_id or "-",
                 task.objective[:60],
             ]))
         return

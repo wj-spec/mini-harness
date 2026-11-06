@@ -714,7 +714,7 @@ VIBE_DEBUG=1 ./run_ink.sh --workspace /path/to/repo
 ## 后台 worker
 
 ```bash
-./run_vibe.sh --tasks --workspace /path/to/repo
+./run_vibe.sh --tasks --workspace /path/to/repo  # 含 MODE/PLAN/PARENT 列
 ./run_vibe.sh --notifications --workspace /path/to/repo
 ./run_vibe.sh --plans --workspace /path/to/repo
 ./run_vibe.sh --acceptance --workspace /path/to/repo
