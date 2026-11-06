@@ -729,11 +729,25 @@ class _Connection:
             from app.runtime.plan import can_execute, find_plan
             found = find_plan(self.session.root, run_task.record.plan_id, run_task.record.plan_version)
             if found is None:
+                try:
+                    self.task_runtime.store.append_event(
+                        run_task.task_id, "plan_binding",
+                        data={"found": False, "plan_id": run_task.record.plan_id},
+                    )
+                except Exception:
+                    pass
                 self.agent.approval.execution_gate = lambda _call: "plan_not_approved"
             else:
                 bound_task_dir, bound_plan = found
                 if not can_execute(bound_plan):
                     reason = "plan_stale" if bound_plan.status == "approved" else "plan_not_approved"
+                    try:
+                        self.task_runtime.store.append_event(
+                            run_task.task_id, "plan_binding",
+                            data={"found": True, "executable": False, "reason": reason},
+                        )
+                    except Exception:
+                        pass
                     self.agent.approval.execution_gate = lambda _call: reason
                 else:
                     self.agent.approval.execution_gate = None
@@ -745,6 +759,13 @@ class _Connection:
                         save_ledger(bound_task_dir, ledger)
                     plan_context = {"plan": bound_plan, "ledger": ledger, "task_dir": bound_task_dir}
                     self.plan_context = plan_context
+                    try:
+                        self.task_runtime.store.append_event(
+                            run_task.task_id, "plan_binding",
+                            data={"found": True, "executable": True, "step_tools": True},
+                        )
+                    except Exception:
+                        pass
 
                     def start_plan_step(step_id: str) -> str:
                         if not ledger.can_execute_step(bound_plan, step_id):

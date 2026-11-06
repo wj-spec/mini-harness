@@ -189,4 +189,6 @@ vibe --tasks [--workspace PATH] [--fake]
 
 - `/plan background` 创建 kind=run 的 TaskRecord 后启动 worker；
 - worker 的 `run.task` 帧携带 `kind=run/mode/plan_id/plan_version`，
-  由 TaskRuntime 继续执行计划绑定与 step/验收门禁。
+  由 TaskRuntime 继续执行计划绑定与 step/验收门禁；
+- 绑定结果写 `plan_binding` 任务事件（found/executable/step_tools），
+  验收产物 `acceptance.vN.json` 写在计划所属任务目录。
