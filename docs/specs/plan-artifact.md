@@ -1,6 +1,6 @@
 # 结构化 Plan 产物 P0（schema / 存储 / 渲染）
 
-状态：2026-11-06 P0 实现（纯模块 + 测试）；submit_plan/审批/执行绑定待后续。
+状态：2026-11-06 P0 实现（schema/存储/审批/执行绑定/TUI 覆盖层）；真模型 P1 待后续。
 设计来源：[12 结构化 Plan 产物](../design/long-horizon/12-plan-artifact.md)。
 
 ## 已实现
@@ -14,6 +14,7 @@
     - files 必须是相对路径（拒绝绝对路径/`..`）；
     - step kind ∈ read/edit/run/verify，risk ∈ read/write/exec/network；
     - acceptance_criteria id 唯一、confirmed 必须 bool；
+    - verification_plan id 唯一、command 非空、covers 指向已知 criteria、source∈plan_approval/project_profile；
     - 未知 schema_version fail closed。
   - `save_plan` 原子写 `task_dir/plan/plan.v<version>.json`；
   - `load_plan` / `load_plan_ref`；

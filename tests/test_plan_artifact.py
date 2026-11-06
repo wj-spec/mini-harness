@@ -234,3 +234,22 @@ def test_approve_plan_respects_review_timeout(tmp_path, monkeypatch):
     time.sleep(0.08)
     with pytest.raises(PlanError, match="review window expired"):
         approve_plan(tmp_path, plan, approved_by="user")
+
+
+def test_plan_verification_plan_validation():
+    from app.runtime.plan import Plan, PlanError
+
+    base = dict(_plan())
+    base["acceptance_criteria"] = [{"id": "ac1", "text": "通过", "confirmed": True}]
+    base["verification_plan"] = [{"id": "v1", "covers": ["ac1"], "command": "true",
+                                  "source": "plan_approval"}]
+    assert Plan.from_dict(base).verification_plan[0]["id"] == "v1"
+    with pytest.raises(PlanError, match="invalid source"):
+        bad = dict(base); bad["verification_plan"] = [{"id": "v1", "covers": ["ac1"], "command": "true", "source": "model"}]
+        Plan.from_dict(bad)
+    with pytest.raises(PlanError, match="unknown criteria"):
+        bad = dict(base); bad["verification_plan"] = [{"id": "v1", "covers": ["nope"], "command": "true", "source": "plan_approval"}]
+        Plan.from_dict(bad)
+    with pytest.raises(PlanError, match="nonempty string"):
+        bad = dict(base); bad["verification_plan"] = [{"id": "v1", "covers": ["ac1"], "command": "", "source": "plan_approval"}]
+        Plan.from_dict(bad)

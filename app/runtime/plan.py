@@ -170,6 +170,25 @@ class Plan:
             isinstance(item, dict) for item in verification_plan
         ):
             raise PlanError("verification_plan must be an object list")
+        seen_verification = set()
+        criterion_ids = seen
+        for item in verification_plan:
+            vid = _text(item.get("id"), "verification.id", 128)
+            if vid in seen_verification:
+                raise PlanError(f"duplicate verification id: {vid}")
+            seen_verification.add(vid)
+            command = item.get("command")
+            if not isinstance(command, str) or not command.strip():
+                raise PlanError(f"verification {vid}: command must be a nonempty string")
+            covers = item.get("covers", [])
+            if not isinstance(covers, list) or not all(isinstance(cid, str) for cid in covers):
+                raise PlanError(f"verification {vid}: covers must be a string list")
+            unknown = [cid for cid in covers if cid not in criterion_ids]
+            if unknown:
+                raise PlanError(f"verification {vid}: unknown criteria {unknown}")
+            source = item.get("source", "plan_approval")
+            if source not in {"project_profile", "plan_approval"}:
+                raise PlanError(f"verification {vid}: invalid source {source!r}")
         trusted_source = value.get("trusted_source", "plan_approval")
         if trusted_source not in {"plan_approval", "project_profile"}:
             raise PlanError("invalid trusted_source")
