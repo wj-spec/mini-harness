@@ -32,7 +32,7 @@
   - 覆盖层支持 ↑↓ 选择、滚轮/PgUp/PgDn 翻阅、Esc 返回；
   - proposed 计划可用 `y` 批准 / `n` 拒绝（发 backend plan command）；
   - approved 计划按 Enter 直接执行（`/plan execute` 等价）；approval.stale 的计划拒绝执行并提示重新修订/批准；
-  - `/plan revise <objective>` 生成新 draft 版本；`/plan list` 列出最近版本/状态；
+  - `/plan list` 列出最近版本/状态；`/plan step <id>` 查看单步定义与 execution 证据；
   - 完整审批卡片与右侧 sidebar 仍待。
   - `/plan approve`、`/plan reject` 通过后端 `plan` command 处理最近计划（stdio 本地 user 决定）。
   - `/plan execute` 读取最近 approved 计划，提交带 `plan_id/plan_version` 的 act run。

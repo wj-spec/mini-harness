@@ -1170,6 +1170,18 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       } catch (error) {notice(`计划版本查询未送达：${String(error)}`);}
       return;
     }
+    const planStep = /^\/plan\s+step\s+(\S+)$/.exec(text);
+    if (planStep) {
+      if (state.phase !== 'idle' || activeRun.current) {notice('当前有运行中任务；结束后再查看步骤。'); return;}
+      try {
+        const id = client.command('plan', {action: 'step', step_id: planStep[1]!});
+        activeRun.current = id;
+        dispatch({type: 'begin_command', id, command: 'plan'});
+        setPlanOpen(false);
+        setInput('');
+      } catch (error) {notice(`步骤查询未送达：${String(error)}`);}
+      return;
+    }
     const planRevise = /^\/plan\s+revise\s+([\s\S]+)$/.exec(text);
     if (planRevise) {
       if (state.phase !== 'idle' || activeRun.current) {notice('当前有运行中任务；结束后再修订计划。'); return;}

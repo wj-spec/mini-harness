@@ -525,3 +525,30 @@ def test_plan_command_lists_versions(tmp_path, monkeypatch):
         await harness.close()
 
     asyncio.run(scenario())
+
+
+def test_plan_command_shows_step_detail(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    task_id = "t-20261106-000000-abcdef"
+    task_dir = session.root / "tasks" / task_id
+    from app.runtime.plan import Plan, propose_plan
+    from app.runtime.plan_execution import StepLedger, save_ledger
+    plan = Plan.from_dict({
+        "schema_version": 1, "plan_id": "pl-step", "task_id": task_id,
+        "objective": "步骤", "steps": [{"step_id": "s1", "title": "读代码", "kind": "read"}],
+    })
+    propose_plan(task_dir, plan)
+    ledger = StepLedger.from_plan(plan)
+    ledger.start_step("s1")
+    save_ledger(task_dir, ledger)
+
+    async def scenario():
+        harness = Harness(_agent(tmp_path), Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("command", "c-step", command="plan", args={"action": "step", "step_id": "s1"})
+        result = await harness.until("command_result", "c-step")
+        assert "读代码" in result["text"] and "status=in_progress" in result["text"]
+        await harness.close()
+
+    asyncio.run(scenario())

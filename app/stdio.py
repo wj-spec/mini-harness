@@ -372,6 +372,25 @@ class _Connection:
         path = candidates[0]
         try:
             plan = load_plan(path)
+            if action == "step":
+                step_id = str((args or {}).get("step_id", "")).strip()
+                step = next((item for item in plan.steps if item.step_id == step_id), None)
+                if step is None:
+                    return f"计划中没有步骤 {step_id}"
+                text = (f"步骤 {step.step_id}：{step.title}\n"
+                        f"kind={step.kind} risk={step.risk} executor={step.executor}\n"
+                        f"depends_on={step.depends_on}\nfiles={step.files}\n"
+                        f"acceptance={step.acceptance}\nverification={step.verification}")
+                try:
+                    from app.runtime.plan_execution import load_ledger
+                    record = load_ledger(path.parent.parent, plan.version).steps.get(step_id)
+                    if record is not None:
+                        text += f"\nstatus={record.status} evidence={len(record.evidence)}"
+                        for item in record.evidence[-5:]:
+                            text += f"\n- {item.get('kind')} {item.get('ref')} ok={item.get('ok')}"
+                except Exception:
+                    pass
+                return text
             if action == "approve":
                 approve_plan(path.parent.parent, plan, approved_by="user", approval_id=None)
             elif action == "reject":
@@ -973,10 +992,12 @@ class _Connection:
                     if not isinstance(args, dict):
                         raise ValueError("command args must be an object")
                     if request["command"] == "plan":
-                        if set(args) - {"action", "objective"} or args.get("action", "show") not in {"show", "list", "approve", "reject", "revise"}:
-                            raise ValueError("plan args allowed: action=show|approve|reject|revise, objective")
+                        if set(args) - {"action", "objective", "step_id"} or args.get("action", "show") not in {"show", "list", "step", "approve", "reject", "revise"}:
+                            raise ValueError("plan args allowed: action=show|list|step|approve|reject|revise, objective, step_id")
                         if args.get("action") == "revise" and (not isinstance(args.get("objective"), str) or not args["objective"].strip()):
                             raise ValueError("plan revise requires a nonempty objective")
+                        if args.get("action") == "step" and (not isinstance(args.get("step_id"), str) or not args["step_id"].strip()):
+                            raise ValueError("plan step requires a nonempty step_id")
                     elif request["command"] == "explore":
                         if set(args) != {"prompt"} or not isinstance(args.get("prompt"), str) or not args["prompt"].strip():
                             raise ValueError("explore args must contain only a nonempty prompt")
