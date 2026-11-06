@@ -1192,6 +1192,18 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       } catch (error) {notice(`计划版本查询未送达：${String(error)}`);}
       return;
     }
+    const planDiff = /^\/plan\s+diff\s+(\d+)\s+(\d+)$/.exec(text);
+    if (planDiff) {
+      if (state.phase !== 'idle' || activeRun.current) {notice('当前有运行中任务；结束后再比较计划版本。'); return;}
+      try {
+        const id = client.command('plan', {action: 'diff', version_a: Number(planDiff[1]), version_b: Number(planDiff[2])});
+        activeRun.current = id;
+        dispatch({type: 'begin_command', id, command: 'plan'});
+        setPlanOpen(false);
+        setInput('');
+      } catch (error) {notice(`计划差异未送达：${String(error)}`);}
+      return;
+    }
     const planStep = /^\/plan\s+step\s+(\S+)$/.exec(text);
     if (planStep) {
       if (state.phase !== 'idle' || activeRun.current) {notice('当前有运行中任务；结束后再查看步骤。'); return;}

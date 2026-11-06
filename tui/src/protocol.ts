@@ -32,7 +32,7 @@ export function commandMatches(value: string): string[] {
 export type BackendCommand = typeof BACKEND_COMMANDS[number];
 export type SkillsCommandArgs = {action?: 'list' | 'refresh' | 'activate' | 'unload'; name?: string};
 export type AutonomyCommandArgs = {level: AutonomyLevel};
-export type PlanCommandArgs = {action?: 'show' | 'list' | 'step' | 'approve' | 'reject' | 'revise'; objective?: string; step_id?: string};
+export type PlanCommandArgs = {action?: 'show' | 'list' | 'step' | 'diff' | 'approve' | 'reject' | 'revise'; objective?: string; step_id?: string; version_a?: number; version_b?: number};
 export type ExploreCommandArgs = {prompt: string};
 export type CommandArgs = SkillsCommandArgs | AutonomyCommandArgs | PlanCommandArgs | ExploreCommandArgs;
 export function validateExploreArgs(value: unknown): asserts value is ExploreCommandArgs {
@@ -42,13 +42,16 @@ export function validateExploreArgs(value: unknown): asserts value is ExploreCom
   }
 }
 export function validatePlanArgs(value: unknown): asserts value is PlanCommandArgs {
-  if (!record(value) || Object.keys(value).some(key => !['action', 'objective', 'step_id'].includes(key)) ||
-      (value.action !== undefined && !['show', 'list', 'step', 'approve', 'reject', 'revise'].includes(String(value.action))) ||
+  if (!record(value) || Object.keys(value).some(key => !['action', 'objective', 'step_id', 'version_a', 'version_b'].includes(key)) ||
+      (value.action !== undefined && !['show', 'list', 'step', 'diff', 'approve', 'reject', 'revise'].includes(String(value.action))) ||
       (value.objective !== undefined && (typeof value.objective !== 'string' || !value.objective.trim())) ||
       (value.step_id !== undefined && (typeof value.step_id !== 'string' || !value.step_id.trim())) ||
+      (value.version_a !== undefined && (typeof value.version_a !== 'number' || !Number.isSafeInteger(value.version_a) || value.version_a < 1)) ||
+      (value.version_b !== undefined && (typeof value.version_b !== 'number' || !Number.isSafeInteger(value.version_b) || value.version_b < 1)) ||
       (value.action === 'revise' && typeof value.objective !== 'string') ||
-      (value.action === 'step' && typeof value.step_id !== 'string')) {
-    throw new Error('plan 参数只允许 action=show|list|step|approve|reject|revise（revise 需 objective，step 需 step_id）');
+      (value.action === 'step' && typeof value.step_id !== 'string') ||
+      (value.action === 'diff' && (typeof value.version_a !== 'number' || typeof value.version_b !== 'number'))) {
+    throw new Error('plan 参数只允许 action=show|list|step|diff|approve|reject|revise');
   }
 }
 export function validateAutonomyArgs(value: unknown): asserts value is AutonomyCommandArgs {

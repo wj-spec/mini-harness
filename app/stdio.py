@@ -372,6 +372,33 @@ class _Connection:
         path = candidates[0]
         try:
             plan = load_plan(path)
+            if action == "diff":
+                from app.runtime.plan import PlanError, plan_path
+                va = int((args or {}).get("version_a", 0))
+                vb = int((args or {}).get("version_b", 0))
+                try:
+                    old = load_plan(plan_path(path.parent.parent, va))
+                    new = load_plan(plan_path(path.parent.parent, vb))
+                except (PlanError, OSError) as exc:
+                    return f"计划差异读取失败：{exc}"
+                old_steps = {item.step_id: item for item in old.steps}
+                new_steps = {item.step_id: item for item in new.steps}
+                lines = [f"计划差异 v{va} → v{vb}"]
+                if old.objective != new.objective:
+                    lines.append(f"objective: {old.objective} → {new.objective}")
+                if old.status != new.status:
+                    lines.append(f"status: {old.status} → {new.status}")
+                for step_id in sorted(set(old_steps) & set(new_steps)):
+                    before, after = old_steps[step_id], new_steps[step_id]
+                    if (before.title, before.kind, before.depends_on) != (after.title, after.kind, after.depends_on):
+                        lines.append(f"step {step_id}: {before.title}/{before.kind} → {after.title}/{after.kind}")
+                for step_id in sorted(set(new_steps) - set(old_steps)):
+                    lines.append(f"+ step {step_id} {new_steps[step_id].title}")
+                for step_id in sorted(set(old_steps) - set(new_steps)):
+                    lines.append(f"- step {step_id} {old_steps[step_id].title}")
+                if old.approval != new.approval:
+                    lines.append("approval: changed")
+                return "\n".join(lines)
             if action == "step":
                 step_id = str((args or {}).get("step_id", "")).strip()
                 step = next((item for item in plan.steps if item.step_id == step_id), None)
@@ -995,12 +1022,16 @@ class _Connection:
                     if not isinstance(args, dict):
                         raise ValueError("command args must be an object")
                     if request["command"] == "plan":
-                        if set(args) - {"action", "objective", "step_id"} or args.get("action", "show") not in {"show", "list", "step", "approve", "reject", "revise"}:
-                            raise ValueError("plan args allowed: action=show|list|step|approve|reject|revise, objective, step_id")
+                        if set(args) - {"action", "objective", "step_id", "version_a", "version_b"} or args.get("action", "show") not in {"show", "list", "step", "diff", "approve", "reject", "revise"}:
+                            raise ValueError("plan args allowed: action=show|list|step|diff|approve|reject|revise")
                         if args.get("action") == "revise" and (not isinstance(args.get("objective"), str) or not args["objective"].strip()):
                             raise ValueError("plan revise requires a nonempty objective")
                         if args.get("action") == "step" and (not isinstance(args.get("step_id"), str) or not args["step_id"].strip()):
                             raise ValueError("plan step requires a nonempty step_id")
+                        if args.get("action") == "diff":
+                            for key in ("version_a", "version_b"):
+                                if not isinstance(args.get(key), int) or isinstance(args.get(key), bool) or args[key] < 1:
+                                    raise ValueError(f"plan diff requires positive integer {key}")
                     elif request["command"] == "explore":
                         if set(args) != {"prompt"} or not isinstance(args.get("prompt"), str) or not args["prompt"].strip():
                             raise ValueError("explore args must contain only a nonempty prompt")
