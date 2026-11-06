@@ -1,6 +1,6 @@
 # 12 结构化 Plan 产物：schema / 生命周期 / 存储 / 渲染
 
-> 状态：讨论稿（2026-11-02；2026-11-03 01–05 决策对齐见 §9，06–10 对齐见 §10，用户回答见 §11）；不是 spec，未承诺实现。
+> 状态：讨论稿（2026-11-02；2026-11-03 01–05 决策对齐见 §9，06–10 对齐见 §10，用户回答见 §11）；P0 schema/原子存储/渲染已实现，见 [plan-artifact spec](../../specs/plan-artifact.md)。
 > 所属：进阶模式 / 第 3 块
 > 前置/相关：[01 任务运行时](01-task-runtime.md)、[05 跨段目标状态](05-goal-state.md)、[06 预算账本](06-budget-ledger.md)、[07 控制面](07-control-plane.md)、[09 无人值守安全](09-unattended-safety.md)、[10 模式状态机](10-mode-state-machine.md)、[11 模式契约](11-mode-contracts.md)、[16 子 Agent 的有机结合](16-subagent-integration.md)；相关规格：[goal-mode](../../specs/goal-mode.md)、[verified-completion](../../specs/verified-completion.md)、[multi-agent-computer-use](../../specs/multi-agent-computer-use.md)
 

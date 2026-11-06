@@ -215,6 +215,7 @@ mini-harness/
       long-horizon-eval.md        # 长任务评测 P0：bench_long fake worker 场景
       unattended-profile.md      # 无人值守 P0：保守 profile 与 worker 能力拒绝
       modes.md                   # 模式 P0：chat/act TaskRecord.mode 与 TUI 命令
+      plan-artifact.md           # 结构化 Plan P0：schema/存储/渲染
     design/             # 未来方向的分块讨论（长任务/后台/进阶模式/子 Agent），拍板后收敛为 spec
     history/            # 旧 M1–M8 模块建设计划
 
