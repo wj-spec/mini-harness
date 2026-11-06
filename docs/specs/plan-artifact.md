@@ -35,6 +35,7 @@
     最新版本不可执行会提示回退版本；无可执行版本时提示批准/修订；
   - `/plan list` 列出最近版本/状态；`/plan step <id>` 或覆盖层 `s` 查看单步定义与 execution 证据；
   - `/plan diff <a> <b>` 比较两个版本的目标/状态/步骤/审批差异；
+  - `/plan acceptance` 查看验收标准与可信验证命令清单（不执行）；
   - 完整审批卡片与右侧 sidebar 仍待。
   - `/plan approve`、`/plan reject` 通过后端 `plan` command 处理最近计划（stdio 本地 user 决定）。
   - `/plan execute` 读取最近 approved 计划，提交带 `plan_id/plan_version` 的 act run。

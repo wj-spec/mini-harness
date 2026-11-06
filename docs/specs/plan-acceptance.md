@@ -49,6 +49,7 @@
 
 ## 未完成
 
+- `/plan acceptance` 可查看 criteria 与 verification plan 清单（不执行）；
 - 从 GoalRecord 生成 PlanAcceptance（当前从 Plan 生成）；
 - 失败回灌已带命令证据；单命令有界重试已实现；agent 回灌循环、合并后重验仍待；
 - rounds/`/evidence` 展示验收结果；

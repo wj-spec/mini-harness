@@ -372,6 +372,22 @@ class _Connection:
         path = candidates[0]
         try:
             plan = load_plan(path)
+            if action == "acceptance":
+                lines = ["验收标准："]
+                criteria = plan.acceptance_criteria
+                if not criteria:
+                    lines.append("- （无）")
+                for item in criteria:
+                    required = item.get("required", True) is not False
+                    confirmed = item.get("confirmed") is True
+                    lines.append(f"- {item.get('id', '?')} {item.get('text', '')} "
+                                 f"[{'已确认' if confirmed else '候选'}] [{'required' if required else 'optional'}]")
+                lines.append(f"可信验证命令（{len(plan.verification_plan)}）：")
+                for item in plan.verification_plan:
+                    lines.append(f"- {item.get('id', '?')} [{item.get('source', '?')}] {item.get('command', '')}")
+                if not plan.verification_plan:
+                    lines.append("- （无）")
+                return "\n".join(lines)
             if action == "diff":
                 from app.runtime.plan import PlanError, plan_path
                 va = int((args or {}).get("version_a", 0))
@@ -1022,8 +1038,8 @@ class _Connection:
                     if not isinstance(args, dict):
                         raise ValueError("command args must be an object")
                     if request["command"] == "plan":
-                        if set(args) - {"action", "objective", "step_id", "version_a", "version_b"} or args.get("action", "show") not in {"show", "list", "step", "diff", "approve", "reject", "revise"}:
-                            raise ValueError("plan args allowed: action=show|list|step|diff|approve|reject|revise")
+                        if set(args) - {"action", "objective", "step_id", "version_a", "version_b"} or args.get("action", "show") not in {"show", "list", "step", "diff", "acceptance", "approve", "reject", "revise"}:
+                            raise ValueError("plan args allowed: action=show|list|step|diff|acceptance|approve|reject|revise")
                         if args.get("action") == "revise" and (not isinstance(args.get("objective"), str) or not args["objective"].strip()):
                             raise ValueError("plan revise requires a nonempty objective")
                         if args.get("action") == "step" and (not isinstance(args.get("step_id"), str) or not args["step_id"].strip()):

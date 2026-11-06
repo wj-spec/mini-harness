@@ -1217,6 +1217,17 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       } catch (error) {notice(`计划版本查询未送达：${String(error)}`);}
       return;
     }
+    if (text === '/plan acceptance') {
+      if (state.phase !== 'idle' || activeRun.current) {notice('当前有运行中任务；结束后再查看验收标准。'); return;}
+      try {
+        const id = client.command('plan', {action: 'acceptance'});
+        activeRun.current = id;
+        dispatch({type: 'begin_command', id, command: 'plan'});
+        setPlanOpen(false);
+        setInput('');
+      } catch (error) {notice(`验收标准查询未送达：${String(error)}`);}
+      return;
+    }
     const planDiff = /^\/plan\s+diff\s+(\d+)\s+(\d+)$/.exec(text);
     if (planDiff) {
       if (state.phase !== 'idle' || activeRun.current) {notice('当前有运行中任务；结束后再比较计划版本。'); return;}
