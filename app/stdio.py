@@ -189,6 +189,7 @@ class _Connection:
         self.active_phase = "running"
         self.output_open = True
         self.has_started_run = False
+        self.plan_context = None
 
     def send(self, kind: str, request_id: str | None = None, **data):
         if not self.output_open:
@@ -570,6 +571,7 @@ class _Connection:
                         ledger = StepLedger.from_plan(bound_plan)
                         save_ledger(bound_task_dir, ledger)
                     plan_context = {"plan": bound_plan, "ledger": ledger, "task_dir": bound_task_dir}
+                    self.plan_context = plan_context
 
                     def start_plan_step(step_id: str) -> str:
                         if not ledger.can_execute_step(bound_plan, step_id):
@@ -847,6 +849,7 @@ class _Connection:
             self.active_id = None
             self.agent.tools_enabled = previous_tools_enabled
             self.agent.tools = previous_tools
+            self.plan_context = None
             if self.agent.approval is not None:
                 self.agent.approval.execution_gate = previous_gate
             if plan_tool_registered:
@@ -856,6 +859,26 @@ class _Connection:
                 previous_tools.unregister("complete_plan_step")
             if not self.stop.is_set():
                 self.send("status", phase="idle")
+
+    def _mark_plan_stale_for_steer(self) -> None:
+        context = self.plan_context
+        if not context:
+            return
+        from app.runtime.plan import save_plan
+        plan = context["plan"]
+        approval = dict(plan.approval)
+        approval["stale"] = True
+        plan.approval = approval
+        try:
+            save_plan(context["task_dir"], plan)
+            TaskStore = __import__("app.runtime.tasks", fromlist=["TaskStore"]).TaskStore
+            TaskStore(self.session.root).append_event(
+                plan.task_id, "plan_stale", data={"reason": "steering", "plan_id": plan.plan_id},
+            )
+        except Exception:
+            pass
+        if self.agent.approval is not None:
+            self.agent.approval.execution_gate = lambda _call: "plan_stale"
 
     def accept(self, frame):
         if frame is _OVERSIZED:
@@ -973,6 +996,7 @@ class _Connection:
                 self.stopping()
                 self.send("ack", request_id, action="cancel")
             elif kind == "steer":
+                self._mark_plan_stale_for_steer()
                 if not isinstance(request["target"], str) or not request["target"]:
                     raise ValueError("steer target must be a run id")
                 if not isinstance(request["text"], str) or not request["text"].strip():

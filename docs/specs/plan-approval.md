@@ -15,9 +15,12 @@
   - 缺 `plan.review` capability fail closed；
   - 写 approval 字段：approved_by/approved_at/approval_id/plan_hash/capability/requester/decider；
   - 写 `plan_approved` 审计事件。
+- steering：绑定 plan 的 run 收到 steer 时把 approval 标 stale、写 `plan_stale` 事件，
+  后续写/执行门禁返回 `plan_stale`（需重新批准计划）。
 - `reject_plan(...)`：回到 draft，记录 rejected_by/reason，写 `plan_rejected`。
 - `content_hash(plan)`：绑定计划内容（approval/status 归一化），批准后内容变化则 hash 不匹配；
-- `can_execute(plan)`：status=approved + capability=plan.review + plan_hash 匹配 + approved_by 非空。
+- `can_execute(plan)`：status=approved + capability=plan.review + plan_hash 匹配 + approved_by 非空
+  + approval 未标记 stale。
 - `revise_plan(task_dir, plan, ...)`：
   - 生成 version+1 的 draft，旧版本只读保留；
   - 清空 approval（批准失效）；
@@ -44,7 +47,7 @@
 
 - 工具执行前门禁已接 ApprovalGate；仍需 trace/可见原因码与 stale 重批 UI；
 - 审批队列/任务级 deadline → `failed(approval_timeout)` 接线；
-- TUI 编辑/重规划入口与 steering 后 stale 标记；版本化 API 已有。
+- TUI 编辑/重规划入口；steering 后 stale 标记已接（写 approval.stale + 阻止工具门禁）；
 - `submit_plan` 工具已接 plan profile；`kind=plan` task 的 TUI 创建/展示未接；
 - stdio 帧/`plan.review` capability 协商；
 - TUI 计划卡片、折叠/分页、编辑（已支持 `/plan approve|reject` 与只读展示）；

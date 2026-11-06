@@ -211,3 +211,14 @@ def test_revise_plan_creates_new_draft_version(tmp_path):
     assert content_hash(load_plan(tmp_path / "plan" / "plan.v1.json")) == old_hash
     events = [json.loads(line)["event"] for line in (tmp_path / "audit.jsonl").read_text(encoding="utf-8").splitlines()]
     assert "plan_revised" in events
+
+
+def test_steering_marks_approved_plan_stale(tmp_path):
+    from app.runtime.plan import approve_plan, can_execute, propose_plan
+
+    plan = Plan.from_dict(_plan())
+    propose_plan(tmp_path, plan)
+    approve_plan(tmp_path, plan, approved_by="user")
+    assert can_execute(plan)
+    plan.approval = {**plan.approval, "stale": True}
+    assert not can_execute(plan)

@@ -421,6 +421,7 @@ def can_execute(plan: Plan) -> bool:
         plan.status == "approved"
         and isinstance(plan.approval, dict)
         and plan.approval.get("capability") == "plan.review"
+        and not plan.approval.get("stale")
         and plan.approval.get("plan_hash") == content_hash(plan)
         and bool(plan.approval.get("approved_by"))
     )
