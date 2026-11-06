@@ -75,11 +75,29 @@ async def run_subagent(
     max_run_seconds: float = 120.0,
     cancel: asyncio.Event | None = None,
     trace_path: str | Path | None = None,
+    session_root: str | Path | None = None,
+    parent_task_id: str | None = None,
 ) -> SubagentResult:
-    """在父 worker 进程内运行只读子 Agent；写/执行在 registry subset 层被拒绝。"""
+    """在父 worker 进程内运行只读子 Agent；写/执行在 registry subset 层被拒绝。
+
+    session_root 提供时创建 kind=subagent 的 TaskRecord，并落 subagent-result.json。
+    """
     if not isinstance(objective, str) or not objective.strip():
         raise SubagentError("objective must be a nonempty string")
     workspace = Path(workspace)
+    from app.runtime.tasks import TaskStore
+
+    store = TaskStore(Path(session_root)) if session_root is not None else None
+    child_task_id: str | None = None
+    run_id = f"sub-{time.time_ns():x}"
+    if store is not None:
+        record = store.create(
+            kind="subagent", objective=objective, workspace=str(workspace),
+            mode="act", parent_id=parent_task_id,
+        )
+        child_task_id = record.task_id
+        store.acquire_lock(child_task_id)
+        store.start_segment(child_task_id, run_id=run_id)
     tools = ToolRegistry(workspace).subset(READ_ONLY_TOOLS)
     agent = Agent(
         provider, tools, approval=None, history=None,
@@ -105,10 +123,14 @@ async def run_subagent(
             timeout=max_run_seconds + 30,
         )
     except asyncio.TimeoutError:
-        return SubagentResult(
-            status="timeout", summary="subagent timed out", stop_reason="timeout",
-            error="timeout", started_at=started, ended_at=_now(),
-            trace_ref=str(trace_file) if trace_file else None,
+        return _finish_subagent(
+            store, child_task_id, run_id, workspace,
+            SubagentResult(
+                status="timeout", summary="subagent timed out", stop_reason="timeout",
+                error="timeout", started_at=started, ended_at=_now(),
+                trace_ref=str(trace_file) if trace_file else None,
+                task_id=child_task_id,
+            ), parent_task_id=parent_task_id,
         )
     except asyncio.CancelledError:
         raise
@@ -117,13 +139,61 @@ async def run_subagent(
             trace_handle.close()
     status_map = {"done": "ok", "cancelled": "cancelled", "stopped": "budget_exceeded", "error": "error"}
     status = status_map.get(result.status, "error")
-    return SubagentResult(
-        status=status, summary=(result.text or "")[:4000],
-        usage=dict(result.usage or {}), cost_usd=float(result.cost_usd or 0.0),
-        stop_reason=result.stop_reason or "", error=result.error,
-        trace_ref=str(trace_file) if trace_file else None,
-        started_at=started, ended_at=_now(),
+    return _finish_subagent(
+        store, child_task_id, run_id, workspace,
+        SubagentResult(
+            status=status, summary=(result.text or "")[:4000],
+            usage=dict(result.usage or {}), cost_usd=float(result.cost_usd or 0.0),
+            stop_reason=result.stop_reason or "", error=result.error,
+            trace_ref=str(trace_file) if trace_file else None,
+            started_at=started, ended_at=_now(), task_id=child_task_id,
+        ), parent_task_id=parent_task_id,
     )
+
+
+def _finish_subagent(
+    store: Any, task_id: str | None, run_id: str, workspace: Path,
+    result: SubagentResult, parent_task_id: str | None = None,
+) -> SubagentResult:
+    if store is None or task_id is None:
+        return result
+    mapping = {
+        "ok": ("done", "completed"), "error": ("failed", "failed"),
+        "cancelled": ("cancelled", "cancelled"), "budget_exceeded": ("stopped", "failed"),
+        "timeout": ("failed", "failed"),
+    }
+    segment_status, task_status = mapping.get(result.status, ("failed", "failed"))
+    try:
+        if result.usage or result.cost_usd:
+            try:
+                from app.runtime.budget import BudgetLedger
+                ledger = BudgetLedger(store.root)
+                ledger.on_trace(
+                    task_id=task_id, goal_id=None, parent_id=parent_task_id,
+                    node_kind="subagent", segment=1, run_id=run_id,
+                    event={
+                        "type": "llm_end",
+                        "prompt_tokens": int(result.usage.get("prompt_tokens", 0) or 0),
+                        "completion_tokens": int(result.usage.get("completion_tokens", 0) or 0),
+                        "cost_usd": float(result.cost_usd or 0.0),
+                        "usage_estimated": bool(result.usage.get("estimated", False)),
+                    },
+                )
+            except Exception:
+                pass
+        store.end_segment(task_id, run_id=run_id, status=segment_status,
+                          stop_reason=result.stop_reason or None)
+        store.transition(task_id, task_status, reason=result.status)
+        (store.task_dir(task_id) / "subagent-result.json").write_text(
+            json.dumps(result.to_dict(), ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    finally:
+        try:
+            store.release_lock(task_id)
+        except Exception:
+            pass
+    return result
 
 
 def _now() -> str:

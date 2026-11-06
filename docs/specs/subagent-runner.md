@@ -18,12 +18,16 @@
   - 预算参数 max_steps/max_run_tokens/max_run_seconds；
   - cancel event 传播；
   - 可选 trace JSONL（child trace 目录约定待定）；
+  - 可选 `session_root`/`parent_task_id`：创建 `TaskRecord(kind=subagent, parent_id=...)`，
+    start/end segment、任务状态 completed/failed/cancelled、
+    `subagent-result.json` 落盘、释放任务锁；
+  - usage/cost 以 `node_kind=subagent` + `parent_id` 写入 `budget.jsonl`；
   - 返回结构化结果，报告是 untrusted summary。
 
 ## 未完成（P0 剩余）
 
-- `TaskRecord(kind=subagent, parent_id=...)` 子节点创建与生命周期；
-- 子 usage 计入父 task/goal 预算账本；
+- 父任务预算硬上限对子 usage 的强制（当前只记账，不阻断）；
+- 父取消级联到子、depth/扇出上限；
 - depth/serial/fan-out 硬上限与父取消级联；
 - 父任务收件箱审批归属（requester=child）；
 - stdio 事件/attach 显示；
@@ -32,4 +36,5 @@
 
 ## 测试
 
-`tests/test_subagents.py`：只读探索结构化结果、write_file/bash 被 subset 拒绝、结果 schema 校验。
+`tests/test_subagents.py`：只读探索结构化结果、write_file/bash 被 subset 拒绝、结果 schema 校验、
+子 TaskRecord 生命周期与 subagent-result.json、usage 写入父 ledger。

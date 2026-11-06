@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
 
@@ -36,3 +37,46 @@ def test_subagent_cannot_write_or_execute(tmp_path):
 def test_subagent_result_schema_rejects_bad_status():
     with pytest.raises(SubagentError):
         SubagentResult.from_dict({"schema_version": 1, "status": "bogus"})
+
+
+def test_subagent_creates_child_task_record(tmp_path):
+    from app.runtime.tasks import TaskStore
+    from app.session.store import SessionStore
+
+    session = SessionStore.new(tmp_path, "fake", purpose="test")
+    parent = TaskStore(session.root).create(
+        kind="goal", objective="parent", workspace=str(tmp_path), mode="goal",
+    )
+    provider = FakeProvider(["子任务完成"])
+    result = asyncio.run(run_subagent(
+        provider, tmp_path, "只读探索", session_root=session.root,
+        parent_task_id=parent.task_id,
+    ))
+    child = TaskStore(session.root).get(result.task_id)
+    assert child.kind == "subagent" and child.parent_id == parent.task_id
+    assert child.status == "completed"
+    task_dir = TaskStore(session.root).task_dir(child.task_id)
+    saved = SubagentResult.from_dict(json.loads((task_dir / "subagent-result.json").read_text(encoding="utf-8")))
+    assert saved.status == "ok" and saved.task_id == child.task_id
+    assert not (task_dir / "lock").exists()
+
+
+def test_subagent_usage_is_recorded_in_parent_ledger(tmp_path):
+    from app.runtime.tasks import TaskStore
+    from app.session.store import SessionStore
+
+    session = SessionStore.new(tmp_path, "fake", purpose="test")
+    parent = TaskStore(session.root).create(
+        kind="goal", objective="parent", workspace=str(tmp_path), mode="goal",
+    )
+    provider = FakeProvider([
+        Response(content="完成", usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}),
+    ])
+    result = asyncio.run(run_subagent(
+        provider, tmp_path, "短任务", session_root=session.root,
+        parent_task_id=parent.task_id,
+    ))
+    assert result.usage.get("total_tokens") == 15
+    ledger = (session.root / "budget.jsonl").read_text(encoding="utf-8")
+    assert '"node_kind": "subagent"' in ledger
+    assert f'"parent_id": "{parent.task_id}"' in ledger
