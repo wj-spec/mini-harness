@@ -49,4 +49,4 @@
 .vibe/sessions/<session>/tasks/<task_id>/plan/plan.v1.json
 ```
 
-每版本不可变；审批通过后只新增版本，不回写旧版本。
+每版本不可变；审批通过后只新增版本，不回写旧版本；`revise_plan` 生成 version+1 draft 并保留旧版。

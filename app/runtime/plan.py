@@ -386,6 +386,36 @@ def reject_plan(
     return path
 
 
+def revise_plan(
+    task_dir: str | Path,
+    plan: Plan,
+    *,
+    objective: str | None = None,
+    steps: list[dict[str, Any]] | None = None,
+    acceptance_criteria: list[dict[str, Any]] | None = None,
+    verification_plan: list[dict[str, Any]] | None = None,
+    requester: str = "user",
+) -> Plan:
+    """生成 version+1 的 draft；旧版本保留，审批失效。"""
+    payload = plan.to_dict()
+    payload["version"] = plan.version + 1
+    payload["status"] = "draft"
+    payload["approval"] = {}
+    if objective is not None:
+        payload["objective"] = objective
+    if steps is not None:
+        payload["steps"] = steps
+    if acceptance_criteria is not None:
+        payload["acceptance_criteria"] = acceptance_criteria
+    if verification_plan is not None:
+        payload["verification_plan"] = verification_plan
+    revised = Plan.from_dict(payload)
+    save_plan(task_dir, revised)
+    _audit(task_dir, "plan_revised", task_id=revised.task_id, plan_id=revised.plan_id,
+           version=revised.version, requester=requester, previous_version=plan.version)
+    return revised
+
+
 def can_execute(plan: Plan) -> bool:
     return (
         plan.status == "approved"

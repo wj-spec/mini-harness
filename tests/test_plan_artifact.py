@@ -191,3 +191,23 @@ def test_plan_acceptance_from_confirmed_criteria():
         {"id": "ac1", "text": "通过", "confirmed": False},
     ]))
     assert unconfirmed.acceptance() is None
+
+
+def test_revise_plan_creates_new_draft_version(tmp_path):
+    from app.runtime.plan import approve_plan, content_hash, propose_plan, revise_plan
+
+    old = Plan.from_dict(_plan())
+    propose_plan(tmp_path, old)
+    approve_plan(tmp_path, old, approved_by="user")
+    old_hash = content_hash(old)
+    revised = revise_plan(tmp_path, old, objective="新目标",
+                          steps=[{"step_id": "s1", "title": "新步骤", "kind": "read"}])
+    assert revised.version == 2 and revised.status == "draft"
+    assert revised.objective == "新目标" and not revised.approval
+    assert revised.plan_id == old.plan_id
+    assert (tmp_path / "plan" / "plan.v1.json").exists()
+    assert load_plan(tmp_path / "plan" / "plan.v2.json").objective == "新目标"
+    # 旧版本内容未被改写
+    assert content_hash(load_plan(tmp_path / "plan" / "plan.v1.json")) == old_hash
+    events = [json.loads(line)["event"] for line in (tmp_path / "audit.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert "plan_revised" in events
