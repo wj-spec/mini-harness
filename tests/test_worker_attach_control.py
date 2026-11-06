@@ -221,3 +221,15 @@ def test_task_snapshot_includes_plan_binding(tmp_path):
     assert frame["task"]["plan_id"] == "pl-attach"
     assert frame["task"]["plan_version"] == 2
     assert frame["task"]["mode"] == "act"
+
+
+def test_attach_replay_bounded(tmp_path, monkeypatch):
+    from app.runtime.worker import _replay_lines
+
+    path = tmp_path / "worker-events.jsonl"
+    path.write_text("\n".join(json.dumps({"raw": f"e{i}"}) for i in range(5)), encoding="utf-8")
+    assert _replay_lines(path) == ["e0", "e1", "e2", "e3", "e4"]
+    monkeypatch.setenv("VIBE_ATTACH_REPLAY_MAX_LINES", "2")
+    assert _replay_lines(path) == ["e3", "e4"]
+    monkeypatch.setenv("VIBE_ATTACH_REPLAY_MAX_LINES", "0")
+    assert _replay_lines(path) == []

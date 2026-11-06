@@ -47,6 +47,32 @@ WORKER_SCHEMA_VERSION = 1
 DEFAULT_APPROVAL_TIMEOUT = 30.0
 
 
+def _replay_lines(path: Path) -> list[str]:
+    """attach 回放上限：默认最近 2000 条，0 表示不回放。"""
+    try:
+        limit = int(os.getenv("VIBE_ATTACH_REPLAY_MAX_LINES", "2000"))
+    except ValueError:
+        limit = 2000
+    limit = max(0, min(limit, 100_000))
+    if limit == 0:
+        return []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    result: list[str] = []
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            raw = json.loads(line).get("raw")
+        except json.JSONDecodeError:
+            continue
+        if isinstance(raw, str):
+            result.append(raw)
+    return result[-limit:]
+
+
 class WorkerError(Exception):
     pass
 
@@ -772,15 +798,9 @@ class Worker:
             events_path = self.task_dir / WORKER_EVENTS_FILE
             async with self.events_lock:
                 if events_path.is_file():
-                    for line in events_path.read_text(encoding="utf-8").splitlines():
-                        if not line.strip():
-                            continue
-                        try:
-                            raw = json.loads(line).get("raw")
-                        except json.JSONDecodeError:
-                            continue
-                        if isinstance(raw, str):
-                            writer.write((raw.rstrip("\n") + "\n").encode("utf-8"))
+                    raw_lines = _replay_lines(events_path)
+                    for line in raw_lines:
+                        writer.write((line.rstrip("\n") + "\n").encode("utf-8"))
                     await writer.drain()
                 # 回放完成后再加入 live 集合，锁保证回放快照与 live 分界。
                 self.clients.add(writer)

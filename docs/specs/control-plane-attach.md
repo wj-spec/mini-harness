@@ -83,6 +83,12 @@
 - **回放重复**：attach 回放与 live 之间可能重复一帧；TUI 需幂等（现有事件渲染基本可接受）；
 - **session 选择**：attach 需用户显式提供 session/task；自动发现后续。
 
+## 回放上限（P0 补充，2026-11-07）
+
+- attach 连接回放 worker-events 时只发送最近 `VIBE_ATTACH_REPLAY_MAX_LINES` 条
+  （默认 2000，0 表示不回放，上限 100000），避免超大事件文件阻塞连接；
+- 回放完成后照常接收 live 事件。
+
 ## task_snapshot 计划字段（P0 补充，2026-11-06）
 
 `task_snapshot.task` 在原有字段外增加：
