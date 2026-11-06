@@ -104,6 +104,7 @@ def main() -> None:
     parser.add_argument("--merge-verify", action="append", default=None, metavar="CMD", help="合并后验证命令（可重复）")
     parser.add_argument("--stop", action="store_true", help="workspace kill switch：停止所有本机 worker")
     parser.add_argument("--stop-task", default=None, metavar="TASK_ID", help="只停止指定 worker")
+    parser.add_argument("--pause-task", default=None, metavar="TASK_ID", help="暂停指定 worker（保留 worktree，不写 .vibe/stop）")
     parser.add_argument("--eval", action="store_true", help="跑 eval 任务并退出")
     parser.add_argument("--eval-limit", type=int, default=None)
     parser.add_argument("--eval-tasks", default=None)
@@ -159,6 +160,11 @@ def main() -> None:
             parser.error("--stop cannot be combined with other modes")
     elif args.stop_task is not None:
         parser.error("--stop-task requires --stop")
+    if args.pause_task is not None:
+        if args.workspace is None:
+            parser.error("--pause-task requires --workspace")
+        if args.stdio or args.eval or args.task is not None or args.list_sessions or args.tasks or args.worker or args.attach or args.merge_task is not None or args.bench or args.stop or args.stop_task is not None:
+            parser.error("--pause-task cannot be combined with other modes")
     if args.eval_limit is not None and args.eval_limit < 1:
         parser.error("--eval-limit must be positive")
     if args.task is not None:
@@ -170,7 +176,7 @@ def main() -> None:
         parser.error("--bench requires --task")
     if args.telemetry_out and args.task is None:
         parser.error("--telemetry-out requires --task")
-    if not args.stdio and not args.eval and not args.list_sessions and not args.tasks and not args.worker and not args.attach and args.merge_task is None and not args.stop and args.task is None:
+    if not args.stdio and not args.eval and not args.list_sessions and not args.tasks and not args.worker and not args.attach and args.merge_task is None and not args.stop and args.pause_task is None and args.task is None:
         print(
             "Textual 入口已退役。交互界面请运行 ./run_ink.sh（例如 ./run_ink.sh --fake）；"
             "后端与 eval 分别使用 --stdio / --eval。",
@@ -252,6 +258,13 @@ def main() -> None:
         results = stop_workers(config.workspace, task_id=args.stop_task)
         print(json.dumps({"stop_file": str(Path(config.workspace) / ".vibe" / "stop"),
                           "workers": results}, ensure_ascii=False, indent=2))
+        return
+
+    if args.pause_task is not None:
+        from app.runtime.killswitch import stop_workers
+
+        results = stop_workers(config.workspace, task_id=args.pause_task, write_stop=False)
+        print(json.dumps({"paused": True, "workers": results}, ensure_ascii=False, indent=2))
         return
 
     if args.worker or args.attach:

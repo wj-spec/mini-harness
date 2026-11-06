@@ -45,3 +45,28 @@ def test_bash_tool_rejects_outside_workspace_writes(tmp_path):
         registry.bash("echo hi > ~/mini-harness-should-not-exist.txt")
     ok, output = registry.execute(ToolCall("bash", {"command": "rm -f ~/mini-harness-should-not-exist.txt"}))
     assert ok is False and "outside workspace" in output
+
+
+def test_run_command_scrubs_secret_environment(monkeypatch, tmp_path):
+    from app.safety.sandbox import run_command
+
+    monkeypatch.setenv("VIBE_API_KEY", "sk-secret-value")
+    monkeypatch.setenv("MY_SECRET_TOKEN", "token-value")
+    code, output, timed_out = run_command(
+        "printf '%s|%s|%s' \"$VIBE_API_KEY\" \"$MY_SECRET_TOKEN\" \"$SAFE_VISIBLE\"",
+        tmp_path,
+    )
+    assert not timed_out and code == 0
+    assert "sk-secret-value" not in output
+    assert "token-value" not in output
+    assert output == "||"
+
+
+def test_run_command_keeps_env_extra(monkeypatch, tmp_path):
+    from app.safety.sandbox import run_command
+
+    monkeypatch.delenv("VIBE_TEST_EXTRA", raising=False)
+    code, output, _ = run_command(
+        "printf '%s' \"$VIBE_TEST_EXTRA\"", tmp_path, env_extra={"VIBE_TEST_EXTRA": "ok"},
+    )
+    assert code == 0 and output == "ok"

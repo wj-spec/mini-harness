@@ -76,3 +76,16 @@ def test_stop_cli_marks_worker(tmp_path, monkeypatch, capsys):
     finally:
         if child.poll() is None:
             child.kill(); child.wait()
+
+
+def test_pause_task_requires_workspace_and_does_not_write_stop(monkeypatch, capsys, tmp_path):
+    import json
+    from app import __main__ as entrypoint
+
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: entrypoint.Config(workspace=tmp_path))
+    monkeypatch.setattr("sys.argv", ["vibe", "--pause-task", "t-20261106-000000-abcdef", "--workspace", str(tmp_path)])
+    entrypoint.main()
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+    assert payload["paused"] is True and payload["workers"] == []
+    assert not (tmp_path / ".vibe" / "stop").exists()

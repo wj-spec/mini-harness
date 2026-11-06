@@ -64,15 +64,16 @@ def active_workers(
 
 def stop_workers(
     workspace: str | Path, *, task_id: str | None = None,
-    timeout: float = 5.0, grace: float = 3.0,
+    timeout: float = 5.0, grace: float = 3.0, write_stop: bool = True,
 ) -> list[dict[str, Any]]:
     """SIGTERM → grace → SIGKILL；写 .vibe/stop 信号文件；返回处理结果。"""
     workspace = Path(workspace)
-    signal_path = stop_file(workspace)
-    signal_path.parent.mkdir(parents=True, exist_ok=True)
-    signal_path.write_text(json.dumps({
-        "requested_at": time.time(), "pid": os.getpid(), "task_id": task_id,
-    }), encoding="utf-8")
+    if write_stop:
+        signal_path = stop_file(workspace)
+        signal_path.parent.mkdir(parents=True, exist_ok=True)
+        signal_path.write_text(json.dumps({
+            "requested_at": time.time(), "pid": os.getpid(), "task_id": task_id,
+        }), encoding="utf-8")
 
     def signal_worker(pid: int, signum: int) -> None:
         try:

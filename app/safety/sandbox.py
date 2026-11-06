@@ -265,6 +265,30 @@ def check_command(command: str, workspace: Path | None = None) -> None:
         check_write_paths(command, workspace)
 
 
+_SAFE_ENV_NAMES = frozenset({
+    "PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "PWD", "OLDPWD", "TERM",
+    "VIRTUAL_ENV", "CONDA_PREFIX", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
+})
+_SAFE_ENV_PREFIXES = (
+    "LANG", "LC_", "XDG_", "UV_", "NODE_", "NPM_", "npm_", "PYTHON", "GIT_",
+    "VIRTUAL_ENV", "CONDA_",
+)
+_SECRET_MARKERS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL", "PASSWD")
+
+
+def scrubbed_command_env(env_extra: dict[str, str] | None = None) -> dict[str, str]:
+    """命令工具的最小环境：保留工具链路径/语言变量，去掉凭据类变量。"""
+    allowed: dict[str, str] = {}
+    for name, value in os.environ.items():
+        if name in _SAFE_ENV_NAMES or name.startswith(_SAFE_ENV_PREFIXES):
+            if any(marker in name.upper() for marker in _SECRET_MARKERS):
+                continue
+            allowed[name] = value
+    if env_extra:
+        allowed.update({str(key): str(value) for key, value in env_extra.items()})
+    return allowed
+
+
 def run_command(
     command: str,
     cwd: Path,
@@ -275,7 +299,7 @@ def run_command(
     env_extra: dict[str, str] | None = None,
 ) -> tuple[int, str, bool]:
     proc = subprocess.Popen(
-        sandbox_wrapped(command, sandbox), env=({**os.environ, **env_extra} if env_extra else None),
+        sandbox_wrapped(command, sandbox), env=scrubbed_command_env(env_extra),
         cwd=str(cwd),
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -311,7 +335,7 @@ async def run_command_async(
     """异步执行；取消和超时都回收整个进程组。"""
     spawning = asyncio.create_task(asyncio.create_subprocess_exec(
         *sandbox_wrapped(command, sandbox), cwd=str(cwd),
-        env=({**os.environ, **env_extra} if env_extra else None),
+        env=scrubbed_command_env(env_extra),
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
         start_new_session=True,
     ))
