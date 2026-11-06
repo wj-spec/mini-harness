@@ -178,3 +178,9 @@ vibe --tasks [--workspace PATH] [--fake]
 
 - worker 在 workspace lock 等待时任务进入 `queued`；超时未获取锁 → `failed`，
   worker 退出 3；两任务写串行场景见 `bench_long.py`。
+
+## worker-events 轮转（P0 补充）
+
+- worker 启动时按 `VIBE_WORKER_EVENTS_MAX_BYTES`（默认 64 MiB）与
+  `VIBE_WORKER_EVENTS_BACKUPS`（默认 3）轮转 `worker-events.jsonl`；
+- 旧事件保留 `.1/.2` 备份，attach 回放只读取当前文件，避免无限增长。

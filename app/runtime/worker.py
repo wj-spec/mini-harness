@@ -97,10 +97,15 @@ def _read_task(session_root: Path, task_id: str):
         raise WorkerError(f"cannot load task {task_id}: {type(exc).__name__}: {exc}") from exc
 
 
-def _rotate_log(path: Path) -> None:
+def _rotate_log(
+    path: Path,
+    *,
+    max_env: str = "VIBE_WORKER_LOG_MAX_BYTES",
+    backups_env: str = "VIBE_WORKER_LOG_BACKUPS",
+) -> None:
     try:
-        max_bytes = int(os.getenv("VIBE_WORKER_LOG_MAX_BYTES", str(64 * 1024 * 1024)))
-        backups = int(os.getenv("VIBE_WORKER_LOG_BACKUPS", "3"))
+        max_bytes = int(os.getenv(max_env, str(64 * 1024 * 1024)))
+        backups = int(os.getenv(backups_env, "3"))
     except ValueError:
         return
     if backups < 1 or max_bytes < 1 or not path.is_file():
@@ -331,6 +336,11 @@ class Worker:
         (self.task_dir / WORKER_PID_FILE).write_text(f"{os.getpid()}\n", encoding="utf-8")
         log_path = self.task_dir / WORKER_LOG_FILE
         events_path = self.task_dir / WORKER_EVENTS_FILE
+        _rotate_log(
+            events_path,
+            max_env="VIBE_WORKER_EVENTS_MAX_BYTES",
+            backups_env="VIBE_WORKER_EVENTS_BACKUPS",
+        )
         events_path.touch(exist_ok=True)
         write_worker_state(self.task_dir, self.state)
         sock_path = socket_path(self.task_dir, self.task_id)
