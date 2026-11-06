@@ -1,6 +1,6 @@
 # 14 计划执行绑定
 
-> 状态：讨论稿（2026-11-02；2026-11-03 01–05 决策对齐见 §9，06–10 对齐见 §10，用户回答见 §11）；不是 spec，未承诺实现。
+> 状态：讨论稿（2026-11-02；2026-11-03 01–05 决策对齐见 §9，06–10 对齐见 §10，用户回答见 §11）；P0 step ledger 已实现，见 [plan-execution spec](../../specs/plan-execution.md)。
 > 所属：进阶模式 / 第 5 块
 > 前置/相关：[12 结构化 Plan 产物](12-plan-artifact.md)、[13 计划审批门](13-plan-approval-gate.md)、[15 计划验收](15-plan-verification.md)、[16 子 Agent 的有机结合](16-subagent-integration.md)；相关规格：[完成守卫与审计](../../specs/verified-completion.md)、[goal-mode](../../specs/goal-mode.md)
 

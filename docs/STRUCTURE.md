@@ -217,6 +217,7 @@ mini-harness/
       modes.md                   # 模式 P0：chat/act TaskRecord.mode 与 TUI 命令
       plan-artifact.md           # 结构化 Plan P0：schema/存储/渲染
       plan-approval.md           # 计划审批 P0：propose/approve/reject、hash/审计
+      plan-execution.md          # 计划执行 P0：step ledger/证据推进
     design/             # 未来方向的分块讨论（长任务/后台/进阶模式/子 Agent），拍板后收敛为 spec
     history/            # 旧 M1–M8 模块建设计划
 

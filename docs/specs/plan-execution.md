@@ -1,0 +1,38 @@
+# 计划执行绑定 P0（step ledger）
+
+状态：2026-11-06 P0 纯模块实现（台账/证据推进/原子存储）；工具与 agent 接线待后续。
+设计来源：[14 计划执行绑定](../design/long-horizon/14-plan-execution-binding.md)。
+
+## 已实现
+
+`app/runtime/plan_execution.py`：
+
+- `StepRecord` / `StepLedger`：task_id/plan_id/plan_version + 每步
+  status/evidence/attempts；
+- 状态机：pending / in_progress / blocked / done / deviated / skipped；
+- `from_plan(plan)`：从结构化 Plan 建台账；
+- `start_step`：只允许 pending/blocked，attempts+1；
+- `add_evidence`：kind ∈ file_change/verification/command_ok/manual，含 ref/ok/时间；
+- `complete_step(plan, step_id)`：
+  - 有 `verification` 的步骤必须至少一条 ok 的 verification/command_ok 证据；
+  - 其他步骤至少一条证据；
+  - 无证据 → `step_evidence_missing`；
+- `mark_deviated(step_id, paths)`；
+- `plan_complete(plan)`：所有非 skipped 步骤 done；
+- `can_execute_step`：依赖均已 done；
+- 原子存储 `task_dir/plan/execution.v<version>.json`；
+- `load_ledger` 未知 schema fail closed。
+
+## 未完成（P0 剩余）
+
+- Agent 工具执行后按 step 切分证据；
+- 模型 `complete_step` 请求由 harness 证据校验（当前只有模块 API）；
+- 偏离检测（计划外文件）和重规划；
+- 每步预算/成本归因；
+- 计划级完成条件接入完成守卫；
+- rounds/TUI 展示 step ledger。
+
+## 测试
+
+`tests/test_plan_execution.py`：roundtrip、依赖顺序、无验证证据拒绝、非法 step/状态、
+deviation、原子写。
