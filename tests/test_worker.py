@@ -303,6 +303,7 @@ def test_worker_task_deadline_fails_task(tmp_path, monkeypatch):
 
     monkeypatch.setenv("VIBE_ALLOW_NON_GIT", "1")
     monkeypatch.setenv("VIBE_TASK_DEADLINE_SECONDS", "0.3")
+    monkeypatch.setenv("VIBE_TASK_DEADLINE_WARN_SECONDS", "0.1")
     session = SessionStore.new(tmp_path, "fake", purpose="test")
     store = TaskStore(session.root)
     task = store.create(kind="goal", objective="deadline", workspace=str(tmp_path), mode="goal")
@@ -314,7 +315,10 @@ def test_worker_task_deadline_fails_task(tmp_path, monkeypatch):
     assert asyncio.run(worker.run()) in {0, 1}
     assert store.get(task.task_id).status in {"failed", "cancelled"}
     events = (store.task_dir(task.task_id) / "events.jsonl").read_text(encoding="utf-8")
-    assert "task_deadline_exceeded" in events
+    assert "task_deadline_warning" in events and "task_deadline_exceeded" in events
+    from app.runtime.notifications import read_notifications
+    kinds = [item["kind"] for item in read_notifications(tmp_path)]
+    assert "task_deadline_warning" in kinds and "task_deadline_exceeded" in kinds
     state = json.loads((store.task_dir(task.task_id) / "worker.json").read_text(encoding="utf-8"))
     assert state["status"] == "failed"
 

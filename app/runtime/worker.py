@@ -547,7 +547,22 @@ class Worker:
         seconds = _env_float("VIBE_TASK_DEADLINE_SECONDS", 0.0)
         if seconds <= 0:
             return
-        await asyncio.sleep(seconds)
+        warn = _env_float("VIBE_TASK_DEADLINE_WARN_SECONDS", 0.0)
+        if 0 < warn < seconds:
+            await asyncio.sleep(seconds - warn)
+            if not self.done.is_set() and not self.stopping.is_set():
+                notify(self.workspace, "task_deadline_warning", task_id=self.task_id,
+                       remaining_seconds=warn)
+                try:
+                    TaskStore(self.session_root).append_event(
+                        self.task_id, "task_deadline_warning",
+                        data={"remaining_seconds": warn},
+                    )
+                except Exception:
+                    pass
+                await asyncio.sleep(warn)
+        else:
+            await asyncio.sleep(seconds)
         self.deadline_exceeded = True
         notify(self.workspace, "task_deadline_exceeded", task_id=self.task_id,
                deadline_seconds=seconds)

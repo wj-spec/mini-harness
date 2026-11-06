@@ -192,3 +192,8 @@ vibe --tasks [--workspace PATH] [--fake]
   由 TaskRuntime 继续执行计划绑定与 step/验收门禁；
 - 绑定结果写 `plan_binding` 任务事件（found/executable/step_tools），
   验收产物 `acceptance.vN.json` 写在计划所属任务目录；绑定时另写本地通知 `plan_binding`。
+
+## deadline 预警（P0 补充）
+
+- `VIBE_TASK_DEADLINE_WARN_SECONDS` >0 时，在 deadline 前写
+  `task_deadline_warning` 任务事件与本地通知；仍按时失败/取消任务。

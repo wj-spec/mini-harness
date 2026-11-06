@@ -34,7 +34,7 @@
 - worker-events.jsonl 支持启动时按大小轮转（`VIBE_WORKER_EVENTS_MAX_BYTES/BACKUPS`）。
 - 红队清单：`python3 scripts/redteam_unattended.py --workspace <ws>` 只读检查默认拒绝矩阵
   （读/写/worktree/exec/network/mcp/browser/未知工具），exit 1 表示偏离预期；测试见 `tests/test_redteam_unattended.py`。
-- 本地通知：worker 生命周期写 `.vibe/notifications.jsonl`（started/exited/stop_requested/approval_requested/approval_timeout/task_deadline_exceeded），
+- 本地通知：worker 生命周期写 `.vibe/notifications.jsonl`（started/exited/stop_requested/approval_requested/approval_timeout/task_deadline_warning/task_deadline_exceeded），
   拒绝工具调用写 `unattended_denied`，审批收件箱满写 `approval_inbox_full`；Plan 绑定/提出/审批/验收写 `plan_binding`/`plan_proposed`/`plan_approved`/`plan_rejected`/`plan_acceptance`，子 Agent 完成写 `subagent_finished`，
   goal 续段/停止写 `goal_segment`/`goal_stopped`，
   写任务等待 workspace lock 时写 `workspace_queued`；
@@ -45,7 +45,7 @@
 - 日志保留：`--cleanup-logs --workspace <ws> [--log-max-bytes N] [--log-dry-run]` 显式轮转会话 `trace.jsonl`（`.1`…备份），写 `.vibe/retention.jsonl` 审计；`events.jsonl` 不轮转，避免破坏会话恢复。
 - 自动 trace 轮转：追加 trace 前检查 `VIBE_TRACE_MAX_BYTES`（默认 0=关闭）/`VIBE_TRACE_BACKUPS`，超过阈值即轮转；`events.jsonl` 仍不轮转。
 - 两任务写串行：`VIBE_WORKSPACE_LOCK_WAIT=<seconds>` 让第二个 worker 排队等待 workspace lock（默认 0=立即拒绝）；`bench_long` 的 two-slot 场景覆盖。
-- 任务级 deadline：`VIBE_TASK_DEADLINE_SECONDS`（默认 0=关闭）从 worker 启动计 wall；到期写 `task_deadline_exceeded`、取消运行，任务 running/paused 置 `failed`/created 置 `cancelled`。
+- 任务级 deadline：`VIBE_TASK_DEADLINE_SECONDS`（默认 0=关闭）从 worker 启动计 wall；到期前 `VIBE_TASK_DEADLINE_WARN_SECONDS` 写 `task_deadline_warning`；到期写 `task_deadline_exceeded`、取消运行，任务 running/paused 置 `failed`/created 置 `cancelled`。
 
 ## 未完成（P0 剩余）
 
