@@ -13,6 +13,8 @@ afterEach(cleanup);
 test('every command carries an honest description', () => {
   for (const command of COMMAND_COMPLETIONS) assert.ok(COMMAND_DESCRIPTIONS[command], `${command} 缺少说明`);
   assert.equal(commandMatches('/co').length, 4);
+  assert.deepEqual(commandMatches('/ch'), ['/chat']);
+  assert.deepEqual(commandMatches('/ac'), ['/act']);
   assert.equal(commandMatches('任务').length, 0);
 });
 
@@ -54,12 +56,12 @@ async function mountMenu() {
 test('slash opens the menu with guidance and arrows scroll the selection', async () => {
   const {key, lastFrame} = await mountMenu();
   await key('/');
-  assert.match(lastFrame() ?? '', /↑↓ 选择 · Tab 填充 · 1\/30/);
+  assert.match(lastFrame() ?? '', /↑↓ 选择 · Tab 填充 · 1\/32/);
   await key('\u001b[B');
   await key('\u001b[B');
-  assert.match(lastFrame() ?? '', /3\/30/);
+  assert.match(lastFrame() ?? '', /3\/32/);
   await key('\u001b[A');
-  assert.match(lastFrame() ?? '', /2\/30/);
+  assert.match(lastFrame() ?? '', /2\/32/);
 });
 
 test('Tab fills the highlighted command while scrolling', async () => {

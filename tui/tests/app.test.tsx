@@ -603,12 +603,12 @@ test('slash opens a scrollable command menu without overflowing the frame', asyn
   let frame = lastFrame() ?? '';
   assert.match(frame, /› \/help/);
   assert.match(frame, /查看操作帮助/);
-  assert.match(frame, /↑↓ 选择 · Tab 填充 · 1\/30/);
+  assert.match(frame, /↑↓ 选择 · Tab 填充 · 1\/32/);
   assert.ok(frame.split('\n').length <= 24);
   for (const line of frame.split('\n')) assert.ok(stringWidth(line) <= 80, line);
   stdin.write('\u001b[B');
   await pause(15);
-  assert.match(lastFrame() ?? '', /2\/30/);
+  assert.match(lastFrame() ?? '', /2\/32/);
   stdin.write('\t');
   await pause(15);
   frame = lastFrame() ?? '';

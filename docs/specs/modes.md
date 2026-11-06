@@ -22,7 +22,7 @@
   - `mode=chat` 的 run 临时关闭 agent tools（provider 不收到 tools），run 结束后恢复；
   - `mode=act` 保持正常工具路径。
 - TUI：
-  - `/chat <任务>`、`/act <任务>` 本地命令，发送 `{kind:"run", mode, objective}`；
+  - `/chat <任务>`、`/act <任务>` 本地命令，发送 `{kind:"run", mode, objective}`；已加入命令补全与说明；
   - 需要后端 `tasks` capability；运行中拒绝切换。
 - stdio 启动 run 前解析 mode profile 并校验工具名，写 `mode_profile` 事件；
   `plan` 模式把 agent tools 临时替换为只读子集（`read_file/list_files/grep/git_status/git_diff`），run 结束后恢复。
@@ -39,5 +39,5 @@
 - goal 段内 plan mode；
 - 入口记忆上次 mode（项目级/会话级）；
 - mode 跨段切换策略与 UI；
-- 命令补全/帮助里暴露 `/chat` `/act`；
+- `/plan` 及 plan 产物/审批门；
 - 非 TUI 入口的显式 mode flag（当前仅 run.task）。
