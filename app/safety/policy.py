@@ -16,6 +16,7 @@ from core.contracts import ToolCall
 class ApprovalDecision:
     allowed: bool
     scope: str  # once | session | workspace | deny
+    reason: str = ""
 
 
 ApprovalHandler = Callable[[ToolCall, str], Awaitable[ApprovalDecision]]
@@ -125,7 +126,7 @@ class ApprovalGate:
             reason = self.execution_gate(call)
             if reason:
                 self._audit(call, f"deny_gate_{reason}", preview, root)
-                return ApprovalDecision(False, "deny")
+                return ApprovalDecision(False, "deny", reason)
         tier = self._tier(call)
         outcome = self._policy_outcome(call, tier)
         force_once = outcome is not None and outcome.decision == "once"
@@ -133,7 +134,7 @@ class ApprovalGate:
         if outcome is not None:
             if outcome.decision == "deny":
                 self._audit(call, "deny_policy", preview, root)
-                return ApprovalDecision(False, "deny")
+                return ApprovalDecision(False, "deny", "policy_deny")
             if outcome.decision == "allow":
                 if tier == "remote_action":
                     self._audit(call, "deny_policy_floor", preview, root)

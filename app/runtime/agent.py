@@ -1319,7 +1319,11 @@ class Agent:
                                 return self._cancel_pending(run, step, calls[call_index:])
                             run.recorder.approval(call, decision.allowed, decision.scope, step=step)
                             if not decision.allowed:
-                                ok, output = False, "ERROR denied_by_user"
+                                reason = str(getattr(decision, "reason", "") or "").strip()
+                                ok, output = False, (
+                                    f"ERROR denied_by_user: {reason[:200]}" if reason
+                                    else "ERROR denied_by_user"
+                                )
                                 run.denied_requests.add(key)
                             else:
                                 approval_scope = str(getattr(decision, "scope", "") or "once")

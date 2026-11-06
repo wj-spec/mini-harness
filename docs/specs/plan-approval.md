@@ -63,6 +63,8 @@
 ## 测试
 
 - 未 propose 不可批准；
+- 门禁拒绝原因写入 ApprovalDecision.reason，工具错误显示
+  `denied_by_user: plan_not_approved/plan_stale`；
 - 绑定未批准 plan 的 run 即使审批 handler 允许也无法写文件（ApprovalGate gate deny）；
 - 批准需 `plan.review`；可选审批时限 `VIBE_PLAN_REVIEW_TIMEOUT_SECONDS`（默认 0=不限），
   超时后 approve 返回 `review window expired`，需修订后重新批准；

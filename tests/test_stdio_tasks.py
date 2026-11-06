@@ -591,6 +591,8 @@ def test_bound_unapproved_plan_blocks_write_at_gate(tmp_path, monkeypatch):
         })
         done = await harness.until("done", "r-gate")
         assert not (tmp_path / "blocked.txt").exists()
+        outputs = [event.get("output", "") for event in harness.events if event["type"] == "tool_result"]
+        assert any("plan_not_approved" in output for output in outputs)
         assert done["result"]["status"] in {"stopped", "done", "error"}
         await harness.close()
 
