@@ -10,6 +10,7 @@ export type SidebarPlanSummary = {
   stale: boolean;
   objective: string;
   stepCount: number;
+  acceptance?: boolean | null;
 };
 
 export type SidebarSignal = {
@@ -61,6 +62,7 @@ export function readSidebarSignal(workspace: string): SidebarSignal | null {
         plan = {
           version: item.version, status: item.status, stale: item.stale === true,
           objective: item.objective.slice(0, 200), stepCount: item.stepCount,
+          acceptance: item.acceptance === true ? true : item.acceptance === false ? false : null,
         };
       }
     }
