@@ -105,6 +105,9 @@ def main() -> None:
     parser.add_argument("--stop", action="store_true", help="workspace kill switch：停止所有本机 worker")
     parser.add_argument("--stop-task", default=None, metavar="TASK_ID", help="只停止指定 worker")
     parser.add_argument("--pause-task", default=None, metavar="TASK_ID", help="暂停指定 worker（保留 worktree，不写 .vibe/stop）")
+    parser.add_argument("--cleanup-logs", action="store_true", help="显式轮转会话 trace（记录到 .vibe/retention.jsonl）")
+    parser.add_argument("--log-max-bytes", type=int, default=None, metavar="N")
+    parser.add_argument("--log-dry-run", action="store_true", help="只报告 --cleanup-logs 会轮转什么")
     parser.add_argument("--eval", action="store_true", help="跑 eval 任务并退出")
     parser.add_argument("--eval-limit", type=int, default=None)
     parser.add_argument("--eval-tasks", default=None)
@@ -160,6 +163,13 @@ def main() -> None:
             parser.error("--stop cannot be combined with other modes")
     elif args.stop_task is not None:
         parser.error("--stop-task requires --stop")
+    if args.cleanup_logs:
+        if args.workspace is None:
+            parser.error("--cleanup-logs requires --workspace")
+        if args.log_max_bytes is not None and args.log_max_bytes < 1:
+            parser.error("--log-max-bytes must be positive")
+        if args.stdio or args.eval or args.task is not None or args.list_sessions or args.tasks or args.worker or args.attach or args.merge_task is not None or args.bench or args.stop or args.pause_task is not None:
+            parser.error("--cleanup-logs cannot be combined with other modes")
     if args.pause_task is not None:
         if args.workspace is None:
             parser.error("--pause-task requires --workspace")
@@ -176,7 +186,7 @@ def main() -> None:
         parser.error("--bench requires --task")
     if args.telemetry_out and args.task is None:
         parser.error("--telemetry-out requires --task")
-    if not args.stdio and not args.eval and not args.list_sessions and not args.tasks and not args.worker and not args.attach and args.merge_task is None and not args.stop and args.pause_task is None and args.task is None:
+    if not args.stdio and not args.eval and not args.list_sessions and not args.tasks and not args.worker and not args.attach and args.merge_task is None and not args.stop and args.pause_task is None and not args.cleanup_logs and args.task is None:
         print(
             "Textual 入口已退役。交互界面请运行 ./run_ink.sh（例如 ./run_ink.sh --fake）；"
             "后端与 eval 分别使用 --stdio / --eval。",
@@ -265,6 +275,14 @@ def main() -> None:
 
         results = stop_workers(config.workspace, task_id=args.pause_task, write_stop=False)
         print(json.dumps({"paused": True, "workers": results}, ensure_ascii=False, indent=2))
+        return
+
+    if args.cleanup_logs:
+        from app.session.retention import RetentionPolicy, cleanup_workspace_logs
+
+        policy = RetentionPolicy(max_bytes=args.log_max_bytes or RetentionPolicy.max_bytes)
+        result = cleanup_workspace_logs(config.workspace, policy=policy, dry_run=args.log_dry_run)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
         return
 
     if args.worker or args.attach:
