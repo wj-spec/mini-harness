@@ -35,7 +35,7 @@
 - TUI `/plan execute` 与覆盖层 Enter 会检查 `approval.stale`，stale 计划拒绝执行；
 - TUI `/plan revise <objective>` 与 backend `plan revise` 生成 version+1 draft；
 - backend `plan list` / TUI `/plan list` 列出最近计划版本；
-- backend `plan step` / TUI `/plan step <id>` 展示单步定义与 execution evidence。
+- backend `plan step` / TUI `/plan step <id>` / 覆盖层 `s` 展示单步定义与 execution evidence。
 - 通过 `plan.review` capability 语义（当前 stdio 本地用户命令视为 user 决定）。
 
 ## 执行门禁
