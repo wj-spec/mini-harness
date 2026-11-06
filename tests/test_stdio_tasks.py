@@ -448,6 +448,9 @@ def test_explore_command_runs_readonly_subagent(tmp_path, monkeypatch):
         harness.send("command", "c-explore", command="explore", args={"prompt": "读 README"})
         result = await harness.until("command_result", "c-explore")
         assert "子 Agent" in result["text"] and "子 Agent 摘要" in result["text"]
+        notices = [event["message"] for event in harness.events if event["type"] == "notice"]
+        assert any("子 Agent 开始" in message for message in notices)
+        assert any("子 Agent ok" in message for message in notices)
         assert "任务：" in result["text"]
         subagents = TaskStore(session.root).list(kind="subagent")
         assert subagents and subagents[-1].status == "completed"

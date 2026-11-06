@@ -469,12 +469,16 @@ class _Connection:
                     )
             elif command == "explore":
                 from app.runtime.subagents import run_subagent
+                prompt = str((args or {}).get("prompt", ""))
+                self.send("notice", None, message=f"子 Agent 开始：{prompt[:120]}")
                 sub = await run_subagent(
                     self.agent.provider, self.agent.tools.root,
-                    str((args or {}).get("prompt", "")),
+                    prompt,
                     max_steps=6, max_run_tokens=20_000, max_run_seconds=60.0,
                     session_root=self.session.root,
                 )
+                self.send("notice", None,
+                          message=f"子 Agent {sub.status}：{sub.task_id or '-'}")
                 text = f"子 Agent {sub.status}：{sub.summary}"
                 if sub.task_id:
                     text += f"\n任务：{sub.task_id}"
