@@ -6,6 +6,7 @@ import {CommandMenu} from './command-menu.js';
 import {Box, Text, useApp, useInput, usePaste, useWindowSize} from 'ink';
 import type {BackendClient} from './backend.js';
 import {backendCommand, backendLaunchOptions} from './backend-launch.js';
+import {parseAttachCommand} from './attach-command.js';
 import {AUTONOMY_LABELS, AUTONOMY_LEVELS, commandMatches} from './protocol.js';
 import {approvalTitle, splitApprovalPreview} from './approval-view.js';
 import {buildSkillMenu} from './skills-menu.js';
@@ -970,11 +971,11 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
     if (text === '/attach' || text.startsWith('/attach ')) {
       setInput('');
       if (!state.workspace || !state.sessionId) {notice('尚未连接工作区/会话。'); return;}
-      const requested = text.split(/\s+/)[1] ?? lastTaskId.current ?? goalRef.current?.taskId ?? null;
+      const parsed = parseAttachCommand(text, lastTaskId.current ?? goalRef.current?.taskId ?? null);
+      const requested = parsed.taskId;
       if (!requested) {notice('当前会话没有可 attach 的 task；先运行 /task 查看。'); return;}
       const fake = state.provider === 'fake' || state.sessionPurpose === 'test' ? ' --fake' : '';
-      const parts = text.split(/\s+/);
-      if (parts[1] === 'now' || parts[1] === '--now') {
+      if (parsed.now) {
         try {
           const args = ['--attach-task', requested, '--session', state.sessionId, '--workspace', state.workspace];
           if (fake) args.push('--fake');
