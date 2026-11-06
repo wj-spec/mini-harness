@@ -14,7 +14,8 @@
   - 仅 proposed 可批准；
   - 缺 `plan.review` capability fail closed；
   - 写 approval 字段：approved_by/approved_at/approval_id/plan_hash/capability/requester/decider；
-  - 写 `plan_approved` 审计事件；同时写本地通知 `plan_approved`/`plan_rejected`。
+  - 写 `plan_approved` 审计事件；同时写本地通知 `plan_approved`/`plan_rejected`；
+- submit_plan 成功后写 `plan_proposed` 本地通知。
 - steering：绑定 plan 的 run 收到 steer 时把 approval 标 stale、写 `plan_stale` 事件，
   后续写/执行门禁返回 `plan_stale`（需重新批准计划）。
 - `reject_plan(...)`：回到 draft，记录 rejected_by/reason，写 `plan_rejected`。

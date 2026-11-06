@@ -738,3 +738,30 @@ def test_plan_approve_emits_notification(tmp_path, monkeypatch):
         await harness.close()
 
     asyncio.run(scenario())
+
+
+def test_plan_mode_submit_plan_notifies(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    from core.contracts import Response, ToolCall
+    agent = Agent(FakeProvider([
+        Response(tool_calls=[ToolCall("submit_plan", {
+            "objective": "通知计划",
+            "steps": [{"step_id": "s1", "title": "读"}],
+        }, id="plan-1")]),
+        "完成",
+    ]), ToolRegistry(tmp_path), approval=ApprovalGate())
+
+    async def scenario():
+        harness = Harness(agent, Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("run", "r-propose", text="先规划", task={
+            "kind": "run", "mode": "plan", "objective": "先规划",
+        })
+        await harness.until("done", "r-propose")
+        from app.runtime.notifications import read_notifications
+        events = [item for item in read_notifications(tmp_path) if item["kind"] == "plan_proposed"]
+        assert events and events[-1]["task_id"]
+        await harness.close()
+
+    asyncio.run(scenario())

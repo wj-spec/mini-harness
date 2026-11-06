@@ -46,3 +46,12 @@ def read_notifications(workspace: str | Path) -> list[dict[str, Any]]:
         if isinstance(item, dict):
             result.append(item)
     return result
+
+
+def workspace_from_task_dir(task_dir: str | Path) -> Path:
+    """从任务目录反推工作区：.../.vibe/sessions/<sid>/tasks/<tid>。"""
+    path = Path(task_dir)
+    for candidate in (path, *path.parents):
+        if candidate.name == ".vibe":
+            return candidate.parent
+    return path.parent

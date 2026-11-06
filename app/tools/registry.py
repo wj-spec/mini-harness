@@ -931,6 +931,12 @@ class ToolRegistry:
                 "open_questions": payload.get("open_questions", []),
             })
             propose_plan(directory, plan)
+            try:
+                from app.runtime.notifications import notify, workspace_from_task_dir
+                notify(workspace_from_task_dir(directory), "plan_proposed",
+                       task_id=task_id, plan_id=plan.plan_id, version=plan.version)
+            except Exception:
+                pass
             return f"plan proposed: {plan.plan_id} v{plan.version}"
 
         self._tools["submit_plan"] = ToolSpec(

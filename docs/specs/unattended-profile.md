@@ -33,7 +33,7 @@
 - 测试：`tests/test_unattended.py`（默认拒绝、profile 覆盖/未知字段、worker 自动 deny + audit）、`tests/test_sandbox.py`（env scrub）、`tests/test_cli_merge_stop.py`（pause）。
 - worker-events.jsonl 支持启动时按大小轮转（`VIBE_WORKER_EVENTS_MAX_BYTES/BACKUPS`）。
 - 本地通知：worker 生命周期写 `.vibe/notifications.jsonl`（started/exited/stop_requested/approval_timeout/task_deadline_exceeded），
-  Plan 审批/验收写 `plan_approved`/`plan_rejected`/`plan_acceptance`，子 Agent 完成写 `subagent_finished`，
+  Plan 提出/审批/验收写 `plan_proposed`/`plan_approved`/`plan_rejected`/`plan_acceptance`，子 Agent 完成写 `subagent_finished`，
   写任务等待 workspace lock 时写 `workspace_queued`；merge 生命周期写
   `merge_approval_requested`/`merge_completed`/`merge_failed`，供后续告警渠道消费；
   stdio command `notifications` 与 TUI `/notifications` 可查看最近通知。
