@@ -690,3 +690,40 @@ VIBE_DEBUG=1 ./run_ink.sh --workspace /path/to/repo
 - `{"type":"calls","count":N}`：结构化工具调用数。
 
 **模型输出 `<tool_call>` 文本时**：先确认没开 `--chat-only`；现在 Agent 会自动解析并执行。流式过程中可能短暂看到 tag，结束后会执行工具；这是 fallback 的已知瑕疵。
+
+## 任务模式与计划（P0）
+
+- `/chat <任务>`：chat 模式，provider 不收到 tools；
+- `/act <任务>`：act 模式，正常工具执行；
+- `/plan <任务>`：只读规划 run，允许 `submit_plan`；
+- `/plan`：打开最近计划覆盖层（↑↓ 选择，PgUp/PgDn 翻阅，Esc 返回）；
+- `/plan all`：展开全部步骤；
+- `/plan approve` / `/plan reject`：批准/拒绝 proposed 计划；
+- `/plan revise <新目标>`：生成 version+1 draft；
+- `/plan execute`：用最近 approved 计划创建 act run（绑定 `plan_id/plan_version`）；
+- `/explore <任务>`：只读子 Agent 探索，创建 `kind=subagent` 任务；
+- `/notifications`：查看后台 worker 本地通知。
+
+绑定计划的 run 会：
+
+- 写/执行前检查计划是否 approved、hash 是否匹配；未批准/已 stale 时 deny(`plan_not_approved` / `plan_stale`)；
+- 通过 `start_plan_step` / `complete_plan_step` 推进 step ledger，并自动记录 read/file_change/command_ok 证据；
+- 完成前要求 required 步骤全 done；有已确认验收标准时执行可信验收命令（失败可重试，`VIBE_ACCEPTANCE_RETRIES`）。
+
+## 后台 worker
+
+```bash
+./run_vibe.sh --tasks --workspace /path/to/repo
+./run_vibe.sh --worker --fake --workspace /path/to/repo --session SID --task-id TID
+./run_vibe.sh --attach --mode observe --workspace /path/to/repo --session SID --task-id TID
+./run_vibe.sh --stop --workspace /path/to/repo
+./run_vibe.sh --pause-task TID --workspace /path/to/repo
+```
+
+后台 worker 默认使用保守无人值守 profile：只读/独立 worktree 写可用，`bash`/网络/MCP/远端默认拒绝；确实需要时在 `.vibe/unattended.json` 显式：
+
+```json
+{"schema_version":1,"allow_exec":true}
+```
+
+通知记录在 `.vibe/notifications.jsonl`，可用 `/notifications` 查看。
