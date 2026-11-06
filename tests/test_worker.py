@@ -144,6 +144,7 @@ def test_worker_approval_timeout_fails_task_and_expires_inbox(tmp_path, monkeypa
     from app.runtime.worker import Worker
 
     monkeypatch.setenv("VIBE_WORKER_APPROVAL_TIMEOUT", "0.2")
+    monkeypatch.setenv("VIBE_WORKER_APPROVAL_WARN_SECONDS", "0.05")
     (tmp_path / ".vibe").mkdir(exist_ok=True)
     (tmp_path / ".vibe" / "unattended.json").write_text('{"allow_exec": true}', encoding="utf-8")
     session = SessionStore.new(tmp_path, "fake", purpose="test")
@@ -181,6 +182,7 @@ def test_worker_approval_timeout_fails_task_and_expires_inbox(tmp_path, monkeypa
     from app.runtime.notifications import read_notifications
     kinds = [item["kind"] for item in read_notifications(tmp_path)]
     assert "approval_requested" in kinds and "approval_timeout" in kinds
+    assert "approval_warning" in kinds
 
 
 def test_worker_uses_git_worktree_when_available(tmp_path):

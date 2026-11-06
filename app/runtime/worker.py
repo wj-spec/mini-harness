@@ -709,7 +709,23 @@ class Worker:
         asyncio.create_task(self._approval_deadline(approval_id, timeout))
 
     async def _approval_deadline(self, approval_id: str, timeout: float) -> None:
-        await asyncio.sleep(timeout)
+        warn = _env_float("VIBE_WORKER_APPROVAL_WARN_SECONDS", 0.0)
+        if 0 < warn < timeout:
+            await asyncio.sleep(timeout - warn)
+            pending = {item["approval_id"] for item in self.inbox.pending(self.task_id)}
+            if approval_id in pending:
+                notify(self.workspace, "approval_warning", task_id=self.task_id,
+                       approval_id=approval_id, remaining_seconds=warn)
+                try:
+                    TaskStore(self.session_root).append_event(
+                        self.task_id, "approval_warning",
+                        data={"approval_id": approval_id, "remaining_seconds": warn},
+                    )
+                except Exception:
+                    pass
+            await asyncio.sleep(warn)
+        else:
+            await asyncio.sleep(timeout)
         pending = {item["approval_id"] for item in self.inbox.pending(self.task_id)}
         if approval_id not in pending:
             return
