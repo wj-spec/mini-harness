@@ -189,6 +189,7 @@ class Worker:
         self.controller_heartbeat_at: float | None = None
         self.active_run_id: str | None = None
         self.approval_timed_out = False
+        self.deadline_exceeded = False
         self.workspace_lock: WorkspaceLock | None = None
         self.worktree = None
 
@@ -359,6 +360,7 @@ class Worker:
                 asyncio.create_task(self._read_child(events_path)),
                 asyncio.create_task(self._watch_stop()),
                 asyncio.create_task(self._watch_controller()),
+                asyncio.create_task(self._watch_deadline()),
             ]
             await self._queue_initial_run()
             waiters = [asyncio.create_task(self.done.wait()), asyncio.create_task(self.stopping.wait())]
@@ -377,8 +379,16 @@ class Worker:
             except asyncio.TimeoutError:
                 self.child.kill()
                 self.exit_code = await self.child.wait()
+            if self.deadline_exceeded:
+                try:
+                    record = store.get(self.task_id)
+                    if record.status not in {"completed", "failed", "cancelled"}:
+                        target = "failed" if record.status in {"running", "paused", "interrupted"} else "cancelled"
+                        store.transition(self.task_id, target, reason="task_deadline")
+                except Exception:
+                    pass
             if self.stopping.is_set() and not self.done.is_set():
-                self.state.status = "killed"
+                self.state.status = "failed" if self.deadline_exceeded else "killed"
             else:
                 self.state.status = "exited" if self.exit_code == 0 else "failed"
             self.state.exit_code = self.exit_code
@@ -476,6 +486,22 @@ class Worker:
                     return
             except OSError:
                 return
+
+    async def _watch_deadline(self) -> None:
+        seconds = _env_float("VIBE_TASK_DEADLINE_SECONDS", 0.0)
+        if seconds <= 0:
+            return
+        await asyncio.sleep(seconds)
+        self.deadline_exceeded = True
+        try:
+            TaskStore(self.session_root).append_event(
+                self.task_id, "task_deadline_exceeded",
+                data={"deadline_seconds": seconds},
+            )
+        except Exception:
+            pass
+        self.stopping.set()
+        await self._cancel_active_run()
 
     async def _heartbeat(self) -> None:
         interval = _heartbeat_interval()

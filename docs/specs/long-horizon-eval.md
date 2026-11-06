@@ -22,7 +22,8 @@
   6. `two-slot-write-serial`：第二个写 worker 通过 `VIBE_WORKSPACE_LOCK_WAIT=30` 排队，第一个完成后串行执行；默认仍立即拒绝；
   7. `goal-criteria-pending`：未确认 `acceptance_criteria` → worker 启动前退出，task 保持 created；
   8. `no-duplicate-effects`：崩溃恢复后 changed files 为空；
-  9. `goal-multisegment`：max_steps 资源停止后续段，2 段完成。
+  9. `goal-multisegment`：max_steps 资源停止后续段，2 段完成；
+  10. `task-deadline`：`VIBE_TASK_DEADLINE_SECONDS` 到期 → task failed、worker failed、事件 `task_deadline_exceeded`。
 - 测试：`tests/test_bench_long.py`（场景 schema、校验、列表、报告可重复标记）。
 
 ## 用法

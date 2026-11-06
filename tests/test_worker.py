@@ -288,3 +288,26 @@ def test_worker_pauses_on_unconfirmed_goal_criteria(tmp_path):
     events = (store.task_dir(task.task_id) / "events.jsonl").read_text(encoding="utf-8")
     assert "goal_criteria_pending" in events
     assert not (store.task_dir(task.task_id) / "worker.lock").exists()
+
+
+def test_worker_task_deadline_fails_task(tmp_path, monkeypatch):
+    import asyncio
+
+    from app.runtime.worker import Worker
+
+    monkeypatch.setenv("VIBE_ALLOW_NON_GIT", "1")
+    monkeypatch.setenv("VIBE_TASK_DEADLINE_SECONDS", "0.3")
+    session = SessionStore.new(tmp_path, "fake", purpose="test")
+    store = TaskStore(session.root)
+    task = store.create(kind="goal", objective="deadline", workspace=str(tmp_path), mode="goal")
+    worker = Worker(
+        session_root=session.root, task_id=task.task_id, workspace=tmp_path,
+        child_args=[sys.executable, "-c", "import sys,time; [None for _ in sys.stdin]"],
+        child_env={"VIBE_TASK_RUNTIME": "1"},
+    )
+    assert asyncio.run(worker.run()) in {0, 1}
+    assert store.get(task.task_id).status in {"failed", "cancelled"}
+    events = (store.task_dir(task.task_id) / "events.jsonl").read_text(encoding="utf-8")
+    assert "task_deadline_exceeded" in events
+    state = json.loads((store.task_dir(task.task_id) / "worker.json").read_text(encoding="utf-8"))
+    assert state["status"] == "failed"

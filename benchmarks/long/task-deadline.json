@@ -1,0 +1,21 @@
+{
+  "id": "task-deadline",
+  "description": "任务级 wall deadline 到期，worker 取消运行并把任务标 failed",
+  "objective": "长任务评测：任务级 deadline",
+  "action": "wait",
+  "worker_env": {
+    "VIBE_FAKE_DELAY_SECONDS": "60",
+    "VIBE_TASK_DEADLINE_SECONDS": "2"
+  },
+  "expected": {
+    "task_status": [
+      "failed"
+    ],
+    "worker_status": [
+      "failed"
+    ],
+    "min_segments": 1,
+    "event_contains": "task_deadline_exceeded"
+  },
+  "timeout_seconds": 60
+}
