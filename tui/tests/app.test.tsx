@@ -2041,3 +2041,31 @@ test('/plan background keeps TUI when worker spawn fails', async () => {
   await pause(30);
   assert.match(lastFrame() ?? '', /后台 worker 未启动/);
 });
+
+test('plan overlay b sends prepare-background command', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'mini-harness-plan-bg-'));
+  try {
+    const taskDir = path.join(dir, 'tasks', 't-20261103-120000-abcdef', 'plan');
+    await mkdir(taskDir, {recursive: true});
+    await writeFile(path.join(taskDir, 'plan.v1.json'), JSON.stringify({
+      schema_version: 1, plan_id: 'pl-bg', task_id: 't-20261103-120000-abcdef',
+      version: 1, status: 'approved', objective: '后台',
+      acceptance_criteria: [], steps: [{step_id: 's1', title: '读', kind: 'read'}],
+    }));
+    const client = new MockClient();
+    client.capabilityList = ['tasks'];
+    const {stdin} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}/>);
+    await pause(20);
+    client.emit({type: 'ready', workspace: '/tmp/repo', model: 'fake', session_id: 'test',
+      session_path: dir, capabilities: ['tasks']});
+    client.emit({type: 'status', phase: 'idle'});
+    await pause(20);
+    await enter(stdin, '/plan');
+    stdin.write('b');
+    await pause(30);
+    assert.equal(client.commands.at(-1), 'plan');
+    assert.deepEqual(client.commandArgs.at(-1), {action: 'prepare-background'});
+  } finally {
+    await rm(dir, {recursive: true, force: true});
+  }
+});
