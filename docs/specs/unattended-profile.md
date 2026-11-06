@@ -1,6 +1,6 @@
 # 无人值守 profile P0（保守默认 + 能力拒绝）
 
-状态：2026-11-06 P0 实现；env 凭据 scrub、日志保留、pause/通知、两槽队列仍待后续。
+状态：2026-11-06 P0 实现；env 凭据 scrub（命令工具）与 `--pause-task` 已实现；日志保留/通知、两槽队列仍待后续。
 设计来源：[09 无人值守安全默认值](../design/long-horizon/09-unattended-safety.md)。
 
 ## 已实现
@@ -28,13 +28,15 @@
 {"schema_version":1,"allow_exec":true,"allow_network":true}
 ```
 
-- 测试：`tests/test_unattended.py`（默认拒绝、profile 覆盖/未知字段、worker 自动 deny + audit）。
+- `run_command`/`run_command_async` 使用 `scrubbed_command_env`：保留 PATH/HOME/语言/工具链变量，剥离 `*KEY*/*TOKEN*/*SECRET*/*PASSWORD*` 等凭据变量；`env_extra` 显式覆盖。
+- CLI `--pause-task TASK_ID --workspace PATH`：SIGTERM 暂停指定 worker，保留 worktree，不写 `.vibe/stop`；`--stop/--stop-task` 仍是 kill switch。
+- 测试：`tests/test_unattended.py`（默认拒绝、profile 覆盖/未知字段、worker 自动 deny + audit）、`tests/test_sandbox.py`（env scrub）、`tests/test_cli_merge_stop.py`（pause）。
 
 ## 未完成（P0 剩余）
 
-- `bash` 子进程仍继承完整环境变量；尚未做最小 env allowlist/secret scrub（模型 key 与工具链需要单独设计）；
+- `bash` 子进程环境已按通用 allowlist scrub；模型 provider key 与工具链的细粒度注入仍需后续设计；
 - 日志保留/轮转/告警；
-- `vibe task pause`、任务级 deadline 独立配置、两任务槽队列；
+- 任务级 deadline 独立配置、两任务槽队列；`--pause-task` 已提供基础入口；
 - merge 审批默认值与 profile 的联动仍是现有 MergeGate 行为；
 - profile 变更的审批/审计入口（当前只能改文件）；
 - 红队清单尚未固化为自动化脚本。
