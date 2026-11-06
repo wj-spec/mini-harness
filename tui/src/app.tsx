@@ -397,6 +397,10 @@ export function App({client, attach = false, initialState = emptyState, windowSi
     if (event.type === 'subagent_event') {
       notice(`子 Agent ${event.status}：${event.task_id}${event.summary ? ` · ${event.summary}` : ''}`);
     }
+    if ((event.type === 'error' || event.type === 'closed') && pendingBackgroundPlan.current) {
+      pendingBackgroundPlan.current = false;
+      dispatch({type: 'notice', text: '后台计划准备失败；查看错误后重试。'});
+    }
     if (event.type === 'command_result' && pendingBackgroundPlan.current) {
       pendingBackgroundPlan.current = false;
       const match = /task_id=(t-[A-Za-z0-9-]+)/.exec(String(event.text ?? ''));
