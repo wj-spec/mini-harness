@@ -603,7 +603,7 @@ class _Connection:
                 if not items:
                     text = "当前没有通知。"
                 else:
-                    text = "最近通知：\n" + "\n".join(
+                    text = f"最近通知（{len(items)}）：\n" + "\n".join(
                         f"- {item.get('ts', '')} {item.get('kind', '')} "
                         f"task={item.get('task_id', '-')} {item.get('status', '')}".rstrip()
                         for item in items

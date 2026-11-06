@@ -475,8 +475,9 @@ def main() -> None:
         from app.runtime.notifications import read_notifications
 
         items = read_notifications(config.workspace)
-        print(json.dumps({"workspace": str(config.workspace), "notifications": items[-50:]},
-                         ensure_ascii=False, indent=2))
+        recent = items[-50:]
+        print(json.dumps({"workspace": str(config.workspace), "count": len(recent),
+                          "notifications": recent}, ensure_ascii=False, indent=2))
         return
 
     if args.tasks:

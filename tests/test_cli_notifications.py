@@ -16,6 +16,7 @@ def test_notifications_lists_recent(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr("sys.argv", ["vibe", "--notifications", "--workspace", str(tmp_path)])
     entrypoint.main()
     payload = json.loads(capsys.readouterr().out)
+    assert payload["count"] == 2
     assert [item["kind"] for item in payload["notifications"]] == ["worker_started", "worker_exited"]
 
 
