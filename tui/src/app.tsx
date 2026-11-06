@@ -1,5 +1,5 @@
 import {spawn, spawnSync} from 'node:child_process';
-import {rmSync} from 'node:fs';
+import {readFileSync, readdirSync, rmSync, statSync} from 'node:fs';
 import path from 'node:path';
 import React, {useEffect, useMemo, useReducer, useRef, useState} from 'react';
 import {CommandMenu} from './command-menu.js';
@@ -42,6 +42,40 @@ const backendCommands: Record<string, BackendCommand> = {
 const approvalKeys: Record<string, ApprovalDecision> = {y: 'once', s: 'session', p: 'workspace', n: 'deny'};
 const FAKE_DEMO_PROMPT = '创建 .vibe/fake-demo.txt 并验证';
 const fakeDemoEnabled = () => /^(1|true|yes)$/i.test(process.env.VIBE_FAKE_DEMO ?? '');
+
+function latestPlanText(sessionPath: string): string | null {
+  if (!sessionPath) return null;
+  try {
+    const tasksRoot = path.join(sessionPath, 'tasks');
+    let best: {mtime: number; payload: Record<string, unknown>} | null = null;
+    for (const task of readdirSync(tasksRoot, {withFileTypes: true})) {
+      if (!task.isDirectory()) continue;
+      const planDir = path.join(tasksRoot, task.name, 'plan');
+      let files: string[] = [];
+      try {files = readdirSync(planDir).filter(name => /^plan\.v\d+\.json$/.test(name));} catch {continue;}
+      for (const name of files) {
+        const file = path.join(planDir, name);
+        try {
+          const stats = statSync(file);
+          const payload = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+          if (!best || stats.mtimeMs > best.mtime) best = {mtime: stats.mtimeMs, payload};
+        } catch {}
+      }
+    }
+    if (!best) return null;
+    const payload = best.payload;
+    const lines = [`计划：${String(payload.objective ?? '')}`, `状态：${String(payload.status ?? '')} · version ${String(payload.version ?? 1)}`];
+    const criteria = Array.isArray(payload.acceptance_criteria) ? payload.acceptance_criteria : [];
+    if (criteria.length) {
+      lines.push('验收标准：');
+      for (const item of criteria) lines.push(`- [${item?.confirmed === true ? '已确认' : '候选'}] ${String(item?.text ?? '')}`);
+    }
+    const steps = Array.isArray(payload.steps) ? payload.steps : [];
+    lines.push('步骤：');
+    for (const step of steps) lines.push(`- ${String(step?.step_id ?? '?')} ${String(step?.title ?? '')} [${String(step?.kind ?? '')}]`);
+    return lines.slice(0, 200).join('\n');
+  } catch {return null;}
+}
 
 export function App({client, attach = false, initialState = emptyState, windowSize, initialTheme = 'system', copyText = copyToClipboard, profilePath, userProfilePath, launchSidebar = launchSidebarForTui, setupSidebar = runSidebarSetup, publishSidebarSignal = writeSidebarSignal, autoObserve = process.env.VIBE_AUTO_OBSERVE === '1'}: {
   client: BackendClient; attach?: boolean; initialState?: ViewState; windowSize?: {columns: number; rows: number}; initialTheme?: ThemeName;
@@ -1037,6 +1071,31 @@ export function App({client, attach = false, initialState = emptyState, windowSi
         dispatch({type: 'begin_command', id, command});
         setInput(''); setFeedback(''); setScroll({follow: true, top: 0});
       } catch (error) {reportError(`操作未送达：${String(error)}`);}
+      return;
+    }
+    if (text === '/plan') {
+      setInput('');
+      const rendered = latestPlanText(state.sessionPath);
+      notice(rendered ?? '当前会话没有计划产物；用 /plan <任务描述> 开始一次只读规划。');
+      return;
+    }
+    const planMatch = /^\/plan\s+([\s\S]+)$/.exec(text);
+    if (planMatch) {
+      const prompt = planMatch[1]!.trim();
+      if (state.phase !== 'idle' || activeRun.current || goalRef.current?.active) {
+        notice('当前有运行中任务；结束后再开始新的计划。');
+        return;
+      }
+      if (!(client.capabilities?.().includes('tasks') ?? false)) {
+        notice('后端未启用任务运行时，暂不能使用 /plan。');
+        return;
+      }
+      try {
+        const id = client.run(prompt, {kind: 'run', mode: 'plan', objective: prompt});
+        activeRun.current = id;
+        dispatch({type: 'begin', id, text: prompt});
+        setInput(''); setFeedback(''); setScroll({follow: true, top: 0});
+      } catch (error) {notice(`未能提交计划任务：${String(error)}`);}
       return;
     }
     const modeMatch = /^\/(chat|act)\s+([\s\S]+)$/.exec(text);

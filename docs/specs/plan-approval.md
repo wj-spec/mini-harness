@@ -26,7 +26,7 @@
 - steering/偏离后 plan 变 stale 与重批；
 - `submit_plan` 工具已接 plan profile；`kind=plan` task 的 TUI 创建/展示未接；
 - stdio 帧/`plan.review` capability 协商；
-- TUI 计划卡片、折叠/分页、批准/拒绝/编辑；
+- TUI 计划卡片、折叠/分页、批准/拒绝/编辑（`/plan` 已能只读展示最近计划）；
 - 验收标准确认与 GoalRecord 同步。
 
 ## 测试

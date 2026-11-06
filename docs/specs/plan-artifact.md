@@ -25,13 +25,16 @@
   - run 结束注销，act/chat 不可见。
 - 测试：`tests/test_plan_artifact.py`（roundtrip/hash/原子写、6 类非法输入、环检测、
   unknown schema、渲染、路径布局、submit_plan 工具写 proposed）。
+- TUI `/plan`：
+  - `/plan <任务>` 发送 `kind=run, mode=plan`；
+  - `/plan` 无参数读取当前 session 最近的 plan 文件并渲染目标/状态/验收标准/步骤（最多 200 行）。
 
 ## 未完成（P0 剩余）
 
 - `submit_plan` 已接 plan profile；TUI `/plan` 展示/审批未接；
 - plan.review 审批门（13）与 `plan_proposed/plan_approved` 审计事件；
 - 执行绑定/步骤证据（14）、计划验收（15）；
-- TUI `/plan` 渲染与编辑入口；
+- TUI `/plan` 已能展示最近计划；批准/拒绝/编辑面板与 plan task 创建入口仍待；
 - legacy `TaskState.plan` 合成 legacy 计划；
 - 预算/审批字段的执行层校验（D6/D9）。
 

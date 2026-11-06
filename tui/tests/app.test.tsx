@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {mkdtemp, readFile, readdir, rm, writeFile} from 'node:fs/promises';
+import {mkdir, mkdtemp, readFile, readdir, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {afterEach, test} from 'node:test';
@@ -603,12 +603,12 @@ test('slash opens a scrollable command menu without overflowing the frame', asyn
   let frame = lastFrame() ?? '';
   assert.match(frame, /› \/help/);
   assert.match(frame, /查看操作帮助/);
-  assert.match(frame, /↑↓ 选择 · Tab 填充 · 1\/32/);
+  assert.match(frame, /↑↓ 选择 · Tab 填充 · 1\/33/);
   assert.ok(frame.split('\n').length <= 24);
   for (const line of frame.split('\n')) assert.ok(stringWidth(line) <= 80, line);
   stdin.write('\u001b[B');
   await pause(15);
-  assert.match(lastFrame() ?? '', /2\/32/);
+  assert.match(lastFrame() ?? '', /2\/33/);
   stdin.write('\t');
   await pause(15);
   frame = lastFrame() ?? '';
@@ -1613,4 +1613,33 @@ test('/chat and /act submit run tasks with mode metadata', async () => {
   await enter(stdin, '/act 改代码');
   assert.deepEqual(client.runTasks[1], {kind: 'run', mode: 'act', objective: '改代码'});
   assert.match(lastFrame() ?? '', /改代码/);
+});
+
+test('/plan submits a plan-mode run and /plan renders the latest artifact', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'mini-harness-plan-view-'));
+  try {
+    const taskDir = path.join(dir, 'tasks', 't-20261103-120000-abcdef', 'plan');
+    await mkdir(taskDir, {recursive: true});
+    await writeFile(path.join(taskDir, 'plan.v1.json'), JSON.stringify({
+      schema_version: 1, plan_id: 'pl-1', task_id: 't-20261103-120000-abcdef',
+      version: 1, status: 'proposed', objective: '修复问题',
+      acceptance_criteria: [{id: 'ac1', text: '测试通过', confirmed: false}],
+      steps: [{step_id: 's1', title: '读代码', kind: 'read'}],
+    }));
+    const client = new MockClient();
+    client.capabilityList = ['tasks', 'modes'];
+    const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}/>);
+    await pause(20);
+    client.emit({type: 'ready', workspace: '/tmp/repo', model: 'fake', session_id: 'test',
+      session_path: dir, capabilities: ['tasks', 'modes']});
+    client.emit({type: 'status', phase: 'idle'});
+    await pause(20);
+    await enter(stdin, '/plan');
+    assert.match(lastFrame() ?? '', /修复问题/);
+    assert.match(lastFrame() ?? '', /候选/);
+    await enter(stdin, '/plan 先规划');
+    assert.deepEqual(client.runTasks[0], {kind: 'run', mode: 'plan', objective: '先规划'});
+  } finally {
+    await rm(dir, {recursive: true, force: true});
+  }
 });
