@@ -170,6 +170,8 @@ class Plan:
             isinstance(item, dict) for item in verification_plan
         ):
             raise PlanError("verification_plan must be an object list")
+        if len(verification_plan) > 50:
+            raise PlanError("verification_plan exceeds 50 entries")
         seen_verification = set()
         criterion_ids = seen
         for item in verification_plan:

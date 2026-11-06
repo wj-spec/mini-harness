@@ -14,8 +14,8 @@
     - files 必须是相对路径（拒绝绝对路径/`..`）；
     - step kind ∈ read/edit/run/verify，risk ∈ read/write/exec/network；
     - acceptance_criteria id 唯一、confirmed 必须 bool；
-    - verification_plan id 唯一、command 非空且 ≤4000 字符、covers 指向已知 criteria、
-      source∈plan_approval/project_profile；
+    - verification_plan 最多 50 条，id 唯一、command 非空且 ≤4000 字符、
+      covers 指向已知 criteria、source∈plan_approval/project_profile；
     - 未知 schema_version fail closed。
   - `save_plan` 原子写 `task_dir/plan/plan.v<version>.json`；
   - `load_plan` / `load_plan_ref`；
