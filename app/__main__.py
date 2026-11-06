@@ -94,6 +94,7 @@ def main() -> None:
     sessions.add_argument("--session", metavar="SESSION_ID", help="恢复本工作区指定 session，不自动续跑")
     sessions.add_argument("--list-sessions", action="store_true", help="只读列出本工作区已有对话的 session 后退出")
     parser.add_argument("--tasks", action="store_true", help="只读列出最近会话的任务与 worker 状态")
+    parser.add_argument("--tasks-json", action="store_true", help="--tasks 的 JSON 输出")
     parser.add_argument("--notifications", action="store_true", help="只读输出本工作区最近的本地通知")
     parser.add_argument("--notification-kind", default=None, metavar="KIND", help="与 --notifications 搭配，只显示指定 kind")
     parser.add_argument("--plans", action="store_true", help="只读列出本工作区会话的计划版本")
@@ -136,6 +137,8 @@ def main() -> None:
         or args.session is not None or args.bench
     ):
         parser.error("--tasks cannot be combined with --stdio/--eval/--list-sessions/--task/--continue/--session/--bench")
+    if args.tasks_json and not args.tasks:
+        parser.error("--tasks-json requires --tasks")
     if args.notification_kind is not None and not args.notifications:
         parser.error("--notification-kind requires --notifications")
     if args.notifications and (
@@ -323,6 +326,8 @@ def main() -> None:
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return
 
+    if args.tasks_json and not args.tasks:
+        parser.error("--tasks-json requires --tasks")
     if args.notification_kind is not None and not args.notifications:
         parser.error("--notification-kind requires --notifications")
     if args.notifications and (
@@ -509,6 +514,24 @@ def main() -> None:
         snapshots = WorkerSupervisor(session_root).snapshot()
         if not snapshots:
             print(f"no tasks under {session_root}")
+            return
+        if args.tasks_json:
+            rows = []
+            for snapshot in snapshots:
+                task = snapshot.task
+                worker = snapshot.worker
+                rows.append({
+                    "task_id": task.task_id, "kind": task.kind, "mode": task.mode,
+                    "status": task.status,
+                    "segment": task.segments[-1].segment if task.segments else 0,
+                    "worker": worker.status if worker is not None else None,
+                    "pid": worker.pid if worker is not None else None,
+                    "heartbeat": worker.heartbeat_at if worker is not None else None,
+                    "stale": snapshot.stale, "plan_id": task.plan_id,
+                    "plan_version": task.plan_version, "parent_id": task.parent_id,
+                    "objective": task.objective,
+                })
+            print(json.dumps({"session": session_root.name, "tasks": rows}, ensure_ascii=False, indent=2))
             return
         print("TASK_ID\tKIND\tMODE\tSTATUS\tSEGMENTS\tWORKER\tPID\tHEARTBEAT\tSTALE\tPLAN\tPARENT\tOBJECTIVE")
         for snapshot in snapshots:

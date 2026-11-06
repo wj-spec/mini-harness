@@ -57,3 +57,15 @@ def test_tasks_rejects_other_modes(tmp_path, monkeypatch, capsys):
         entrypoint.main()
     assert error.value.code == 2
     assert "--tasks cannot be combined" in capsys.readouterr().err
+
+
+def test_tasks_json_output(tmp_path, monkeypatch, capsys):
+    import json
+    _session, _store, _task, plan_task = _seed(tmp_path)
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path))
+    monkeypatch.setattr("sys.argv", ["vibe", "--tasks", "--tasks-json"])
+    entrypoint.main()
+    payload = json.loads(capsys.readouterr().out)
+    rows = {item["task_id"]: item for item in payload["tasks"]}
+    assert rows[plan_task.task_id]["plan_id"] == "pl-cli"
+    assert rows[plan_task.task_id]["mode"] == "act"
