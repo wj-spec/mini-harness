@@ -134,6 +134,7 @@ export function App({client, attach = false, initialState = emptyState, windowSi
   const [planOpen, setPlanOpen] = useState(false);
   const [planLines, setPlanLines] = useState<string[]>([]);
   const [planSelection, setPlanSelection] = useState(0);
+  const [planStatus, setPlanStatus] = useState('');
   const [contextSelection, setContextSelection] = useState<string | null>(null);
   const [overlayScroll, setOverlayScroll] = useState({key: '', top: 0});
   const [reading, setReading] = useState(false);
@@ -933,6 +934,17 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       } else if (!state.activeId) requestShutdown();
       return;
     }
+    if (planOpen && !key.ctrl && !key.meta && (keyInput === 'y' || keyInput === 'n')) {
+      if (planStatus !== 'proposed') {notice(`当前计划状态为 ${planStatus || '未知'}；只有 proposed 可审批。`); return;}
+      if (state.phase !== 'idle' || activeRun.current) {notice('当前有运行中任务；结束后再审批计划。'); return;}
+      try {
+        const id = client.command('plan', {action: keyInput === 'y' ? 'approve' : 'reject'});
+        activeRun.current = id;
+        dispatch({type: 'begin_command', id, command: 'plan'});
+        setPlanOpen(false);
+      } catch (error) {notice(`计划审批未送达：${String(error)}`);}
+      return;
+    }
     if (key.pageUp) {moveReading(-Math.max(1, bodyRows - 1)); return;}
     if (key.pageDown) {moveReading(Math.max(1, bodyRows - 1)); return;}
     if (key.ctrl && (keyInput === 'p' || keyInput === 'n')) {moveReading(keyInput === 'p' ? -1 : 1); return;}
@@ -1132,6 +1144,7 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       }
       setPlanLines(rendered.split('\n'));
       setPlanSelection(0);
+      setPlanStatus(String(latestPlanArtifact(state.sessionPath)?.status ?? ''));
       setPlanOpen(true);
       setOverlayScroll({key: 'plan', top: 0});
       return;
@@ -1257,7 +1270,7 @@ export function App({client, attach = false, initialState = emptyState, windowSi
   const goalTitle = goal?.active ? `目标模式 · ${goalLabel(goal)} · ` : '';
   const paneTitle = goalTitle + (state.approval ? `等待审批 · ${position}` : contextOpen ? `上下文分区 · ${position}` : planOpen ? `计划 · ${position}` : detailEntry ? `工具详情 · ${position}` : isEmpty ? '工作台首页 · 输入任务开始' : `对话 · ${reading ? '阅读焦点 · ' : ''}${scroll.follow ? '跟随最新' : `回看 · 下方 ${maximum-top} 行`} · ${position}`);
   const goalHint = goal ? `${goalStatusText(goal)} · ` : '';
-  const hint = goalHint + (state.approval ? `${approvalHint} · 滚轮/PgUp/PgDn 翻页 · Ctrl+C 取消` : contextOpen ? '←/→ 选快照 · l 最新 · ↑↓/滚轮 翻阅 · Esc 返回' : planOpen ? '滚轮/PgUp/PgDn 翻阅 · Esc 返回' : detailEntry ? '滚轮/↑↓ 翻阅 · Home/End 首尾 · Esc 返回' :
+  const hint = goalHint + (state.approval ? `${approvalHint} · 滚轮/PgUp/PgDn 翻页 · Ctrl+C 取消` : contextOpen ? '←/→ 选快照 · l 最新 · ↑↓/滚轮 翻阅 · Esc 返回' : planOpen ? '↑↓ 选择 · y批准 · n拒绝 · 滚轮/PgUp/PgDn 翻阅 · Esc 返回' : detailEntry ? '滚轮/↑↓ 翻阅 · Home/End 首尾 · Esc 返回' :
     reading ? '阅读焦点：↑↓滚动  空格翻页  End最新  Esc输入  Ctrl+Q退出' :
       state.phase === 'running' ? (columns < 60 ? 'Enter 纠偏 · /followup 排队 · Ctrl+C 停止' : 'Enter 提交纠偏  /followup 文本 排队后续  Ctrl+C 停止  Ctrl+Q 退出') :
         state.lastStatus === 'done' ? (columns < 60 ? `${doneText} · /evidence 核对 · /resume 续做` : `${doneText}  /evidence 证据  /resume 续做  /copy 复制回复  Ctrl+Q 退出`) :

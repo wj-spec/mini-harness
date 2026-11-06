@@ -29,7 +29,8 @@
   - `/plan <任务>` 发送 `kind=run, mode=plan`；
   - `/plan` 打开计划覆盖层（默认折叠：目标/状态/验收标准 + 前 3 步，提示共 N 步）；
   - `/plan all` 打开完整步骤覆盖层；
-  - 覆盖层支持滚轮/PgUp/PgDn 翻阅，↑↓ 选择并跟随滚动，Esc 返回；计划审批面板与右侧 sidebar 仍待。
+  - 覆盖层支持 ↑↓ 选择、滚轮/PgUp/PgDn 翻阅、Esc 返回；
+  - proposed 计划可用 `y` 批准 / `n` 拒绝（发 backend plan command）；完整审批卡片与右侧 sidebar 仍待。
   - `/plan approve`、`/plan reject` 通过后端 `plan` command 处理最近计划（stdio 本地 user 决定）。
   - `/plan execute` 读取最近 approved 计划，提交带 `plan_id/plan_version` 的 act run。
 
@@ -38,7 +39,7 @@
 - `submit_plan` 已接 plan profile；TUI `/plan` 展示/审批未接；
 - plan.review 审批门（13）与 `plan_proposed/plan_approved` 审计事件；
 - 执行绑定/步骤证据（14）、计划验收（15）；
-- TUI `/plan` 覆盖层已能折叠/展开、方向键选择；批准/拒绝/编辑面板与 plan task 创建入口仍待；
+- TUI `/plan` 覆盖层已能折叠/展开、方向键选择、y/n 审批；编辑与 plan task 创建入口仍待；
 - legacy `TaskState.plan` 合成 legacy 计划；
 - 预算/审批字段的执行层校验（D6/D9）。
 

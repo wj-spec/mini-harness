@@ -1694,3 +1694,32 @@ test('/plan submits a plan-mode run and /plan renders the latest artifact', asyn
     await rm(dir, {recursive: true, force: true});
   }
 });
+
+test('plan overlay approves a proposed plan with y', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'mini-harness-plan-approve-'));
+  try {
+    const taskDir = path.join(dir, 'tasks', 't-20261103-120000-abcdef', 'plan');
+    await mkdir(taskDir, {recursive: true});
+    await writeFile(path.join(taskDir, 'plan.v1.json'), JSON.stringify({
+      schema_version: 1, plan_id: 'pl-2', task_id: 't-20261103-120000-abcdef',
+      version: 1, status: 'proposed', objective: '待批计划',
+      acceptance_criteria: [], steps: [{step_id: 's1', title: '读', kind: 'read'}],
+    }));
+    const client = new MockClient();
+    client.capabilityList = ['tasks'];
+    const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}/>);
+    await pause(20);
+    client.emit({type: 'ready', workspace: '/tmp/repo', model: 'fake', session_id: 'test',
+      session_path: dir, capabilities: ['tasks']});
+    client.emit({type: 'status', phase: 'idle'});
+    await pause(20);
+    await enter(stdin, '/plan');
+    stdin.write('y');
+    await pause(30);
+    assert.equal(client.commands.at(-1), 'plan');
+    assert.deepEqual(client.commandArgs.at(-1), {action: 'approve'});
+    assert.doesNotMatch(lastFrame() ?? '', /待批计划/);
+  } finally {
+    await rm(dir, {recursive: true, force: true});
+  }
+});

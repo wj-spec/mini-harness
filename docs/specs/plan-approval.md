@@ -23,6 +23,7 @@
 
 - stdio command `plan`（args `{action: show|approve|reject}`）：读取当前 session 最近 plan 产物，展示/调用 approve/reject；
 - TUI `/plan approve`、`/plan reject` 发送该 command；
+- TUI 计划覆盖层中 proposed 计划按 `y`/`n` 也可直接批准/拒绝；
 - 通过 `plan.review` capability 语义（当前 stdio 本地用户命令视为 user 决定）。
 
 ## 执行门禁
