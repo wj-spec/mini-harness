@@ -24,7 +24,7 @@ def test_bench_long_scenarios_are_well_formed():
     assert {"detach-continue", "approval-timeout", "kill-switch", "restart-attach"} <= set(scenarios)
     for scenario in scenarios.values():
         assert scenario["id"] == Path(scenario["_path"]).stem
-        assert scenario["action"] in {"wait", "attach", "stop", "approval_timeout"}
+        assert scenario["action"] in {"wait", "attach", "stop", "approval_timeout", "crash", "two_slot", "criteria"}
         assert isinstance(scenario["expected"], dict)
 
 

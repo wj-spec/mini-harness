@@ -1,6 +1,6 @@
 # 长任务评测 P0（fake worker 场景）
 
-状态：2026-11-06 P0 起步实现（4/8 类场景）；真模型与剩余场景待后续。
+状态：2026-11-06 P0 场景实现（08 的 8 类 + multi-segment；真模型 P1 待后续）。
 设计来源：[08 长任务评测](../design/long-horizon/08-long-horizon-eval.md)。
 
 ## 已实现
@@ -13,11 +13,16 @@
   - 写 `.vibe/bench-long/<ts>/report.json` 与 `report.md`；
   - 同场景多次运行报告 `repeated_scenarios`（terminal/worker/segments/changed_files 一致）。
 - 场景目录 `benchmarks/long/*.json`，schema 包含 `id/description/objective/action/worker_env/expected/timeout_seconds`。
-- 当前 4 类：
+- 当前场景（`benchmarks/long/`）：
   1. `detach-continue`：后台自然完成；
   2. `approval-timeout`：审批过期 → task failed + approval expired；
   3. `kill-switch`：stop → worker killed、stop file；
-  4. `restart-attach`：attach observer 后任务继续完成。
+  4. `restart-attach`：attach observer 后任务继续完成；
+  5. `crash-no-rerun`：kill -9 进程组 → supervisor recover → task interrupted，已执行段不重跑；
+  6. `two-slot-write-serial`：同 workspace 第二个 worker 被 workspace lock 拒绝（当前是拒绝而非排队）；
+  7. `goal-criteria-pending`：未确认 `acceptance_criteria` → worker 启动前退出，task 保持 created；
+  8. `no-duplicate-effects`：崩溃恢复后 changed files 为空；
+  9. `goal-multisegment`：max_steps 资源停止后续段，2 段完成。
 - 测试：`tests/test_bench_long.py`（场景 schema、校验、列表、报告可重复标记）。
 
 ## 用法
@@ -29,8 +34,8 @@
 
 ## 未完成（P0 剩余）
 
-- 08 设计中的另外 4 类：`two-slot-write-serial`、`crash-no-rerun`、`goal-criteria-pending`、独立 `no-duplicate-effects` 横切；
-- 每场景 ≥2 段（当前 fake 场景 1 段）；
-- 故障注入器（kill9/5xx/时钟/seed）与可重放 trace 摘要；
+- `two-slot-write-serial` 当前验证的是 workspace lock 拒绝第二个 worker，不是设计中的两任务排队/写串行读并发槽位；
+- 多段场景目前 1 个（goal-multisegment），其余场景为单段；
+- 故障注入器仍是脚本内直连（kill -9/stop/attach），无 5xx/时钟/seed/trace 摘要；
 - 成本 cap、token/成本指标、`agent_version`、真实模型 P1；
 - fake 通过只表示接线/生命周期语义，不代表模型能力。

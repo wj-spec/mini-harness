@@ -259,3 +259,30 @@ def test_worker_reuses_existing_worktree(tmp_path):
     assert "non-git workspace" not in proc.stderr
     assert existing.path.is_dir()
     assert json.loads((store.task_dir(task.task_id) / "meta.json").read_text(encoding="utf-8"))["status"] == "completed"
+
+
+def test_worker_pauses_on_unconfirmed_goal_criteria(tmp_path):
+    import asyncio
+
+    from app.runtime.goals import GoalStore
+    from app.runtime.worker import Worker
+
+    session = SessionStore.new(tmp_path, "fake", purpose="test")
+    store = TaskStore(session.root)
+    task = store.create(kind="goal", objective="等待验收标准确认", workspace=str(tmp_path), mode="goal")
+    record = GoalStore(session.root).ensure_for_task(task)
+    record.acceptance_criteria = [{"text": "必须通过隐藏测试", "confirmed": False}]
+    GoalStore(session.root).save(record)
+
+    worker = Worker(
+        session_root=session.root, task_id=task.task_id, workspace=tmp_path,
+        child_args=[sys.executable, "-c", "pass"],
+        child_env={"VIBE_TASK_RUNTIME": "1"},
+    )
+    assert asyncio.run(worker.run()) == 0
+    assert store.get(task.task_id).status == "created"
+    state = json.loads((store.task_dir(task.task_id) / "worker.json").read_text(encoding="utf-8"))
+    assert state["status"] == "exited"
+    events = (store.task_dir(task.task_id) / "events.jsonl").read_text(encoding="utf-8")
+    assert "goal_criteria_pending" in events
+    assert not (store.task_dir(task.task_id) / "worker.lock").exists()

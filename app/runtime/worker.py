@@ -211,6 +211,24 @@ class Worker:
                 self.goal_record = self.goal_store.ensure_for_task(task)
             except Exception:
                 self.goal_record = None
+        if self.goal_record is not None:
+            pending = [
+                item for item in self.goal_record.acceptance_criteria
+                if item.get("confirmed") is not True
+            ]
+            if pending:
+                self.task_dir.mkdir(parents=True, exist_ok=True)
+                self.state.status = "exited"
+                self.state.heartbeat_at = self._now()
+                write_worker_state(self.task_dir, self.state)
+                try:
+                    store.append_event(
+                        self.task_id, "goal_criteria_pending",
+                        data={"pending": len(pending)},
+                    )
+                except Exception:
+                    pass
+                return 0
         try:
             self.workspace_lock = acquire_workspace_lock(
                 self.workspace, task_id=self.task_id, session_id=self.session_root.name,

@@ -121,8 +121,14 @@ def summary(workspace: Path, session_id: str, task_id: str, before: dict[str, st
     after = file_hashes(workspace)
     changed = sorted(name for name in set(before) | set(after) if before.get(name) != after.get(name))
     segments = meta.get("segments") or []
+    events_text = ""
+    try:
+        events_text = (task_dir / "events.jsonl").read_text(encoding="utf-8")
+    except OSError:
+        pass
     return {
         "task_status": meta.get("status"),
+        "events_text": events_text,
         "segments": len(segments),
         "segment_statuses": [(item.get("segment"), item.get("status"), item.get("stop_reason")) for item in segments],
         "worker_status": worker.get("status"),
@@ -144,6 +150,14 @@ def run_scenario(scenario: dict, run_dir: Path, run_index: int) -> dict:
     task_dir, _ = task_paths(workspace, session_id, task_id)
     from app.runtime.worker import socket_path
     worker_socket = socket_path(task_dir, task_id)
+    if scenario["id"] == "goal-criteria-pending":
+        sys.path.insert(0, str(ROOT))
+        from app.runtime.goals import GoalStore
+        from app.runtime.tasks import TaskStore
+        goal_store = GoalStore(workspace / ".vibe" / "sessions" / session_id)
+        record = goal_store.ensure_for_task(TaskStore(workspace / ".vibe" / "sessions" / session_id).get(task_id))
+        record.acceptance_criteria = [{"text": "必须通过隐藏测试", "confirmed": False}]
+        goal_store.save(record)
 
     env = os.environ.copy()
     env.update({
@@ -155,14 +169,41 @@ def run_scenario(scenario: dict, run_dir: Path, run_index: int) -> dict:
     log = (scenario_dir / "worker.log").open("w", encoding="utf-8")
     proc = subprocess.Popen(
         [sys.executable, "-m", "app", "--worker", "--fake",
-         "--workspace", str(workspace), "--session", session_id, "--task-id", task_id],
+         "--workspace", str(workspace), "--session", session_id, "--task-id", task_id,
+         *scenario.get("worker_args", [])],
         cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT,
+        start_new_session=True,
     )
     started = time.monotonic()
     action = scenario.get("action", "wait")
     attach_ok = None
+    secondary = None
     try:
-        if action == "stop":
+        if action == "crash":
+            assert wait_for(lambda: worker_socket.exists(), 10), "worker socket did not appear"
+            assert wait_for(
+                lambda: (read_json(task_dir / "meta.json") or {}).get("status") == "running"
+                and len((read_json(task_dir / "meta.json") or {}).get("segments") or []) >= 1,
+                10,
+            ), "task did not enter running segment"
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.wait(timeout=10)
+            from app.runtime.supervise import WorkerSupervisor
+            WorkerSupervisor(workspace / ".vibe" / "sessions" / session_id).recover()
+        elif action == "two_slot":
+            assert wait_for(lambda: worker_socket.exists(), 10), "worker socket did not appear"
+            second_session, second_task = create_task(workspace, scenario["objective"] + " second")
+            second_meta = workspace / ".vibe" / "sessions" / second_session / "tasks" / second_task / "meta.json"
+            second = subprocess.run(
+                [sys.executable, "-m", "app", "--worker", "--fake",
+                 "--workspace", str(workspace), "--session", second_session, "--task-id", second_task],
+                cwd=ROOT, env=env, capture_output=True, text=True, timeout=30,
+            )
+            secondary = {"exit_code": second.returncode, "stderr": second.stderr[-2000:]}
+            from app.runtime.killswitch import stop_workers
+            stop_workers(workspace)
+            proc.wait(timeout=15)
+        elif action == "stop":
             assert wait_for(lambda: worker_socket.exists(), 10), "worker socket did not appear"
             time.sleep(0.5)
             from app.runtime.killswitch import stop_workers
@@ -194,6 +235,7 @@ def run_scenario(scenario: dict, run_dir: Path, run_index: int) -> dict:
     result = summary(workspace, session_id, task_id, before)
     result["duration_seconds"] = round(time.monotonic() - started, 3)
     result["attach_ok"] = attach_ok
+    result["secondary"] = secondary
     result["session_id"] = session_id
     result["task_id"] = task_id
     result["scenario"] = scenario["id"]
@@ -201,6 +243,7 @@ def run_scenario(scenario: dict, run_dir: Path, run_index: int) -> dict:
     errors = validate(scenario, result)
     result["ok"] = not errors
     result["errors"] = errors
+    result.pop("events_text", None)
     return result
 
 
@@ -223,6 +266,17 @@ def validate(scenario: dict, result: dict) -> list[str]:
         errors.append("stop file missing")
     if expected.get("no_changed_files") and result["changed_files"]:
         errors.append(f"unexpected changed files: {result['changed_files']}")
+    if "secondary_exit_code" in expected:
+        actual = (result.get("secondary") or {}).get("exit_code")
+        if actual != expected["secondary_exit_code"]:
+            errors.append(f"secondary exit={actual} expected {expected['secondary_exit_code']}")
+    if "secondary_error_contains" in expected:
+        stderr = (result.get("secondary") or {}).get("stderr") or ""
+        if expected["secondary_error_contains"] not in stderr:
+            errors.append(f"secondary stderr missing {expected['secondary_error_contains']!r}")
+    if "event_contains" in expected:
+        if expected["event_contains"] not in result.get("events_text", ""):
+            errors.append(f"event missing {expected['event_contains']}")
     return errors
 
 

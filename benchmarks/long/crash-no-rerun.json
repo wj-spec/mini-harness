@@ -1,0 +1,20 @@
+{
+  "id": "crash-no-rerun",
+  "description": "worker 被 kill -9 后 supervisor 标 interrupted，不自动重跑已执行段",
+  "objective": "长任务评测：崩溃不重跑",
+  "action": "crash",
+  "worker_env": {
+    "VIBE_FAKE_DELAY_SECONDS": "60"
+  },
+  "expected": {
+    "task_status": [
+      "interrupted"
+    ],
+    "worker_status": [
+      "interrupted"
+    ],
+    "min_segments": 1,
+    "no_changed_files": true
+  },
+  "timeout_seconds": 60
+}

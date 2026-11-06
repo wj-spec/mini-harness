@@ -1,0 +1,22 @@
+{
+  "id": "two-slot-write-serial",
+  "description": "同 workspace 第二个写 worker 被 workspace lock 拒绝，不并发写",
+  "objective": "长任务评测：两任务槽",
+  "action": "two_slot",
+  "worker_env": {
+    "VIBE_FAKE_DELAY_SECONDS": "60"
+  },
+  "expected": {
+    "task_status": [
+      "paused",
+      "cancelled"
+    ],
+    "worker_status": [
+      "killed"
+    ],
+    "secondary_exit_code": 3,
+    "secondary_error_contains": "workspace busy",
+    "no_changed_files": true
+  },
+  "timeout_seconds": 90
+}

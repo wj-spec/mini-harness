@@ -1,0 +1,18 @@
+{
+  "id": "goal-criteria-pending",
+  "description": "未确认的 acceptance_criteria 让 worker 在启动前退出，任务保持 created",
+  "objective": "长任务评测：目标标准待确认",
+  "action": "criteria",
+  "worker_env": {},
+  "expected": {
+    "task_status": [
+      "created"
+    ],
+    "worker_status": [
+      "exited"
+    ],
+    "event_contains": "goal_criteria_pending",
+    "no_changed_files": true
+  },
+  "timeout_seconds": 60
+}

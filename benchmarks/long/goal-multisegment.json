@@ -1,0 +1,25 @@
+{
+  "id": "goal-multisegment",
+  "description": "max_steps 触发资源停止后 GoalRecord 自动续段，第二段完成",
+  "objective": "长任务评测：多段续做",
+  "action": "wait",
+  "worker_env": {
+    "VIBE_FAKE_READ": "1",
+    "VIBE_GOAL_MAX_SEGMENTS": "3"
+  },
+  "worker_args": [
+    "--max-steps",
+    "1"
+  ],
+  "expected": {
+    "task_status": [
+      "completed"
+    ],
+    "worker_status": [
+      "exited"
+    ],
+    "min_segments": 2,
+    "no_changed_files": true
+  },
+  "timeout_seconds": 90
+}

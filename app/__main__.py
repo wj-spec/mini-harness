@@ -45,6 +45,12 @@ def build_provider(config: Config, fake: bool, debug_path=None):
     if fake or config.provider == "fake":
         if os.getenv("VIBE_FAKE_DEMO", "").strip().lower() in {"1", "true", "yes"}:
             return FakeProvider(_fake_demo_script())
+        if os.getenv("VIBE_FAKE_READ", "").strip().lower() in {"1", "true", "yes"}:
+            from core.contracts import ToolCall
+            return FakeProvider([
+                Response(tool_calls=[ToolCall("read_file", {"path": "README.md"}, id="fake-read-1")]),
+                "fake read 完成",
+            ])
         return FakeProvider(
             [
                 "这是 fake provider。设 VIBE_API_KEY 后，用 --provider openai 接真模型。",

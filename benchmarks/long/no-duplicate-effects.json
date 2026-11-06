@@ -1,0 +1,20 @@
+{
+  "id": "no-duplicate-effects",
+  "description": "崩溃恢复横切：已有执行段不重跑、文件 hash 不变",
+  "objective": "长任务评测：无重复副作用",
+  "action": "crash",
+  "worker_env": {
+    "VIBE_FAKE_DELAY_SECONDS": "60"
+  },
+  "expected": {
+    "task_status": [
+      "interrupted"
+    ],
+    "worker_status": [
+      "interrupted"
+    ],
+    "min_segments": 1,
+    "no_changed_files": true
+  },
+  "timeout_seconds": 60
+}
