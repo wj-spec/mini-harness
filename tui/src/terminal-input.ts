@@ -28,7 +28,15 @@ class TerminalInput extends Transform {
     source.pipe(this);
   }
 
-  setRawMode(enabled: boolean): this {this.source.setRawMode?.(enabled); return this;}
+  setRawMode(enabled: boolean): this {
+    try {
+      this.source.setRawMode?.(enabled);
+    } catch (error) {
+      process.stderr.write(`当前终端无法进入 raw mode（${(error as Error).message}）。请在真实交互终端中运行 ./run_ink.sh。\n`);
+      process.exit(2);
+    }
+    return this;
+  }
   ref(): this {this.source.ref?.(); return this;}
   unref(): this {this.source.unref?.(); return this;}
   dispose(): void {this.destroy();}

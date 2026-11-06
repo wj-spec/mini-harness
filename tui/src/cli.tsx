@@ -128,8 +128,9 @@ async function main() {
     return;
   }
   try {
-    // 某些伪终端/IDE 面板 isTTY=true 但 setRawMode 会 EIO；提前给出可操作错误，
-    // 避免 Ink 启动后抛未处理的 'error' 事件。
+    // 某些伪终端/IDE 面板 isTTY=true 但 setRawMode 会 EIO；提前用 true/false
+    // 完整探测一次，避免 Ink 启动后抛未处理的 'error' 事件。
+    process.stdin.setRawMode?.(true);
     process.stdin.setRawMode?.(false);
   } catch {
     process.stderr.write('当前终端无法进入 raw mode（setRawMode EIO）。请在真实交互终端中运行 ./run_ink.sh。\n');
