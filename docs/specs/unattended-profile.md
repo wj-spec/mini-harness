@@ -35,7 +35,9 @@
 - 本地通知：worker 生命周期写 `.vibe/notifications.jsonl`（started/exited/stop_requested/approval_timeout/task_deadline_exceeded），
   Plan 提出/审批/验收写 `plan_proposed`/`plan_approved`/`plan_rejected`/`plan_acceptance`，子 Agent 完成写 `subagent_finished`，
   goal 续段/停止写 `goal_segment`/`goal_stopped`，
-  写任务等待 workspace lock 时写 `workspace_queued`；merge 生命周期写
+  写任务等待 workspace lock 时写 `workspace_queued`；
+- `.vibe/notifications.jsonl` 超过 `VIBE_NOTIFICATIONS_MAX_BYTES`（默认 8 MiB）时
+  轮转为 `.1`，避免无限增长；merge 生命周期写
   `merge_approval_requested`/`merge_completed`/`merge_failed`，供后续告警渠道消费；
   stdio command `notifications` 与 TUI `/notifications` 可查看最近通知。
 - 日志保留：`--cleanup-logs --workspace <ws> [--log-max-bytes N] [--log-dry-run]` 显式轮转会话 `trace.jsonl`（`.1`…备份），写 `.vibe/retention.jsonl` 审计；`events.jsonl` 不轮转，避免破坏会话恢复。

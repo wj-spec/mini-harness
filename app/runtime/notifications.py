@@ -26,6 +26,11 @@ def notify(workspace: str | Path, kind: str, **data: Any) -> bool:
         **data,
     }
     try:
+        max_bytes = int(os.getenv("VIBE_NOTIFICATIONS_MAX_BYTES", str(8 * 1024 * 1024)))
+        if path.is_file() and path.stat().st_size >= max_bytes:
+            backup = path.with_name(path.name + ".1")
+            backup.unlink(missing_ok=True)
+            path.replace(backup)
         with path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record, ensure_ascii=False) + "\n")
         return True
