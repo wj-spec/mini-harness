@@ -43,8 +43,8 @@ const approvalKeys: Record<string, ApprovalDecision> = {y: 'once', s: 'session',
 const FAKE_DEMO_PROMPT = '创建 .vibe/fake-demo.txt 并验证';
 const fakeDemoEnabled = () => /^(1|true|yes)$/i.test(process.env.VIBE_FAKE_DEMO ?? '');
 
-export function App({client, initialState = emptyState, windowSize, initialTheme = 'system', copyText = copyToClipboard, profilePath, userProfilePath, launchSidebar = launchSidebarForTui, setupSidebar = runSidebarSetup, publishSidebarSignal = writeSidebarSignal, autoObserve = process.env.VIBE_AUTO_OBSERVE === '1'}: {
-  client: BackendClient; initialState?: ViewState; windowSize?: {columns: number; rows: number}; initialTheme?: ThemeName;
+export function App({client, attach = false, initialState = emptyState, windowSize, initialTheme = 'system', copyText = copyToClipboard, profilePath, userProfilePath, launchSidebar = launchSidebarForTui, setupSidebar = runSidebarSetup, publishSidebarSignal = writeSidebarSignal, autoObserve = process.env.VIBE_AUTO_OBSERVE === '1'}: {
+  client: BackendClient; attach?: boolean; initialState?: ViewState; windowSize?: {columns: number; rows: number}; initialTheme?: ThemeName;
   copyText?: (text: string) => string | null; profilePath?: string; userProfilePath?: string;
   launchSidebar?: (workspace: string, mode?: SidebarMode, totalColumns?: number) => LaunchResult;
   setupSidebar?: () => SetupResult;
@@ -456,6 +456,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
   shutdownRef.current = shutdown;
   const requestShutdown = () => {
     if (closing.current) return;
+    if (attach) {shutdown(); return;}
     const goal = goalRef.current;
     const running = Boolean(activeRun.current) || ['running', 'waiting_approval', 'stopping'].includes(state.phase);
     if (!running && !goal?.active) {shutdown(); return;}
@@ -847,6 +848,7 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
     if (key.ctrl && keyInput === 'y') {copyCurrent(); return;}
     if (key.ctrl && keyInput === 'g') {openSidebarPanel(); return;}
     if (key.ctrl && keyInput === 'c') {
+      if (attach) {notice('attach 模式：Ctrl+Q 断开连接，worker 会继续运行。'); return;}
       if (activeRun.current && state.phase !== 'stopping') {
         try {
           const id = client.cancel(activeRun.current);

@@ -148,7 +148,7 @@ async function main() {
   const stdin = createTerminalInput(process.stdin);
   let instance: ReturnType<typeof render>;
   try {
-    instance = render(<App client={client}/>, {
+    instance = render(<App client={client} attach={Boolean(extracted.attach)}/>, {
       stdin, exitOnCtrlC: false, patchConsole: false, interactive: true, alternateScreen: true,
     });
   } catch (error) {

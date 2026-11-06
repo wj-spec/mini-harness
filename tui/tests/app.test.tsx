@@ -289,6 +289,21 @@ test('Ctrl+Q prompts before shutting down during a run', async () => {
   assert.equal(client.shutdowns, 1);
 });
 
+test('attach Ctrl+Q detaches without prompting or cancelling the worker', async () => {
+  const client = new MockClient();
+  const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} attach />);
+  await pause(20);
+  client.emit({type: 'ready', workspace: '/repo', model: 'fake', session_id: 's'});
+  client.emit({type: 'status', phase: 'starting', id: 'run-worker'});
+  client.emit({type: 'status', phase: 'running', id: 'run-worker'});
+  await pause(20);
+  stdin.write('\u0011');
+  await pause(80);
+  assert.equal(client.cancellations.length, 0);
+  assert.equal(client.shutdowns, 1);
+  assert.doesNotMatch(lastFrame() ?? '', /停止任务并退出/);
+});
+
 test('/goal quit prompt offers background handoff when a task exists', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'mini-harness-quit-goal-'));
   try {
