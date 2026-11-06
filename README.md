@@ -201,6 +201,7 @@ npm --prefix tui test       # TypeScript / Ink 测试
 | [计划审批门 P0](docs/specs/plan-approval.md) | plan propose/approve/reject、content hash、plan.review capability、审计事件 |
 | [计划执行绑定 P0](docs/specs/plan-execution.md) | step ledger、状态机、证据推进、原子 execution 文件 |
 | [计划验收映射 P0](docs/specs/plan-acceptance.md) | criteria→verification plan、三态结论与失败原因码 |
+| [只读子 Agent P0](docs/specs/subagent-runner.md) | harness 内部只读 runner、结构化结果、无审批/写/执行 |
 | [规格](docs/specs/) | 每个功能切片的 spec、边界与验收口径 |
 | [Benchmark 适配（Harbor）](bench/README.md) | SWE-bench Verified / Terminal-Bench 2.1 的 Harbor 接入、单题 smoke 与限制 |
 | [调研](docs/research/) | TUI、评测、沙箱、上下文等选型记录 |

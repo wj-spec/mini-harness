@@ -219,6 +219,7 @@ mini-harness/
       plan-approval.md           # 计划审批 P0：propose/approve/reject、hash/审计
       plan-execution.md          # 计划执行 P0：step ledger/证据推进
       plan-acceptance.md         # 计划验收 P0：criteria→verification 三态
+      subagent-runner.md         # 只读子 Agent P0：runner/结构化结果
     design/             # 未来方向的分块讨论（长任务/后台/进阶模式/子 Agent），拍板后收敛为 spec
     history/            # 旧 M1–M8 模块建设计划
 

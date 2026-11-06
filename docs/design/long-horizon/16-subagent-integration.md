@@ -1,6 +1,6 @@
 # 16 子 Agent 的有机结合：任务节点，而不是第二套 loop
 
-> 状态：讨论稿（2026-11-02；2026-11-03 01–05 决策对齐见 §9，06–10 对齐见 §10，用户回答见 §11）；不是 spec，未承诺实现。
+> 状态：讨论稿（2026-11-02；2026-11-03 01–05 决策对齐见 §9，06–10 对齐见 §10，用户回答见 §11）；P0 只读 runner 已实现，见 [subagent-runner spec](../../specs/subagent-runner.md)。
 > 所属：跨主题（长任务与后台任务 × 进阶模式 × 子 Agent）
 > 前置/相关：[01 任务运行时](01-task-runtime.md)、[03 无人值守审批](03-unattended-approval.md)、[04 隔离与并发](04-isolation-concurrency.md)、[05 跨段目标状态](05-goal-state.md)、[06 预算账本](06-budget-ledger.md)、[10 模式状态机](10-mode-state-machine.md)、[11 模式契约](11-mode-contracts.md)、[14 计划执行绑定](14-plan-execution-binding.md)、[15 计划验收](15-plan-verification.md)；相关规格：[multi-agent-computer-use](../../specs/multi-agent-computer-use.md)、[verified-completion](../../specs/verified-completion.md)
 
