@@ -103,6 +103,7 @@ cd /path/to/mini-harness
 **期望**
 - 侧栏 header 出现 `计划 vN status done/total步`；
 - 有验收结果时追加 ✓/✗；
+- 按 `p` 打开计划步骤面板，↑↓ 选择步骤，`p` 返回变更；
 - 侧栏不阻塞主 TUI。
 
 ## 记录

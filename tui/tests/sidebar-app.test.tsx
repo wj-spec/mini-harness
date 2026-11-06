@@ -87,12 +87,19 @@ test('diff read errors stay visible and q exits the sidebar', async () => {
 
 test('sidebar header shows plan summary from signal', async () => {
   const signal = {version: 'plan:1', files: [], active: false, updatedAt: Date.now(),
-    plan: {version: 1, status: 'approved', stale: false, objective: '计划目标', stepCount: 2, doneSteps: 1, acceptance: true}};
-  const {lastFrame} = render(<SidebarApp workspace="/repo" theme="dark" refreshMs={0} signalPollMs={10}
+    plan: {version: 1, status: 'approved', stale: false, objective: '计划目标', stepCount: 2, doneSteps: 1, acceptance: true,
+      steps: [{id: 's1', title: '读代码', status: 'done'}, {id: 's2', title: '写测试', status: 'in_progress'}]}};
+  const {lastFrame, stdin} = render(<SidebarApp workspace="/repo" theme="dark" refreshMs={0} signalPollMs={10}
     size={{columns: 80, rows: 18}} readSignal={() => signal}
     readStatus={() => ({...status, status: {...status.status, files: []}})}/>);
   await new Promise(resolve => setTimeout(resolve, 40));
   assert.match(lastFrame() ?? '', /计划 v1 approved 1\/2步 ✓/);
+  stdin.write('p');
+  await pause(20);
+  assert.match(lastFrame() ?? '', /s1 读代码/);
+  stdin.write('\u001b[B');
+  await pause(20);
+  assert.match(lastFrame() ?? '', /› in_progress\s+s2 写测试/);
 });
 
 test('agent activity signal refreshes immediately, follows and marks agent files', async () => {

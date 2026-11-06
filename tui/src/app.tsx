@@ -138,7 +138,7 @@ function latestPlanText(sessionPath: string, full = false): string | null {
   } catch {return null;}
 }
 
-function planSidebarSummary(sessionPath: string): {version: number; status: string; stale: boolean; objective: string; stepCount: number; doneSteps: number; acceptance?: boolean | null} | null {
+function planSidebarSummary(sessionPath: string): {version: number; status: string; stale: boolean; objective: string; stepCount: number; doneSteps: number; acceptance?: boolean | null; steps: {id: string; title: string; status: string}[]} | null {
   const payload = latestPlanArtifact(sessionPath);
   if (!payload) return null;
   const approval = payload.approval && typeof payload.approval === 'object' ? payload.approval as Record<string, unknown> : {};
@@ -166,6 +166,28 @@ function planSidebarSummary(sessionPath: string): {version: number; status: stri
       if (acceptance !== null || doneSteps > 0) break;
     }
   } catch {}
+  const stepStatuses: Record<string, string> = {};
+  try {
+    const version = Number(payload.version ?? 1);
+    const tasksRoot = path.join(sessionPath, 'tasks');
+    for (const task of readdirSync(tasksRoot, {withFileTypes: true})) {
+      if (!task.isDirectory()) continue;
+      try {
+        const execution = JSON.parse(readFileSync(path.join(tasksRoot, task.name, 'plan', `execution.v${version}.json`), 'utf8')) as Record<string, unknown>;
+        for (const step of Array.isArray(execution.steps) ? execution.steps : []) {
+          if (step && typeof step === 'object') {
+            const record = step as Record<string, unknown>;
+            if (typeof record.step_id === 'string') stepStatuses[record.step_id] = String(record.status ?? 'pending');
+          }
+        }
+      } catch {}
+    }
+  } catch {}
+  const steps = (Array.isArray(payload.steps) ? payload.steps : []).map(step => {
+    const item = step && typeof step === 'object' ? step as Record<string, unknown> : {};
+    const id = String(item.step_id ?? '?');
+    return {id, title: String(item.title ?? ''), status: stepStatuses[id] ?? 'pending'};
+  });
   return {
     version: Number(payload.version ?? 1),
     status: String(payload.status ?? ''),
@@ -174,6 +196,7 @@ function planSidebarSummary(sessionPath: string): {version: number; status: stri
     stepCount: Array.isArray(payload.steps) ? payload.steps.length : 0,
     doneSteps,
     acceptance,
+    steps,
   };
 }
 

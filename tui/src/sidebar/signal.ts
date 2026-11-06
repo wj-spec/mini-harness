@@ -4,6 +4,8 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 
 /** 主 TUI 到侧栏的轻量事件信号：只含“本轮改过哪些文件”和刷新版本。 */
+export type SidebarPlanStep = {id: string; title: string; status: string};
+
 export type SidebarPlanSummary = {
   version: number;
   status: string;
@@ -12,6 +14,7 @@ export type SidebarPlanSummary = {
   stepCount: number;
   doneSteps: number;
   acceptance?: boolean | null;
+  steps?: SidebarPlanStep[];
 };
 
 export type SidebarSignal = {
@@ -64,6 +67,12 @@ export function readSidebarSignal(workspace: string): SidebarSignal | null {
           version: item.version, status: item.status, stale: item.stale === true,
           objective: item.objective.slice(0, 200), stepCount: item.stepCount,
           doneSteps: typeof item.doneSteps === 'number' ? item.doneSteps : 0,
+          steps: Array.isArray(item.steps)
+            ? item.steps.filter((step): step is SidebarPlanStep => Boolean(step) && typeof step === 'object' &&
+                typeof (step as Record<string, unknown>).id === 'string' &&
+                typeof (step as Record<string, unknown>).title === 'string' &&
+                typeof (step as Record<string, unknown>).status === 'string').slice(0, 100)
+            : [],
           acceptance: item.acceptance === true ? true : item.acceptance === false ? false : null,
         };
       }

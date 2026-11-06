@@ -79,6 +79,8 @@ export function SidebarApp({
   const [diff, setDiff] = useState<DiffState>({path: null, text: '', error: null});
   const [agentFiles, setAgentFiles] = useState<ReadonlySet<string>>(() => new Set());
   const [planSummary, setPlanSummary] = useState<SidebarSignal['plan']>(undefined);
+  const [planOpen, setPlanOpen] = useState(false);
+  const [planIndex, setPlanIndex] = useState(0);
   const signalVersion = useRef('');
   const readSignalRef = useRef(readSignal ?? readSidebarSignal);
   readSignalRef.current = readSignal ?? readSidebarSignal;
@@ -110,6 +112,7 @@ export function SidebarApp({
       signalVersion.current = signal.version;
       setAgentFiles(new Set(signal.files));
       setPlanSummary(signal.plan);
+      setPlanIndex(previous => Math.max(0, Math.min(previous, (signal.plan?.steps?.length ?? 0) - 1)));
       refresh();
       setState(previous => focusAgentFile(previous, signal.files));
     };
@@ -147,6 +150,16 @@ export function SidebarApp({
     if (key.eventType === 'release') return;
     if (key.ctrl && input === 'c') {quit(); return;}
     if (!key.ctrl && !key.meta && input === 'q') {quit(); return;}
+    if (!key.ctrl && !key.meta && input === 'p' && (planSummary?.steps?.length ?? 0) > 0) {
+      setPlanOpen(previous => !previous);
+      setPlanIndex(0);
+      return;
+    }
+    if (planOpen && (key.upArrow || key.downArrow || (!key.ctrl && !key.meta && (input === 'k' || input === 'j')))) {
+      const length = planSummary?.steps?.length ?? 0;
+      setPlanIndex(previous => Math.max(0, Math.min(length - 1, previous + (key.upArrow || input === 'k' ? -1 : 1))));
+      return;
+    }
     if (!key.ctrl && !key.meta && input === 'r') {refresh(); return;}
     if (!key.ctrl && !key.meta && input === 'f') {setState(previous => toggleFollow(previous)); return;}
     if (key.tab) {setState(previous => toggleFocus(previous)); return;}
@@ -173,7 +186,31 @@ export function SidebarApp({
   const header = `变更 · ${state.branch ?? '未连接 Git'} · ${state.files.length} 个文件 ${state.files.length ? `+${totals.additions} -${totals.deletions}${totals.unknown ? ' ?' : ''}` : ''} · ${state.follow ? '跟随' : '手动'}${agentFiles.size ? ` · ● Agent ${agentFiles.size}` : ''}${planLabel}`;
   const footer = state.error
     ? state.error
-    : `${current ? `${statusLabel(current)} · ${current.path}` : '未选择文件'} · ↑↓ 选择 · Tab ${state.focus === 'list' ? '滚动 diff' : '回到列表'} · f ${state.follow ? '暂停跟随' : '开启跟随'} · r 刷新 · q 退出`;
+    : planOpen
+      ? '计划 · ↑↓/j/k 选择 · p 返回变更 · q 退出'
+      : `${current ? `${statusLabel(current)} · ${current.path}` : '未选择文件'} · ↑↓ 选择 · Tab ${state.focus === 'list' ? '滚动 diff' : '回到列表'} · f ${state.follow ? '暂停跟随' : '开启跟随'} · p 计划 · r 刷新 · q 退出`;
+
+  if (planOpen && planSummary) {
+    const steps = planSummary.steps ?? [];
+    const bodyRows = Math.max(1, rows - 2);
+    const top = Math.max(0, Math.min(planIndex - Math.floor(bodyRows / 2), Math.max(0, steps.length - bodyRows)));
+    const acceptance = planSummary.acceptance === true ? '✓' : planSummary.acceptance === false ? '✗' : '';
+    return <Box flexDirection="column" width={columns} height={rows} paddingX={1} backgroundColor={palette.background} overflow="hidden">
+      <Text color={palette.accent} backgroundColor={palette.raised} bold>{fitText(`计划 v${planSummary.version} ${planSummary.stale ? 'stale' : planSummary.status} ${planSummary.doneSteps}/${planSummary.stepCount}步 ${acceptance}`, inner)}</Text>
+      <Box flexDirection="column" height={bodyRows} flexShrink={0} overflow="hidden">
+        {steps.slice(top, top + bodyRows).map((step, offset) => {
+          const index = top + offset;
+          const selected = index === planIndex;
+          const color = step.status === 'done' ? palette.success : step.status === 'failed' ? palette.error : step.status === 'in_progress' ? palette.warning : palette.foreground;
+          return <Text key={step.id} color={selected ? palette.foreground : color}
+            backgroundColor={selected ? palette.surfaces.selected : undefined} bold={selected}>
+            {`${selected ? '› ' : '  '}${step.status.padEnd(12)} ${step.id} ${step.title}`}
+          </Text>;
+        })}
+      </Box>
+      <Text color={palette.secondary}>{fitText(footer, inner)}</Text>
+    </Box>;
+  }
 
   return <Box flexDirection="column" width={columns} height={rows} paddingX={1} backgroundColor={palette.background} overflow="hidden">
     <Text color={palette.accent} backgroundColor={palette.raised} bold>{fitText(header, inner)}</Text>
