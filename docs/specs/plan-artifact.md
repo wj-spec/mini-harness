@@ -46,7 +46,7 @@
 - plan.review 审批门（13）与 `plan_proposed/plan_approved` 审计事件；
 - 执行绑定/步骤证据（14）、计划验收（15）；
 - TUI `/plan` 覆盖层已能折叠/展开、方向键选择、y/n 审批；打开计划时把 plan 摘要写入 sidebar signal，
-  侧栏 header 显示 `计划 vN status N步`，有验收结果时追加 ✓/✗；完整侧栏导航仍待；
+  侧栏 header 显示 `计划 vN status done/total步`，有验收结果时追加 ✓/✗；完整侧栏导航仍待；
 - legacy `TaskState.plan` 合成 legacy 计划；
 - 预算/审批字段的执行层校验（D6/D9）。
 

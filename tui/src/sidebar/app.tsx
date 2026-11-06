@@ -168,7 +168,7 @@ export function SidebarApp({
 
   const acceptanceLabel = planSummary?.acceptance === true ? ' ✓' : planSummary?.acceptance === false ? ' ✗' : '';
   const planLabel = planSummary
-    ? ` · 计划 v${planSummary.version} ${planSummary.stale ? 'stale' : planSummary.status} ${planSummary.stepCount}步${acceptanceLabel}`
+    ? ` · 计划 v${planSummary.version} ${planSummary.stale ? 'stale' : planSummary.status} ${planSummary.doneSteps}/${planSummary.stepCount}步${acceptanceLabel}`
     : '';
   const header = `变更 · ${state.branch ?? '未连接 Git'} · ${state.files.length} 个文件 ${state.files.length ? `+${totals.additions} -${totals.deletions}${totals.unknown ? ' ?' : ''}` : ''} · ${state.follow ? '跟随' : '手动'}${agentFiles.size ? ` · ● Agent ${agentFiles.size}` : ''}${planLabel}`;
   const footer = state.error

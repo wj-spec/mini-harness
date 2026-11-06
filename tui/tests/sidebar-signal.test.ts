@@ -7,7 +7,7 @@ test('sidebar signals include plan summary and can be removed', () => {
   const root = `/tmp/mini-harness-signal-plan-${randomUUID()}`;
   writeSidebarSignal(root, {
     signature: 'plan:2', files: [], active: false,
-    plan: {version: 2, status: 'approved', stale: false, objective: '计划', stepCount: 3, acceptance: true},
+    plan: {version: 2, status: 'approved', stale: false, objective: '计划', stepCount: 3, doneSteps: 2, acceptance: true},
   });
   const signal = readSidebarSignal(root);
   assert.equal(signal?.plan?.version, 2);

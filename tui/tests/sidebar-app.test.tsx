@@ -87,12 +87,12 @@ test('diff read errors stay visible and q exits the sidebar', async () => {
 
 test('sidebar header shows plan summary from signal', async () => {
   const signal = {version: 'plan:1', files: [], active: false, updatedAt: Date.now(),
-    plan: {version: 1, status: 'approved', stale: false, objective: '计划目标', stepCount: 2, acceptance: true}};
+    plan: {version: 1, status: 'approved', stale: false, objective: '计划目标', stepCount: 2, doneSteps: 1, acceptance: true}};
   const {lastFrame} = render(<SidebarApp workspace="/repo" theme="dark" refreshMs={0} signalPollMs={10}
     size={{columns: 80, rows: 18}} readSignal={() => signal}
     readStatus={() => ({...status, status: {...status.status, files: []}})}/>);
   await new Promise(resolve => setTimeout(resolve, 40));
-  assert.match(lastFrame() ?? '', /计划 v1 approved 2步 ✓/);
+  assert.match(lastFrame() ?? '', /计划 v1 approved 1\/2步 ✓/);
 });
 
 test('agent activity signal refreshes immediately, follows and marks agent files', async () => {

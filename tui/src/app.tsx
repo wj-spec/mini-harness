@@ -138,24 +138,32 @@ function latestPlanText(sessionPath: string, full = false): string | null {
   } catch {return null;}
 }
 
-function planSidebarSummary(sessionPath: string): {version: number; status: string; stale: boolean; objective: string; stepCount: number; acceptance?: boolean | null} | null {
+function planSidebarSummary(sessionPath: string): {version: number; status: string; stale: boolean; objective: string; stepCount: number; doneSteps: number; acceptance?: boolean | null} | null {
   const payload = latestPlanArtifact(sessionPath);
   if (!payload) return null;
   const approval = payload.approval && typeof payload.approval === 'object' ? payload.approval as Record<string, unknown> : {};
   let acceptance: boolean | null = null;
+  let doneSteps = 0;
   try {
     const version = Number(payload.version ?? 1);
     const tasksRoot = path.join(sessionPath, 'tasks');
     for (const task of readdirSync(tasksRoot, {withFileTypes: true})) {
       if (!task.isDirectory()) continue;
-      const file = path.join(tasksRoot, task.name, `acceptance.v${version}.json`);
+      const acceptanceFile = path.join(tasksRoot, task.name, `acceptance.v${version}.json`);
       try {
-        const saved = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+        const saved = JSON.parse(readFileSync(acceptanceFile, 'utf8')) as Record<string, unknown>;
         if (saved.status === true || saved.status === false || saved.status === null) {
           acceptance = saved.status as boolean | null;
-          break;
         }
       } catch {}
+      const executionFile = path.join(tasksRoot, task.name, 'plan', `execution.v${version}.json`);
+      try {
+        const saved = JSON.parse(readFileSync(executionFile, 'utf8')) as Record<string, unknown>;
+        doneSteps = Array.isArray(saved.steps)
+          ? saved.steps.filter((item: unknown) => item && typeof item === 'object' && (item as Record<string, unknown>).status === 'done').length
+          : 0;
+      } catch {}
+      if (acceptance !== null || doneSteps > 0) break;
     }
   } catch {}
   return {
@@ -164,6 +172,7 @@ function planSidebarSummary(sessionPath: string): {version: number; status: stri
     stale: approval.stale === true,
     objective: String(payload.objective ?? '').slice(0, 200),
     stepCount: Array.isArray(payload.steps) ? payload.steps.length : 0,
+    doneSteps,
     acceptance,
   };
 }
