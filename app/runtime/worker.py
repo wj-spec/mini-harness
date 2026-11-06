@@ -767,6 +767,7 @@ class Worker:
             "task": {
                 "task_id": task.task_id, "kind": task.kind, "status": task.status,
                 "segment": task.segments[-1].segment if task.segments else 0,
+                "run_id": task.segments[-1].run_id if task.segments else None,
                 "objective": task.objective, "goal_id": task.goal_id,
                 "worktree": worktree,
             },

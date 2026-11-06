@@ -158,6 +158,9 @@ export function reduceView(state: ViewState, action: Action): ViewState {
         sessionPurpose: event.session_purpose ?? 'user', resumed: event.resumed ?? false,
         skills: event.skills ?? [],
         ...(event.autonomy ? {autonomy: event.autonomy as AutonomyLevel, autonomyLabel: event.autonomy_label ?? AUTONOMY_LABELS[event.autonomy as AutonomyLevel] ?? ''} : {})};
+    case 'task_snapshot':
+      return {...state, phase: event.task.status === 'running' ? 'running' : state.phase,
+        activeId: event.task.run_id ?? state.activeId};
     case 'history_message':
       return restoreMessage(state, event.message);
     case 'notice':

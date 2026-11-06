@@ -140,6 +140,7 @@ export interface AttachTaskSnapshot {
   kind: string;
   status: string;
   segment: number;
+  run_id: string | null;
   objective: string;
   goal_id: string | null;
   worktree: {path: string; branch: string; base_commit: string} | null;
@@ -372,6 +373,7 @@ function attachTaskSnapshot(value: unknown): value is AttachTaskSnapshot {
     typeof value.task_id === 'string' && validId(value.task_id) &&
     typeof value.kind === 'string' && typeof value.status === 'string' &&
     typeof value.segment === 'number' && Number.isSafeInteger(value.segment) && value.segment >= 0 &&
+    (value.run_id === null || (typeof value.run_id === 'string' && validId(value.run_id))) &&
     typeof value.objective === 'string' &&
     (value.goal_id === null || typeof value.goal_id === 'string') &&
     (value.worktree === null || (record(value.worktree) &&
