@@ -765,3 +765,27 @@ def test_plan_mode_submit_plan_notifies(tmp_path, monkeypatch):
         await harness.close()
 
     asyncio.run(scenario())
+
+
+def test_plan_prepare_background_creates_task(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    task_id = "t-20261106-000000-abcdef"
+    task_dir = session.root / "tasks" / task_id
+    from app.runtime.plan import Plan, approve_plan, propose_plan
+    plan = Plan.from_dict({"schema_version": 1, "plan_id": "pl-bg", "task_id": task_id,
+                           "objective": "后台计划", "steps": [{"step_id": "s1", "title": "读"}]})
+    propose_plan(task_dir, plan)
+    approve_plan(task_dir, plan, approved_by="user")
+
+    async def scenario():
+        harness = Harness(_agent(tmp_path), Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("command", "c-bg", command="plan", args={"action": "prepare-background"})
+        result = await harness.until("command_result", "c-bg")
+        assert "task_id=" in result["text"]
+        bg = TaskStore(session.root).list(kind="run")
+        assert bg and bg[-1].plan_id == "pl-bg" and bg[-1].mode == "act"
+        await harness.close()
+
+    asyncio.run(scenario())

@@ -2013,3 +2013,16 @@ test('paused acceptance failure shows plan guidance', async () => {
   assert.match(lastFrame() ?? '', /\/plan acceptance/);
   assert.match(lastFrame() ?? '', /\/plan revise/);
 });
+
+test('/plan background sends prepare-background command', async () => {
+  const client = new MockClient();
+  client.capabilityList = ['tasks'];
+  const {stdin} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}/>);
+  await pause(20);
+  client.emit({type: 'ready', workspace: '/tmp/repo', model: 'fake', session_id: 'test', capabilities: ['tasks']});
+  client.emit({type: 'status', phase: 'idle'});
+  await pause(20);
+  await enter(stdin, '/plan background');
+  assert.equal(client.commands.at(-1), 'plan');
+  assert.deepEqual(client.commandArgs.at(-1), {action: 'prepare-background'});
+});

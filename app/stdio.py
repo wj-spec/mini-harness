@@ -369,9 +369,38 @@ class _Connection:
         ) if tasks_root.is_dir() else []
         if not candidates:
             return "当前会话没有计划产物；用 /plan <任务> 生成。"
-        path = candidates[0]
+        if action == "prepare-background":
+            from app.runtime.plan import can_execute
+            selected = None
+            for candidate in candidates:
+                try:
+                    candidate_plan = load_plan(candidate)
+                except PlanError:
+                    continue
+                if can_execute(candidate_plan):
+                    selected = (candidate, candidate_plan)
+                    break
+            if selected is None:
+                return "没有可执行的 approved 计划；先批准或修订计划。"
+            path, plan = selected
+        else:
+            path = candidates[0]
         try:
-            plan = load_plan(path)
+            plan = load_plan(path) if action != "prepare-background" else plan
+            if action == "prepare-background":
+                if self.task_runtime is None or not getattr(self.task_runtime, "enabled", False):
+                    return "任务运行时未启用，无法准备后台计划。"
+                try:
+                    task = self.task_runtime.store.create(
+                        kind="run", objective=plan.objective,
+                        workspace=self.task_runtime.workspace, mode="act",
+                        plan_id=plan.plan_id, plan_version=plan.version,
+                        session_id=self.session.id,
+                    )
+                except Exception as exc:
+                    return f"后台计划准备失败：{exc}"
+                return (f"background task prepared: task_id={task.task_id} "
+                        f"plan_id={plan.plan_id} version={plan.version}")
             if action == "acceptance":
                 lines = ["验收标准："]
                 criteria = plan.acceptance_criteria
@@ -1098,8 +1127,8 @@ class _Connection:
                     if not isinstance(args, dict):
                         raise ValueError("command args must be an object")
                     if request["command"] == "plan":
-                        if set(args) - {"action", "objective", "step_id", "title", "version_a", "version_b"} or args.get("action", "show") not in {"show", "list", "step", "edit-step", "diff", "acceptance", "approve", "reject", "revise"}:
-                            raise ValueError("plan args allowed: action=show|list|step|edit-step|diff|acceptance|approve|reject|revise")
+                        if set(args) - {"action", "objective", "step_id", "title", "version_a", "version_b"} or args.get("action", "show") not in {"show", "list", "step", "edit-step", "diff", "acceptance", "approve", "reject", "revise", "prepare-background"}:
+                            raise ValueError("plan args allowed: action=show|list|step|edit-step|diff|acceptance|approve|reject|revise|prepare-background")
                         if args.get("action") == "revise" and (not isinstance(args.get("objective"), str) or not args["objective"].strip()):
                             raise ValueError("plan revise requires a nonempty objective")
                         if args.get("action") == "step" and (not isinstance(args.get("step_id"), str) or not args["step_id"].strip()):

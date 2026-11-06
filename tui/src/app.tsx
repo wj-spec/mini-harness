@@ -289,6 +289,8 @@ export function App({client, attach = false, initialState = emptyState, windowSi
   const [quitPrompt, setQuitPrompt] = useState<{options: QuitOption[]; index: number} | null>(null);
   const waitForExit = useRef(false);
   const backgroundAfterRun = useRef(false);
+  const pendingBackgroundPlan = useRef(false);
+  const backgroundSpawnRef = useRef<((taskId: string) => void) | null>(null);
   const shutdownRef = useRef<() => void>(() => {});
   const lastTaskId = useRef<string | null>(null);
   const mergeApprovalId = useRef<string | null>(null);
@@ -394,6 +396,20 @@ export function App({client, attach = false, initialState = emptyState, windowSi
     }
     if (event.type === 'subagent_event') {
       notice(`子 Agent ${event.status}：${event.task_id}${event.summary ? ` · ${event.summary}` : ''}`);
+    }
+    if (event.type === 'command_result' && pendingBackgroundPlan.current) {
+      pendingBackgroundPlan.current = false;
+      const match = /task_id=(t-[A-Za-z0-9-]+)/.exec(String(event.text ?? ''));
+      if (match && backgroundSpawnRef.current) {
+        try {
+          backgroundSpawnRef.current(match[1]!);
+          shutdownRef.current();
+        } catch (error) {
+          dispatch({type: 'notice', text: `后台计划启动失败：${String(error)}`});
+        }
+      } else {
+        dispatch({type: 'notice', text: '后台计划未准备成功；查看命令结果。'});
+      }
     }
     if (event.type === 'task_snapshot') {
       lastTaskId.current = event.task.task_id;
@@ -508,6 +524,7 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       return false;
     }
   };
+  backgroundSpawnRef.current = spawnBackgroundWorker;
   const handleGoalDone = (result: RunResult): boolean => {
     const current = goalRef.current;
     if (!current?.active) return false;
@@ -1375,6 +1392,19 @@ export function App({client, attach = false, initialState = emptyState, windowSi
         setPlanOpen(false);
         setInput('');
       } catch (error) {notice(`计划修订未送达：${String(error)}`);}
+      return;
+    }
+    if (text === '/plan background') {
+      if (state.phase !== 'idle' || activeRun.current) {notice('当前有运行中任务；结束后再准备后台计划。'); return;}
+      if (!(client.capabilities?.().includes('tasks') ?? false)) {notice('后端未启用任务运行时。'); return;}
+      try {
+        const id = client.command('plan', {action: 'prepare-background'});
+        activeRun.current = id;
+        pendingBackgroundPlan.current = true;
+        dispatch({type: 'begin_command', id, command: 'plan'});
+        setPlanOpen(false);
+        setInput('');
+      } catch (error) {notice(`后台计划未送达：${String(error)}`);}
       return;
     }
     if (text === '/plan execute') {

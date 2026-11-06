@@ -39,6 +39,7 @@ cd /path/to/mini-harness
 ## TC-16-03 步骤证据与完成门
 
 1. 批准计划后 `/plan execute`；
+   - 长计划可 `/plan background`：TUI 退出后 worker 继续执行（`--tasks` 查看）；
 2. 观察 `start_plan_step` / `complete_plan_step` 与工具调用。
 
 **期望**

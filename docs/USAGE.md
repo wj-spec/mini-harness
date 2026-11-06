@@ -701,6 +701,7 @@ VIBE_DEBUG=1 ./run_ink.sh --workspace /path/to/repo
 - `/plan approve` / `/plan reject`：批准/拒绝 proposed 计划；
 - `/plan revise <新目标>`：生成 version+1 draft；
 - `/plan execute`：用最近 approved 计划创建 act run（绑定 `plan_id/plan_version`）；
+- `/plan background`：准备后台 task 并启动 detached worker，适用于长计划；
 - `/explore <任务>`：只读子 Agent 探索，创建 `kind=subagent` 任务；
 - `/notifications`：查看后台 worker 本地通知。
 
