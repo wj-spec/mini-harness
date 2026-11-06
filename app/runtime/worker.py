@@ -257,6 +257,8 @@ class Worker:
                 try:
                     if store.get(self.task_id).status == "created":
                         store.transition(self.task_id, "queued", reason="workspace_wait")
+                        notify(self.workspace, "workspace_queued", task_id=self.task_id,
+                               max_wait_seconds=wait_seconds)
                     store.append_event(self.task_id, "workspace_waiting",
                                        data={"max_wait_seconds": wait_seconds})
                 except Exception:

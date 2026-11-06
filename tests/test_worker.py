@@ -345,3 +345,6 @@ def test_worker_workspace_wait_timeout_marks_failed(tmp_path, monkeypatch):
         lock.release()
     assert proc.returncode == 3
     assert store.get(task.task_id).status == "failed"
+    from app.runtime.notifications import read_notifications
+    queued = [item for item in read_notifications(repo) if item["kind"] == "workspace_queued"]
+    assert queued and queued[-1]["task_id"] == task.task_id
