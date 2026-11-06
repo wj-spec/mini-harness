@@ -15,6 +15,13 @@ def _seed(tmp_path):
     session = SessionStore.new(tmp_path, "fake", purpose="user")
     task = TaskStore(session.root).create(kind="run", objective="验收任务", workspace=str(tmp_path), mode="act")
     task_dir = TaskStore(session.root).task_dir(task.task_id)
+    from app.runtime.plan import Plan, plan_path, propose_plan
+    for version, status in ((1, True), (2, False)):
+        plan = Plan.from_dict({"schema_version": 1, "plan_id": f"pl-{version}",
+                               "task_id": task.task_id, "version": version,
+                               "objective": f"目标{version}",
+                               "steps": [{"step_id": "s1", "title": "读"}]})
+        propose_plan(task_dir, plan)
     save_acceptance_result(task_dir, 1, {"status": True, "codes": [],
                                          "results": {"v1": {"ok": True}}})
     save_acceptance_result(task_dir, 2, {"status": False, "codes": ["acceptance_failed"],
@@ -29,6 +36,7 @@ def test_acceptance_lists_results(tmp_path, monkeypatch, capsys):
     entrypoint.main()
     payload = json.loads(capsys.readouterr().out)
     assert [item["plan_version"] for item in payload["acceptance"]] == [1, 2]
+    assert payload["acceptance"][0]["plan_id"] == "pl-1"
     assert payload["acceptance"][1]["status"] is False
 
 

@@ -412,8 +412,17 @@ def main() -> None:
                         saved = load_acceptance_result(task_path, version)
                         if saved is None:
                             continue
+                        plan_id = None
+                        objective = None
+                        try:
+                            from app.runtime.plan import load_plan, plan_path
+                            plan = load_plan(plan_path(task_path, version))
+                            plan_id, objective = plan.plan_id, plan.objective
+                        except Exception:
+                            pass
                         rows.append({
                             "session": session_path.name, "task_id": task_path.name,
+                            "plan_id": plan_id, "objective": objective,
                             "plan_version": version, "status": saved.get("status"),
                             "codes": saved.get("codes", []),
                             "commands": len((saved.get("results") or {})),
