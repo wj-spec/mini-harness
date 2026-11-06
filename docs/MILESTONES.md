@@ -449,9 +449,10 @@ W1–W5 已完成真实验收；W6 v2 三组对照完成，主假设未获支持
 - Plan 覆盖层：折叠/展开、方向键选择、`s` 步骤详情、`e` 修订、`y/n` 审批、Enter 执行、`/plan list|step|diff|acceptance|revise`；stale/审批时限保护，侧栏 `p` 可看步骤进度。
 
 **验证证据**：
-- Python 全量 **1387 passed / 13 skipped**；TUI **373/374**（唯一失败为环境 pty smoke）；
+- Python 全量 **1395 passed / 13 skipped**；TUI **380/381**（唯一失败为环境 pty smoke）；
 - 长任务 fake 场景 10/10 PASS（`scripts/bench_long.py`）；新增 `--real` 真 provider 入口；
-- CLI 只读视图 `--plans/--acceptance/--notifications`；Plan/SubAgent 人工验收清单 TC-16-01–08 已编写。
+- CLI 只读视图 `--plans/--acceptance/--notifications`；Plan/SubAgent 人工验收清单 TC-16-01–08 已编写；
+- `/plan background` 计划绑定 task + detached worker 端到端 fake 验收通过；`plan_binding` 事件与验收产物可核对。
 - 07 attach 人工验收 TC-01–09 通过；文档链接 75 个 0 失效。
 
 **未验收 / 未做**：

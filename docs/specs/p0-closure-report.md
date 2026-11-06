@@ -1,14 +1,14 @@
 # 长任务 / 后台 / 进阶模式 P0 收束报告
 
-日期：2026-11-06。基线：`3fc21f9`（报告更新前 HEAD）。
+日期：2026-11-06。基线：`6d670db`（报告更新前 HEAD）。
 范围：[long-horizon 设计](../design/long-horizon/README.md) 01–16 的 P0 落地情况。
 
 ## 1. 验证结果
 
 | 检查 | 结果 |
 |---|---|
-| Python 全量 | **1387 passed / 13 skipped** |
-| TUI | **373 passed / 1 failed**；失败为环境 pty smoke（`out of pty devices`） |
+| Python 全量 | **1395 passed / 13 skipped** |
+| TUI | **380 passed / 1 failed**；失败为环境 pty smoke（`out of pty devices`） |
 | 长任务 fake 场景 | **10/10 PASS**（`scripts/bench_long.py --runs 1`；新增 `--real` 真 provider 入口） |
 | 07 attach 人工验收 | TC-01–09 通过（[记录](manual-acceptance-07-results.md)） |
 | Plan/SubAgent 人工验收清单 | TC-16-01–08 已编写，真模型环境待逐项记录（[清单](manual-acceptance-16-plan-subagent.md)） |
@@ -50,7 +50,11 @@ TUI /goal /chat /act /plan
   → /explore 只读探索 + subagent_event；/notifications 查看后台通知
   → /plan 覆盖层：折叠/展开、↑↓选择、s步骤详情、e修订、y/n审批、Enter执行
   → 侧栏：p 打开计划步骤面板（↑↓ 选择、done/total、✓/✗）
+  → 通知：plan_proposed/approved/rejected/acceptance、goal_segment/stopped、
+    subagent_finished、workspace_queued、merge_*
+```
   → CLI 只读：--tasks/--plans/--acceptance/--notifications
+  → /plan background：创建计划绑定 task + detached worker；TUI 退出后继续
 ```
 
 ## 4. 已知限制（P0 之后仍需）
