@@ -172,3 +172,23 @@ def test_v2_task_snapshot_approval_list_and_decide(tmp_path):
             await server.wait_closed()
 
     asyncio.run(scenario())
+
+
+def test_attach_shutdown_frame_detaches_without_stopping_child(tmp_path):
+    session, store, task, worker = _worker(tmp_path)
+    path = str(Path(tempfile.mkdtemp(prefix="vibe-attach-")) / "ctrl.sock")
+
+    async def scenario():
+        server = await asyncio.start_unix_server(worker._client, path=path)
+        try:
+            reader, writer, reply = await _connect(path, "control")
+            writer.write((json.dumps({"v": 1, "type": "shutdown", "id": "s1"}) + "\n").encode())
+            await writer.drain()
+            await asyncio.sleep(0.1)
+            assert worker.queue.empty()
+            writer.close()
+        finally:
+            server.close()
+            await server.wait_closed()
+
+    asyncio.run(scenario())

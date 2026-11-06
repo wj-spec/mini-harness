@@ -709,6 +709,10 @@ class Worker:
                         "approval_id": approval_id, "decision": decision,
                     }, ensure_ascii=False))
                     continue
+                if frame.get("type") == "shutdown":
+                    # TUI 后端关闭 attach 子进程时会发 shutdown；这只应 detach，
+                    # 不能转发给 worker 子进程，否则会取消正在运行的任务。
+                    continue
                 if frame.get("type") == "approval":
                     approval_id = frame.get("approval_id")
                     decision = frame.get("decision")
@@ -882,9 +886,18 @@ async def _attach_async(session_root: Path, task_id: str, *, mode: str = "observ
             line = await loop.run_in_executor(None, sys.stdin.readline)
             if not line:
                 return
-            if line.strip():
-                writer.write(line.encode("utf-8"))
-                await writer.drain()
+            text = line.strip()
+            if not text:
+                continue
+            try:
+                frame = json.loads(text)
+            except json.JSONDecodeError:
+                frame = None
+            if isinstance(frame, dict) and frame.get("type") == "shutdown":
+                # 这是 TUI 后端关闭 attach 中继的信号；只断开，不传给 worker。
+                return
+            writer.write((text + "\n").encode("utf-8"))
+            await writer.drain()
 
     try:
         async def heartbeats() -> None:
