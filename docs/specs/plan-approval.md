@@ -60,6 +60,7 @@
 ## 测试
 
 - 未 propose 不可批准；
+- 绑定未批准 plan 的 run 即使审批 handler 允许也无法写文件（ApprovalGate gate deny）；
 - 批准需 `plan.review`；
 - propose → approve 后 `can_execute` 为 true，audit 两条；
 - reject 回 draft；

@@ -552,3 +552,40 @@ def test_plan_command_shows_step_detail(tmp_path, monkeypatch):
         await harness.close()
 
     asyncio.run(scenario())
+
+
+def test_bound_unapproved_plan_blocks_write_at_gate(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    plan_task = "t-20261106-000000-abcdef"
+    plan_dir = session.root / "tasks" / plan_task
+    from app.runtime.plan import Plan, propose_plan
+    plan = Plan.from_dict({
+        "schema_version": 1, "plan_id": "pl-draft", "task_id": plan_task,
+        "objective": "未批准", "steps": [{"step_id": "s1", "title": "写", "kind": "edit"}],
+    })
+    propose_plan(plan_dir, plan)  # proposed, not approved
+    from app.safety.policy import ApprovalDecision
+    from core.contracts import Response, ToolCall
+    agent = Agent(FakeProvider([
+        Response(tool_calls=[ToolCall("write_file", {"path": "blocked.txt", "content": "x"}, id="w1")]),
+        "完成",
+    ]), ToolRegistry(tmp_path), approval=ApprovalGate())
+
+    async def allow(call, preview):
+        return ApprovalDecision(True, "once")
+    agent.approval.handler = allow
+
+    async def scenario():
+        harness = Harness(agent, Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("run", "r-gate", text="写文件", task={
+            "kind": "run", "mode": "act", "objective": "写文件",
+            "plan_id": "pl-draft", "plan_version": 1,
+        })
+        done = await harness.until("done", "r-gate")
+        assert not (tmp_path / "blocked.txt").exists()
+        assert done["result"]["status"] in {"stopped", "done", "error"}
+        await harness.close()
+
+    asyncio.run(scenario())
