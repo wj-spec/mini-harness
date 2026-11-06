@@ -388,3 +388,25 @@ def test_worker_sends_run_task_meta_for_prepared_plan(tmp_path, monkeypatch):
     meta = json.loads(captured.read_text(encoding="utf-8"))
     assert meta["kind"] == "run" and meta["mode"] == "act"
     assert meta["plan_id"] == "pl-bg" and meta["plan_version"] == 2
+
+
+def test_worker_approval_inbox_full_notifies(tmp_path, monkeypatch):
+    import asyncio
+    from app.runtime.approvals import ApprovalInbox
+    from app.runtime.tasks import TaskStore
+    from app.runtime.worker import Worker
+    from app.session.store import SessionStore
+
+    monkeypatch.setenv("VIBE_APPROVAL_MAX_PENDING", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="test")
+    task = TaskStore(session.root).create(kind="goal", objective="cap", workspace=str(tmp_path), mode="goal")
+    ApprovalInbox(session.root).submit(task.task_id, tool="write_file")
+    worker = Worker(session_root=session.root, task_id=task.task_id, workspace=tmp_path,
+                    child_args=[], child_env={})
+    asyncio.run(worker._record_approval({
+        "approval_id": "a-cap", "call": {"name": "bash"}, "tier": "exec",
+        "decisions": ["once", "deny"],
+    }))
+    from app.runtime.notifications import read_notifications
+    notices = [item for item in read_notifications(tmp_path) if item["kind"] == "approval_inbox_full"]
+    assert notices and "inbox full" in notices[-1]["reason"]

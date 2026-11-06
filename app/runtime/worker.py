@@ -659,7 +659,9 @@ class Worker:
                 preview_ref=f"worker-events:{approval_id}",
                 expires_at=expires_at, session_id=self.session_root.name,
             )
-        except ApprovalError:
+        except ApprovalError as exc:
+            notify(self.workspace, "approval_inbox_full", task_id=self.task_id,
+                   approval_id=approval_id, reason=str(exc)[:300])
             return
         notify(self.workspace, "approval_requested", task_id=self.task_id,
                approval_id=approval_id, tool=tool_name, tier=event.get("tier"))
