@@ -1,17 +1,17 @@
 # 长任务 / 后台 / 进阶模式 P0 收束报告
 
-日期：2026-11-06。基线：`f9c6e92`（报告更新前 HEAD）。
+日期：2026-11-06。基线：`8998ad2`（报告更新前 HEAD）。
 范围：[long-horizon 设计](../design/long-horizon/README.md) 01–16 的 P0 落地情况。
 
 ## 1. 验证结果
 
 | 检查 | 结果 |
 |---|---|
-| Python 全量 | **1366 passed / 13 skipped** |
-| TUI | **362 passed / 1 failed**；失败为环境 pty smoke（`out of pty devices`） |
+| Python 全量 | **1372 passed / 13 skipped** |
+| TUI | **368 passed / 1 failed**；失败为环境 pty smoke（`out of pty devices`） |
 | 长任务 fake 场景 | **10/10 PASS**（`scripts/bench_long.py --runs 1`；新增 `--real` 真 provider 入口） |
 | 07 attach 人工验收 | TC-01–09 通过（[记录](manual-acceptance-07-results.md)） |
-| 文档链接 | 74 个 specs/long-horizon 文档，**0 失效** |
+| 文档链接 | 75 个 specs/long-horizon 文档，**0 失效** |
 
 ## 2. 16 块 P0 状态
 
@@ -46,14 +46,15 @@ TUI /goal /chat /act /plan
   → step ledger（start/complete + 工具证据）
   → 完成门：required 步骤 + 可信验收命令
   → subagent 只读执行（TaskRecord/usage/取消/扇出）
-  → /explore 只读探索；/notifications 查看后台通知；/plan 覆盖层审批/修订
+  → /explore 只读探索 + subagent_event；/notifications 查看后台通知
+  → /plan 覆盖层：折叠/展开、↑↓选择、s步骤详情、e修订、y/n审批、Enter执行
 ```
 
 ## 4. 已知限制（P0 之后仍需）
 
 1. **真模型 P1 未做**：08 全部为 fake worker 场景；未验证真实长任务、成本与完成质量。
-2. **Plan TUI**：计划卡片折叠/分页/编辑、stale 重批、审批 deadline 未完成；`/plan` 目前是文本渲染 + approve/reject/execute 命令。
-3. **子 Agent**：stdio 事件/attach 展示、按 mode 的委派开关、父预算硬上限联动未完成；batch fan-out 只有基础限制。
+2. **Plan TUI**：已覆盖层折叠/方向键/步骤详情/修订/审批/执行；完整卡片布局、审批 deadline、右侧 sidebar 导航仍待。
+3. **子 Agent**：已有子 TaskRecord/subagent_event/取消/depth/批量扇出；attach 回放、按 mode 委派开关、父预算硬上限联动仍待。
 4. **09 剩余**：events.jsonl 软上限/告警、红队清单自动化、只读任务并发与文件集并行、profile 变更审批入口。
 5. **08 剩余**：真实 seed/时钟/5xx 故障注入、成本 cap、`agent_version`、重复运行统计报告。
 6. **环境**：真实 TUI 验收受 pty 限制；browser smoke 在负载下偶发 flake。
