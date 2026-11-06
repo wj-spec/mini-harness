@@ -356,10 +356,12 @@ TC-09 [ ] pass [ ] fail  证据：
 - **worker 报 `non-git workspace`，但工作区已经是 git 仓库**
   - 原因（已修复）：上一次 worker 被中断后留下了同 task 的 worktree，旧逻辑把 “worktree already exists” 误判成非 git。
   - 处理：更新代码后直接重跑 worker；它会复用已有 worktree，不会再次创建或报错。
-- **`./run_ink.sh` 报 `setRawMode EIO`**
-  - 原因：当前终端/IDE 面板不接受 raw mode（`isTTY` 可能仍为 true）。
-  - 处理：换 macOS Terminal/Ghostty/iTerm 的普通交互窗口，不要用 IDE 输出面板、管道或后台作业。
-  - 现在 TUI 会提前打印明确提示并以 exit 2 退出，不再抛未处理异常。
+- **`./run_ink.sh` 报 `setRawMode EIO`，但 `node tui/dist/src/cli.js` 能正常进入 TUI**
+  - 原因：`run_ink.sh` 里的 `npm run build` 与交互 stdin 相互影响。
+  - 处理：重试 `./run_ink.sh`（build 已用 `</dev/null` 隔离）；仍失败时用
+    `VIBE_TUI_SKIP_BUILD=1 ./run_ink.sh ...` 跳过构建。
+  - 如果直接 `node tui/dist/src/cli.js` 也无法进入，才是终端 raw mode 问题：
+    换 macOS Terminal/Ghostty/iTerm 的普通交互窗口，不要用 IDE 面板/管道/后台作业。
 - **TUI 测试 `out of pty devices`**
   - 原因：当前终端/沙箱无可用 pty。
   - 处理：换真实交互终端执行；这是本环境唯一预期失败项。

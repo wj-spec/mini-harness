@@ -26,5 +26,8 @@ if [ ! -d tui/node_modules/ink ]; then
   exit 2
 fi
 
-npm --prefix tui run build --silent
+if [ "${VIBE_TUI_SKIP_BUILD:-0}" != "1" ]; then
+  # 构建自己的 stdin 与交互终端隔离，避免 npm/tsc 改变终端输入状态。
+  npm --prefix tui run build --silent < /dev/null
+fi
 exec node tui/dist/src/cli.js "$@"
