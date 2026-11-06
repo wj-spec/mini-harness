@@ -180,6 +180,8 @@ class Plan:
             command = item.get("command")
             if not isinstance(command, str) or not command.strip():
                 raise PlanError(f"verification {vid}: command must be a nonempty string")
+            if len(command) > 4000:
+                raise PlanError(f"verification {vid}: command too long")
             covers = item.get("covers", [])
             if not isinstance(covers, list) or not all(isinstance(cid, str) for cid in covers):
                 raise PlanError(f"verification {vid}: covers must be a string list")

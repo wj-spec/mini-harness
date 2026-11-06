@@ -253,3 +253,6 @@ def test_plan_verification_plan_validation():
     with pytest.raises(PlanError, match="nonempty string"):
         bad = dict(base); bad["verification_plan"] = [{"id": "v1", "covers": ["ac1"], "command": "", "source": "plan_approval"}]
         Plan.from_dict(bad)
+    with pytest.raises(PlanError, match="command too long"):
+        bad = dict(base); bad["verification_plan"] = [{"id": "v1", "covers": ["ac1"], "command": "x" * 4001, "source": "plan_approval"}]
+        Plan.from_dict(bad)
