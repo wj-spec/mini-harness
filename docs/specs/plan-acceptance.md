@@ -43,13 +43,14 @@
   1. execution ledger 的 required 步骤全 done；
   2. 若 Plan 有 confirmed required criteria，则从 Plan 生成 PlanAcceptance，
      通过 `run_verification_plan` 执行可信命令；
-  3. 验收非 `True` → run 改为 `stopped/acceptance_<code>`，任务 paused。
+  3. 验收非 `True` → run 改为 `stopped/acceptance_<code>`，任务 paused；
+     结果文本附失败命令 id/command/exit/输出摘要（最多 5 条），供回灌/排查。
 - Plan schema 增加 `verification_plan` / `trusted_source`；submit_plan 可提交。
 
 ## 未完成
 
 - 从 GoalRecord 生成 PlanAcceptance（当前从 Plan 生成）；
-- 失败回灌、有界重试、合并后重验；
+- 失败回灌已带命令证据；有界重试、合并后重验仍待；
 - rounds/`/evidence` 展示验收结果；
 - 三态结论写入 rounds/`/evidence` 与 goal 完成判定；
 - 模型提议 criteria 的 `confirmed=false` 流程接 TUI plan.review。

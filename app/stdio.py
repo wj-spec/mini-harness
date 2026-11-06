@@ -761,9 +761,21 @@ class _Connection:
                             )
                             if verification["status"] is not True:
                                 codes = ",".join(verification["codes"]) or "acceptance_failed"
+                                commands = {item.id: item.command for item in acceptance.verification_plan}
+                                details = []
+                                for vid, item in verification["results"].items():
+                                    if item.get("ok"):
+                                        continue
+                                    reason = item.get("reason") or f"exit={item.get('exit_code')}"
+                                    output = str(item.get("output") or "").strip()[-500:]
+                                    details.append(f"- {vid}: {commands.get(vid, '?')} → {reason}"
+                                                   + (f"\n  {output}" if output else ""))
+                                suffix = "\n[计划验收未通过：" + codes + "]"
+                                if details:
+                                    suffix += "\n[失败命令]\n" + "\n".join(details[:5])
                                 result = replace(
                                     result, status="stopped", stop_reason=f"acceptance_{codes}",
-                                    text=(result.text + "\n[计划验收未通过：" + codes + "]").strip(),
+                                    text=(result.text + suffix).strip(),
                                 )
                 except Exception:
                     pass
