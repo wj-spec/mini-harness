@@ -29,7 +29,7 @@
   - `/plan <任务>` 发送 `kind=run, mode=plan`；
   - `/plan` 打开计划覆盖层（默认折叠：目标/状态/验收标准 + 前 3 步，提示共 N 步）；
   - `/plan all` 打开完整步骤覆盖层；
-  - 覆盖层支持 ↑↓ 选择、s 查看选中步骤、e 预填修订命令、滚轮/PgUp/PgDn 翻阅、Esc 返回；
+  - 覆盖层支持 ↑↓ 选择、s 查看选中步骤、a 查看验收标准、e 预填修订命令、滚轮/PgUp/PgDn 翻阅、Esc 返回；
   - proposed 计划可用 `y` 批准 / `n` 拒绝（发 backend plan command）；
   - approved 计划按 Enter 直接执行（`/plan execute` 等价）；执行时选择**最新可执行**的 approved 非 stale 版本，
     最新版本不可执行会提示回退版本；无可执行版本时提示批准/修订；
