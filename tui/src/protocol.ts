@@ -16,7 +16,7 @@ export const AUTONOMY_LABELS: Record<AutonomyLevel, string> = {
   workspace: '工作区自动（写入+执行）',
   full: '完全执行（写入+执行+网络）',
 };
-export const BACKEND_COMMANDS = ['resume', 'permissions', 'permissions_reset', 'cost', 'tools', 'diff', 'mcp', 'skills', 'evidence', 'autonomy', 'tasks', 'approvals'] as const;
+export const BACKEND_COMMANDS = ['resume', 'permissions', 'permissions_reset', 'cost', 'tools', 'diff', 'mcp', 'skills', 'evidence', 'autonomy', 'tasks', 'approvals', 'plan'] as const;
 export const COMMAND_COMPLETIONS = ['/help', '/resume', '/context', '/continue', '/cost', '/tools', '/diff', '/permissions',
   '/permissions reset', '/mcp', '/skills', '/goal', '/task', '/tasks', '/approvals', '/session', '/theme', '/followup', '/copy', '/project', '/about', '/sidebar', '/sidebar split', '/sidebar quick', '/sidebar window', '/sidebar setup', '/evidence', '/autonomy', '/chat', '/act', '/plan', '/quit', '/exit'] as const;
 export const COMMAND_DESCRIPTIONS: Record<string, string> = {
@@ -32,7 +32,14 @@ export function commandMatches(value: string): string[] {
 export type BackendCommand = typeof BACKEND_COMMANDS[number];
 export type SkillsCommandArgs = {action?: 'list' | 'refresh' | 'activate' | 'unload'; name?: string};
 export type AutonomyCommandArgs = {level: AutonomyLevel};
-export type CommandArgs = SkillsCommandArgs | AutonomyCommandArgs;
+export type PlanCommandArgs = {action?: 'show' | 'approve' | 'reject'};
+export type CommandArgs = SkillsCommandArgs | AutonomyCommandArgs | PlanCommandArgs;
+export function validatePlanArgs(value: unknown): asserts value is PlanCommandArgs {
+  if (!record(value) || Object.keys(value).some(key => key !== 'action') ||
+      (value.action !== undefined && !['show', 'approve', 'reject'].includes(String(value.action)))) {
+    throw new Error('plan 参数只允许 action=show|approve|reject');
+  }
+}
 export function validateAutonomyArgs(value: unknown): asserts value is AutonomyCommandArgs {
   if (!record(value) || Object.keys(value).some(key => key !== 'level') ||
       !AUTONOMY_LEVELS.includes(value.level as AutonomyLevel)) {

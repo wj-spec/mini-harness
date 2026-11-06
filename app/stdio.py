@@ -35,7 +35,7 @@ MAX_FRAME_BYTES = 1024 * 1024
 _OVERSIZED = object()
 COMMANDS = frozenset({
     "resume", "permissions", "permissions_reset", "cost", "tools", "diff", "mcp",
-    "skills", "evidence", "autonomy", "tasks", "approvals",
+    "skills", "evidence", "autonomy", "tasks", "approvals", "plan",
 })
 COMPLETION_CODE_LABELS = {
     "no_verification": "有文件改动但没有验证命令",
@@ -330,6 +330,29 @@ class _Connection:
                 await self.publish_loaded_context()
                 self.send("status", phase="idle")
 
+    def _plan_command(self, action: str) -> str:
+        from app.runtime.plan import (
+            PlanError, approve_plan, can_execute, load_plan, render_plan, reject_plan,
+        )
+        tasks_root = self.session.root / "tasks"
+        candidates = sorted(
+            tasks_root.glob("*/plan/plan.v*.json"),
+            key=lambda path: path.stat().st_mtime if path.exists() else 0,
+            reverse=True,
+        ) if tasks_root.is_dir() else []
+        if not candidates:
+            return "当前会话没有计划产物；用 /plan <任务> 生成。"
+        path = candidates[0]
+        try:
+            plan = load_plan(path)
+            if action == "approve":
+                approve_plan(path.parent.parent, plan, approved_by="user", approval_id=None)
+            elif action == "reject":
+                reject_plan(path.parent.parent, plan, rejected_by="user", reason="user rejected")
+            return render_plan(plan) + f"\nexecutable={can_execute(plan)}"
+        except (PlanError, OSError) as exc:
+            return f"计划操作失败：{exc}"
+
     async def command(self, request_id, command, args=None):
         skills = None
         if command == "resume" and self.agent.history:
@@ -402,6 +425,8 @@ class _Connection:
                         text += "\n" + "\n".join(self.mcp.errors)
             elif command == "evidence":
                 text = format_round_evidence(self.session.latest_round())
+            elif command == "plan":
+                text = self._plan_command((args or {}).get("action", "show"))
             elif command == "tasks":
                 text = _format_task_hints(_task_hints(self.session.root))
             elif command == "approvals":
@@ -714,7 +739,7 @@ class _Connection:
             }
             if not isinstance(kind, str) or kind not in fields:
                 raise ValueError("unknown request type")
-            if kind == "command" and request.get("command") in {"skills", "autonomy"} and "args" in request:
+            if kind == "command" and request.get("command") in {"skills", "autonomy", "plan"} and "args" in request:
                 fields[kind] = fields[kind] | {"args"}
             allowed = {"v", "type", "id"} | fields[kind]
             if kind == "run" and "task" in request:
@@ -729,18 +754,24 @@ class _Connection:
                     raise ValueError("run text must be a nonempty string")
                 if kind == "command" and (not isinstance(request["command"], str) or request["command"] not in COMMANDS):
                     raise ValueError("unknown command")
-                if kind == "command" and request["command"] == "skills" and "args" in request:
+                if kind == "command" and request["command"] in {"skills", "plan"} and "args" in request:
                     args = request["args"]
-                    if not isinstance(args, dict) or set(args) - {"action", "name"}:
-                        raise ValueError("skills args must contain only action and name")
-                    action = args.get("action", "list")
-                    if not isinstance(action, str) or action not in {"list", "refresh", "activate", "unload"}:
-                        raise ValueError("unknown skills action")
-                    if action in {"activate", "unload"}:
-                        if not isinstance(args.get("name"), str) or not args["name"].strip():
-                            raise ValueError("skills activate/unload requires a nonempty name")
-                    elif "name" in args:
-                        raise ValueError("skills list/refresh does not accept name")
+                    if not isinstance(args, dict):
+                        raise ValueError("command args must be an object")
+                    if request["command"] == "plan":
+                        if set(args) - {"action"} or args.get("action", "show") not in {"show", "approve", "reject"}:
+                            raise ValueError("plan args must contain only action=show|approve|reject")
+                    else:
+                        if set(args) - {"action", "name"}:
+                            raise ValueError("skills args must contain only action and name")
+                        action = args.get("action", "list")
+                        if not isinstance(action, str) or action not in {"list", "refresh", "activate", "unload"}:
+                            raise ValueError("unknown skills action")
+                        if action in {"activate", "unload"}:
+                            if not isinstance(args.get("name"), str) or not args["name"].strip():
+                                raise ValueError("skills activate/unload requires a nonempty name")
+                        elif "name" in args:
+                            raise ValueError("skills list/refresh does not accept name")
                 if kind == "command" and request["command"] == "autonomy":
                     args = request.get("args")
                     if not isinstance(args, dict) or set(args) != {"level"}:

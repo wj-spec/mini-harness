@@ -1079,6 +1079,17 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       notice(rendered ?? '当前会话没有计划产物；用 /plan <任务描述> 开始一次只读规划。');
       return;
     }
+    const planReview = /^\/plan\s+(approve|reject)$/.exec(text);
+    if (planReview) {
+      if (state.phase !== 'idle' || activeRun.current) {notice('当前有运行中任务；结束后再处理计划。'); return;}
+      try {
+        const id = client.command('plan', {action: planReview[1] as 'approve' | 'reject'});
+        activeRun.current = id;
+        dispatch({type: 'begin_command', id, command: 'plan'});
+        setInput('');
+      } catch (error) {reportError(`计划操作未送达：${String(error)}`);}
+      return;
+    }
     const planMatch = /^\/plan\s+([\s\S]+)$/.exec(text);
     if (planMatch) {
       const prompt = planMatch[1]!.trim();

@@ -28,6 +28,7 @@
 - TUI `/plan`：
   - `/plan <任务>` 发送 `kind=run, mode=plan`；
   - `/plan` 无参数读取当前 session 最近的 plan 文件并渲染目标/状态/验收标准/步骤（最多 200 行）。
+  - `/plan approve`、`/plan reject` 通过后端 `plan` command 处理最近计划（stdio 本地 user 决定）。
 
 ## 未完成（P0 剩余）
 

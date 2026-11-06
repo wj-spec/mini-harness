@@ -19,6 +19,12 @@
 - `content_hash(plan)`：绑定计划内容（approval/status 归一化），批准后内容变化则 hash 不匹配；
 - `can_execute(plan)`：status=approved + capability=plan.review + plan_hash 匹配 + approved_by 非空。
 
+## 已接线的入口
+
+- stdio command `plan`（args `{action: show|approve|reject}`）：读取当前 session 最近 plan 产物，展示/调用 approve/reject；
+- TUI `/plan approve`、`/plan reject` 发送该 command；
+- 通过 `plan.review` capability 语义（当前 stdio 本地用户命令视为 user 决定）。
+
 ## 未完成（P0 剩余）
 
 - 工具执行前门禁：未批准 plan 的写/执行 deny(`plan_not_approved`)，当前只有 `can_execute` 纯函数；
@@ -26,7 +32,7 @@
 - steering/偏离后 plan 变 stale 与重批；
 - `submit_plan` 工具已接 plan profile；`kind=plan` task 的 TUI 创建/展示未接；
 - stdio 帧/`plan.review` capability 协商；
-- TUI 计划卡片、折叠/分页、批准/拒绝/编辑（`/plan` 已能只读展示最近计划）；
+- TUI 计划卡片、折叠/分页、编辑（已支持 `/plan approve|reject` 与只读展示）；
 - 验收标准确认与 GoalRecord 同步。
 
 ## 测试

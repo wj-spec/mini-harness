@@ -1639,6 +1639,12 @@ test('/plan submits a plan-mode run and /plan renders the latest artifact', asyn
     assert.match(lastFrame() ?? '', /候选/);
     await enter(stdin, '/plan 先规划');
     assert.deepEqual(client.runTasks[0], {kind: 'run', mode: 'plan', objective: '先规划'});
+    client.emit(completed('run-1'));
+    client.emit({type: 'status', phase: 'idle'});
+    await pause(20);
+    await enter(stdin, '/plan approve');
+    assert.equal(client.commands.at(-1), 'plan');
+    assert.deepEqual(client.commandArgs.at(-1), {action: 'approve'});
   } finally {
     await rm(dir, {recursive: true, force: true});
   }
