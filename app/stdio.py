@@ -752,6 +752,19 @@ class _Connection:
                             result, status="stopped", stop_reason="plan_incomplete",
                             text=(result.text + "\n[计划未完成：required 步骤仍有未 done 项]").strip(),
                         )
+                    else:
+                        acceptance = plan_context["plan"].acceptance()
+                        if acceptance is not None:
+                            from app.runtime.verification import run_verification_plan
+                            verification = await run_verification_plan(
+                                acceptance, self.agent.tools.root, self.agent.approval,
+                            )
+                            if verification["status"] is not True:
+                                codes = ",".join(verification["codes"]) or "acceptance_failed"
+                                result = replace(
+                                    result, status="stopped", stop_reason=f"acceptance_{codes}",
+                                    text=(result.text + "\n[计划验收未通过：" + codes + "]").strip(),
+                                )
                 except Exception:
                     pass
             if completed:

@@ -274,6 +274,7 @@ def test_plan_command_approves_latest_plan(tmp_path, monkeypatch):
 
 def test_bound_plan_step_tools_record_evidence_and_complete(tmp_path, monkeypatch):
     monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    monkeypatch.setenv("VIBE_AUTONOMY", "full")
     session = SessionStore.new(tmp_path, "fake", purpose="user")
     (tmp_path / "README.md").write_text("hello\n", encoding="utf-8")
     plan_task = "t-20261106-000000-abcdef"
@@ -343,6 +344,51 @@ def test_bound_plan_done_is_rejected_until_steps_complete(tmp_path, monkeypatch)
         tasks = TaskStore(session.root).list(kind="run")
         assert tasks and tasks[-1].status == "paused"
         assert tasks[-1].segments[-1].stop_reason == "plan_incomplete"
+        await harness.close()
+
+    asyncio.run(scenario())
+
+
+def test_bound_plan_acceptance_runs_trusted_verification(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    monkeypatch.setenv("VIBE_AUTONOMY", "full")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    (tmp_path / "README.md").write_text("hello\n", encoding="utf-8")
+    plan_task = "t-20261106-000000-abcdef"
+    plan_dir = session.root / "tasks" / plan_task
+    from app.runtime.plan import Plan, approve_plan, propose_plan
+    plan = Plan.from_dict({
+        "schema_version": 1, "plan_id": "pl-1", "task_id": plan_task,
+        "objective": "验收计划",
+        "acceptance_criteria": [{"id": "ac1", "text": "命令成功", "confirmed": True}],
+        "verification_plan": [{"id": "v1", "covers": ["ac1"], "command": "true",
+                               "source": "plan_approval"}],
+        "steps": [{"step_id": "s1", "title": "读 README", "kind": "read"}],
+    })
+    propose_plan(plan_dir, plan)
+    approve_plan(plan_dir, plan, approved_by="user")
+    from app.safety.policy import ApprovalDecision
+    from core.contracts import Response, ToolCall
+    agent = Agent(FakeProvider([
+        Response(tool_calls=[ToolCall("start_plan_step", {"step_id": "s1"}, id="t1")]),
+        Response(tool_calls=[ToolCall("read_file", {"path": "README.md"}, id="t2")]),
+        Response(tool_calls=[ToolCall("complete_plan_step", {"step_id": "s1"}, id="t3")]),
+        "完成",
+    ]), ToolRegistry(tmp_path), approval=ApprovalGate())
+
+    async def allow(call, preview):
+        return ApprovalDecision(True, "once")
+    agent.approval.handler = allow
+
+    async def scenario():
+        harness = Harness(agent, Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("run", "r-accept", text="执行", task={
+            "kind": "run", "mode": "act", "objective": "执行",
+            "plan_id": "pl-1", "plan_version": 1,
+        })
+        done = await harness.until("done", "r-accept")
+        assert done["result"]["status"] == "done"
         await harness.close()
 
     asyncio.run(scenario())

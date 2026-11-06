@@ -174,3 +174,20 @@ def test_find_plan_and_can_execute(tmp_path):
     approve_plan(task_dir, found[1], approved_by="user")
     found = find_plan(tmp_path, plan.plan_id, 1)
     assert found is not None
+
+
+def test_plan_acceptance_from_confirmed_criteria():
+    from app.runtime.acceptance import PlanAcceptance
+
+    plan = Plan.from_dict(_plan(
+        acceptance_criteria=[{"id": "ac1", "text": "通过", "confirmed": True}],
+        verification_plan=[{"id": "v1", "covers": ["ac1"], "command": "true",
+                            "source": "plan_approval"}],
+    ))
+    acceptance = plan.acceptance()
+    assert isinstance(acceptance, PlanAcceptance)
+    assert acceptance.status({"v1": {"ok": True}})[0] is True
+    unconfirmed = Plan.from_dict(_plan(acceptance_criteria=[
+        {"id": "ac1", "text": "通过", "confirmed": False},
+    ]))
+    assert unconfirmed.acceptance() is None

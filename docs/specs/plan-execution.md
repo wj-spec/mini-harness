@@ -28,7 +28,9 @@
   - complete 只在该步证据满足时成功；
   - run 结束注销工具并持久化 execution.vN.json；
 - 计划级完成门：绑定 plan 的 run 返回 done 时，若 required 步骤仍有未 done，
-  改写为 `stopped/plan_incomplete`，任务转 paused，等待继续执行/重规划。
+  改写为 `stopped/plan_incomplete`，任务转 paused，等待继续执行/重规划；
+  步骤完成后若 Plan 有 confirmed criteria，再执行可信验收命令，未通过则
+  `stopped/acceptance_<code>`。
 - `load_ledger` 未知 schema fail closed。
 
 ## 未完成（P0 剩余）

@@ -84,6 +84,8 @@ class Plan:
     goal_id: str | None = None
     source: dict[str, Any] = field(default_factory=dict)
     acceptance_criteria: list[dict[str, Any]] = field(default_factory=list)
+    verification_plan: list[dict[str, Any]] = field(default_factory=list)
+    trusted_source: str = "plan_approval"
     budget: dict[str, Any] = field(default_factory=dict)
     approval: dict[str, Any] = field(default_factory=dict)
     constraints: list[str] = field(default_factory=list)
@@ -96,6 +98,21 @@ class Plan:
         payload = asdict(self)
         payload["steps"] = [step.to_dict() for step in self.steps]
         return payload
+
+    def acceptance(self):
+        from app.runtime.acceptance import PlanAcceptance
+        if not any(item.get("confirmed") is True and item.get("required", True) is not False
+                   for item in self.acceptance_criteria):
+            return None
+        return PlanAcceptance.from_dict({
+            "schema_version": 1,
+            "task_id": self.task_id,
+            "plan_id": self.plan_id,
+            "plan_version": self.version,
+            "acceptance_criteria": self.acceptance_criteria,
+            "verification_plan": self.verification_plan,
+            "trusted_source": self.trusted_source,
+        })
 
     def plan_hash(self) -> str:
         return hashlib.sha256(
@@ -147,6 +164,14 @@ class Plan:
         for name in ("source", "budget", "approval"):
             if name in value and not isinstance(value[name], dict):
                 raise PlanError(f"{name} must be an object")
+        verification_plan = value.get("verification_plan", [])
+        if not isinstance(verification_plan, list) or not all(
+            isinstance(item, dict) for item in verification_plan
+        ):
+            raise PlanError("verification_plan must be an object list")
+        trusted_source = value.get("trusted_source", "plan_approval")
+        if trusted_source not in {"plan_approval", "project_profile"}:
+            raise PlanError("invalid trusted_source")
         for name in ("constraints", "out_of_scope", "open_questions"):
             if name in value and (not isinstance(value[name], list) or
                                   not all(isinstance(item, str) for item in value[name])):
@@ -158,6 +183,8 @@ class Plan:
             parent_task_id=value.get("parent_task_id"), goal_id=value.get("goal_id"),
             source=dict(value.get("source", {})),
             acceptance_criteria=[dict(item) for item in criteria],
+            verification_plan=[dict(item) for item in value.get("verification_plan", [])],
+            trusted_source=trusted_source,
             budget=dict(value.get("budget", {})), approval=dict(value.get("approval", {})),
             constraints=list(value.get("constraints", [])),
             out_of_scope=list(value.get("out_of_scope", [])),

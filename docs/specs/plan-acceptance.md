@@ -37,11 +37,20 @@
 - `trusted_commands()`、`command_digest()`。
 - 测试：成功/失败、不可信命令不执行、审批拒绝不执行、digest。
 
+## 集成
+
+- 绑定 plan 的 run 完成条件：
+  1. execution ledger 的 required 步骤全 done；
+  2. 若 Plan 有 confirmed required criteria，则从 Plan 生成 PlanAcceptance，
+     通过 `run_verification_plan` 执行可信命令；
+  3. 验收非 `True` → run 改为 `stopped/acceptance_<code>`，任务 paused。
+- Plan schema 增加 `verification_plan` / `trusted_source`；submit_plan 可提交。
+
 ## 未完成
 
-- 从 `goal-record.json`/Plan 加载并生成 PlanAcceptance；
+- 从 GoalRecord 生成 PlanAcceptance（当前从 Plan 生成）；
 - 失败回灌、有界重试、合并后重验；
-- 完成判定与 rounds/`/evidence` 接线；
+- rounds/`/evidence` 展示验收结果；
 - 三态结论写入 rounds/`/evidence` 与 goal 完成判定；
 - 模型提议 criteria 的 `confirmed=false` 流程接 TUI plan.review。
 
