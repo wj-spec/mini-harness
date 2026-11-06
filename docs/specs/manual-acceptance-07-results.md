@@ -17,8 +17,8 @@
 | TC-03 审批流 | **通过** | attach 后出现 write_file 审批面板；`y` 后 `approvals.jsonl` 出现 `resolved`（decided_by=attach）；task=`completed`；worktree 内有 `.vibe/fake-demo.txt`，主工作区没有 |
 | TC-04 observer 只读 | **通过** | observer 收到 attach_ok(mode=observe)+task_snapshot+approval_list；`cancel` 返回 `observer_readonly` |
 | TC-05 controller 接管 | **通过** | probe 收到 attach_ok(mode=control)+task_snapshot；原 TUI 显示 `control_taken: another client took control`（截图证据） |
-| TC-06 detach 后继续 | 待测 | — |
-| TC-07 kill switch | 待测 | — |
+| TC-06 detach 后继续 | **通过** | attach TUI Ctrl+Q 后 worker 仍 running；attach 关闭不再取消任务 |
+| TC-07 kill switch | **通过** | `--stop` 输出 `signalled=true`；worker.json=`killed`；task paused/cancelled；停止文件清理 |
 | TC-08 merge + 后验 | 待测 | — |
 | TC-09 非 git 拒绝 | 待测 | — |
 
@@ -41,6 +41,9 @@ main workspace file: absent
 - attach 回放丢弃审批请求（无 active run id）→ `task_snapshot` 带 `run_id`，TUI 恢复 `activeId`；
 - TUI `/attach now` 新旧进程抢 stdin 导致 `read EIO` → 延迟启动新 TUI，并处理 stdin EIO；
 - `run_ink.sh` 的 npm build 影响 raw mode → build 按需执行、stdin 隔离、node 子进程、`stty sane`。
+- attach TUI 的 Ctrl+Q 仍在走停止任务逻辑 → attach 模式直接 detach；
+- TUI 后端 shutdown 被 attach CLI 转发给 worker 子进程 → attach 关闭不再转发 shutdown；
+- TUI `/attach now` 新旧进程抢 stdin → 延迟启动新 TUI，并处理 stdin EIO。
 
 ## 后续
 
