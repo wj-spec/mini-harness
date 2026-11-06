@@ -133,8 +133,11 @@ def test_worker_goal_loop_continues_resource_stops(tmp_path, monkeypatch):
     state = json.loads((store.task_dir(task.task_id) / "worker.json").read_text(encoding="utf-8"))
     assert state["status"] == "exited"
     from app.runtime.notifications import read_notifications
-    kinds = [item["kind"] for item in read_notifications(tmp_path)]
+    items = read_notifications(tmp_path)
+    kinds = [item["kind"] for item in items]
     assert "goal_segment" in kinds and "worker_exited" in kinds
+    started = next(item for item in items if item["kind"] == "worker_started")
+    assert started["task_kind"] == "goal" and started["mode"] == "goal"
 
 
 def test_worker_approval_timeout_fails_task_and_expires_inbox(tmp_path, monkeypatch):

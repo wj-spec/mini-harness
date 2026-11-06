@@ -409,7 +409,10 @@ class Worker:
                 asyncio.create_task(self._watch_deadline()),
             ]
             await self._queue_initial_run()
-            notify(self.workspace, "worker_started", task_id=self.task_id, pid=os.getpid())
+            started_task = TaskStore(self.session_root).get(self.task_id)
+            notify(self.workspace, "worker_started", task_id=self.task_id, pid=os.getpid(),
+                   task_kind=started_task.kind, mode=started_task.mode,
+                   plan_id=started_task.plan_id, plan_version=started_task.plan_version)
             waiters = [asyncio.create_task(self.done.wait()), asyncio.create_task(self.stopping.wait())]
             finished, _ = await asyncio.wait(waiters, return_when=asyncio.FIRST_COMPLETED)
             for task in waiters:
