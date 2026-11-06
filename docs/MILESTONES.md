@@ -437,3 +437,27 @@ W1–W5 已完成真实验收；W6 v2 三组对照完成，主假设未获支持
 3. **W7 启动条件**：出现第二个高频非编码工作流后再细化，不提前拆平台功能。
 
 评测侧：README 六项完善已通过保留题真实核对（2026-10-25）；`validate` 已支持 `--limit`，可用 `./run_eval.sh validate --limit 3` 做前三题参考补丁自检（真实 Docker 自检待跑）；新增 `execution-chain` 跨层压测题（5 文件注入 + 双端隐藏检查，真实模型 3/3 通过）；`bench_local.py` 新增 `--pause-tokens` 暂停/续做压测（首轮低预算暂停 → `--continue` 重开续做，fake 冒烟与真实运行均已通过）。W0 剩入口/循环代码走查与学习记录。
+
+## 长任务 / 后台 / 进阶模式 P0 收束（2026-11-06）
+
+按 [long-horizon 设计](design/long-horizon/README.md) 01–16 推进，完成后台长任务、Plan 模式与只读 SubAgent 的第一轮闭环；详细状态与证据见 [P0 收束报告](specs/p0-closure-report.md)。
+
+**用户获得什么**：
+- `/goal` 之外可用 `/chat` `/act` `/plan`：Plan 有 schema、version、审批、执行门禁、step ledger 与验收命令；
+- 后台 worker 可 `--tasks`/`--attach`/`--stop`/`--pause-task`，写任务按 workspace lock 排队（queued），有 deadline、kill switch、本地通知；
+- `/explore` 只读子 Agent：子 TaskRecord、usage、父取消、depth 限制、批量扇出、`subagent_event`；
+- Plan 覆盖层：折叠/展开、方向键选择、`s` 步骤详情、`e` 修订、`y/n` 审批、Enter 执行、`/plan list|step|diff|revise`；stale 计划拒绝执行。
+
+**验证证据**：
+- Python 全量 **1374 passed / 13 skipped**；TUI **369/370**（唯一失败为环境 pty smoke）；
+- 长任务 fake 场景 10/10 PASS（`scripts/bench_long.py`）；新增 `--real` 真 provider 入口；
+- 07 attach 人工验收 TC-01–09 通过；文档链接 75 个 0 失效。
+
+**未验收 / 未做**：
+- 真实模型长任务 P1：未配置 API key，`--real` 未跑；成本/完成质量/误完成率未知；
+- 右侧 sidebar 计划/步骤导航、完整审批卡片、审批 deadline；
+- 子 Agent attach 回放、按 mode 委派开关、父预算硬上限联动；
+- 合并后重验、跨任务队列调度、外部告警渠道；
+- 对外只陈述“P0 基础闭环 + 确定性/人工验收证据”，不宣称生产完成。
+
+**下一步**：配置 provider 后跑真实长任务与 Plan/SubAgent 对照；补 sidebar/审批 deadline；再评估生产化收束。
