@@ -582,6 +582,12 @@ class _Connection:
                 if sub.task_id:
                     self.send("subagent_event", None, task_id=sub.task_id,
                               status=sub.status, summary=sub.summary[:500])
+                    try:
+                        from app.runtime.notifications import notify
+                        notify(self.agent.tools.root, "subagent_finished",
+                               task_id=sub.task_id, status=sub.status)
+                    except Exception:
+                        pass
                 text = f"子 Agent {sub.status}：{sub.summary}"
                 if sub.task_id:
                     text += f"\n任务：{sub.task_id}"

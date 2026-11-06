@@ -609,6 +609,9 @@ def test_explore_emits_subagent_event(tmp_path, monkeypatch):
         events = [event for event in harness.events if event["type"] == "subagent_event"]
         assert events and events[-1]["status"] == "ok"
         assert events[-1]["task_id"].startswith("t-")
+        from app.runtime.notifications import read_notifications
+        notices = [item for item in read_notifications(tmp_path) if item["kind"] == "subagent_finished"]
+        assert notices and notices[-1]["task_id"] == events[-1]["task_id"]
         await harness.close()
 
     asyncio.run(scenario())

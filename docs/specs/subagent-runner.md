@@ -22,6 +22,7 @@
   - 使用当前 provider 在只读子集上运行子 Agent；
   - 开始/结束发 notice（含 prompt 前缀/子任务 id）；
   - 结束发 subagent_event 帧（task_id/status/summary），TUI 显示 notice；
+  - 完成写本地通知 `subagent_finished`（task_id/status）；
   - command_result 返回 `子 Agent <status>：<summary>` + 子任务 id；
   - 创建 TaskRecord(kind=subagent)，可在 `/task`/`--tasks` 看到；
   - 不写工作区。
