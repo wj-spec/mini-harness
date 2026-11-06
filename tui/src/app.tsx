@@ -1039,6 +1039,27 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       } catch (error) {reportError(`操作未送达：${String(error)}`);}
       return;
     }
+    const modeMatch = /^\/(chat|act)\s+([\s\S]+)$/.exec(text);
+    if (modeMatch) {
+      const mode = modeMatch[1] as 'chat' | 'act';
+      const prompt = modeMatch[2]!.trim();
+      if (!prompt) {notice(`用法：/${mode} <任务描述>`); return;}
+      if (state.phase !== 'idle' || activeRun.current || goalRef.current?.active) {
+        notice('当前有运行中任务；结束后再切换模式。');
+        return;
+      }
+      if (!(client.capabilities?.().includes('tasks') ?? false)) {
+        notice('后端未启用任务运行时，暂不能使用 /chat 或 /act。');
+        return;
+      }
+      try {
+        const id = client.run(prompt, {kind: 'run', mode, objective: prompt});
+        activeRun.current = id;
+        dispatch({type: 'begin', id, text: prompt});
+        setInput(''); setFeedback(''); setScroll({follow: true, top: 0});
+      } catch (error) {notice(`未能提交任务：${String(error)}`);}
+      return;
+    }
     if (text.startsWith('/') && followupText === null) {setInput(''); notice(`未知命令 ${text.split(/\s/)[0]}；输入 /help 查看可用操作。`); return;}
     if (state.phase === 'running' && activeRun.current) {
       if (state.activeCommand && state.activeCommand !== 'resume') {

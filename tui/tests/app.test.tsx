@@ -1596,3 +1596,21 @@ test('fake demo mode prefills an actionable demo prompt', async () => {
     else process.env.VIBE_FAKE_DEMO = previous;
   }
 });
+
+test('/chat and /act submit run tasks with mode metadata', async () => {
+  const client = new MockClient();
+  client.capabilityList = ['tasks', 'modes'];
+  const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}/>);
+  await pause(20);
+  client.emit({type: 'ready', workspace: '/tmp/repo', model: 'fake', session_id: 'test', capabilities: ['tasks', 'modes']});
+  client.emit({type: 'status', phase: 'idle'});
+  await pause(20);
+  await enter(stdin, '/chat 只聊天');
+  assert.deepEqual(client.runTasks[0], {kind: 'run', mode: 'chat', objective: '只聊天'});
+  client.emit(completed('run-1'));
+  client.emit({type: 'status', phase: 'idle'});
+  await pause(20);
+  await enter(stdin, '/act 改代码');
+  assert.deepEqual(client.runTasks[1], {kind: 'run', mode: 'act', objective: '改代码'});
+  assert.match(lastFrame() ?? '', /改代码/);
+});

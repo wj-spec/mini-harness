@@ -121,7 +121,8 @@ export interface RunResult {
 }
 
 export type RunTaskMeta = {
-  kind: 'goal';
+  kind: 'goal' | 'run';
+  mode?: 'chat' | 'act' | 'goal' | 'plan';
   objective?: string;
   task_id?: string;
   goal_id?: string;

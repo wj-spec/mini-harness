@@ -19,7 +19,7 @@ from app.runtime.tasks import (
     TaskStore,
 )
 
-_GOAL_META_KEYS = frozenset({"kind", "objective", "task_id", "goal_id"})
+_GOAL_META_KEYS = frozenset({"kind", "objective", "task_id", "goal_id", "mode"})
 
 
 class TaskRuntimeError(Exception):
@@ -64,9 +64,14 @@ def _validate_meta(meta: Any) -> dict[str, str]:
     if unknown:
         raise TaskRuntimeError(f"unknown task fields: {sorted(unknown)}")
     kind = meta.get("kind")
-    if kind != "goal":
-        raise TaskRuntimeError("P0 only supports task.kind=goal")
-    result: dict[str, str] = {"kind": "goal"}
+    if kind not in {"goal", "run"}:
+        raise TaskRuntimeError("task.kind must be goal or run")
+    try:
+        from app.runtime.modes import mode_for_kind
+        mode = mode_for_kind(kind, meta.get("mode"))
+    except ValueError as exc:
+        raise TaskRuntimeError(str(exc)) from exc
+    result: dict[str, str] = {"kind": kind, "mode": mode}
     for key in ("objective", "task_id", "goal_id"):
         if key not in meta:
             continue
@@ -216,6 +221,7 @@ class TaskRuntime:
         return {
             "task_id": record.task_id,
             "kind": record.kind,
+            "mode": record.mode,
             "status": record.status,
             "segment": segment,
             "objective": record.objective,
@@ -230,16 +236,18 @@ class TaskRuntime:
         if not objective:
             raise TaskRuntimeError("task.objective is required when creating a task")
         record = self.store.create(
-            kind="goal", objective=objective, workspace=self.workspace, mode="goal",
-            goal_id=parsed.get("goal_id"),
+            kind=parsed["kind"], objective=objective, workspace=self.workspace,
+            mode=parsed["mode"], goal_id=parsed.get("goal_id"),
         )
         self.store.acquire_lock(record.task_id)
         return record
 
     def _attach(self, task_id: str, parsed: dict[str, str]) -> TaskRecord:
         record = self.store.get(task_id)
-        if record.kind != "goal":
-            raise TaskRuntimeError("attached task must be kind=goal")
+        if record.kind not in {"goal", "run"}:
+            raise TaskRuntimeError("attached task must be kind=goal/run")
+        if record.mode != parsed["mode"]:
+            raise TaskRuntimeError("attached task mode mismatch")
         if record.session_id != self.store.root.name:
             raise TaskRuntimeError("task belongs to a different session")
         if Path(record.workspace).resolve() != Path(self.workspace):

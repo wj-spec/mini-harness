@@ -107,7 +107,7 @@ def test_active_task_is_busy(runtime):
 
 def test_invalid_meta(runtime):
     for meta in (
-        {"kind": "run", "objective": "x"},
+        {"kind": "run", "mode": "bogus", "objective": "x"},
         {"kind": "goal"},
         {"kind": "goal", "objective": ""},
         {"kind": "goal", "objective": "x", "unknown": True},
@@ -145,7 +145,7 @@ def test_payload_shape(runtime):
     assert payload["status"] == "running"
     assert payload["segment"] == 1
     assert set(payload) == {
-        "task_id", "kind", "status", "segment", "objective", "goal_id", "updated_at",
+        "task_id", "kind", "mode", "status", "segment", "objective", "goal_id", "updated_at",
     }
     runtime.finish_run(run, _result("done", verified=True))
 
@@ -162,3 +162,25 @@ def test_goal_record_is_created_and_synced(runtime):
     assert loaded.segments[-1]["run_id"] == "run-1"
     assert loaded.segments[-1]["status"] == "done"
 
+
+
+def test_create_run_task_with_chat_mode(runtime):
+    run = runtime.prepare_run("run-chat", {"kind": "run", "mode": "chat", "objective": "只聊天"})
+    assert run is not None
+    record = runtime.store.get(run.task_id)
+    assert record.kind == "run" and record.mode == "chat"
+    assert runtime.payload(record)["mode"] == "chat"
+    completed = runtime.finish_run(run, _result("done", verified=True))
+    assert completed is not None and completed.status == "completed"
+
+
+def test_unknown_mode_rejected(runtime):
+    with pytest.raises(TaskRuntimeError):
+        runtime.prepare_run("run-bad", {"kind": "run", "mode": "bogus", "objective": "x"})
+
+
+def test_attach_mode_mismatch_rejected(runtime):
+    first = runtime.prepare_run("run-chat", {"kind": "run", "mode": "chat", "objective": "x"})
+    runtime.finish_run(first, _result("stopped", stop_reason="max_run_seconds"))
+    with pytest.raises(TaskRuntimeError):
+        runtime.prepare_run("run-act", {"kind": "run", "mode": "act", "task_id": first.task_id})

@@ -1,6 +1,6 @@
 # 10 模式状态机：chat / act / plan / goal 与 background
 
-> 状态：讨论稿（2026-11-02；2026-11-03 01–05 决策对齐见 §9，用户回答见 §10）；不是 spec，未承诺实现。
+> 状态：讨论稿（2026-11-02；2026-11-03 01–05 决策对齐见 §9，用户回答见 §10）；P0 chat/act 与 TaskRecord.mode 已实现，见 [modes spec](../../specs/modes.md)。
 > 所属：进阶模式 / 第 1 块
 > 前置/相关：[01 任务运行时](01-task-runtime.md)、[11 模式契约](11-mode-contracts.md)、[12 结构化 Plan 产物](12-plan-artifact.md)、[16 子 Agent 的有机结合](16-subagent-integration.md)；相关规格：[goal-mode](../../specs/goal-mode.md)、[multi-agent-computer-use](../../specs/multi-agent-computer-use.md)
 

@@ -190,3 +190,29 @@ def test_tasks_command_and_ready_hint(tmp_path, monkeypatch):
         await harness.close()
 
     asyncio.run(scenario())
+
+
+def test_chat_mode_task_sends_no_tools(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    agent = _agent(tmp_path)
+
+    async def scenario():
+        harness = Harness(agent, Config(workspace=tmp_path), session)
+        ready = await harness.until("ready")
+        assert "modes" in ready["capabilities"]
+        harness.send("run", "r-chat", text="只聊天", task={
+            "kind": "run", "mode": "chat", "objective": "只聊天",
+        })
+        state = await harness.until("task_state", "r-chat")
+        task_id = state["task"]["task_id"]
+        assert state["task"]["mode"] == "chat"
+        await harness.until("done", "r-chat")
+        assert agent.provider.seen_tools[-1] == []
+        meta = json.loads((_task_dir(session, task_id) / "meta.json").read_text(encoding="utf-8"))
+        assert meta["kind"] == "run" and meta["mode"] == "chat"
+        assert meta["status"] == "completed"
+        assert agent.tools_enabled is True
+        await harness.close()
+
+    asyncio.run(scenario())

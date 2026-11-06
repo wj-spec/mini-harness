@@ -458,6 +458,9 @@ class _Connection:
 
     async def run(self, request_id: str, text: str, run_task=None):
         self.has_started_run = True
+        previous_tools_enabled = self.agent.tools_enabled
+        if run_task is not None and getattr(run_task.record, "mode", None) == "chat":
+            self.agent.tools_enabled = False
         result = AgentResult("cancelled", 0, "cancelled")
         completed = False
         metrics = {
@@ -641,6 +644,7 @@ class _Connection:
             publish_metrics(force=True)
             self.send("done", request_id, result=asdict(result))
             self.active_id = None
+            self.agent.tools_enabled = previous_tools_enabled
             if not self.stop.is_set():
                 self.send("status", phase="idle")
 
@@ -834,6 +838,7 @@ async def serve(
                     "metrics", "history_restore", "commands", "resume"]
     if task_runtime is not None:
         capabilities.append("tasks")
+        capabilities.append("modes")
     if agent.tools_enabled:
         capabilities.append("native_tools")
     provider = (
