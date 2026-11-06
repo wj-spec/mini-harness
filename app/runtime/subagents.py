@@ -224,3 +224,44 @@ def _finish_subagent(
 def _now() -> str:
     from datetime import datetime, timezone
     return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+
+
+@dataclass
+class SubagentRequest:
+    provider: Any
+    workspace: str | Path
+    objective: str
+    kwargs: dict[str, Any] = field(default_factory=dict)
+
+
+async def run_subagent_batch(
+    requests: list[SubagentRequest],
+    *,
+    max_concurrency: int = 2,
+    max_children: int = 4,
+    parent_cancel: asyncio.Event | None = None,
+) -> list[SubagentResult]:
+    """受控扇出：最多 max_children 个子 Agent、并发 max_concurrency、共享父取消。"""
+    if not isinstance(requests, list):
+        raise SubagentError("requests must be a list")
+    if len(requests) > max_children:
+        raise SubagentError(f"subagent fan-out {len(requests)} exceeds max_children {max_children}")
+    if max_concurrency < 1:
+        raise SubagentError("max_concurrency must be positive")
+    semaphore = asyncio.Semaphore(max_concurrency)
+
+    async def one(request: SubagentRequest) -> SubagentResult:
+        async with semaphore:
+            return await run_subagent(
+                request.provider, request.workspace, request.objective,
+                parent_cancel=parent_cancel, **request.kwargs,
+            )
+
+    results = await asyncio.gather(*(one(request) for request in requests), return_exceptions=True)
+    final: list[SubagentResult] = []
+    for item in results:
+        if isinstance(item, BaseException):
+            final.append(SubagentResult(status="error", summary=str(item), error=type(item).__name__))
+        else:
+            final.append(item)
+    return final

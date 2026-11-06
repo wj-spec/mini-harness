@@ -114,3 +114,21 @@ def test_subagent_depth_limit_and_parent_cancel(tmp_path, monkeypatch):
         assert child.status == "cancelled"
 
     asyncio.run(scenario())
+
+
+def test_subagent_batch_limits_and_results(tmp_path):
+    from app.runtime.subagents import SubagentRequest, run_subagent_batch
+
+    requests = [
+        SubagentRequest(FakeProvider([f"r{i}"]), tmp_path, f"任务 {i}")
+        for i in range(2)
+    ]
+    results = asyncio.run(run_subagent_batch(requests, max_concurrency=2, max_children=4))
+    assert len(results) == 2 and all(item.status == "ok" for item in results)
+
+    too_many = [
+        SubagentRequest(FakeProvider(["x"]), tmp_path, f"任务 {i}")
+        for i in range(5)
+    ]
+    with pytest.raises(SubagentError):
+        asyncio.run(run_subagent_batch(too_many, max_children=4))
