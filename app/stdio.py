@@ -347,6 +347,21 @@ class _Connection:
             PlanError, approve_plan, can_execute, load_plan, render_plan, reject_plan,
         )
         tasks_root = self.session.root / "tasks"
+        if action == "list":
+            rows = []
+            for path in sorted(tasks_root.glob("*/plan/plan.v*.json")):
+                try:
+                    item = load_plan(path)
+                except PlanError:
+                    continue
+                rows.append((item.version, path.stat().st_mtime, item))
+            if not rows:
+                return "当前会话没有计划产物。"
+            rows.sort(key=lambda row: (row[1], row[0]))
+            return "计划版本：\n" + "\n".join(
+                f"- v{item.version} {item.status} {item.objective} ({item.plan_id})"
+                for _, _, item in rows[-20:]
+            )
         candidates = sorted(
             tasks_root.glob("*/plan/plan.v*.json"),
             key=lambda path: path.stat().st_mtime if path.exists() else 0,
@@ -958,7 +973,7 @@ class _Connection:
                     if not isinstance(args, dict):
                         raise ValueError("command args must be an object")
                     if request["command"] == "plan":
-                        if set(args) - {"action", "objective"} or args.get("action", "show") not in {"show", "approve", "reject", "revise"}:
+                        if set(args) - {"action", "objective"} or args.get("action", "show") not in {"show", "list", "approve", "reject", "revise"}:
                             raise ValueError("plan args allowed: action=show|approve|reject|revise, objective")
                         if args.get("action") == "revise" and (not isinstance(args.get("objective"), str) or not args["objective"].strip()):
                             raise ValueError("plan revise requires a nonempty objective")

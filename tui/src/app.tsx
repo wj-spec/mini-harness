@@ -1155,6 +1155,17 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       setOverlayScroll({key: 'plan', top: 0});
       return;
     }
+    if (text === '/plan list') {
+      if (state.phase !== 'idle' || activeRun.current) {notice('当前有运行中任务；结束后再查看计划版本。'); return;}
+      try {
+        const id = client.command('plan', {action: 'list'});
+        activeRun.current = id;
+        dispatch({type: 'begin_command', id, command: 'plan'});
+        setPlanOpen(false);
+        setInput('');
+      } catch (error) {notice(`计划版本查询未送达：${String(error)}`);}
+      return;
+    }
     const planRevise = /^\/plan\s+revise\s+([\s\S]+)$/.exec(text);
     if (planRevise) {
       if (state.phase !== 'idle' || activeRun.current) {notice('当前有运行中任务；结束后再修订计划。'); return;}
