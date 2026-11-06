@@ -88,6 +88,13 @@ class ApprovalInbox:
         existing = self._latest()
         if approval_id in existing and existing[approval_id].get("status") == "pending":
             raise ApprovalMismatch(f"duplicate pending approval_id: {approval_id}")
+        try:
+            max_pending = int(os.getenv("VIBE_APPROVAL_MAX_PENDING", "100"))
+        except ValueError:
+            max_pending = 100
+        max_pending = max(1, min(max_pending, 1000))
+        if len(self.pending(task_id)) >= max_pending:
+            raise ApprovalError(f"approval inbox full for task {task_id}")
         body = None
         if include_preview:
             body = redact_preview(preview, home=str(Path.home()))[:MAX_PREVIEW_BYTES]

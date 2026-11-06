@@ -19,6 +19,7 @@
 
 - `app/runtime/approvals.py`：`<session>/tasks/<task_id>/approvals.jsonl` append-only；
 - `submit/list/pending/resolve/expire`；一次性 `approval_id`；请求/解析/过期事件；
+- 每任务 pending 上限 `VIBE_APPROVAL_MAX_PENDING`（默认 100，范围 1–1000），超限 fail closed；
 - 归属字段：`requester/decider`、`task_id/session_id/agent_id/subagent_id/delegation_id`、`tier/decisions/policy_hash/project_policy_hash`；
 - 预览：默认 hash + ref；可选脱敏正文 ≤8KB；确定性 secret/HOME 过滤；
 - 损坏行跳过；task 目录隔离。

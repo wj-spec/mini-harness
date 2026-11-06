@@ -80,3 +80,14 @@ def test_task_isolation_and_corrupt_lines(tmp_path):
         handle.write("{bad\n")
     assert len(inbox.pending(first.task_id)) == 1
     assert len(inbox.items()) == 2
+
+
+def test_pending_cap_blocks_flood(tmp_path, monkeypatch):
+    import pytest
+    from app.runtime.approvals import ApprovalError, ApprovalInbox
+
+    monkeypatch.setenv("VIBE_APPROVAL_MAX_PENDING", "1")
+    inbox = ApprovalInbox(tmp_path)
+    inbox.submit("t-20261106-000000-abcdef", tool="bash")
+    with pytest.raises(ApprovalError, match="approval inbox full"):
+        inbox.submit("t-20261106-000000-abcdef", tool="write_file")
