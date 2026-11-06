@@ -216,3 +216,25 @@ def test_chat_mode_task_sends_no_tools(tmp_path, monkeypatch):
         await harness.close()
 
     asyncio.run(scenario())
+
+
+def test_plan_mode_restricts_tools_to_readonly_subset(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    agent = _agent(tmp_path)
+
+    async def scenario():
+        harness = Harness(agent, Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("run", "r-plan", text="先规划", task={
+            "kind": "run", "mode": "plan", "objective": "先规划",
+        })
+        await harness.until("done", "r-plan")
+        names = {item["function"]["name"] for item in agent.provider.seen_tools[0]}
+        assert "read_file" in names and "write_file" not in names and "bash" not in names
+        assert agent.tools.names() == ["web_search", "read_file", "grep", "list_files", "git_status",
+                                      "git_diff", "write_file", "edit_file", "apply_patch", "bash",
+                                      "list_skills", "load_skill", "unload_skill"]
+        await harness.close()
+
+    asyncio.run(scenario())

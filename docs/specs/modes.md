@@ -24,7 +24,8 @@
 - TUI：
   - `/chat <任务>`、`/act <任务>` 本地命令，发送 `{kind:"run", mode, objective}`；
   - 需要后端 `tasks` capability；运行中拒绝切换。
-- stdio 启动 run 前解析 mode profile 并校验工具名，写 `mode_profile` 事件。
+- stdio 启动 run 前解析 mode profile 并校验工具名，写 `mode_profile` 事件；
+  `plan` 模式把 agent tools 临时替换为只读子集（`read_file/list_files/grep/git_status/git_diff`），run 结束后恢复。
 - 测试：
   - modes：profile 完整性、chat/act/plan 工具与 capability、未知 mode/缺失工具；
   - TaskRuntime：run/chat、未知 mode、attach mode mismatch；
@@ -33,7 +34,7 @@
 
 ## 未完成
 
-- budget/approval/isolation profile 的实际执行层强制（当前只记录/校验工具与 system）；
+- budget/approval/isolation profile 的实际执行层强制（当前已强制 chat 无工具、plan 只读子集；budget/approval 仍只声明）；
 - `/plan`、plan→act 批准转换（12/13）；
 - goal 段内 plan mode；
 - 入口记忆上次 mode（项目级/会话级）；

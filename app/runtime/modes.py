@@ -27,7 +27,7 @@ class ModeProfile:
 
 
 READ_ONLY_TOOLS = (
-    "read_file", "list_files", "grep", "glob", "git_status", "git_diff", "git_log",
+    "read_file", "list_files", "grep", "git_status", "git_diff",
 )
 
 MODE_PROFILES: dict[str, ModeProfile] = {
