@@ -390,6 +390,9 @@ def test_bound_plan_acceptance_runs_trusted_verification(tmp_path, monkeypatch):
         })
         done = await harness.until("done", "r-accept")
         assert done["result"]["status"] == "done"
+        import json as _json
+        saved = _json.loads((plan_dir / "acceptance.v1.json").read_text(encoding="utf-8"))
+        assert saved["status"] is True
         await harness.close()
 
     asyncio.run(scenario())

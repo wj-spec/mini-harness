@@ -43,13 +43,15 @@
   1. execution ledger 的 required 步骤全 done；
   2. 若 Plan 有 confirmed required criteria，则从 Plan 生成 PlanAcceptance，
      通过 `run_verification_plan` 执行可信命令；
-  3. 验收非 `True` → run 改为 `stopped/acceptance_<code>`，任务 paused；
+  3. 验收结果写入任务目录 `acceptance.v<version>.json`（原子替换）；
+     验收非 `True` → run 改为 `stopped/acceptance_<code>`，任务 paused；
      结果文本附失败命令 id/command/exit/输出摘要（最多 5 条），供回灌/排查。
 - Plan schema 增加 `verification_plan` / `trusted_source`；submit_plan 可提交。
 
 ## 未完成
 
 - `/plan acceptance` 可查看 criteria 与 verification plan 清单（不执行）；
+- 已执行结果可在任务目录 `acceptance.v<version>.json` 核对；
 - 从 GoalRecord 生成 PlanAcceptance（当前从 Plan 生成）；
 - 失败回灌已带命令证据；单命令有界重试已实现；agent 回灌循环、合并后重验仍待；
 - rounds/`/evidence` 展示验收结果；

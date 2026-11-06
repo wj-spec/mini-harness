@@ -1,7 +1,10 @@
 """计划验收映射（15 P0）：已确认 criteria → verification plan → 三态结论。"""
 from __future__ import annotations
 
+import json
+import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 ACCEPTANCE_SCHEMA_VERSION = 1
@@ -154,3 +157,26 @@ def _text(value: Any, name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise AcceptanceError(f"{name} must be a nonempty string")
     return value.strip()
+
+
+def acceptance_path(task_dir: str | Path, version: int) -> Path:
+    return Path(task_dir) / f"acceptance.v{int(version)}.json"
+
+
+def save_acceptance_result(task_dir: str | Path, version: int, result: dict[str, Any]) -> Path:
+    path = acceptance_path(task_dir, version)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"schema_version": 1, "plan_version": int(version), **result}
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.replace(temporary, path)
+    return path
+
+
+def load_acceptance_result(task_dir: str | Path, version: int) -> dict[str, Any] | None:
+    path = acceptance_path(task_dir, version)
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) else None

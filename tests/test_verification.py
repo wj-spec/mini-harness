@@ -85,3 +85,12 @@ def test_verification_retries_flaky_command(tmp_path):
     assert result["status"] is True
     assert result["results"]["v1"]["attempts"] == 2
     assert (tmp_path / "marker").exists()
+
+
+def test_acceptance_result_persists(tmp_path):
+    from app.runtime.acceptance import load_acceptance_result, save_acceptance_result
+
+    result = {"results": {"v1": {"ok": True}}, "status": True, "codes": []}
+    path = save_acceptance_result(tmp_path, 2, result)
+    assert path.name == "acceptance.v2.json"
+    assert load_acceptance_result(tmp_path, 2) == {"schema_version": 1, "plan_version": 2, **result}

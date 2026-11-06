@@ -894,6 +894,13 @@ class _Connection:
                                 acceptance, self.agent.tools.root, self.agent.approval,
                                 retries=max(0, min(retries, 3)),
                             )
+                            try:
+                                from app.runtime.acceptance import save_acceptance_result
+                                save_acceptance_result(
+                                    plan_context["task_dir"], plan_context["plan"].version, verification,
+                                )
+                            except Exception:
+                                pass
                             if verification["status"] is not True:
                                 codes = ",".join(verification["codes"]) or "acceptance_failed"
                                 commands = {item.id: item.command for item in acceptance.verification_plan}
