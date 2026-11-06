@@ -1736,3 +1736,33 @@ test('plan overlay approves a proposed plan with y', async () => {
     await rm(dir, {recursive: true, force: true});
   }
 });
+
+test('plan overlay Enter executes an approved plan', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'mini-harness-plan-execute-'));
+  try {
+    const taskDir = path.join(dir, 'tasks', 't-20261103-120000-abcdef', 'plan');
+    await mkdir(taskDir, {recursive: true});
+    await writeFile(path.join(taskDir, 'plan.v1.json'), JSON.stringify({
+      schema_version: 1, plan_id: 'pl-3', task_id: 't-20261103-120000-abcdef',
+      version: 2, status: 'approved', objective: '执行目标',
+      acceptance_criteria: [], steps: [{step_id: 's1', title: '读', kind: 'read'}],
+    }));
+    const client = new MockClient();
+    client.capabilityList = ['tasks'];
+    const {stdin} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}/>);
+    await pause(20);
+    client.emit({type: 'ready', workspace: '/tmp/repo', model: 'fake', session_id: 'test',
+      session_path: dir, capabilities: ['tasks']});
+    client.emit({type: 'status', phase: 'idle'});
+    await pause(20);
+    await enter(stdin, '/plan');
+    stdin.write('\r');
+    await pause(30);
+    const task = client.runTasks.at(-1);
+    assert.equal(task?.plan_id, 'pl-3');
+    assert.equal(task?.plan_version, 2);
+    assert.equal(task?.mode, 'act');
+  } finally {
+    await rm(dir, {recursive: true, force: true});
+  }
+});
