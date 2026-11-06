@@ -21,6 +21,7 @@
 - `plan_complete(plan)`：所有非 skipped 步骤 done；
 - `can_execute_step`：依赖均已 done；
 - 原子存储 `task_dir/plan/execution.v<version>.json`；
+- 展示：stdio `plan show` 与 TUI `/plan` 会附带 step status/evidence 数。
 - `load_ledger` 未知 schema fail closed。
 
 ## 未完成（P0 剩余）
@@ -30,7 +31,7 @@
 - 偏离检测（计划外文件）和重规划；
 - 每步预算/成本归因；
 - 计划级完成条件接入完成守卫；
-- rounds/TUI 展示 step ledger。
+- rounds 展示 step ledger；TUI 已有基础状态展示，完整计划卡片待后续。
 
 ## 测试
 

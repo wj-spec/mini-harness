@@ -349,7 +349,16 @@ class _Connection:
                 approve_plan(path.parent.parent, plan, approved_by="user", approval_id=None)
             elif action == "reject":
                 reject_plan(path.parent.parent, plan, rejected_by="user", reason="user rejected")
-            return render_plan(plan) + f"\nexecutable={can_execute(plan)}"
+            text = render_plan(plan) + f"\nexecutable={can_execute(plan)}"
+            try:
+                from app.runtime.plan_execution import load_ledger
+                ledger = load_ledger(path.parent.parent, plan.version)
+                text += "\n执行台账："
+                for step_id, record in ledger.steps.items():
+                    text += f"\n- {step_id}: {record.status} ({len(record.evidence)} evidence)"
+            except Exception:
+                pass
+            return text
         except (PlanError, OSError) as exc:
             return f"计划操作失败：{exc}"
 

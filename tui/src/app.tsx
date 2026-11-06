@@ -47,7 +47,7 @@ function latestPlanArtifact(sessionPath: string): Record<string, unknown> | null
   if (!sessionPath) return null;
   try {
     const tasksRoot = path.join(sessionPath, 'tasks');
-    let best: {mtime: number; payload: Record<string, unknown>} | null = null;
+    let best: {mtime: number; payload: Record<string, unknown>; file: string} | null = null;
     for (const task of readdirSync(tasksRoot, {withFileTypes: true})) {
       if (!task.isDirectory()) continue;
       const planDir = path.join(tasksRoot, task.name, 'plan');
@@ -58,7 +58,7 @@ function latestPlanArtifact(sessionPath: string): Record<string, unknown> | null
         try {
           const stats = statSync(file);
           const payload = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
-          if (!best || stats.mtimeMs > best.mtime) best = {mtime: stats.mtimeMs, payload};
+          if (!best || stats.mtimeMs > best.mtime) best = {mtime: stats.mtimeMs, payload, file};
         } catch {}
       }
     }
@@ -70,7 +70,7 @@ function latestPlanText(sessionPath: string): string | null {
   if (!sessionPath) return null;
   try {
     const tasksRoot = path.join(sessionPath, 'tasks');
-    let best: {mtime: number; payload: Record<string, unknown>} | null = null;
+    let best: {mtime: number; payload: Record<string, unknown>; file: string} | null = null;
     for (const task of readdirSync(tasksRoot, {withFileTypes: true})) {
       if (!task.isDirectory()) continue;
       const planDir = path.join(tasksRoot, task.name, 'plan');
@@ -81,7 +81,7 @@ function latestPlanText(sessionPath: string): string | null {
         try {
           const stats = statSync(file);
           const payload = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
-          if (!best || stats.mtimeMs > best.mtime) best = {mtime: stats.mtimeMs, payload};
+          if (!best || stats.mtimeMs > best.mtime) best = {mtime: stats.mtimeMs, payload, file};
         } catch {}
       }
     }
@@ -94,8 +94,18 @@ function latestPlanText(sessionPath: string): string | null {
       for (const item of criteria) lines.push(`- [${item?.confirmed === true ? '已确认' : '候选'}] ${String(item?.text ?? '')}`);
     }
     const steps = Array.isArray(payload.steps) ? payload.steps : [];
+    const execution: Record<string, string> = {};
+    try {
+      const exec = JSON.parse(readFileSync(path.join(path.dirname(best.file), `execution.v${String(payload.version ?? 1)}.json`), 'utf8'));
+      for (const record of Array.isArray(exec.steps) ? exec.steps : []) {
+        if (record && typeof record.step_id === 'string') execution[record.step_id] = String(record.status ?? '');
+      }
+    } catch {}
     lines.push('步骤：');
-    for (const step of steps) lines.push(`- ${String(step?.step_id ?? '?')} ${String(step?.title ?? '')} [${String(step?.kind ?? '')}]`);
+    for (const step of steps) {
+      const stepId = String(step?.step_id ?? '?');
+      lines.push(`- ${stepId} ${String(step?.title ?? '')} [${String(step?.kind ?? '')}]${execution[stepId] ? ` · ${execution[stepId]}` : ''}`);
+    }
     return lines.slice(0, 200).join('\n');
   } catch {return null;}
 }

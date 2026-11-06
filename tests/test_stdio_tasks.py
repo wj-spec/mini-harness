@@ -258,7 +258,15 @@ def test_plan_command_approves_latest_plan(tmp_path, monkeypatch):
         harness.send("command", "c-plan", command="plan", args={"action": "approve"})
         result = await harness.until("command_result", "c-plan")
         assert "executable=True" in result["text"] or "可执行" in result["text"]
-        assert load_plan(task_dir / "plan" / "plan.v1.json").status == "approved"
+        approved = load_plan(task_dir / "plan" / "plan.v1.json")
+        assert approved.status == "approved"
+        from app.runtime.plan_execution import StepLedger, save_ledger
+        ledger = StepLedger.from_plan(approved)
+        ledger.start_step("s1")
+        save_ledger(task_dir, ledger)
+        harness.send("command", "c-show", command="plan", args={"action": "show"})
+        shown = await harness.until("command_result", "c-show")
+        assert "in_progress" in shown["text"]
         await harness.close()
 
     asyncio.run(scenario())

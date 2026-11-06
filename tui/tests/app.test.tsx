@@ -1620,6 +1620,10 @@ test('/plan submits a plan-mode run and /plan renders the latest artifact', asyn
   try {
     const taskDir = path.join(dir, 'tasks', 't-20261103-120000-abcdef', 'plan');
     await mkdir(taskDir, {recursive: true});
+    await writeFile(path.join(taskDir, 'execution.v1.json'), JSON.stringify({
+      schema_version: 1, task_id: 't-20261103-120000-abcdef', plan_id: 'pl-1', plan_version: 1,
+      steps: [{step_id: 's1', status: 'in_progress'}],
+    }));
     await writeFile(path.join(taskDir, 'plan.v1.json'), JSON.stringify({
       schema_version: 1, plan_id: 'pl-1', task_id: 't-20261103-120000-abcdef',
       version: 1, status: 'approved', objective: '修复问题',
@@ -1637,6 +1641,7 @@ test('/plan submits a plan-mode run and /plan renders the latest artifact', asyn
     await enter(stdin, '/plan');
     assert.match(lastFrame() ?? '', /修复问题/);
     assert.match(lastFrame() ?? '', /候选/);
+    assert.match(lastFrame() ?? '', /in_progress/);
     await enter(stdin, '/plan 先规划');
     assert.deepEqual(client.runTasks[0], {kind: 'run', mode: 'plan', objective: '先规划'});
     client.emit(completed('run-1'));
