@@ -52,7 +52,7 @@
 
 - 工具执行前门禁已接 ApprovalGate；仍需 trace/可见原因码与 stale 重批 UI；
 - 审批队列/任务级 deadline → `failed(approval_timeout)` 接线；
-- TUI 编辑/重规划入口已有 objective 修订；步骤级编辑 UI 待；steering 后 stale 标记已接；
+- 审批时限已接（可选 env）；TUI 编辑/重规划入口已有 objective 修订；步骤级编辑 UI 待；steering 后 stale 标记已接；
 - `submit_plan` 工具已接 plan profile；`kind=plan` task 的 TUI 创建/展示未接；
 - stdio 帧/`plan.review` capability 协商；
 - TUI 计划卡片、折叠/分页、编辑（已支持 `/plan approve|reject` 与只读展示）；
@@ -62,7 +62,8 @@
 
 - 未 propose 不可批准；
 - 绑定未批准 plan 的 run 即使审批 handler 允许也无法写文件（ApprovalGate gate deny）；
-- 批准需 `plan.review`；
+- 批准需 `plan.review`；可选审批时限 `VIBE_PLAN_REVIEW_TIMEOUT_SECONDS`（默认 0=不限），
+  超时后 approve 返回 `review window expired`，需修订后重新批准；
 - propose → approve 后 `can_execute` 为 true，audit 两条；
 - reject 回 draft；
 - 批准后改内容 `can_execute` false。

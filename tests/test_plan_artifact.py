@@ -222,3 +222,15 @@ def test_steering_marks_approved_plan_stale(tmp_path):
     assert can_execute(plan)
     plan.approval = {**plan.approval, "stale": True}
     assert not can_execute(plan)
+
+
+def test_approve_plan_respects_review_timeout(tmp_path, monkeypatch):
+    import time
+    from app.runtime.plan import PlanError, approve_plan, propose_plan
+
+    plan = Plan.from_dict(_plan())
+    propose_plan(tmp_path, plan)
+    monkeypatch.setenv("VIBE_PLAN_REVIEW_TIMEOUT_SECONDS", "0.05")
+    time.sleep(0.08)
+    with pytest.raises(PlanError, match="review window expired"):
+        approve_plan(tmp_path, plan, approved_by="user")

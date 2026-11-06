@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -348,6 +349,17 @@ def approve_plan(
         raise PlanError(f"cannot approve plan in status {plan.status}")
     if not approved_by.strip():
         raise PlanError("approved_by must be nonempty")
+    try:
+        review_ttl = float(os.getenv("VIBE_PLAN_REVIEW_TIMEOUT_SECONDS", "0") or 0)
+    except ValueError:
+        review_ttl = 0.0
+    if review_ttl > 0:
+        try:
+            age = time.time() - plan_path(task_dir, plan.version).stat().st_mtime
+        except OSError:
+            age = 0.0
+        if age > review_ttl:
+            raise PlanError("plan review window expired; revise the plan and request approval again")
     now = datetime.now(timezone.utc).isoformat()
     plan_hash = content_hash(plan)
     plan.status = "approved"
