@@ -21,6 +21,7 @@ from typing import Any
 
 from app.runtime.approvals import ApprovalError, ApprovalInbox
 from app.runtime.goals import GoalStore, continue_decision, goal_prompt
+from app.runtime.notifications import notify
 from app.safety.unattended import UnattendedProfileError, load_profile
 from app.runtime.supervise import (
     WORKER_HEARTBEAT_TTL_SECONDS,
@@ -363,6 +364,7 @@ class Worker:
                 asyncio.create_task(self._watch_deadline()),
             ]
             await self._queue_initial_run()
+            notify(self.workspace, "worker_started", task_id=self.task_id, pid=os.getpid())
             waiters = [asyncio.create_task(self.done.wait()), asyncio.create_task(self.stopping.wait())]
             finished, _ = await asyncio.wait(waiters, return_when=asyncio.FIRST_COMPLETED)
             for task in waiters:
@@ -394,6 +396,8 @@ class Worker:
             self.state.exit_code = self.exit_code
             self.state.heartbeat_at = self._now()
             write_worker_state(self.task_dir, self.state)
+            notify(self.workspace, "worker_exited", task_id=self.task_id,
+                   status=self.state.status, exit_code=self.exit_code)
             return 0 if self.exit_code == 0 else 1
         except Exception as exc:
             self.state.status = "failed"
@@ -481,6 +485,7 @@ class Worker:
             await asyncio.sleep(0.2)
             try:
                 if path.exists() and path.stat().st_mtime >= getattr(self, "_started_wall", 0):
+                    notify(self.workspace, "stop_requested", task_id=self.task_id)
                     self.stopping.set()
                     await self._cancel_active_run()
                     return
@@ -493,6 +498,8 @@ class Worker:
             return
         await asyncio.sleep(seconds)
         self.deadline_exceeded = True
+        notify(self.workspace, "task_deadline_exceeded", task_id=self.task_id,
+               deadline_seconds=seconds)
         try:
             TaskStore(self.session_root).append_event(
                 self.task_id, "task_deadline_exceeded",
@@ -632,6 +639,8 @@ class Worker:
         pending = {item["approval_id"] for item in self.inbox.pending(self.task_id)}
         if approval_id not in pending:
             return
+        notify(self.workspace, "approval_timeout", task_id=self.task_id,
+               approval_id=approval_id)
         self.inbox.expire(self.task_id, reason="approval_timeout")
         self.approval_timed_out = True
         try:
