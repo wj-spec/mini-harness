@@ -221,6 +221,7 @@ mini-harness/
       plan-acceptance.md         # 计划验收 P0：criteria→verification 三态
       subagent-runner.md         # 只读子 Agent P0：runner/结构化结果
       p0-closure-report.md       # 长任务/后台/进阶模式 P0 收束报告
+      manual-acceptance-16-plan-subagent.md  # Plan/SubAgent 人工验收 TC-16-01..08
     design/             # 未来方向的分块讨论（长任务/后台/进阶模式/子 Agent），拍板后收敛为 spec
     history/            # 旧 M1–M8 模块建设计划
 
