@@ -16,8 +16,8 @@
   - tools = `ToolRegistry.subset(READ_ONLY_TOOLS)`，写/执行在 execute 层 `unknown_tool`；
   - 独立 history、无审批（ApprovalGate=None）；
   - 预算参数 max_steps/max_run_tokens/max_run_seconds；
-  - cancel event + parent_cancel 级联；depth/max_depth（默认 1）拒绝嵌套；
-  - `run_subagent_batch`：max_children（默认 4）、max_concurrency（默认 2），共享父取消，结果按输入顺序返回。
+  - cancel event + parent_cancel 级联；depth/max_depth（默认 1，可用 VIBE_SUBAGENT_MAX_DEPTH 配置）拒绝嵌套；
+  - `run_subagent_batch`：max_children（默认 4，VIBE_SUBAGENT_MAX_CHILDREN）、max_concurrency（默认 2，VIBE_SUBAGENT_MAX_CONCURRENCY），共享父取消，结果按输入顺序返回。
 - stdio command `explore`（args `{prompt}`）与 TUI `/explore <任务>`：
   - 使用当前 provider 在只读子集上运行子 Agent；
   - 开始/结束发 notice（含 prompt 前缀/子任务 id）；

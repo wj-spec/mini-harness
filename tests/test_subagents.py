@@ -132,3 +132,19 @@ def test_subagent_batch_limits_and_results(tmp_path):
     ]
     with pytest.raises(SubagentError):
         asyncio.run(run_subagent_batch(too_many, max_children=4))
+
+
+def test_subagent_limits_from_env(tmp_path, monkeypatch):
+    from app.runtime.subagents import SubagentRequest, run_subagent_batch
+
+    monkeypatch.setenv("VIBE_SUBAGENT_MAX_DEPTH", "0")
+    with pytest.raises(SubagentError, match="exceeds max_depth 0"):
+        asyncio.run(run_subagent(FakeProvider(["x"]), tmp_path, "x", depth=1))
+    monkeypatch.setenv("VIBE_SUBAGENT_MAX_CHILDREN", "1")
+    requests = [SubagentRequest(FakeProvider(["x"]), tmp_path, "x")]
+    assert len(asyncio.run(run_subagent_batch(requests))) == 1
+    with pytest.raises(SubagentError, match="exceeds max_children 1"):
+        asyncio.run(run_subagent_batch(
+            [SubagentRequest(FakeProvider(["x"]), tmp_path, "x"),
+             SubagentRequest(FakeProvider(["x"]), tmp_path, "y")]
+        ))

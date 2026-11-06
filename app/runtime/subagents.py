@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import json
 import time
 from dataclasses import asdict, dataclass, field
@@ -14,6 +15,14 @@ from app.tools.registry import ToolRegistry
 
 SUBAGENT_SCHEMA_VERSION = 1
 SUBAGENT_STATUSES = ("ok", "error", "cancelled", "budget_exceeded", "timeout")
+
+
+def _env_int(name: str, default: int, *, low: int = 1, high: int = 100) -> int:
+    try:
+        value = int(os.getenv(name, str(default)))
+    except ValueError:
+        value = default
+    return max(low, min(value, high))
 
 
 class SubagentError(ValueError):
@@ -76,7 +85,7 @@ async def run_subagent(
     cancel: asyncio.Event | None = None,
     parent_cancel: asyncio.Event | None = None,
     depth: int = 0,
-    max_depth: int = 1,
+    max_depth: int | None = None,
     trace_path: str | Path | None = None,
     session_root: str | Path | None = None,
     parent_task_id: str | None = None,
@@ -87,6 +96,8 @@ async def run_subagent(
     """
     if not isinstance(objective, str) or not objective.strip():
         raise SubagentError("objective must be a nonempty string")
+    if max_depth is None:
+        max_depth = _env_int("VIBE_SUBAGENT_MAX_DEPTH", 1, low=0, high=10)
     if depth > max_depth:
         raise SubagentError(f"subagent depth {depth} exceeds max_depth {max_depth}")
     workspace = Path(workspace)
@@ -237,13 +248,17 @@ class SubagentRequest:
 async def run_subagent_batch(
     requests: list[SubagentRequest],
     *,
-    max_concurrency: int = 2,
-    max_children: int = 4,
+    max_concurrency: int | None = None,
+    max_children: int | None = None,
     parent_cancel: asyncio.Event | None = None,
 ) -> list[SubagentResult]:
     """受控扇出：最多 max_children 个子 Agent、并发 max_concurrency、共享父取消。"""
     if not isinstance(requests, list):
         raise SubagentError("requests must be a list")
+    if max_children is None:
+        max_children = _env_int("VIBE_SUBAGENT_MAX_CHILDREN", 4, low=1, high=32)
+    if max_concurrency is None:
+        max_concurrency = _env_int("VIBE_SUBAGENT_MAX_CONCURRENCY", 2, low=1, high=16)
     if len(requests) > max_children:
         raise SubagentError(f"subagent fan-out {len(requests)} exceeds max_children {max_children}")
     if max_concurrency < 1:
