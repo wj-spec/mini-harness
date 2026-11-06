@@ -715,6 +715,7 @@ VIBE_DEBUG=1 ./run_ink.sh --workspace /path/to/repo
 ```bash
 ./run_vibe.sh --tasks --workspace /path/to/repo
 ./run_vibe.sh --notifications --workspace /path/to/repo
+./run_vibe.sh --plans --workspace /path/to/repo
 ./run_vibe.sh --worker --fake --workspace /path/to/repo --session SID --task-id TID
 ./run_vibe.sh --attach --mode observe --workspace /path/to/repo --session SID --task-id TID
 ./run_vibe.sh --stop --workspace /path/to/repo
@@ -728,3 +729,4 @@ VIBE_DEBUG=1 ./run_ink.sh --workspace /path/to/repo
 ```
 
 通知记录在 `.vibe/notifications.jsonl`，可用 `/notifications`、`--notifications` 查看（JSON，最多 50 条）。
+`--plans` 只读列出本工作区会话的计划版本（session/task/plan_id/version/status/objective）。
