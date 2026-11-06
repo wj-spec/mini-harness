@@ -25,11 +25,23 @@
   - 全部通过 → `True`。
 - 成本/执行/完成门未接。
 
+## 已实现（执行）
+
+`app/runtime/verification.py`：
+
+- `run_verification_plan(acceptance, workspace, approval_gate)`：
+  - 只执行 `source ∈ project_profile/plan_approval` 的命令；
+  - 每条命令走 ApprovalGate.request（risk=exec）；拒绝则不执行；
+  - 通过 `run_command_async` 执行，记录 exit/timed_out/digest/output；
+  - 汇总 `acceptance.status(results)` 三态与原因码。
+- `trusted_commands()`、`command_digest()`。
+- 测试：成功/失败、不可信命令不执行、审批拒绝不执行、digest。
+
 ## 未完成
 
 - 从 `goal-record.json`/Plan 加载并生成 PlanAcceptance；
-- harness 通过 ApprovalGate 执行可信验证命令；
 - 失败回灌、有界重试、合并后重验；
+- 完成判定与 rounds/`/evidence` 接线；
 - 三态结论写入 rounds/`/evidence` 与 goal 完成判定；
 - 模型提议 criteria 的 `confirmed=false` 流程接 TUI plan.review。
 
