@@ -127,6 +127,13 @@ async function main() {
     process.exitCode = 2;
     return;
   }
+  // 终端读 EIO 时不要让 Node 抛未处理的 error；直接以明确信息退出。
+  process.stdin.on('error', error => {
+    if ((error as NodeJS.ErrnoException).code === 'EIO') {
+      process.stderr.write('终端输入已断开（EIO）。\n');
+      process.exit(2);
+    }
+  });
   try {
     // 某些伪终端/IDE 面板 isTTY=true 但 setRawMode 会 EIO；提前用 true/false
     // 完整探测一次，避免 Ink 启动后抛未处理的 'error' 事件。

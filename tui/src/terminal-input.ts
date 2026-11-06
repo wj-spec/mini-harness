@@ -19,7 +19,9 @@ class TerminalInput extends Transform {
   private pasting = false;
   private pasteEndPosition = 0;
   private prefixTimer: NodeJS.Timeout | undefined;
-  private readonly onSourceError = (error: Error) => this.destroy(error);
+  private readonly onSourceError = (_error: Error) => {
+    if (!this.destroyed) this.destroy();
+  };
 
   constructor(private readonly source: TerminalSource) {
     super();

@@ -979,10 +979,14 @@ export function App({client, initialState = emptyState, windowSize, initialTheme
         try {
           const args = ['--attach-task', requested, '--session', state.sessionId, '--workspace', state.workspace];
           if (fake) args.push('--fake');
-          const child = spawn('./run_ink.sh', args, {...backendLaunchOptions(), stdio: 'inherit'});
+          // 等旧 TUI 退出、终端恢复后再启动新 TUI，避免两个进程同时抢 stdin
+          // 导致 setRawMode/read EIO。
+          const child = spawn('/bin/sh',
+            ['-c', 'sleep 0.8; exec "$0" "$@"', './run_ink.sh', ...args],
+            {...backendLaunchOptions(), stdio: 'inherit'});
           child.unref();
           notice('正在重启为 attach 模式…');
-          setTimeout(() => exit(), 150);
+          setTimeout(() => exit(), 100);
         } catch (error) {
           notice(`启动 attach TUI 失败：${String(error)}`);
         }
