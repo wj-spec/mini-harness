@@ -393,6 +393,9 @@ def test_bound_plan_acceptance_runs_trusted_verification(tmp_path, monkeypatch):
         import json as _json
         saved = _json.loads((plan_dir / "acceptance.v1.json").read_text(encoding="utf-8"))
         assert saved["status"] is True
+        from app.runtime.notifications import read_notifications
+        acceptance_events = [item for item in read_notifications(tmp_path) if item["kind"] == "plan_acceptance"]
+        assert acceptance_events and acceptance_events[-1]["status"] is True
         await harness.close()
 
     asyncio.run(scenario())

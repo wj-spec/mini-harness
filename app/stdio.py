@@ -910,6 +910,18 @@ class _Connection:
                                 )
                             except Exception:
                                 pass
+                            try:
+                                from app.runtime.notifications import notify
+                                notify(
+                                    self.agent.tools.root, "plan_acceptance",
+                                    task_id=plan_context["plan"].task_id,
+                                    plan_id=plan_context["plan"].plan_id,
+                                    plan_version=plan_context["plan"].version,
+                                    status=verification["status"],
+                                    codes=verification["codes"],
+                                )
+                            except Exception:
+                                pass
                             if verification["status"] is not True:
                                 codes = ",".join(verification["codes"]) or "acceptance_failed"
                                 commands = {item.id: item.command for item in acceptance.verification_plan}
