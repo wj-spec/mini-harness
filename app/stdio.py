@@ -445,8 +445,20 @@ class _Connection:
                 return text
             if action == "approve":
                 approve_plan(path.parent.parent, plan, approved_by="user", approval_id=None)
+                try:
+                    from app.runtime.notifications import notify
+                    notify(self.agent.tools.root, "plan_approved", task_id=plan.task_id,
+                           plan_id=plan.plan_id, version=plan.version)
+                except Exception:
+                    pass
             elif action == "reject":
                 reject_plan(path.parent.parent, plan, rejected_by="user", reason="user rejected")
+                try:
+                    from app.runtime.notifications import notify
+                    notify(self.agent.tools.root, "plan_rejected", task_id=plan.task_id,
+                           plan_id=plan.plan_id, version=plan.version)
+                except Exception:
+                    pass
             elif action == "edit-step":
                 from app.runtime.plan import revise_plan
                 step_id = str((args or {}).get("step_id", "")).strip()

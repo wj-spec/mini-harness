@@ -715,3 +715,26 @@ def test_plan_command_edits_step_title(tmp_path, monkeypatch):
         await harness.close()
 
     asyncio.run(scenario())
+
+
+def test_plan_approve_emits_notification(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    task_id = "t-20261106-000000-abcdef"
+    task_dir = session.root / "tasks" / task_id
+    from app.runtime.plan import Plan, propose_plan
+    plan = Plan.from_dict({"schema_version": 1, "plan_id": "pl-notify", "task_id": task_id,
+                           "objective": "通知", "steps": [{"step_id": "s1", "title": "读"}]})
+    propose_plan(task_dir, plan)
+
+    async def scenario():
+        harness = Harness(_agent(tmp_path), Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("command", "c-appr", command="plan", args={"action": "approve"})
+        await harness.until("command_result", "c-appr")
+        from app.runtime.notifications import read_notifications
+        events = [item for item in read_notifications(tmp_path) if item["kind"] == "plan_approved"]
+        assert events and events[-1]["plan_id"] == "pl-notify"
+        await harness.close()
+
+    asyncio.run(scenario())
