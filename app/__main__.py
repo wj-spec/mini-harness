@@ -99,6 +99,7 @@ def main() -> None:
     parser.add_argument("--notification-kind", default=None, metavar="KIND", help="与 --notifications 搭配，只显示指定 kind")
     parser.add_argument("--plans", action="store_true", help="只读列出本工作区会话的计划版本")
     parser.add_argument("--acceptance", action="store_true", help="只读列出本工作区会话的计划验收结果")
+    parser.add_argument("--redteam", action="store_true", help="只读检查无人值守 profile 默认拒绝矩阵")
     parser.add_argument("--worker", action="store_true", help="后台 worker：执行一个 task segment 并暴露 attach socket")
     parser.add_argument("--attach", action="store_true", help="attach 到运行中的 worker（JSONL 回放 + live）")
     parser.add_argument("--mode", choices=["observe", "control"], default="observe", help="attach 模式：observe/control")
@@ -158,6 +159,15 @@ def main() -> None:
         or args.acceptance
     ):
         parser.error("--plans cannot be combined with other modes")
+    if args.redteam and (
+        args.stdio or args.eval or args.eval_limit is not None or args.eval_tasks is not None
+        or args.list_sessions or args.task is not None or args.continue_session
+        or args.session is not None or args.bench or args.tasks or args.notifications
+        or args.worker or args.attach or args.stop or args.stop_task is not None
+        or args.pause_task is not None or args.merge_task is not None or args.cleanup_logs
+        or args.plans or args.acceptance
+    ):
+        parser.error("--redteam cannot be combined with other modes")
     if args.acceptance and (
         args.stdio or args.eval or args.eval_limit is not None or args.eval_tasks is not None
         or args.list_sessions or args.task is not None or args.continue_session
@@ -221,7 +231,7 @@ def main() -> None:
         parser.error("--bench requires --task")
     if args.telemetry_out and args.task is None:
         parser.error("--telemetry-out requires --task")
-    if not args.stdio and not args.eval and not args.list_sessions and not args.tasks and not args.notifications and not args.plans and not args.acceptance and not args.worker and not args.attach and args.merge_task is None and not args.stop and args.pause_task is None and not args.cleanup_logs and args.task is None:
+    if not args.stdio and not args.eval and not args.list_sessions and not args.tasks and not args.notifications and not args.plans and not args.acceptance and not args.redteam and not args.worker and not args.attach and args.merge_task is None and not args.stop and args.pause_task is None and not args.cleanup_logs and args.task is None:
         print(
             "Textual 入口已退役。交互界面请运行 ./run_ink.sh（例如 ./run_ink.sh --fake）；"
             "后端与 eval 分别使用 --stdio / --eval。",
@@ -347,6 +357,15 @@ def main() -> None:
         or args.acceptance
     ):
         parser.error("--plans cannot be combined with other modes")
+    if args.redteam and (
+        args.stdio or args.eval or args.eval_limit is not None or args.eval_tasks is not None
+        or args.list_sessions or args.task is not None or args.continue_session
+        or args.session is not None or args.bench or args.tasks or args.notifications
+        or args.worker or args.attach or args.stop or args.stop_task is not None
+        or args.pause_task is not None or args.merge_task is not None or args.cleanup_logs
+        or args.plans or args.acceptance
+    ):
+        parser.error("--redteam cannot be combined with other modes")
     if args.acceptance and (
         args.stdio or args.eval or args.eval_limit is not None or args.eval_tasks is not None
         or args.list_sessions or args.task is not None or args.continue_session
@@ -402,6 +421,22 @@ def main() -> None:
         child_env = {"VIBE_TASK_RUNTIME": "1", "VIBE_WORKER": "1"}
         from app.runtime.worker import run_worker
         raise SystemExit(run_worker(session.root, args.task_id, config.workspace, child_args, child_env))
+
+    if args.redteam:
+        from app.safety.unattended import load_profile
+        from scripts.redteam_unattended import run_checks
+
+        try:
+            profile = load_profile(config.workspace)
+        except Exception as exc:
+            print(json.dumps({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, ensure_ascii=False))
+            raise SystemExit(2)
+        rows = run_checks(profile)
+        payload = {"ok": all(row["ok"] for row in rows), "profile": profile.profile_id, "checks": rows}
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        if not payload["ok"]:
+            raise SystemExit(1)
+        return
 
     if args.acceptance:
         from app.runtime.acceptance import load_acceptance_result

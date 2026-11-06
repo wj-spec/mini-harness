@@ -720,6 +720,7 @@ VIBE_DEBUG=1 ./run_ink.sh --workspace /path/to/repo
 ./run_vibe.sh --notifications --notification-kind plan_acceptance --workspace /path/to/repo
 ./run_vibe.sh --plans --workspace /path/to/repo
 ./run_vibe.sh --acceptance --workspace /path/to/repo
+./run_vibe.sh --redteam --workspace /path/to/repo
 ./run_vibe.sh --worker --fake --workspace /path/to/repo --session SID --task-id TID
 ./run_vibe.sh --attach --mode observe --workspace /path/to/repo --session SID --task-id TID
 ./run_vibe.sh --stop --workspace /path/to/repo
