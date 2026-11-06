@@ -29,7 +29,7 @@
 
 `app/runtime/verification.py`：
 
-- `run_verification_plan(acceptance, workspace, approval_gate)`：
+- `run_verification_plan(acceptance, workspace, approval_gate, retries=0)`：
   - 只执行 `source ∈ project_profile/plan_approval` 的命令；
   - 每条命令走 ApprovalGate.request（risk=exec）；拒绝则不执行；
   - 通过 `run_command_async` 执行，记录 exit/timed_out/digest/output；
@@ -50,7 +50,7 @@
 ## 未完成
 
 - 从 GoalRecord 生成 PlanAcceptance（当前从 Plan 生成）；
-- 失败回灌已带命令证据；有界重试、合并后重验仍待；
+- 失败回灌已带命令证据；单命令有界重试已实现；agent 回灌循环、合并后重验仍待；
 - rounds/`/evidence` 展示验收结果；
 - 三态结论写入 rounds/`/evidence` 与 goal 完成判定；
 - 模型提议 criteria 的 `confirmed=false` 流程接 TUI plan.review。

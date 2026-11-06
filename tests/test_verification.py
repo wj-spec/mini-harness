@@ -69,3 +69,19 @@ def test_trusted_commands_and_digest():
     ])
     assert [item.id for item in trusted_commands(acceptance)] == ["v1"]
     assert command_digest("true", 0, "x") == command_digest("true", 0, "x")
+
+
+def test_verification_retries_flaky_command(tmp_path):
+    async def allow(call, preview):
+        return ApprovalDecision(True, "once")
+
+    acceptance = _acceptance([
+        {"id": "v1", "covers": ["ac1"], "source": "project_profile",
+         "command": "test -f marker || { touch marker; exit 1; }"},
+    ])
+    result = asyncio.run(run_verification_plan(
+        acceptance, tmp_path, ApprovalGate(handler=allow), retries=1,
+    ))
+    assert result["status"] is True
+    assert result["results"]["v1"]["attempts"] == 2
+    assert (tmp_path / "marker").exists()

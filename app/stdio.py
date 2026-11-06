@@ -756,8 +756,14 @@ class _Connection:
                         acceptance = plan_context["plan"].acceptance()
                         if acceptance is not None:
                             from app.runtime.verification import run_verification_plan
+                            import os
+                            try:
+                                retries = int(os.getenv("VIBE_ACCEPTANCE_RETRIES", "0"))
+                            except ValueError:
+                                retries = 0
                             verification = await run_verification_plan(
                                 acceptance, self.agent.tools.root, self.agent.approval,
+                                retries=max(0, min(retries, 3)),
                             )
                             if verification["status"] is not True:
                                 codes = ",".join(verification["codes"]) or "acceptance_failed"

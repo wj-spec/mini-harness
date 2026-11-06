@@ -22,6 +22,7 @@ async def run_verification_plan(
     approval_gate: Any,
     *,
     timeout: float = 300.0,
+    retries: int = 0,
 ) -> dict[str, Any]:
     """逐条执行 verification plan；未批准/命令不可信一律不执行。"""
     root = Path(workspace)
@@ -40,13 +41,23 @@ async def run_verification_plan(
         if not getattr(decision, "allowed", False):
             results[item.id] = {"ok": False, "reason": "approval_denied"}
             continue
-        code, output, timed_out = await run_command_async(
-            item.command, root, timeout=timeout, max_chars=20_000,
-        )
-        ok = (not timed_out) and code == 0
+        attempts = 0
+        code = None
+        output = ""
+        timed_out = False
+        ok = False
+        for attempt in range(1, max(1, retries + 1) + 1):
+            attempts = attempt
+            code, output, timed_out = await run_command_async(
+                item.command, root, timeout=timeout, max_chars=20_000,
+            )
+            ok = (not timed_out) and code == 0
+            if ok:
+                break
         results[item.id] = {
             "ok": ok, "exit_code": code, "timed_out": timed_out,
-            "digest": command_digest(item.command, code, output),
+            "attempts": attempts,
+            "digest": command_digest(item.command, code if code is not None else -1, output),
             "output": output[-4000:],
         }
     status, codes = acceptance.status(results)
