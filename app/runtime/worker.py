@@ -21,6 +21,7 @@ from typing import Any
 
 from app.runtime.approvals import ApprovalError, ApprovalInbox
 from app.runtime.goals import GoalStore, continue_decision, goal_prompt
+from app.safety.unattended import UnattendedProfileError, load_profile
 from app.runtime.supervise import (
     WORKER_HEARTBEAT_TTL_SECONDS,
     WorkerState,
@@ -182,6 +183,7 @@ class Worker:
         self.exit_code = 0
         self.goal_store = GoalStore(session_root)
         self.goal_record = None
+        self.profile = None
         self.inbox = ApprovalInbox(session_root)
         self.controller: asyncio.StreamWriter | None = None
         self.controller_heartbeat_at: float | None = None
@@ -206,6 +208,19 @@ class Worker:
         if Path(task.workspace).resolve() != Path(self.workspace).resolve():
             raise WorkerError("task workspace mismatch")
         store.recover_stale()
+        try:
+            self.profile = load_profile(self.workspace)
+        except UnattendedProfileError as exc:
+            raise WorkerError(f"invalid unattended profile: {exc}") from exc
+        try:
+            store.append_event(
+                self.task_id, "unattended_profile",
+                data={"profile": self.profile.profile_id,
+                      "hash": __import__("hashlib").sha256(
+                          self.profile.hash_payload().encode("utf-8")).hexdigest()},
+            )
+        except Exception:
+            pass
         if task.kind == "goal":
             try:
                 self.goal_record = self.goal_store.ensure_for_task(task)
@@ -545,6 +560,23 @@ class Worker:
         if not isinstance(approval_id, str):
             return
         call = event.get("call") if isinstance(event.get("call"), dict) else {}
+        tool_name = str(call.get("name") or "tool")
+        profile = self.profile
+        if profile is not None and not profile.allows_tool(tool_name, worktree=self.worktree is not None):
+            reason = profile.denial_reason(tool_name, worktree=self.worktree is not None)
+            try:
+                TaskStore(self.session_root).append_event(
+                    self.task_id, "unattended_denied",
+                    data={"approval_id": approval_id, "tool": tool_name, "reason": reason,
+                          "profile": profile.profile_id},
+                )
+            except Exception:
+                pass
+            await self.queue.put(json.dumps({
+                "v": 1, "type": "approval", "id": f"worker-deny-{approval_id}",
+                "approval_id": approval_id, "decision": "deny",
+            }, ensure_ascii=False))
+            return
         timeout = _env_float("VIBE_WORKER_APPROVAL_TIMEOUT", DEFAULT_APPROVAL_TIMEOUT)
         from datetime import datetime, timedelta, timezone
         expires_at = (datetime.now(timezone.utc) + timedelta(seconds=timeout)).isoformat()

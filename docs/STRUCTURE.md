@@ -213,6 +213,7 @@ mini-harness/
       manual-acceptance-07-attach.md  # 07 v2/TUI attach 真实终端人工验收步骤与用例
       manual-acceptance-07-results.md # 07 attach 人工验收记录（进行中）
       long-horizon-eval.md        # 长任务评测 P0：bench_long fake worker 场景
+      unattended-profile.md      # 无人值守 P0：保守 profile 与 worker 能力拒绝
     design/             # 未来方向的分块讨论（长任务/后台/进阶模式/子 Agent），拍板后收敛为 spec
     history/            # 旧 M1–M8 模块建设计划
 

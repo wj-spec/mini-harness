@@ -141,6 +141,8 @@ def test_worker_approval_timeout_fails_task_and_expires_inbox(tmp_path, monkeypa
     from app.runtime.worker import Worker
 
     monkeypatch.setenv("VIBE_WORKER_APPROVAL_TIMEOUT", "0.2")
+    (tmp_path / ".vibe").mkdir(exist_ok=True)
+    (tmp_path / ".vibe" / "unattended.json").write_text('{"allow_exec": true}', encoding="utf-8")
     session = SessionStore.new(tmp_path, "fake", purpose="test")
     store = TaskStore(session.root)
     task = store.create(kind="goal", objective="审批超时目标", workspace=str(tmp_path), mode="goal")

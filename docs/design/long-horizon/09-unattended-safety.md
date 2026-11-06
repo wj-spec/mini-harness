@@ -1,6 +1,6 @@
 # 09 无人值守安全默认值：能力分级、保守预设与 kill switch
 
-> 状态：讨论稿（2026-11-02；2026-11-03 01–05 决策对齐见 §9，用户回答见 §10）；不是 spec，未承诺实现。
+> 状态：讨论稿（2026-11-02；2026-11-03 01–05 决策对齐见 §9，用户回答见 §10）；P0 保守 profile 与 worker 能力拒绝已实现，见 [unattended-profile spec](../../specs/unattended-profile.md)。
 > 所属：长任务与后台任务 / 第 9 块
 > 前置/相关：[01 任务运行时](01-task-runtime.md)、[02 后台进程监督](02-process-supervision.md)、[03 无人值守审批](03-unattended-approval.md)、[04 隔离与并发](04-isolation-concurrency.md)、[05 跨段目标状态](05-goal-state.md)、[07 控制面与协议](07-control-plane.md)、[16 子 Agent 的有机结合](16-subagent-integration.md)；相关规格：[执行隔离评估](../../specs/execution-isolation.md)、[审批层级与作用域](../../specs/approval-tiers.md)、[用户可覆盖的审批策略](../../specs/permission-policy.md)、[沙箱调研](../../research/sandbox-research-2026-10-25.md)
 
