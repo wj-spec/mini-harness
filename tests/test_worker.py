@@ -138,6 +138,8 @@ def test_worker_goal_loop_continues_resource_stops(tmp_path, monkeypatch):
     assert "goal_segment" in kinds and "worker_exited" in kinds
     started = next(item for item in items if item["kind"] == "worker_started")
     assert started["task_kind"] == "goal" and started["mode"] == "goal"
+    exited = next(item for item in items if item["kind"] == "worker_exited")
+    assert exited["task_kind"] == "goal" and exited["mode"] == "goal"
 
 
 def test_worker_approval_timeout_fails_task_and_expires_inbox(tmp_path, monkeypatch):

@@ -444,8 +444,11 @@ class Worker:
             self.state.exit_code = self.exit_code
             self.state.heartbeat_at = self._now()
             write_worker_state(self.task_dir, self.state)
+            exited_task = store.get(self.task_id)
             notify(self.workspace, "worker_exited", task_id=self.task_id,
-                   status=self.state.status, exit_code=self.exit_code)
+                   status=self.state.status, exit_code=self.exit_code,
+                   task_kind=exited_task.kind, mode=exited_task.mode,
+                   plan_id=exited_task.plan_id, plan_version=exited_task.plan_version)
             return 0 if self.exit_code == 0 else 1
         except Exception as exc:
             self.state.status = "failed"
