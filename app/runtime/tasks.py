@@ -35,8 +35,8 @@ AUTONOMY_LEVELS = ("ask", "edits", "workspace", "full")
 TASK_ID_RE = re.compile(r"^t-\d{8}-\d{6}-[0-9a-f]{6}$")
 
 ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
-    "created": frozenset({"running", "cancelled"}),
-    "queued": frozenset({"running", "cancelled"}),
+    "created": frozenset({"running", "queued", "cancelled"}),
+    "queued": frozenset({"running", "failed", "cancelled"}),
     "running": frozenset({"paused", "completed", "failed", "cancelled", "interrupted"}),
     "paused": frozenset({"running", "cancelled", "failed"}),
     "interrupted": frozenset({"running", "paused", "cancelled"}),

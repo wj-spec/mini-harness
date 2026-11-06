@@ -287,3 +287,11 @@ def test_writes_reject_unknown_task(store):
         with pytest.raises(TaskNotFound):
             store.acquire_lock(task_id)
 
+
+
+def test_queue_transitions(store, tmp_path):
+    record = _create(store, tmp_path)
+    queued = store.transition(record.task_id, "queued", reason="workspace_wait")
+    assert queued.status == "queued"
+    running = store.transition(record.task_id, "running", reason="run_start")
+    assert running.status == "running"

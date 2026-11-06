@@ -173,3 +173,8 @@ vibe --tasks [--workspace PATH] [--fake]
 - **心跳与任务锁关系**：P0a 只做 worker.json 心跳；P0b 让 task lock 与 worker 心跳共用生命周期。
 - **`--tasks` 的 session 选择**：P0a 取最新；多 session/跨 workspace 后续再说。
 - **日志脱敏**：P0a 只定义轮转；P0b 记录前做最小 secret 屏蔽，完整策略随 03/09。
+
+## 写队列状态（P0 补充）
+
+- worker 在 workspace lock 等待时任务进入 `queued`；超时未获取锁 → `failed`，
+  worker 退出 3；两任务写串行场景见 `bench_long.py`。

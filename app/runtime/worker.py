@@ -250,6 +250,8 @@ class Worker:
             wait_seconds = _env_float("VIBE_WORKSPACE_LOCK_WAIT", 0.0)
             if wait_seconds > 0:
                 try:
+                    if store.get(self.task_id).status == "created":
+                        store.transition(self.task_id, "queued", reason="workspace_wait")
                     store.append_event(self.task_id, "workspace_waiting",
                                        data={"max_wait_seconds": wait_seconds})
                 except Exception:
@@ -259,6 +261,11 @@ class Worker:
                 wait_seconds=wait_seconds,
             )
         except WorkspaceBusy as exc:
+            try:
+                if store.get(self.task_id).status == "queued":
+                    store.transition(self.task_id, "failed", reason="workspace_busy")
+            except Exception:
+                pass
             raise WorkerError(f"workspace busy: {exc}") from exc
         self.task_dir.mkdir(parents=True, exist_ok=True)
         if os.getenv("VIBE_WORKTREE", "1").strip().lower() not in {"0", "false", "off", "no"}:

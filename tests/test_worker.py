@@ -311,3 +311,37 @@ def test_worker_task_deadline_fails_task(tmp_path, monkeypatch):
     assert "task_deadline_exceeded" in events
     state = json.loads((store.task_dir(task.task_id) / "worker.json").read_text(encoding="utf-8"))
     assert state["status"] == "failed"
+
+
+def test_worker_workspace_wait_timeout_marks_failed(tmp_path, monkeypatch):
+    import shutil, subprocess
+    git = shutil.which("git")
+    if git is None:
+        pytest.skip("git required")
+    repo = tmp_path / "repo"; repo.mkdir()
+    subprocess.run([git, "init", "-q"], cwd=repo, check=True)
+    subprocess.run([git, "config", "user.email", "t@e.com"], cwd=repo, check=True)
+    subprocess.run([git, "config", "user.name", "T"], cwd=repo, check=True)
+    (repo / ".gitignore").write_text(".vibe/\n", encoding="utf-8")
+    (repo / "README.md").write_text("x\n", encoding="utf-8")
+    subprocess.run([git, "add", "."], cwd=repo, check=True)
+    subprocess.run([git, "commit", "-qm", "init"], cwd=repo, check=True)
+    session = SessionStore.new(repo, "fake", purpose="test")
+    store = TaskStore(session.root)
+    task = store.create(kind="goal", objective="wait", workspace=str(repo), mode="goal")
+    # 占住 workspace lock 的是本测试进程自己
+    from app.runtime.workspace import acquire_workspace_lock
+    lock = acquire_workspace_lock(repo, task_id="t-other", session_id="s-other")
+    try:
+        env = _env(tmp_path)
+        env["VIBE_WORKSPACE_LOCK_WAIT"] = "0.2"
+        env["VIBE_TASK_RUNTIME"] = "1"
+        proc = subprocess.run(
+            [sys.executable, "-m", "app", "--worker", "--fake", "--workspace", str(repo),
+             "--session", session.id, "--task-id", task.task_id],
+            capture_output=True, text=True, cwd=Path(__file__).resolve().parents[1], env=env, timeout=30,
+        )
+    finally:
+        lock.release()
+    assert proc.returncode == 3
+    assert store.get(task.task_id).status == "failed"

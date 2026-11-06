@@ -94,3 +94,9 @@ class WorktreeManager:
 - **meta 位置**：meta 写工作树内会被 git 视为未跟踪；P1 可移到 `.vibe/worktrees/<task>/meta.json` 旁侧。
 - **锁与用户编辑**：锁只约束 harness，不约束外部编辑器；合并前必须重核。
 - **git 版本**：依赖 `git worktree`；旧 git 不支持时明确报错。
+
+## 队列状态（P0 补充）
+
+- 第二个写 worker 设置 `VIBE_WORKSPACE_LOCK_WAIT` 时，任务 created→queued，
+  写 `workspace_waiting` 事件；等到锁后由 TaskRuntime queued→running。
+- 等待超时未拿到锁 → 任务 failed(workspace_busy)，避免无限排队。
