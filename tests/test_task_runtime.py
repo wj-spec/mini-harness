@@ -145,7 +145,7 @@ def test_payload_shape(runtime):
     assert payload["status"] == "running"
     assert payload["segment"] == 1
     assert set(payload) == {
-        "task_id", "kind", "mode", "status", "segment", "objective", "goal_id", "updated_at",
+        "task_id", "kind", "mode", "status", "segment", "objective", "goal_id", "plan_id", "plan_version", "updated_at",
     }
     runtime.finish_run(run, _result("done", verified=True))
 
@@ -184,3 +184,14 @@ def test_attach_mode_mismatch_rejected(runtime):
     runtime.finish_run(first, _result("stopped", stop_reason="max_run_seconds"))
     with pytest.raises(TaskRuntimeError):
         runtime.prepare_run("run-act", {"kind": "run", "mode": "act", "task_id": first.task_id})
+
+
+def test_task_can_bind_approved_plan(runtime):
+    run = runtime.prepare_run("run-plan", {
+        "kind": "run", "mode": "act", "objective": "执行计划",
+        "plan_id": "pl-1", "plan_version": 2,
+    })
+    record = runtime.store.get(run.task_id)
+    assert record.plan_id == "pl-1" and record.plan_version == 2
+    payload = runtime.payload(record)
+    assert payload["plan_id"] == "pl-1" and payload["plan_version"] == 2

@@ -239,6 +239,25 @@ def load_plan_ref(task_dir: str | Path, plan_id: str, version: int) -> Plan:
     return plan
 
 
+def find_plan(session_root: str | Path, plan_id: str, version: int | None = None) -> tuple[Path, Plan] | None:
+    tasks_root = Path(session_root) / "tasks"
+    if not tasks_root.is_dir():
+        return None
+    candidates: list[tuple[int, Path, Plan]] = []
+    for path in tasks_root.glob("*/plan/plan.v*.json"):
+        try:
+            plan = load_plan(path)
+        except PlanError:
+            continue
+        if plan.plan_id != plan_id or (version is not None and plan.version != version):
+            continue
+        candidates.append((plan.version, path.parent.parent, plan))
+    if not candidates:
+        return None
+    _, task_dir, plan = max(candidates, key=lambda item: item[0])
+    return task_dir, plan
+
+
 def render_plan(plan: Plan) -> str:
     lines = [f"计划：{plan.objective}", f"状态：{plan.status} · version {plan.version}"]
     if plan.acceptance_criteria:

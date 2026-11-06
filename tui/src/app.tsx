@@ -43,6 +43,29 @@ const approvalKeys: Record<string, ApprovalDecision> = {y: 'once', s: 'session',
 const FAKE_DEMO_PROMPT = '创建 .vibe/fake-demo.txt 并验证';
 const fakeDemoEnabled = () => /^(1|true|yes)$/i.test(process.env.VIBE_FAKE_DEMO ?? '');
 
+function latestPlanArtifact(sessionPath: string): Record<string, unknown> | null {
+  if (!sessionPath) return null;
+  try {
+    const tasksRoot = path.join(sessionPath, 'tasks');
+    let best: {mtime: number; payload: Record<string, unknown>} | null = null;
+    for (const task of readdirSync(tasksRoot, {withFileTypes: true})) {
+      if (!task.isDirectory()) continue;
+      const planDir = path.join(tasksRoot, task.name, 'plan');
+      let files: string[] = [];
+      try {files = readdirSync(planDir).filter(name => /^plan\.v\d+\.json$/.test(name));} catch {continue;}
+      for (const name of files) {
+        const file = path.join(planDir, name);
+        try {
+          const stats = statSync(file);
+          const payload = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+          if (!best || stats.mtimeMs > best.mtime) best = {mtime: stats.mtimeMs, payload};
+        } catch {}
+      }
+    }
+    return best?.payload ?? null;
+  } catch {return null;}
+}
+
 function latestPlanText(sessionPath: string): string | null {
   if (!sessionPath) return null;
   try {
@@ -1077,6 +1100,23 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       setInput('');
       const rendered = latestPlanText(state.sessionPath);
       notice(rendered ?? '当前会话没有计划产物；用 /plan <任务描述> 开始一次只读规划。');
+      return;
+    }
+    if (text === '/plan execute') {
+      const artifact = latestPlanArtifact(state.sessionPath);
+      if (!artifact) {notice('当前会话没有计划产物；先 /plan <任务> 生成。'); return;}
+      if (artifact.status !== 'approved') {notice('计划尚未批准；先 /plan approve。'); return;}
+      if (state.phase !== 'idle' || activeRun.current) {notice('当前有运行中任务；结束后再执行计划。'); return;}
+      if (!(client.capabilities?.().includes('tasks') ?? false)) {notice('后端未启用任务运行时。'); return;}
+      const planId = String(artifact.plan_id ?? '');
+      const planVersion = Number(artifact.version ?? 1);
+      const objective = String(artifact.objective ?? '执行计划');
+      try {
+        const id = client.run(objective, {kind: 'run', mode: 'act', objective, plan_id: planId, plan_version: planVersion});
+        activeRun.current = id;
+        dispatch({type: 'begin', id, text: objective});
+        setInput('');
+      } catch (error) {notice(`未能提交计划执行：${String(error)}`);}
       return;
     }
     const planReview = /^\/plan\s+(approve|reject)$/.exec(text);

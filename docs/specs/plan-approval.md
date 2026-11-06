@@ -25,9 +25,18 @@
 - TUI `/plan approve`、`/plan reject` 发送该 command；
 - 通过 `plan.review` capability 语义（当前 stdio 本地用户命令视为 user 决定）。
 
+## 执行门禁
+
+- `TaskRecord` 支持 `plan_id`/`plan_version` 绑定；`TaskRuntime.run.task` 接受并持久化；
+- run 启动时若绑定 plan：查找最新版本并检查 `can_execute`；
+  - 未找到/未批准 → `ApprovalGate.execution_gate` 对所有需审批的写/执行返回 `plan_not_approved`；
+  - 已批准但内容 hash 变化 → `plan_stale`；
+  - approved 且 hash 匹配 → 放行到原 ApprovalGate（逐次审批照旧）。
+- TUI `/plan execute` 读取最近 approved 计划，创建带 `plan_id/plan_version` 的 act run。
+
 ## 未完成（P0 剩余）
 
-- 工具执行前门禁：未批准 plan 的写/执行 deny(`plan_not_approved`)，当前只有 `can_execute` 纯函数；
+- 工具执行前门禁已接 ApprovalGate；仍需 trace/可见原因码与 stale 重批 UI；
 - 审批队列/任务级 deadline → `failed(approval_timeout)` 接线；
 - steering/偏离后 plan 变 stale 与重批；
 - `submit_plan` 工具已接 plan profile；`kind=plan` task 的 TUI 创建/展示未接；

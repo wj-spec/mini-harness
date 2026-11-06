@@ -19,7 +19,7 @@ from app.runtime.tasks import (
     TaskStore,
 )
 
-_GOAL_META_KEYS = frozenset({"kind", "objective", "task_id", "goal_id", "mode"})
+_GOAL_META_KEYS = frozenset({"kind", "objective", "task_id", "goal_id", "mode", "plan_id", "plan_version"})
 
 
 class TaskRuntimeError(Exception):
@@ -71,8 +71,8 @@ def _validate_meta(meta: Any) -> dict[str, str]:
         mode = mode_for_kind(kind, meta.get("mode"))
     except ValueError as exc:
         raise TaskRuntimeError(str(exc)) from exc
-    result: dict[str, str] = {"kind": kind, "mode": mode}
-    for key in ("objective", "task_id", "goal_id"):
+    result: dict = {"kind": kind, "mode": mode}
+    for key in ("objective", "task_id", "goal_id", "plan_id"):
         if key not in meta:
             continue
         value = meta[key]
@@ -81,6 +81,11 @@ def _validate_meta(meta: Any) -> dict[str, str]:
         if key == "objective" and len(value.strip()) > 4000:
             raise TaskRuntimeError("task.objective exceeds 4000 characters")
         result[key] = value.strip()
+    if "plan_version" in meta:
+        version = meta["plan_version"]
+        if not isinstance(version, int) or isinstance(version, bool) or version < 1:
+            raise TaskRuntimeError("task.plan_version must be a positive integer")
+        result["plan_version"] = version
     return result
 
 
@@ -226,6 +231,8 @@ class TaskRuntime:
             "segment": segment,
             "objective": record.objective,
             "goal_id": record.goal_id,
+            "plan_id": record.plan_id,
+            "plan_version": record.plan_version,
             "updated_at": record.updated_at,
         }
 
@@ -238,6 +245,7 @@ class TaskRuntime:
         record = self.store.create(
             kind=parsed["kind"], objective=objective, workspace=self.workspace,
             mode=parsed["mode"], goal_id=parsed.get("goal_id"),
+            plan_id=parsed.get("plan_id"), plan_version=parsed.get("plan_version"),
         )
         self.store.acquire_lock(record.task_id)
         return record
@@ -248,6 +256,8 @@ class TaskRuntime:
             raise TaskRuntimeError("attached task must be kind=goal/run")
         if record.mode != parsed["mode"]:
             raise TaskRuntimeError("attached task mode mismatch")
+        if parsed.get("plan_id") and record.plan_id and parsed["plan_id"] != record.plan_id:
+            raise TaskRuntimeError("attached task plan_id mismatch")
         if record.session_id != self.store.root.name:
             raise TaskRuntimeError("task belongs to a different session")
         if Path(record.workspace).resolve() != Path(self.workspace):

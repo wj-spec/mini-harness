@@ -42,6 +42,8 @@ class ApprovalGate:
         # 由 Agent 注入：用户/项目策略覆盖（可为空）与整体授权档位。
         self.policy = None
         self.autonomy = "ask"
+        # 可选上游门禁：返回拒绝原因（如 plan_not_approved）；None 表示放行。
+        self.execution_gate: Callable[[ToolCall], str | None] | None = None
 
     def require_once(self, name: str, audit: Callable[[ToolCall, str], None]) -> None:
         self.once_only.add(name)
@@ -58,6 +60,8 @@ class ApprovalGate:
         return self.policy.evaluate(call, tier=tier)
 
     def decisions_for(self, call: ToolCall) -> list[str]:
+        if self.execution_gate is not None and self.execution_gate(call):
+            return ["deny"]
         tier = self._tier(call)
         outcome = self._policy_outcome(call, tier)
         if outcome is not None:
@@ -117,6 +121,11 @@ class ApprovalGate:
         self, call: ToolCall, preview: str, workspace: str | Path | None = None,
     ) -> ApprovalDecision:
         root = self._workspace(workspace)
+        if self.execution_gate is not None:
+            reason = self.execution_gate(call)
+            if reason:
+                self._audit(call, f"deny_gate_{reason}", preview, root)
+                return ApprovalDecision(False, "deny")
         tier = self._tier(call)
         outcome = self._policy_outcome(call, tier)
         force_once = outcome is not None and outcome.decision == "once"

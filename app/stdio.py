@@ -514,6 +514,19 @@ class _Connection:
                 self.agent.tools_enabled = False
             elif isinstance(profile.tools, tuple):
                 self.agent.tools = previous_tools.subset(profile.tools)
+        previous_gate = getattr(self.agent.approval, "execution_gate", None) if self.agent.approval is not None else None
+        if run_task is not None and run_task.record.plan_id and self.agent.approval is not None:
+            from app.runtime.plan import can_execute, find_plan
+            found = find_plan(self.session.root, run_task.record.plan_id, run_task.record.plan_version)
+            if found is None:
+                self.agent.approval.execution_gate = lambda _call: "plan_not_approved"
+            else:
+                _, bound_plan = found
+                if not can_execute(bound_plan):
+                    reason = "plan_stale" if bound_plan.status == "approved" else "plan_not_approved"
+                    self.agent.approval.execution_gate = lambda _call: reason
+                else:
+                    self.agent.approval.execution_gate = None
         result = AgentResult("cancelled", 0, "cancelled")
         completed = False
         metrics = {
@@ -699,6 +712,8 @@ class _Connection:
             self.active_id = None
             self.agent.tools_enabled = previous_tools_enabled
             self.agent.tools = previous_tools
+            if self.agent.approval is not None:
+                self.agent.approval.execution_gate = previous_gate
             if plan_tool_registered:
                 previous_tools.unregister("submit_plan")
             if not self.stop.is_set():

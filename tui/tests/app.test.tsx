@@ -1622,7 +1622,7 @@ test('/plan submits a plan-mode run and /plan renders the latest artifact', asyn
     await mkdir(taskDir, {recursive: true});
     await writeFile(path.join(taskDir, 'plan.v1.json'), JSON.stringify({
       schema_version: 1, plan_id: 'pl-1', task_id: 't-20261103-120000-abcdef',
-      version: 1, status: 'proposed', objective: '修复问题',
+      version: 1, status: 'approved', objective: '修复问题',
       acceptance_criteria: [{id: 'ac1', text: '测试通过', confirmed: false}],
       steps: [{step_id: 's1', title: '读代码', kind: 'read'}],
     }));
@@ -1645,6 +1645,15 @@ test('/plan submits a plan-mode run and /plan renders the latest artifact', asyn
     await enter(stdin, '/plan approve');
     assert.equal(client.commands.at(-1), 'plan');
     assert.deepEqual(client.commandArgs.at(-1), {action: 'approve'});
+    client.emit(completed('command-1'));
+    client.emit({type: 'status', phase: 'idle'});
+    await pause(20);
+    await enter(stdin, '/plan execute');
+    const executed = client.runTasks.at(-1);
+    assert.equal(executed?.kind, 'run');
+    assert.equal(executed?.mode, 'act');
+    assert.equal(executed?.plan_id, 'pl-1');
+    assert.equal(executed?.plan_version, 1);
   } finally {
     await rm(dir, {recursive: true, force: true});
   }

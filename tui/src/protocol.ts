@@ -133,6 +133,8 @@ export type RunTaskMeta = {
   objective?: string;
   task_id?: string;
   goal_id?: string;
+  plan_id?: string;
+  plan_version?: number;
 };
 
 export interface TaskHint {

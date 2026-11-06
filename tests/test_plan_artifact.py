@@ -149,3 +149,28 @@ def test_submit_plan_tool_writes_proposed_plan(tmp_path):
     assert plan.status == "proposed" and plan.task_id == "t-20261106-000000-abcdef"
     assert "plan_proposed" in (task_dir / "audit.jsonl").read_text(encoding="utf-8")
     registry.unregister("submit_plan")
+
+
+def test_approval_gate_plan_execution_gate_denies():
+    import asyncio
+    from app.safety.policy import ApprovalGate
+    from core.contracts import ToolCall
+
+    gate = ApprovalGate()
+    gate.execution_gate = lambda call: "plan_not_approved"
+    decision = asyncio.run(gate.request(ToolCall("write_file", {"path": "x", "content": "x"}), "preview"))
+    assert decision.allowed is False and decision.scope == "deny"
+    assert gate.decisions_for(ToolCall("bash", {"command": "echo x"})) == ["deny"]
+
+
+def test_find_plan_and_can_execute(tmp_path):
+    from app.runtime.plan import find_plan, propose_plan, approve_plan
+
+    task_dir = tmp_path / "tasks" / "t-20261106-000000-abcdef"
+    plan = Plan.from_dict(_plan())
+    propose_plan(task_dir, plan)
+    found = find_plan(tmp_path, plan.plan_id)
+    assert found is not None and found[0] == task_dir
+    approve_plan(task_dir, found[1], approved_by="user")
+    found = find_plan(tmp_path, plan.plan_id, 1)
+    assert found is not None
