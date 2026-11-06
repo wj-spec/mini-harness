@@ -114,6 +114,13 @@ function latestPlanText(sessionPath: string, full = false): string | null {
     if (!best) return null;
     const payload = best.payload;
     const lines = [`计划：${String(payload.objective ?? '')}`, `状态：${String(payload.status ?? '')} · version ${String(payload.version ?? 1)}`];
+    const approval = payload.approval && typeof payload.approval === 'object' ? payload.approval as Record<string, unknown> : {};
+    if (approval.approved_by) {
+      const hash = String(approval.plan_hash ?? '').slice(0, 12);
+      lines.push(`批准：${String(approval.approved_by)} · ${String(approval.approved_at ?? '')}${hash ? ` · hash ${hash}` : ''}${approval.stale === true ? ' · stale' : ''}`);
+    } else if (approval.stale === true) {
+      lines.push('批准：已 stale');
+    }
     const criteria = Array.isArray(payload.acceptance_criteria) ? payload.acceptance_criteria : [];
     if (criteria.length) {
       lines.push('验收标准：');
