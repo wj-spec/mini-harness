@@ -135,6 +135,7 @@ export function App({client, attach = false, initialState = emptyState, windowSi
   const [planLines, setPlanLines] = useState<string[]>([]);
   const [planSelection, setPlanSelection] = useState(0);
   const [planStatus, setPlanStatus] = useState('');
+  const [planStale, setPlanStale] = useState(false);
   const [contextSelection, setContextSelection] = useState<string | null>(null);
   const [overlayScroll, setOverlayScroll] = useState({key: '', top: 0});
   const [reading, setReading] = useState(false);
@@ -1150,7 +1151,10 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       }
       setPlanLines(rendered.split('\n'));
       setPlanSelection(0);
-      setPlanStatus(String(latestPlanArtifact(state.sessionPath)?.status ?? ''));
+      const artifact = latestPlanArtifact(state.sessionPath);
+      setPlanStatus(String(artifact?.status ?? ''));
+      const approval = artifact && typeof artifact.approval === 'object' ? artifact.approval as Record<string, unknown> : {};
+      setPlanStale(approval.stale === true);
       setPlanOpen(true);
       setOverlayScroll({key: 'plan', top: 0});
       return;
@@ -1181,6 +1185,8 @@ export function App({client, attach = false, initialState = emptyState, windowSi
     if (text === '/plan execute') {
       const artifact = latestPlanArtifact(state.sessionPath);
       if (!artifact) {notice('当前会话没有计划产物；先 /plan <任务> 生成。'); return;}
+      const approval = artifact.approval && typeof artifact.approval === 'object' ? artifact.approval as Record<string, unknown> : {};
+      if (approval.stale === true) {notice('计划已因纠偏/修改而 stale；先 /plan revise 并重新批准。'); return;}
       if (artifact.status !== 'approved') {notice('计划尚未批准；先 /plan approve。'); return;}
       if (state.phase !== 'idle' || activeRun.current) {notice('当前有运行中任务；结束后再执行计划。'); return;}
       if (!(client.capabilities?.().includes('tasks') ?? false)) {notice('后端未启用任务运行时。'); return;}
