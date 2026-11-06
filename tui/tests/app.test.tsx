@@ -1879,3 +1879,36 @@ test('plan overlay e prefills plan revision command', async () => {
     await rm(dir, {recursive: true, force: true});
   }
 });
+
+test('/plan execute uses latest executable plan when newest is draft', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'mini-harness-plan-fallback-'));
+  try {
+    const taskDir = path.join(dir, 'tasks', 't-20261103-120000-abcdef', 'plan');
+    await mkdir(taskDir, {recursive: true});
+    await writeFile(path.join(taskDir, 'plan.v1.json'), JSON.stringify({
+      schema_version: 1, plan_id: 'pl-approved', task_id: 't-20261103-120000-abcdef',
+      version: 1, status: 'approved', objective: '已批准',
+      acceptance_criteria: [], steps: [{step_id: 's1', title: '读', kind: 'read'}],
+    }));
+    await writeFile(path.join(taskDir, 'plan.v2.json'), JSON.stringify({
+      schema_version: 1, plan_id: 'pl-approved', task_id: 't-20261103-120000-abcdef',
+      version: 2, status: 'draft', objective: '草稿',
+      acceptance_criteria: [], steps: [{step_id: 's1', title: '读', kind: 'read'}],
+    }));
+    const client = new MockClient();
+    client.capabilityList = ['tasks'];
+    const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}/>);
+    await pause(20);
+    client.emit({type: 'ready', workspace: '/tmp/repo', model: 'fake', session_id: 'test',
+      session_path: dir, capabilities: ['tasks']});
+    client.emit({type: 'status', phase: 'idle'});
+    await pause(20);
+    await enter(stdin, '/plan execute');
+    const task = client.runTasks.at(-1);
+    assert.equal(task?.plan_id, 'pl-approved');
+    assert.equal(task?.plan_version, 1);
+    assert.match(lastFrame() ?? '', /approved v1/);
+  } finally {
+    await rm(dir, {recursive: true, force: true});
+  }
+});

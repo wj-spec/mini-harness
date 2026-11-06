@@ -66,6 +66,32 @@ function latestPlanArtifact(sessionPath: string): Record<string, unknown> | null
   } catch {return null;}
 }
 
+function latestExecutablePlanArtifact(sessionPath: string): Record<string, unknown> | null {
+  if (!sessionPath) return null;
+  try {
+    const tasksRoot = path.join(sessionPath, 'tasks');
+    let best: {mtime: number; payload: Record<string, unknown>} | null = null;
+    for (const task of readdirSync(tasksRoot, {withFileTypes: true})) {
+      if (!task.isDirectory()) continue;
+      const planDir = path.join(tasksRoot, task.name, 'plan');
+      let files: string[] = [];
+      try {files = readdirSync(planDir).filter(name => /^plan\.v\d+\.json$/.test(name));} catch {continue;}
+      for (const name of files) {
+        const file = path.join(planDir, name);
+        try {
+          const stats = statSync(file);
+          const payload = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+          const approval = payload.approval && typeof payload.approval === 'object' ? payload.approval as Record<string, unknown> : {};
+          if (payload.status === 'approved' && approval.stale !== true && (!best || stats.mtimeMs > best.mtime)) {
+            best = {mtime: stats.mtimeMs, payload};
+          }
+        } catch {}
+      }
+    }
+    return best?.payload ?? null;
+  } catch {return null;}
+}
+
 function latestPlanText(sessionPath: string, full = false): string | null {
   if (!sessionPath) return null;
   try {
@@ -939,7 +965,6 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       return;
     }
     if (planOpen && key.return) {
-      if (planStatus !== 'approved') {notice(`当前计划状态为 ${planStatus || '未知'}；先批准再执行。`); return;}
       setPlanOpen(false);
       submit('/plan execute');
       return;
@@ -1229,11 +1254,18 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       return;
     }
     if (text === '/plan execute') {
-      const artifact = latestPlanArtifact(state.sessionPath);
-      if (!artifact) {notice('当前会话没有计划产物；先 /plan <任务> 生成。'); return;}
-      const approval = artifact.approval && typeof artifact.approval === 'object' ? artifact.approval as Record<string, unknown> : {};
-      if (approval.stale === true) {notice('计划已因纠偏/修改而 stale；先 /plan revise 并重新批准。'); return;}
-      if (artifact.status !== 'approved') {notice('计划尚未批准；先 /plan approve。'); return;}
+      const latest = latestPlanArtifact(state.sessionPath);
+      if (!latest) {notice('当前会话没有计划产物；先 /plan <任务> 生成。'); return;}
+      const executable = latestExecutablePlanArtifact(state.sessionPath);
+      if (!executable) {
+        const approval = latest.approval && typeof latest.approval === 'object' ? latest.approval as Record<string, unknown> : {};
+        notice(approval.stale === true
+          ? '计划已因纠偏/修改而 stale；先 /plan revise 并重新批准。'
+          : '没有可执行的 approved 计划；先批准或修订计划。');
+        return;
+      }
+      if (executable !== latest) notice(`最新版本不可执行；改用 approved v${String(executable.version ?? 1)}。`);
+      const artifact = executable;
       if (state.phase !== 'idle' || activeRun.current) {notice('当前有运行中任务；结束后再执行计划。'); return;}
       if (!(client.capabilities?.().includes('tasks') ?? false)) {notice('后端未启用任务运行时。'); return;}
       const planId = String(artifact.plan_id ?? '');

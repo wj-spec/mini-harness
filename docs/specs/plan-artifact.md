@@ -31,7 +31,8 @@
   - `/plan all` 打开完整步骤覆盖层；
   - 覆盖层支持 ↑↓ 选择、s 查看选中步骤、e 预填修订命令、滚轮/PgUp/PgDn 翻阅、Esc 返回；
   - proposed 计划可用 `y` 批准 / `n` 拒绝（发 backend plan command）；
-  - approved 计划按 Enter 直接执行（`/plan execute` 等价）；approval.stale 的计划拒绝执行并提示重新修订/批准；
+  - approved 计划按 Enter 直接执行（`/plan execute` 等价）；执行时选择**最新可执行**的 approved 非 stale 版本，
+    最新版本不可执行会提示回退版本；无可执行版本时提示批准/修订；
   - `/plan list` 列出最近版本/状态；`/plan step <id>` 或覆盖层 `s` 查看单步定义与 execution 证据；
   - `/plan diff <a> <b>` 比较两个版本的目标/状态/步骤/审批差异；
   - 完整审批卡片与右侧 sidebar 仍待。

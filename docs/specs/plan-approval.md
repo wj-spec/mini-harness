@@ -32,7 +32,7 @@
 - stdio command `plan`（args `{action: show|approve|reject}`）：读取当前 session 最近 plan 产物，展示/调用 approve/reject；
 - TUI `/plan approve`、`/plan reject` 发送该 command；
 - TUI 计划覆盖层中 proposed 计划按 `y`/`n` 也可直接批准/拒绝；
-- TUI `/plan execute` 与覆盖层 Enter 会检查 `approval.stale`，stale 计划拒绝执行；
+- TUI `/plan execute` 与覆盖层 Enter 选择最新可执行 approved 非 stale 版本；stale/最新 draft 会提示修订或回退；
 - TUI `/plan revise <objective>` 与 backend `plan revise` 生成 version+1 draft；
 - backend `plan list` / TUI `/plan list` 列出最近计划版本；
 - backend `plan step` / TUI `/plan step <id>` / 覆盖层 `s` 展示单步定义与 execution evidence；
