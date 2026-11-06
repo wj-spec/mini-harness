@@ -78,6 +78,7 @@ export function SidebarApp({
   const [state, setState] = useState(initialSidebarState);
   const [diff, setDiff] = useState<DiffState>({path: null, text: '', error: null});
   const [agentFiles, setAgentFiles] = useState<ReadonlySet<string>>(() => new Set());
+  const [planSummary, setPlanSummary] = useState<SidebarSignal['plan']>(undefined);
   const signalVersion = useRef('');
   const readSignalRef = useRef(readSignal ?? readSidebarSignal);
   readSignalRef.current = readSignal ?? readSidebarSignal;
@@ -108,6 +109,7 @@ export function SidebarApp({
       if (!signal || signal.version === signalVersion.current) return;
       signalVersion.current = signal.version;
       setAgentFiles(new Set(signal.files));
+      setPlanSummary(signal.plan);
       refresh();
       setState(previous => focusAgentFile(previous, signal.files));
     };
@@ -164,7 +166,10 @@ export function SidebarApp({
     }
   });
 
-  const header = `变更 · ${state.branch ?? '未连接 Git'} · ${state.files.length} 个文件 ${state.files.length ? `+${totals.additions} -${totals.deletions}${totals.unknown ? ' ?' : ''}` : ''} · ${state.follow ? '跟随' : '手动'}${agentFiles.size ? ` · ● Agent ${agentFiles.size}` : ''}`;
+  const planLabel = planSummary
+    ? ` · 计划 v${planSummary.version} ${planSummary.stale ? 'stale' : planSummary.status} ${planSummary.stepCount}步`
+    : '';
+  const header = `变更 · ${state.branch ?? '未连接 Git'} · ${state.files.length} 个文件 ${state.files.length ? `+${totals.additions} -${totals.deletions}${totals.unknown ? ' ?' : ''}` : ''} · ${state.follow ? '跟随' : '手动'}${agentFiles.size ? ` · ● Agent ${agentFiles.size}` : ''}${planLabel}`;
   const footer = state.error
     ? state.error
     : `${current ? `${statusLabel(current)} · ${current.path}` : '未选择文件'} · ↑↓ 选择 · Tab ${state.focus === 'list' ? '滚动 diff' : '回到列表'} · f ${state.follow ? '暂停跟随' : '开启跟随'} · r 刷新 · q 退出`;

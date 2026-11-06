@@ -4,17 +4,27 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 
 /** 主 TUI 到侧栏的轻量事件信号：只含“本轮改过哪些文件”和刷新版本。 */
+export type SidebarPlanSummary = {
+  version: number;
+  status: string;
+  stale: boolean;
+  objective: string;
+  stepCount: number;
+};
+
 export type SidebarSignal = {
   version: string;
   files: string[];
   active: boolean;
   updatedAt: number;
+  plan?: SidebarPlanSummary;
 };
 
 export type SidebarSignalInput = {
   signature: string;
   files: string[];
   active: boolean;
+  plan?: SidebarPlanSummary;
 };
 
 export function sidebarSignalPath(workspace: string): string {
@@ -29,6 +39,7 @@ export function writeSidebarSignal(workspace: string, input: SidebarSignalInput)
     files: input.files.slice(0, 200),
     active: input.active,
     updatedAt: Date.now(),
+    ...(input.plan ? {plan: input.plan} : {}),
   };
   mkdirSync(path.dirname(file), {recursive: true});
   writeFileSync(file, JSON.stringify(payload));
@@ -42,7 +53,19 @@ export function readSidebarSignal(workspace: string): SidebarSignal | null {
     const files = Array.isArray(value.files)
       ? value.files.filter((item): item is string => typeof item === 'string' && item.length > 0 && item.length <= 512).slice(0, 200)
       : [];
-    return {version: value.version, files, active: value.active, updatedAt: typeof value.updatedAt === 'number' ? value.updatedAt : 0};
+    let plan: SidebarPlanSummary | undefined;
+    if (value.plan && typeof value.plan === 'object') {
+      const item = value.plan as Record<string, unknown>;
+      if (typeof item.version === 'number' && typeof item.status === 'string' &&
+          typeof item.objective === 'string' && typeof item.stepCount === 'number') {
+        plan = {
+          version: item.version, status: item.status, stale: item.stale === true,
+          objective: item.objective.slice(0, 200), stepCount: item.stepCount,
+        };
+      }
+    }
+    return {version: value.version, files, active: value.active, plan,
+      updatedAt: typeof value.updatedAt === 'number' ? value.updatedAt : 0};
   } catch {
     return null;
   }

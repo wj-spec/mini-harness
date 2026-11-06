@@ -3,6 +3,18 @@ import {randomUUID} from 'node:crypto';
 import test from 'node:test';
 import {readSidebarSignal, removeSidebarSignal, sidebarSignalPath, writeSidebarSignal} from '../src/sidebar/signal.js';
 
+test('sidebar signals include plan summary and can be removed', () => {
+  const root = `/tmp/mini-harness-signal-plan-${randomUUID()}`;
+  writeSidebarSignal(root, {
+    signature: 'plan:2', files: [], active: false,
+    plan: {version: 2, status: 'approved', stale: false, objective: '计划', stepCount: 3},
+  });
+  const signal = readSidebarSignal(root);
+  assert.equal(signal?.plan?.version, 2);
+  assert.equal(signal?.plan?.stepCount, 3);
+  removeSidebarSignal(root);
+});
+
 test('sidebar signals round-trip per workspace and can be removed', () => {
   const first = `/tmp/mini-harness-signal-${randomUUID()}`;
   const second = `/tmp/mini-harness-signal-${randomUUID()}`;

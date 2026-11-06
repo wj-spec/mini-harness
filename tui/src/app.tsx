@@ -138,6 +138,19 @@ function latestPlanText(sessionPath: string, full = false): string | null {
   } catch {return null;}
 }
 
+function planSidebarSummary(sessionPath: string): {version: number; status: string; stale: boolean; objective: string; stepCount: number} | null {
+  const payload = latestPlanArtifact(sessionPath);
+  if (!payload) return null;
+  const approval = payload.approval && typeof payload.approval === 'object' ? payload.approval as Record<string, unknown> : {};
+  return {
+    version: Number(payload.version ?? 1),
+    status: String(payload.status ?? ''),
+    stale: approval.stale === true,
+    objective: String(payload.objective ?? '').slice(0, 200),
+    stepCount: Array.isArray(payload.steps) ? payload.steps.length : 0,
+  };
+}
+
 export function App({client, attach = false, initialState = emptyState, windowSize, initialTheme = 'system', copyText = copyToClipboard, profilePath, userProfilePath, launchSidebar = launchSidebarForTui, setupSidebar = runSidebarSetup, publishSidebarSignal = writeSidebarSignal, autoObserve = process.env.VIBE_AUTO_OBSERVE === '1'}: {
   client: BackendClient; attach?: boolean; initialState?: ViewState; windowSize?: {columns: number; rows: number}; initialTheme?: ThemeName;
   copyText?: (text: string) => string | null; profilePath?: string; userProfilePath?: string;
@@ -1204,6 +1217,15 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       setPlanStale(approval.stale === true);
       setPlanOpen(true);
       setOverlayScroll({key: 'plan', top: 0});
+      const summary = planSidebarSummary(state.sessionPath);
+      if (state.workspace) {
+        try {
+          publishSidebarSignal(state.workspace, {
+            signature: `plan:${summary?.version ?? 0}:${summary?.status ?? ''}:${state.entries.length}`,
+            files: agentTouchedFiles(state.entries), active: false, plan: summary ?? undefined,
+          });
+        } catch {}
+      }
       return;
     }
     if (text === '/plan list') {
