@@ -1994,3 +1994,22 @@ test('plan overlay shows saved acceptance result', async () => {
     await rm(dir, {recursive: true, force: true});
   }
 });
+
+test('paused acceptance failure shows plan guidance', async () => {
+  const client = new MockClient();
+  client.capabilityList = ['tasks'];
+  const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}/>);
+  await pause(20);
+  client.emit({type: 'ready', workspace: '/tmp/repo', model: 'fake', session_id: 'test', capabilities: ['tasks']});
+  client.emit({type: 'status', phase: 'idle'});
+  await pause(20);
+  await enter(stdin, '执行计划');
+  const id = `run-${client.runs.length}`;
+  client.emit({type: 'done', id, result: {
+    text: '停止', steps: 1, status: 'stopped', usage: {}, cost_usd: 0, run_id: id,
+    stop_reason: 'acceptance_acceptance_failed',
+  }});
+  await pause(30);
+  assert.match(lastFrame() ?? '', /\/plan acceptance/);
+  assert.match(lastFrame() ?? '', /\/plan revise/);
+});
