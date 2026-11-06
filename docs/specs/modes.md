@@ -6,6 +6,12 @@
 ## 已实现
 
 - `app/runtime/modes.py`：`MODE_NAMES=(chat, act, plan, goal)`、`parse_mode`、`kind_for_mode`、`mode_for_kind`；未知 mode fail closed。
+- `ModeProfile` 注册表（11 P0 起步）：
+  - chat：无工具、`chat_only`、shared_readonly；
+  - act：`*` 工具、`default`、shared_readonly；
+  - goal：`*` 工具、worktree_write；
+  - plan：只读工具 + `plan_only`、plan.review capability；
+  - `resolve_profile`/`validate_profile_tools` 校验未知 mode/缺失工具。
 - `TaskRuntime`：
   - `run.task` 支持 `kind=run`（chat/act）与 `kind=goal`（goal），`mode` 写入 `TaskRecord`；
   - 未指定 mode 时：goal 默认 `goal`，run 默认 `act`；
@@ -18,13 +24,16 @@
 - TUI：
   - `/chat <任务>`、`/act <任务>` 本地命令，发送 `{kind:"run", mode, objective}`；
   - 需要后端 `tasks` capability；运行中拒绝切换。
+- stdio 启动 run 前解析 mode profile 并校验工具名，写 `mode_profile` 事件。
 - 测试：
+  - modes：profile 完整性、chat/act/plan 工具与 capability、未知 mode/缺失工具；
   - TaskRuntime：run/chat、未知 mode、attach mode mismatch；
   - stdio：chat 的 provider `seen_tools=[]`、task meta mode；
   - TUI：`/chat` `/act` 提交的 task metadata。
 
 ## 未完成
 
+- budget/approval/isolation profile 的实际执行层强制（当前只记录/校验工具与 system）；
 - `/plan`、plan→act 批准转换（12/13）；
 - goal 段内 plan mode；
 - 入口记忆上次 mode（项目级/会话级）；

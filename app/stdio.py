@@ -459,8 +459,26 @@ class _Connection:
     async def run(self, request_id: str, text: str, run_task=None):
         self.has_started_run = True
         previous_tools_enabled = self.agent.tools_enabled
-        if run_task is not None and getattr(run_task.record, "mode", None) == "chat":
-            self.agent.tools_enabled = False
+        if run_task is not None:
+            from app.runtime.modes import ModeError, resolve_profile, validate_profile_tools
+            profile = resolve_profile(run_task.record.mode)
+            try:
+                validate_profile_tools(profile, self.agent.tools.names())
+            except ModeError as exc:
+                self.error(request_id, "task_profile_error", str(exc))
+                self.agent.tools_enabled = previous_tools_enabled
+                return
+            try:
+                self.task_runtime.store.append_event(
+                    run_task.task_id, "mode_profile",
+                    data={"mode": profile.mode, "profile": profile.mode,
+                          "tools": profile.tools if profile.tools == "*" else list(profile.tools),
+                          "system": profile.system},
+                )
+            except Exception:
+                pass
+            if run_task.record.mode == "chat":
+                self.agent.tools_enabled = False
         result = AgentResult("cancelled", 0, "cancelled")
         completed = False
         metrics = {
