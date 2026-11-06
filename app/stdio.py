@@ -387,6 +387,15 @@ class _Connection:
                     lines.append(f"- {item.get('id', '?')} [{item.get('source', '?')}] {item.get('command', '')}")
                 if not plan.verification_plan:
                     lines.append("- （无）")
+                try:
+                    from app.runtime.acceptance import load_acceptance_result
+                    saved = load_acceptance_result(path.parent.parent, plan.version)
+                except Exception:
+                    saved = None
+                if saved is not None:
+                    lines.append(f"最近执行结果：status={saved.get('status')} codes={saved.get('codes')}")
+                    for vid, item in (saved.get("results") or {}).items():
+                        lines.append(f"- {vid}: ok={item.get('ok')} attempts={item.get('attempts', 1)}")
                 return "\n".join(lines)
             if action == "diff":
                 from app.runtime.plan import PlanError, plan_path
