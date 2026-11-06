@@ -57,3 +57,6 @@ def test_worker_completes_background_plan_with_acceptance(tmp_path):
     assert task.status == "completed", (task.status, proc.stdout, proc.stderr)
     accepted = json.loads((task_dir / "acceptance.v1.json").read_text(encoding="utf-8"))
     assert accepted["status"] is True
+    from app.runtime.notifications import read_notifications
+    bindings = [item for item in read_notifications(repo) if item["kind"] == "plan_binding"]
+    assert bindings and bindings[-1]["executable"] is True

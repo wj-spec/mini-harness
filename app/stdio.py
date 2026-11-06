@@ -734,6 +734,9 @@ class _Connection:
                         run_task.task_id, "plan_binding",
                         data={"found": False, "plan_id": run_task.record.plan_id},
                     )
+                    from app.runtime.notifications import notify
+                    notify(self.config.workspace, "plan_binding", task_id=run_task.task_id,
+                           found=False, plan_id=run_task.record.plan_id)
                 except Exception:
                     pass
                 self.agent.approval.execution_gate = lambda _call: "plan_not_approved"
@@ -746,6 +749,9 @@ class _Connection:
                             run_task.task_id, "plan_binding",
                             data={"found": True, "executable": False, "reason": reason},
                         )
+                        from app.runtime.notifications import notify
+                        notify(self.config.workspace, "plan_binding", task_id=run_task.task_id,
+                               found=True, executable=False, reason=reason)
                     except Exception:
                         pass
                     self.agent.approval.execution_gate = lambda _call: reason
@@ -764,6 +770,9 @@ class _Connection:
                             run_task.task_id, "plan_binding",
                             data={"found": True, "executable": True, "step_tools": True},
                         )
+                        from app.runtime.notifications import notify
+                        notify(self.config.workspace, "plan_binding", task_id=run_task.task_id,
+                               found=True, executable=True, step_tools=True)
                     except Exception:
                         pass
 
