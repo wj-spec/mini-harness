@@ -1,15 +1,15 @@
 # 长任务 / 后台 / 进阶模式 P0 收束报告
 
-日期：2026-11-06。基线：`69250de`（报告提交前 HEAD）。
+日期：2026-11-06。基线：`f9c6e92`（报告更新前 HEAD）。
 范围：[long-horizon 设计](../design/long-horizon/README.md) 01–16 的 P0 落地情况。
 
 ## 1. 验证结果
 
 | 检查 | 结果 |
 |---|---|
-| Python 全量 | **1358 passed / 13 skipped** |
-| TUI | **358 passed / 1 failed**；失败为环境 pty smoke（`out of pty devices`） |
-| 长任务 fake 场景 | **10/10 PASS**（`scripts/bench_long.py --runs 1`） |
+| Python 全量 | **1366 passed / 13 skipped** |
+| TUI | **362 passed / 1 failed**；失败为环境 pty smoke（`out of pty devices`） |
+| 长任务 fake 场景 | **10/10 PASS**（`scripts/bench_long.py --runs 1`；新增 `--real` 真 provider 入口） |
 | 07 attach 人工验收 | TC-01–09 通过（[记录](manual-acceptance-07-results.md)） |
 | 文档链接 | 74 个 specs/long-horizon 文档，**0 失效** |
 
@@ -32,7 +32,7 @@
 | 13 | 计划审批门 | P0 已实现 | propose/approve/reject、hash、审计、执行门禁 |
 | 14 | 执行绑定 | P0 已实现 | step ledger、证据推进、完成门 |
 | 15 | 计划验收 | P0 已实现 | criteria 映射三态、可信命令执行、接入完成门 |
-| 16 | 子 Agent | P0 已实现 | 只读 runner、子 TaskRecord、usage、取消/depth/批量扇出 |
+| 16 | 子 Agent | P0 已实现 | 只读 runner、子 TaskRecord、usage、取消/depth/批量扇出、`/explore` |
 
 ## 3. 关键能力闭环
 
@@ -46,6 +46,7 @@ TUI /goal /chat /act /plan
   → step ledger（start/complete + 工具证据）
   → 完成门：required 步骤 + 可信验收命令
   → subagent 只读执行（TaskRecord/usage/取消/扇出）
+  → /explore 只读探索；/notifications 查看后台通知；/plan 覆盖层审批/修订
 ```
 
 ## 4. 已知限制（P0 之后仍需）

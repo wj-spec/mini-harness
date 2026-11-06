@@ -6,7 +6,7 @@
 ## 已实现
 
 - `scripts/bench_long.py`
-  - `--list`；
+  - `--list`；`--real`（已配置 provider 时用真实模型，不自动跑）；
   - `--scenario <id>`（可重复）/ `--runs N` / `--run-root PATH`；
   - 每个场景创建独立 git workspace + test session/task，启动真实 `--worker --fake`；
   - 收集 task meta / worker state / approvals / changed files / duration；

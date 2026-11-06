@@ -140,7 +140,7 @@ def summary(workspace: Path, session_id: str, task_id: str, before: dict[str, st
     }
 
 
-def run_scenario(scenario: dict, run_dir: Path, run_index: int) -> dict:
+def run_scenario(scenario: dict, run_dir: Path, run_index: int, *, real: bool = False) -> dict:
     scenario_dir = run_dir / f"{scenario['id']}-{run_index}"
     workspace = scenario_dir / "workspace"
     scenario_dir.mkdir(parents=True, exist_ok=True)
@@ -167,10 +167,13 @@ def run_scenario(scenario: dict, run_dir: Path, run_index: int) -> dict:
     })
     env.update({str(k): str(v) for k, v in scenario.get("worker_env", {}).items()})
     log = (scenario_dir / "worker.log").open("w", encoding="utf-8")
+    worker_command = [sys.executable, "-m", "app", "--worker",
+                      "--workspace", str(workspace), "--session", session_id, "--task-id", task_id]
+    if not real:
+        worker_command.append("--fake")
+    worker_command.extend(scenario.get("worker_args", []))
     proc = subprocess.Popen(
-        [sys.executable, "-m", "app", "--worker", "--fake",
-         "--workspace", str(workspace), "--session", session_id, "--task-id", task_id,
-         *scenario.get("worker_args", [])],
+        worker_command,
         cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT,
         start_new_session=True,
     )
@@ -308,10 +311,10 @@ def _repeatable(results: list[dict]) -> dict[str, bool]:
     }
 
 
-def write_report(root: Path, results: list[dict], scenario_ids: list[str]) -> Path:
+def write_report(root: Path, results: list[dict], scenario_ids: list[str], *, real: bool = False) -> Path:
     report = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "mode": "fake-worker-p0",
+        "mode": "real-worker-p0" if real else "fake-worker-p0",
         "scenarios": scenario_ids,
         "runs": results,
         "summary": {
@@ -348,6 +351,7 @@ def main() -> int:
     parser.add_argument("--scenario", action="append", default=[])
     parser.add_argument("--runs", type=int, default=1)
     parser.add_argument("--run-root", type=Path, default=None)
+    parser.add_argument("--real", action="store_true", help="use real provider instead of --fake")
     args = parser.parse_args()
     scenarios = load_scenarios()
     if args.list:
@@ -364,11 +368,11 @@ def main() -> int:
     results = []
     for scenario_id in selected:
         for index in range(max(1, args.runs)):
-            result = run_scenario(scenarios[scenario_id], run_root, index + 1)
+            result = run_scenario(scenarios[scenario_id], run_root, index + 1, real=args.real)
             results.append(result)
             print(f"{scenario_id}#{index + 1}: {'PASS' if result['ok'] else 'FAIL'} "
                   f"task={result['task_status']} worker={result['worker_status']} segments={result['segments']}")
-    report = write_report(run_root, results, selected)
+    report = write_report(run_root, results, selected, real=args.real)
     print(f"report: {report}")
     return 0 if all(item["ok"] for item in results) else 1
 
