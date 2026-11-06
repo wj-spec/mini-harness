@@ -23,7 +23,7 @@
   - `mode=act` 保持正常工具路径。
 - TUI：
   - `/chat <任务>`、`/act <任务>`、`/plan <任务>` 本地命令，发送对应 mode 的 run task；已加入命令补全与说明；
-  - `/plan` 无参数展示当前会话最近的计划产物；
+  - `/plan` 无参数折叠展示当前会话最近的计划产物；`/plan all` 展开全部步骤；
   - 需要后端 `tasks` capability；运行中拒绝切换。
 - stdio 启动 run 前解析 mode profile 并校验工具名，写 `mode_profile` 事件；
   `plan` 模式把 agent tools 临时替换为只读子集（`read_file/list_files/grep/git_status/git_diff`），run 结束后恢复。

@@ -66,7 +66,7 @@ function latestPlanArtifact(sessionPath: string): Record<string, unknown> | null
   } catch {return null;}
 }
 
-function latestPlanText(sessionPath: string): string | null {
+function latestPlanText(sessionPath: string, full = false): string | null {
   if (!sessionPath) return null;
   try {
     const tasksRoot = path.join(sessionPath, 'tasks');
@@ -101,12 +101,14 @@ function latestPlanText(sessionPath: string): string | null {
         if (record && typeof record.step_id === 'string') execution[record.step_id] = String(record.status ?? '');
       }
     } catch {}
-    lines.push('步骤：');
-    for (const step of steps) {
+    lines.push(`步骤（${steps.length}）：`);
+    const visible = full ? steps : steps.slice(0, 3);
+    for (const step of visible) {
       const stepId = String(step?.step_id ?? '?');
       lines.push(`- ${stepId} ${String(step?.title ?? '')} [${String(step?.kind ?? '')}]${execution[stepId] ? ` · ${execution[stepId]}` : ''}`);
     }
-    return lines.slice(0, 200).join('\n');
+    if (!full && steps.length > visible.length) lines.push(`… 共 ${steps.length} 步；/plan all 查看全部`);
+    return lines.slice(0, full ? 200 : 40).join('\n');
   } catch {return null;}
 }
 
@@ -1106,9 +1108,10 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       } catch (error) {reportError(`操作未送达：${String(error)}`);}
       return;
     }
-    if (text === '/plan') {
+    if (text === '/plan' || text === '/plan all') {
       setInput('');
-      const rendered = latestPlanText(state.sessionPath);
+      const full = text === '/plan all';
+      const rendered = latestPlanText(state.sessionPath, full);
       notice(rendered ?? '当前会话没有计划产物；用 /plan <任务描述> 开始一次只读规划。');
       return;
     }
