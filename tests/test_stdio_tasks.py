@@ -589,3 +589,20 @@ def test_bound_unapproved_plan_blocks_write_at_gate(tmp_path, monkeypatch):
         await harness.close()
 
     asyncio.run(scenario())
+
+
+def test_explore_emits_subagent_event(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+
+    async def scenario():
+        harness = Harness(_agent(tmp_path, script=("摘要",)), Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("command", "c-sub", command="explore", args={"prompt": "读"})
+        await harness.until("command_result", "c-sub")
+        events = [event for event in harness.events if event["type"] == "subagent_event"]
+        assert events and events[-1]["status"] == "ok"
+        assert events[-1]["task_id"].startswith("t-")
+        await harness.close()
+
+    asyncio.run(scenario())

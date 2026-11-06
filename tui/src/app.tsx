@@ -284,6 +284,9 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       const summary = event.tasks.slice(0, 5).map(task => `${task.task_id} ${task.status}${task.worker_status ? `/${task.worker_status}` : ''}`).join('；');
       dispatch({type: 'notice', text: `检测到 ${event.tasks.length} 个任务${running.length ? `（${running.length} 个后台 worker 活跃）` : ''}：${summary}${event.tasks.length > 5 ? ' …' : ''}\n输入 /task 查看；/attach 生成 attach 命令。`});
     }
+    if (event.type === 'subagent_event') {
+      notice(`子 Agent ${event.status}：${event.task_id}${event.summary ? ` · ${event.summary}` : ''}`);
+    }
     if (event.type === 'task_snapshot') {
       lastTaskId.current = event.task.task_id;
       const worker = event.task.worktree ? ` · worktree ${event.task.worktree.branch}` : '';

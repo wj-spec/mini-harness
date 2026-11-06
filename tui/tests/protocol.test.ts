@@ -281,3 +281,14 @@ test('accepts attach task_snapshot with approvals', () => {
   assert.equal(parseServerEvent(JSON.stringify(frame)).type, 'task_snapshot');
   assert.throws(() => parseServerEvent(JSON.stringify({...frame, approvals: null})));
 });
+
+test('accepts subagent_event with child task id', () => {
+  const event = parseServerEvent(JSON.stringify({
+    v: 1, type: 'subagent_event', id: null,
+    task_id: 't-20261103-120000-abcdef', status: 'ok', summary: 'done',
+  }));
+  assert.equal(event.type, 'subagent_event');
+  assert.throws(() => parseServerEvent(JSON.stringify({
+    v: 1, type: 'subagent_event', id: null, task_id: '', status: 'ok',
+  })));
+});

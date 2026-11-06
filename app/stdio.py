@@ -513,6 +513,9 @@ class _Connection:
                 )
                 self.send("notice", None,
                           message=f"子 Agent {sub.status}：{sub.task_id or '-'}")
+                if sub.task_id:
+                    self.send("subagent_event", None, task_id=sub.task_id,
+                              status=sub.status, summary=sub.summary[:500])
                 text = f"子 Agent {sub.status}：{sub.summary}"
                 if sub.task_id:
                     text += f"\n任务：{sub.task_id}"

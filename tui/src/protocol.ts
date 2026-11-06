@@ -262,6 +262,7 @@ export type ServerEvent =
   | Envelope<'task_state', {task: TaskSnapshot}>
   | Envelope<'task_snapshot', {task: AttachTaskSnapshot; approvals: AttachApprovalItem[]}>
   | Envelope<'approval_list', {approvals: AttachApprovalItem[]}>
+  | Envelope<'subagent_event', {task_id: string; status: string; summary?: string}>
   | Envelope<'ack', {action: 'cancel' | 'approval' | 'steer'}>
   | Envelope<'closed'>
   | Envelope<'error', {code: string; message: string}>;
@@ -510,6 +511,7 @@ export function parseServerEvent(line: string): ServerEvent {
     case 'task_state': valid = validId(value.id) && taskSnapshot(value.task); break;
     case 'task_snapshot': valid = value.id === null && attachTaskSnapshot(value.task) && attachApprovals(value.approvals); break;
     case 'approval_list': valid = (value.id === null || validId(value.id)) && attachApprovals(value.approvals); break;
+    case 'subagent_event': valid = value.id === null && typeof value.task_id === 'string' && validId(value.task_id) && typeof value.status === 'string' && (value.summary === undefined || typeof value.summary === 'string'); break;
     case 'ack': valid = validId(value.id) && ['cancel', 'approval', 'steer'].includes(String(value.action)); break;
     case 'closed': valid = true; break;
     case 'error': valid = typeof value.code === 'string' && typeof value.message === 'string'; break;
