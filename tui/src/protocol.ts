@@ -32,7 +32,7 @@ export function commandMatches(value: string): string[] {
 export type BackendCommand = typeof BACKEND_COMMANDS[number];
 export type SkillsCommandArgs = {action?: 'list' | 'refresh' | 'activate' | 'unload'; name?: string};
 export type AutonomyCommandArgs = {level: AutonomyLevel};
-export type PlanCommandArgs = {action?: 'show' | 'approve' | 'reject'};
+export type PlanCommandArgs = {action?: 'show' | 'approve' | 'reject' | 'revise'; objective?: string};
 export type ExploreCommandArgs = {prompt: string};
 export type CommandArgs = SkillsCommandArgs | AutonomyCommandArgs | PlanCommandArgs | ExploreCommandArgs;
 export function validateExploreArgs(value: unknown): asserts value is ExploreCommandArgs {
@@ -42,9 +42,11 @@ export function validateExploreArgs(value: unknown): asserts value is ExploreCom
   }
 }
 export function validatePlanArgs(value: unknown): asserts value is PlanCommandArgs {
-  if (!record(value) || Object.keys(value).some(key => key !== 'action') ||
-      (value.action !== undefined && !['show', 'approve', 'reject'].includes(String(value.action)))) {
-    throw new Error('plan 参数只允许 action=show|approve|reject');
+  if (!record(value) || Object.keys(value).some(key => key !== 'action' && key !== 'objective') ||
+      (value.action !== undefined && !['show', 'approve', 'reject', 'revise'].includes(String(value.action))) ||
+      (value.objective !== undefined && (typeof value.objective !== 'string' || !value.objective.trim())) ||
+      (value.action === 'revise' && typeof value.objective !== 'string')) {
+    throw new Error('plan 参数只允许 action=show|approve|reject|revise（revise 需 objective）');
   }
 }
 export function validateAutonomyArgs(value: unknown): asserts value is AutonomyCommandArgs {

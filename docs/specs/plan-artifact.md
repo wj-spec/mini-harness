@@ -30,7 +30,8 @@
   - `/plan` 打开计划覆盖层（默认折叠：目标/状态/验收标准 + 前 3 步，提示共 N 步）；
   - `/plan all` 打开完整步骤覆盖层；
   - 覆盖层支持 ↑↓ 选择、滚轮/PgUp/PgDn 翻阅、Esc 返回；
-  - proposed 计划可用 `y` 批准 / `n` 拒绝（发 backend plan command）；完整审批卡片与右侧 sidebar 仍待。
+  - proposed 计划可用 `y` 批准 / `n` 拒绝（发 backend plan command）；
+  - `/plan revise <objective>` 生成新 draft 版本；完整审批卡片与右侧 sidebar 仍待。
   - `/plan approve`、`/plan reject` 通过后端 `plan` command 处理最近计划（stdio 本地 user 决定）。
   - `/plan execute` 读取最近 approved 计划，提交带 `plan_id/plan_version` 的 act run。
 

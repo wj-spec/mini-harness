@@ -1695,6 +1695,19 @@ test('/plan submits a plan-mode run and /plan renders the latest artifact', asyn
   }
 });
 
+test('/plan revise sends objective to backend', async () => {
+  const client = new MockClient();
+  client.capabilityList = ['tasks'];
+  const {stdin} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}/>);
+  await pause(20);
+  client.emit({type: 'ready', workspace: '/tmp/repo', model: 'fake', session_id: 'test', capabilities: ['tasks']});
+  client.emit({type: 'status', phase: 'idle'});
+  await pause(20);
+  await enter(stdin, '/plan revise 新目标');
+  assert.equal(client.commands.at(-1), 'plan');
+  assert.deepEqual(client.commandArgs.at(-1), {action: 'revise', objective: '新目标'});
+});
+
 test('plan overlay approves a proposed plan with y', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'mini-harness-plan-approve-'));
   try {

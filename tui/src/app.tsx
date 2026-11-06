@@ -1149,6 +1149,18 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       setOverlayScroll({key: 'plan', top: 0});
       return;
     }
+    const planRevise = /^\/plan\s+revise\s+([\s\S]+)$/.exec(text);
+    if (planRevise) {
+      if (state.phase !== 'idle' || activeRun.current) {notice('当前有运行中任务；结束后再修订计划。'); return;}
+      try {
+        const id = client.command('plan', {action: 'revise', objective: planRevise[1]!.trim()});
+        activeRun.current = id;
+        dispatch({type: 'begin_command', id, command: 'plan'});
+        setPlanOpen(false);
+        setInput('');
+      } catch (error) {notice(`计划修订未送达：${String(error)}`);}
+      return;
+    }
     if (text === '/plan execute') {
       const artifact = latestPlanArtifact(state.sessionPath);
       if (!artifact) {notice('当前会话没有计划产物；先 /plan <任务> 生成。'); return;}

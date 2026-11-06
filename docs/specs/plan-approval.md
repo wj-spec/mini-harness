@@ -32,6 +32,7 @@
 - stdio command `plan`（args `{action: show|approve|reject}`）：读取当前 session 最近 plan 产物，展示/调用 approve/reject；
 - TUI `/plan approve`、`/plan reject` 发送该 command；
 - TUI 计划覆盖层中 proposed 计划按 `y`/`n` 也可直接批准/拒绝；
+- TUI `/plan revise <objective>` 与 backend `plan revise` 生成 version+1 draft。
 - 通过 `plan.review` capability 语义（当前 stdio 本地用户命令视为 user 决定）。
 
 ## 执行门禁
@@ -47,7 +48,7 @@
 
 - 工具执行前门禁已接 ApprovalGate；仍需 trace/可见原因码与 stale 重批 UI；
 - 审批队列/任务级 deadline → `failed(approval_timeout)` 接线；
-- TUI 编辑/重规划入口；steering 后 stale 标记已接（写 approval.stale + 阻止工具门禁）；
+- TUI 编辑/重规划入口已有 objective 修订；步骤级编辑 UI 待；steering 后 stale 标记已接；
 - `submit_plan` 工具已接 plan profile；`kind=plan` task 的 TUI 创建/展示未接；
 - stdio 帧/`plan.review` capability 协商；
 - TUI 计划卡片、折叠/分页、编辑（已支持 `/plan approve|reject` 与只读展示）；

@@ -471,3 +471,30 @@ def test_notifications_command_lists_recent(tmp_path, monkeypatch):
         await harness.close()
 
     asyncio.run(scenario())
+
+
+def test_plan_command_revises_latest_plan(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    task_id = "t-20261106-000000-abcdef"
+    task_dir = session.root / "tasks" / task_id
+    from app.runtime.plan import Plan, load_plan, propose_plan
+    plan = Plan.from_dict({
+        "schema_version": 1, "plan_id": "pl-rev", "task_id": task_id,
+        "objective": "旧目标", "steps": [{"step_id": "s1", "title": "读"}],
+    })
+    propose_plan(task_dir, plan)
+
+    async def scenario():
+        harness = Harness(_agent(tmp_path), Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("command", "c-rev", command="plan",
+                     args={"action": "revise", "objective": "新目标"})
+        result = await harness.until("command_result", "c-rev")
+        assert "新目标" in result["text"]
+        revised = load_plan(task_dir / "plan" / "plan.v2.json")
+        assert revised.version == 2 and revised.status == "draft"
+        assert revised.objective == "新目标"
+        await harness.close()
+
+    asyncio.run(scenario())

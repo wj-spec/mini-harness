@@ -331,7 +331,7 @@ class _Connection:
                 await self.publish_loaded_context()
                 self.send("status", phase="idle")
 
-    def _plan_command(self, action: str) -> str:
+    def _plan_command(self, action: str, args: dict | None = None) -> str:
         from app.runtime.plan import (
             PlanError, approve_plan, can_execute, load_plan, render_plan, reject_plan,
         )
@@ -350,6 +350,14 @@ class _Connection:
                 approve_plan(path.parent.parent, plan, approved_by="user", approval_id=None)
             elif action == "reject":
                 reject_plan(path.parent.parent, plan, rejected_by="user", reason="user rejected")
+            elif action == "revise":
+                from app.runtime.plan import PlanError, revise_plan
+                try:
+                    plan = revise_plan(path.parent.parent, plan,
+                                       objective=str((args or {}).get("objective", "")),
+                                       requester="user")
+                except (PlanError, ValueError) as exc:
+                    return f"计划修订失败：{exc}"
             text = render_plan(plan) + f"\nexecutable={can_execute(plan)}"
             try:
                 from app.runtime.plan_execution import load_ledger
@@ -436,7 +444,7 @@ class _Connection:
             elif command == "evidence":
                 text = format_round_evidence(self.session.latest_round())
             elif command == "plan":
-                text = self._plan_command((args or {}).get("action", "show"))
+                text = self._plan_command((args or {}).get("action", "show"), args or {})
             elif command == "notifications":
                 from app.runtime.notifications import read_notifications
                 items = read_notifications(self.agent.tools.root)[-20:]
@@ -935,8 +943,10 @@ class _Connection:
                     if not isinstance(args, dict):
                         raise ValueError("command args must be an object")
                     if request["command"] == "plan":
-                        if set(args) - {"action"} or args.get("action", "show") not in {"show", "approve", "reject"}:
-                            raise ValueError("plan args must contain only action=show|approve|reject")
+                        if set(args) - {"action", "objective"} or args.get("action", "show") not in {"show", "approve", "reject", "revise"}:
+                            raise ValueError("plan args allowed: action=show|approve|reject|revise, objective")
+                        if args.get("action") == "revise" and (not isinstance(args.get("objective"), str) or not args["objective"].strip()):
+                            raise ValueError("plan revise requires a nonempty objective")
                     elif request["command"] == "explore":
                         if set(args) != {"prompt"} or not isinstance(args.get("prompt"), str) or not args["prompt"].strip():
                             raise ValueError("explore args must contain only a nonempty prompt")
