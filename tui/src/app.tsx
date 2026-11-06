@@ -127,6 +127,12 @@ function latestPlanText(sessionPath: string, full = false): string | null {
       for (const item of criteria) lines.push(`- [${item?.confirmed === true ? '已确认' : '候选'}] ${String(item?.text ?? '')}`);
     }
     const verification = Array.isArray(payload.verification_plan) ? payload.verification_plan : [];
+    try {
+      const saved = JSON.parse(readFileSync(path.join(path.dirname(best.file), '..', `acceptance.v${String(payload.version ?? 1)}.json`), 'utf8')) as Record<string, unknown>;
+      if (saved.status === true || saved.status === false) {
+        lines.push(`验收结果：${saved.status === true ? '✓ 通过' : '✗ 失败'}${Array.isArray(saved.codes) && saved.codes.length ? ` · ${saved.codes.join(',')}` : ''}`);
+      }
+    } catch {}
     if (verification.length) {
       lines.push(`验收命令（${verification.length}）：`);
       for (const item of verification.slice(0, 5)) {
