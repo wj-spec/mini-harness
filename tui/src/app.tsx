@@ -119,6 +119,13 @@ function latestPlanText(sessionPath: string, full = false): string | null {
       lines.push('验收标准：');
       for (const item of criteria) lines.push(`- [${item?.confirmed === true ? '已确认' : '候选'}] ${String(item?.text ?? '')}`);
     }
+    const verification = Array.isArray(payload.verification_plan) ? payload.verification_plan : [];
+    if (verification.length) {
+      lines.push(`验收命令（${verification.length}）：`);
+      for (const item of verification.slice(0, 5)) {
+        lines.push(`- ${String(item?.id ?? '?')} [${String(item?.source ?? '?')}] ${String(item?.command ?? '')}`);
+      }
+    }
     const steps = Array.isArray(payload.steps) ? payload.steps : [];
     const execution: Record<string, string> = {};
     try {
