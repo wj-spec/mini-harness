@@ -55,6 +55,9 @@ def test_merge_task_cli_requests_then_merges(repo, monkeypatch, capsys):
                                       "--workspace", str(repo), "--approve-merge", approval_id, "--fake"])
     entrypoint.main()
     assert (repo / "cli.txt").is_file()
+    from app.runtime.notifications import read_notifications
+    kinds = [item["kind"] for item in read_notifications(repo)]
+    assert "merge_completed" in kinds and "merge_approval_requested" in kinds
 
 
 def test_stop_cli_marks_worker(tmp_path, monkeypatch, capsys):

@@ -263,6 +263,7 @@ def main() -> None:
             raise SystemExit(2)
         from app.runtime.approvals import ApprovalError, ApprovalInbox
         from app.runtime.merge import MergeError, MergeGate
+        from app.runtime.notifications import notify
 
         gate = MergeGate(config.workspace)
         try:
@@ -280,14 +281,19 @@ def main() -> None:
                     verify_commands=args.merge_verify,
                 )
                 print(json.dumps(result, ensure_ascii=False, indent=2))
+                notify(config.workspace, "merge_completed", task_id=task.task_id,
+                       verified=result.get("verified"))
                 return
             candidate = gate.prepare(task.task_id)
             print(candidate.diff_stat or "(empty diff)")
             approval = gate.request_approval(task.task_id, session_root=session.root)
             print(f"merge approval requested: {approval['approval_id']}")
+            notify(config.workspace, "merge_approval_requested", task_id=task.task_id,
+                   approval_id=approval["approval_id"])
             print(f"rerun with --approve-merge {approval['approval_id']}")
             raise SystemExit(2)
         except MergeError as exc:
+            notify(config.workspace, "merge_failed", task_id=task.task_id, reason=str(exc)[:500])
             print(f"merge failed: {exc}", file=sys.stderr)
             raise SystemExit(2)
 

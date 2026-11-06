@@ -34,7 +34,8 @@
 - worker-events.jsonl 支持启动时按大小轮转（`VIBE_WORKER_EVENTS_MAX_BYTES/BACKUPS`）。
 - 本地通知：worker 生命周期写 `.vibe/notifications.jsonl`（started/exited/stop_requested/approval_timeout/task_deadline_exceeded），
   Plan 验收写 `plan_acceptance`，子 Agent 完成写 `subagent_finished`，
-  写任务等待 workspace lock 时写 `workspace_queued`，供后续告警渠道消费；
+  写任务等待 workspace lock 时写 `workspace_queued`；merge 生命周期写
+  `merge_approval_requested`/`merge_completed`/`merge_failed`，供后续告警渠道消费；
   stdio command `notifications` 与 TUI `/notifications` 可查看最近通知。
 - 日志保留：`--cleanup-logs --workspace <ws> [--log-max-bytes N] [--log-dry-run]` 显式轮转会话 `trace.jsonl`（`.1`…备份），写 `.vibe/retention.jsonl` 审计；`events.jsonl` 不轮转，避免破坏会话恢复。
 - 自动 trace 轮转：追加 trace 前检查 `VIBE_TRACE_MAX_BYTES`（默认 0=关闭）/`VIBE_TRACE_BACKUPS`，超过阈值即轮转；`events.jsonl` 仍不轮转。
