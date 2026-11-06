@@ -1667,8 +1667,12 @@ test('/plan submits a plan-mode run and /plan renders the latest artifact', asyn
     assert.match(lastFrame() ?? '', /修复问题/);
     assert.match(lastFrame() ?? '', /候选/);
     assert.match(lastFrame() ?? '', /in_progress/);
+    stdin.write('\u001b');
+    await pause(20);
     await enter(stdin, '/plan all');
     assert.match(lastFrame() ?? '', /步骤（1）/);
+    stdin.write('\u001b');
+    await pause(20);
     await enter(stdin, '/plan 先规划');
     assert.deepEqual(client.runTasks[0], {kind: 'run', mode: 'plan', objective: '先规划'});
     client.emit(completed('run-1'));

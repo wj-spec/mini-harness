@@ -131,6 +131,8 @@ export function App({client, attach = false, initialState = emptyState, windowSi
   const [selectedTool, setSelectedTool] = useState<number | null>(null);
   const [detail, setDetail] = useState<number | null>(null);
   const [contextOpen, setContextOpen] = useState(false);
+  const [planOpen, setPlanOpen] = useState(false);
+  const [planLines, setPlanLines] = useState<string[]>([]);
   const [contextSelection, setContextSelection] = useState<string | null>(null);
   const [overlayScroll, setOverlayScroll] = useState({key: '', top: 0});
   const [reading, setReading] = useState(false);
@@ -186,7 +188,7 @@ export function App({client, attach = false, initialState = emptyState, windowSi
   const tools = state.entries.filter(entry => entry.kind === 'tool' && entry.call);
   const chosenTool = tools.find(entry => entry.id === selectedTool) ?? tools.at(-1);
   const detailEntry = state.entries.find(entry => entry.id === detail);
-  const overlayKey = state.approval ? `approval-${state.approval.id}` : contextOpen ? 'context' : detailEntry ? `tool-${detailEntry.id}` : '';
+  const overlayKey = state.approval ? `approval-${state.approval.id}` : contextOpen ? 'context' : planOpen ? 'plan' : detailEntry ? `tool-${detailEntry.id}` : '';
   const composerRows = rows >= 32 ? 5 : rows >= 18 ? 3 : 1;
   const headerRows = rows >= 26 && columns >= 96 ? 5 : rows >= 18 ? 3 : 2;
   const sidebar = columns >= 118 && rows >= 24;
@@ -227,9 +229,10 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       ...textLines(approvalView.body, bodyColumns),
     ];
     if (contextOpen) return contextLines(state.contextSnapshots, contextSelection, bodyColumns);
+    if (planOpen) return planLines.flatMap(line => textLines(line, bodyColumns));
     if (detailEntry) return detailLines(detailEntry, bodyColumns);
     return isEmpty ? welcomeLines(state, bodyColumns) : transcript;
-  }, [state.approval, approvalView, contextOpen, state.contextSnapshots, contextSelection, detailEntry, bodyColumns, isEmpty, transcript]);
+  }, [state.approval, approvalView, contextOpen, planOpen, planLines, state.contextSnapshots, contextSelection, detailEntry, bodyColumns, isEmpty, transcript]);
   const maximum = Math.max(0, lines.length - bodyRows);
   const top = overlayKey ? Math.min(overlayScroll.key === overlayKey ? overlayScroll.top : 0, maximum) :
     isEmpty ? Math.min(scroll.top, maximum) : scroll.follow ? maximum : Math.min(scroll.top, maximum);
@@ -937,6 +940,7 @@ export function App({client, attach = false, initialState = emptyState, windowSi
     const end = key.end;
     if ((readerFocused || key.ctrl) && (home || end)) {navigate(home ? 0 : viewport.current.maximum); return;}
     if (key.escape && selection) {setSelection(null); return;}
+    if (key.escape && !state.approval && planOpen) {setPlanOpen(false); return;}
     if (key.escape && !state.approval && contextOpen) {setContextOpen(false); return;}
     if (key.escape && !state.approval && detailEntry) {setDetail(null); return;}
     if (key.escape && reading && !state.approval) {setReading(false); return;}
@@ -1112,7 +1116,13 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       setInput('');
       const full = text === '/plan all';
       const rendered = latestPlanText(state.sessionPath, full);
-      notice(rendered ?? '当前会话没有计划产物；用 /plan <任务描述> 开始一次只读规划。');
+      if (!rendered) {
+        notice('当前会话没有计划产物；用 /plan <任务描述> 开始一次只读规划。');
+        return;
+      }
+      setPlanLines(rendered.split('\n'));
+      setPlanOpen(true);
+      setOverlayScroll({key: 'plan', top: 0});
       return;
     }
     if (text === '/plan execute') {
@@ -1234,9 +1244,9 @@ export function App({client, attach = false, initialState = emptyState, windowSi
   const position = `${Math.min(top + 1, lines.length)}–${Math.min(top + bodyRows, lines.length)}/${lines.length}`;
   const doneText = state.lastVerified === false ? '完成待验证' : state.lastVerified === true ? '已完成 · 已验证' : '任务完成';
   const goalTitle = goal?.active ? `目标模式 · ${goalLabel(goal)} · ` : '';
-  const paneTitle = goalTitle + (state.approval ? `等待审批 · ${position}` : contextOpen ? `上下文分区 · ${position}` : detailEntry ? `工具详情 · ${position}` : isEmpty ? '工作台首页 · 输入任务开始' : `对话 · ${reading ? '阅读焦点 · ' : ''}${scroll.follow ? '跟随最新' : `回看 · 下方 ${maximum-top} 行`} · ${position}`);
+  const paneTitle = goalTitle + (state.approval ? `等待审批 · ${position}` : contextOpen ? `上下文分区 · ${position}` : planOpen ? `计划 · ${position}` : detailEntry ? `工具详情 · ${position}` : isEmpty ? '工作台首页 · 输入任务开始' : `对话 · ${reading ? '阅读焦点 · ' : ''}${scroll.follow ? '跟随最新' : `回看 · 下方 ${maximum-top} 行`} · ${position}`);
   const goalHint = goal ? `${goalStatusText(goal)} · ` : '';
-  const hint = goalHint + (state.approval ? `${approvalHint} · 滚轮/PgUp/PgDn 翻页 · Ctrl+C 取消` : contextOpen ? '←/→ 选快照 · l 最新 · ↑↓/滚轮 翻阅 · Esc 返回' : detailEntry ? '滚轮/↑↓ 翻阅 · Home/End 首尾 · Esc 返回' :
+  const hint = goalHint + (state.approval ? `${approvalHint} · 滚轮/PgUp/PgDn 翻页 · Ctrl+C 取消` : contextOpen ? '←/→ 选快照 · l 最新 · ↑↓/滚轮 翻阅 · Esc 返回' : planOpen ? '滚轮/PgUp/PgDn 翻阅 · Esc 返回' : detailEntry ? '滚轮/↑↓ 翻阅 · Home/End 首尾 · Esc 返回' :
     reading ? '阅读焦点：↑↓滚动  空格翻页  End最新  Esc输入  Ctrl+Q退出' :
       state.phase === 'running' ? (columns < 60 ? 'Enter 纠偏 · /followup 排队 · Ctrl+C 停止' : 'Enter 提交纠偏  /followup 文本 排队后续  Ctrl+C 停止  Ctrl+Q 退出') :
         state.lastStatus === 'done' ? (columns < 60 ? `${doneText} · /evidence 核对 · /resume 续做` : `${doneText}  /evidence 证据  /resume 续做  /copy 复制回复  Ctrl+Q 退出`) :
