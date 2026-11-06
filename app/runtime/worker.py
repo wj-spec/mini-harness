@@ -893,6 +893,7 @@ class Worker:
                 "segment": task.segments[-1].segment if task.segments else 0,
                 "run_id": task.segments[-1].run_id if task.segments else None,
                 "objective": task.objective, "goal_id": task.goal_id,
+                "mode": task.mode, "plan_id": task.plan_id, "plan_version": task.plan_version,
                 "worktree": worktree,
             },
             "approvals": pending,

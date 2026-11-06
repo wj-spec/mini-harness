@@ -170,6 +170,9 @@ export interface AttachTaskSnapshot {
   run_id: string | null;
   objective: string;
   goal_id: string | null;
+  mode?: string;
+  plan_id?: string | null;
+  plan_version?: number | null;
   worktree: {path: string; branch: string; base_commit: string} | null;
 }
 
@@ -404,6 +407,9 @@ function attachTaskSnapshot(value: unknown): value is AttachTaskSnapshot {
     (value.run_id === null || (typeof value.run_id === 'string' && validId(value.run_id))) &&
     typeof value.objective === 'string' &&
     (value.goal_id === null || typeof value.goal_id === 'string') &&
+    (value.mode === undefined || typeof value.mode === 'string') &&
+    (value.plan_id === undefined || value.plan_id === null || typeof value.plan_id === 'string') &&
+    (value.plan_version === undefined || value.plan_version === null || typeof value.plan_version === 'number') &&
     (value.worktree === null || (record(value.worktree) &&
       typeof value.worktree.path === 'string' && typeof value.worktree.branch === 'string' &&
       typeof value.worktree.base_commit === 'string'));

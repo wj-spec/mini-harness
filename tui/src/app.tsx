@@ -422,7 +422,8 @@ export function App({client, attach = false, initialState = emptyState, windowSi
     if (event.type === 'task_snapshot') {
       lastTaskId.current = event.task.task_id;
       const worker = event.task.worktree ? ` · worktree ${event.task.worktree.branch}` : '';
-      dispatch({type: 'notice', text: `已 attach：${event.task.task_id} ${event.task.status} · 段 ${event.task.segment}${worker} · 待审批 ${event.approvals.length}`});
+      const plan = event.task.plan_id ? ` · plan ${event.task.plan_id}v${event.task.plan_version ?? 1}` : '';
+      dispatch({type: 'notice', text: `已 attach：${event.task.task_id} ${event.task.status} · 段 ${event.task.segment}${worker}${plan} · 待审批 ${event.approvals.length}`});
     }
     if (event.type === 'task_state') {
       lastTaskId.current = event.task.task_id;

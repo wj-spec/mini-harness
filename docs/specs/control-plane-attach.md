@@ -82,3 +82,12 @@
 - **controller 权限未实现**：P0 任何 attach 都可发控制帧；只适合本机单用户，v2 必须补租约；
 - **回放重复**：attach 回放与 live 之间可能重复一帧；TUI 需幂等（现有事件渲染基本可接受）；
 - **session 选择**：attach 需用户显式提供 session/task；自动发现后续。
+
+## task_snapshot 计划字段（P0 补充，2026-11-06）
+
+`task_snapshot.task` 在原有字段外增加：
+
+- `mode`；
+- `plan_id` / `plan_version`（null 表示非计划任务）。
+
+attach 连接后可直接判断后台任务是否绑定计划；TUI attach 提示会显示 `plan <id>v<version>`。

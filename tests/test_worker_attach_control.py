@@ -192,3 +192,32 @@ def test_attach_shutdown_frame_detaches_without_stopping_child(tmp_path):
             await server.wait_closed()
 
     asyncio.run(scenario())
+
+def test_task_snapshot_includes_plan_binding(tmp_path):
+    import asyncio, json
+    from app.runtime.tasks import TaskStore
+    from app.runtime.worker import Worker
+    from app.session.store import SessionStore
+
+    session = SessionStore.new(tmp_path, "fake", purpose="test")
+    task = TaskStore(session.root).create(
+        kind="run", objective="attach plan", workspace=str(tmp_path), mode="act",
+        plan_id="pl-attach", plan_version=2,
+    )
+    worker = Worker(session_root=session.root, task_id=task.task_id, workspace=tmp_path,
+                    child_args=[], child_env={})
+    messages = []
+
+    class Writer:
+        def write(self, data):
+            messages.append(data.decode())
+
+        async def drain(self):
+            return None
+
+    asyncio.run(worker._send_snapshot(Writer()))
+    frame = json.loads(messages[-1])
+    assert frame["type"] == "task_snapshot"
+    assert frame["task"]["plan_id"] == "pl-attach"
+    assert frame["task"]["plan_version"] == 2
+    assert frame["task"]["mode"] == "act"
