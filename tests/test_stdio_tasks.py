@@ -314,3 +314,35 @@ def test_bound_plan_step_tools_record_evidence_and_complete(tmp_path, monkeypatc
         await harness.close()
 
     asyncio.run(scenario())
+
+
+def test_bound_plan_done_is_rejected_until_steps_complete(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    plan_task = "t-20261106-000000-abcdef"
+    plan_dir = session.root / "tasks" / plan_task
+    from app.runtime.plan import Plan, approve_plan, propose_plan
+    plan = Plan.from_dict({
+        "schema_version": 1, "plan_id": "pl-1", "task_id": plan_task,
+        "objective": "执行计划", "steps": [{"step_id": "s1", "title": "读", "kind": "read"}],
+    })
+    propose_plan(plan_dir, plan)
+    approve_plan(plan_dir, plan, approved_by="user")
+    agent = _agent(tmp_path, script=("完成",))
+
+    async def scenario():
+        harness = Harness(agent, Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("run", "r-incomplete", text="直接完成", task={
+            "kind": "run", "mode": "act", "objective": "直接完成",
+            "plan_id": "pl-1", "plan_version": 1,
+        })
+        done = await harness.until("done", "r-incomplete")
+        assert done["result"]["status"] == "stopped"
+        assert done["result"]["stop_reason"] == "plan_incomplete"
+        tasks = TaskStore(session.root).list(kind="run")
+        assert tasks and tasks[-1].status == "paused"
+        assert tasks[-1].segments[-1].stop_reason == "plan_incomplete"
+        await harness.close()
+
+    asyncio.run(scenario())

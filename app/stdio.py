@@ -743,6 +743,17 @@ class _Connection:
             if failures:
                 result = replace(result, text="error: session save failed: " + "; ".join(failures),
                                  status="error", stop_reason="")
+            if completed and plan_context is not None and result.status == "done":
+                from app.runtime.plan_execution import load_ledger
+                try:
+                    ledger = load_ledger(plan_context["task_dir"], plan_context["plan"].version)
+                    if not ledger.plan_complete(plan_context["plan"]):
+                        result = replace(
+                            result, status="stopped", stop_reason="plan_incomplete",
+                            text=(result.text + "\n[计划未完成：required 步骤仍有未 done 项]").strip(),
+                        )
+                except Exception:
+                    pass
             if completed:
                 metrics["used_tokens"] = result.usage.get(
                     "total_tokens", result.usage.get("prompt_tokens", 0) + result.usage.get("completion_tokens", 0),

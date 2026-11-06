@@ -26,7 +26,9 @@
   - start 校验依赖并置 in_progress；
   - 之后的 read/write/bash 工具结果自动写 evidence（read/file_change/command_ok，ok 标记）；
   - complete 只在该步证据满足时成功；
-  - run 结束注销工具并持久化 execution.vN.json。
+  - run 结束注销工具并持久化 execution.vN.json；
+- 计划级完成门：绑定 plan 的 run 返回 done 时，若 required 步骤仍有未 done，
+  改写为 `stopped/plan_incomplete`，任务转 paused，等待继续执行/重规划。
 - `load_ledger` 未知 schema fail closed。
 
 ## 未完成（P0 剩余）
@@ -35,7 +37,7 @@
 - 模型 `complete_step` 请求由 harness 证据校验（当前只有模块 API）；
 - 偏离检测（计划外文件）和重规划；
 - 每步预算/成本归因；
-- 计划级完成条件接入完成守卫；
+- 计划级完成门已接 required 步骤；验收 criteria 三态接入完成判定待后续；
 - rounds 展示 step ledger；TUI 已有基础状态展示，完整计划卡片待后续。
 
 ## 测试
