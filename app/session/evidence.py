@@ -146,6 +146,44 @@ def _receipt_lines(receipt) -> list[str]:
     return [header, *[f"  {line}" for line in text.splitlines()]]
 
 
+def _acceptance_lines(record: dict) -> list[str]:
+    data = _as_dict(record.get("acceptance"))
+    if not data:
+        return ["- 验收结果：未记录"]
+    status = data.get("status")
+    if status is True:
+        label = "已通过"
+    elif status is False:
+        label = "失败"
+    elif status is None:
+        label = "待人工/未定"
+    else:
+        label = f"未知（{_text(status)}）"
+    line = f"- 验收结果：{label}（status={_raw_bool(status)}）"
+    refs = []
+    if data.get("plan_id"):
+        version = data.get("plan_version")
+        refs.append(f"plan={_text(data.get('plan_id'))}v{_text(version, '?')}")
+    if data.get("goal_id"):
+        refs.append(f"goal={_text(data.get('goal_id'))}")
+    if refs:
+        line += "；" + " ".join(refs)
+    codes = [str(code) for code in _as_list(data.get("codes"))]
+    line += "；原因码：" + ("、".join(codes) if codes else "无")
+    lines = [line]
+    commands = [item for item in _as_list(data.get("commands")) if isinstance(item, dict)]
+    if commands:
+        shown = commands[:MAX_VERIFICATIONS]
+        lines.append(f"  - 验收命令{_count_suffix(len(commands), len(shown))}：")
+        for item in shown:
+            detail = (f"    - {_text(item.get('id'))}：ok={_raw_bool(item.get('ok'))}；"
+                      f"attempts={_text(item.get('attempts'), '1')}")
+            if item.get("reason"):
+                detail += f"；{_text(item.get('reason'))}"
+            lines.append(detail)
+    return lines
+
+
 def format_round_evidence(record: dict | None) -> str:
     """把最近一轮 RoundRecord 渲染成中文多行摘要；缺字段容错，不抛异常。"""
     if not isinstance(record, dict):
@@ -184,5 +222,6 @@ def format_round_evidence(record: dict | None) -> str:
     lines.extend(_audit_lines(record.get("audit")))
     lines.extend(_change_lines(task_state))
     lines.extend(_verification_lines(task_state))
+    lines.extend(_acceptance_lines(record))
     lines.extend(_receipt_lines(record.get("receipt")))
     return "\n".join(lines)

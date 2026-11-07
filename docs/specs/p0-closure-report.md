@@ -33,7 +33,7 @@
 | 12 | Plan 产物 | P0 已实现 | `plan.py` schema/原子存储/渲染 |
 | 13 | 计划审批门 | P0 已实现 | propose/approve/reject、hash、审计、执行门禁 |
 | 14 | 执行绑定 | P0 已实现 | step ledger、证据推进、完成门 |
-| 15 | 计划验收 | P0 已实现 | criteria 映射三态、可信命令执行、接入完成门 |
+| 15 | 计划验收 | P0 已实现 | criteria 映射三态、可信命令执行、接入完成门、rounds/`/evidence` 三态展示 |
 | 16 | 子 Agent | P0 已实现 | 只读 runner、子 TaskRecord、usage、取消/depth/批量扇出、`/explore` |
 
 ## 3. 关键能力闭环

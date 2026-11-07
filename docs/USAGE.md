@@ -148,7 +148,7 @@ VIBE_MODEL=qwen2.5-coder:7b \
 - `/project`：查看当前项目的背景条目与来源；`/project add <文本>` 添加，`/project remove <序号>` 删除，`/project source <序号> <来源>` 改来源；
 - `/about`：查看个人偏好与来源；`/about add/propose` 新增/观察，`/about observe` 从本会话提出待确认偏好（`VIBE_AUTO_OBSERVE=1` 时任务结束自动观察），`/about edit` 修改文本，`/about triggers` 设置相关性触发词，`/about confirm/disable/enable/remove/on/off` 管理；
 - `/permissions`：查看当前工作区授权、当前授权档位与策略规则明细；`/permissions reset` 撤销本进程授权；
-- `/evidence`：查看最近一轮验收证据（verified / 完成判定 / 环境审计 / 改动 hash / 验证记录）；
+- `/evidence`：查看最近一轮验收证据（verified / 完成判定 / 验收三态 / 环境审计 / 改动 hash / 验证记录）；
 - `/autonomy [ask|edits|workspace|full]`：查看或切换授权档位；
 - 写文件或执行命令会弹审批：`y` once、`s` session、`p` workspace、`n` deny。
 
@@ -309,7 +309,7 @@ Agent 新增两个**只读、无需审批**的工具，用于在报告工作区�
 ## 验收证据与 `/evidence`
 
 - 每次 run 结束写一轮不可变记录 `.vibe/sessions/<id>/rounds/round_XXX.json`，包含 `verified`、`completion`（原因码）、`audit`（完整性/未归因改动）、`task_state.file_changes`（前后 hash，不存正文）与回执。
-- `/evidence` 查看最近一轮证据摘要：完成判定、环境审计、改动文件与 hash、验证命令与退出码、回执摘要；没有轮次时提示先完成任务。
+- `/evidence` 查看最近一轮证据摘要：完成判定、验收三态（plan/goal）、环境审计、改动文件与 hash、验证命令与退出码、回执摘要；没有轮次时提示先完成任务。
 - 任务结束后的状态区分三种：`本轮结束 · 已验证`、`本轮结束 · 待验证`（有改动但没有覆盖最后改动的成功验证）、`本轮结束`（只读/问答任务不启用守卫）。`verified=false` 时不要当作任务已验收。
 - 完成守卫第一次拒绝模型的自述完成时会以“完成守卫”提示出现；第二次仍无验证证据时仍会收尾，但明确标记 `verified=false`，可在 `/evidence` 与回执中核对。
 - 可选 LLM 只读审计：`VIBE_LLM_AUDITOR=1` 时，动作任务在确定性守卫通过后再启动一个全新上下文的只读子 Agent（只有 `read_file` / `grep` / `list_files` / `git_status` / `git_diff`），检查工作区后输出 `Status / Integrity / Contract audit` 三行结论。审计者看不到执行轨迹、不能写文件或执行命令；只有 `complete + clean` 才保留 `verified=true`，拒绝或失败会把本轮标为未验证，并在回执与 `/evidence` 中显示。默认关闭，会额外消耗一次模型调用。

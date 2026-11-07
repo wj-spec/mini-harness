@@ -395,6 +395,9 @@ def test_bound_plan_acceptance_runs_trusted_verification(tmp_path, monkeypatch):
         import json as _json
         saved = _json.loads((plan_dir / "acceptance.v1.json").read_text(encoding="utf-8"))
         assert saved["status"] is True
+        round_record = session.latest_round()
+        assert round_record and round_record["acceptance"]["status"] is True
+        assert round_record["acceptance"]["plan_id"] == "pl-1"
         from app.runtime.notifications import read_notifications
         acceptance_events = [item for item in read_notifications(tmp_path) if item["kind"] == "plan_acceptance"]
         assert acceptance_events and acceptance_events[-1]["status"] is True
@@ -440,6 +443,8 @@ def test_bound_plan_acceptance_failure_reports_command(tmp_path, monkeypatch):
         assert done["result"]["status"] == "stopped"
         assert done["result"]["stop_reason"].startswith("acceptance_")
         assert "false" in done["result"]["text"]
+        round_record = session.latest_round()
+        assert round_record and round_record["acceptance"]["status"] is False
         await harness.close()
 
     asyncio.run(scenario())
@@ -1456,6 +1461,9 @@ def test_goal_acceptance_verifies_and_completes(tmp_path, monkeypatch):
         assert acceptance.is_file()
         events = [item for item in read_notifications(tmp_path) if item["kind"] == "goal_acceptance"]
         assert events and events[-1]["status"] is True
+        round_record = session.latest_round()
+        assert round_record and round_record["acceptance"]["status"] is True
+        assert round_record["acceptance"]["goal_id"]
         await harness.close()
 
     asyncio.run(scenario())

@@ -272,3 +272,20 @@ def test_cost_summary_includes_subagent_usage(tmp_path):
     assert summary["total_tokens"] == 25
     assert summary["cost_usd"] == 0.012
     assert summary["last_status"] == "done"
+
+
+def test_update_latest_round_patches_only_latest(tmp_path):
+    session = SessionStore.new(tmp_path, "m")
+    session.save_round({"schema_version": 1, "run_id": "a", "status": "done"})
+    session.save_round({"schema_version": 1, "run_id": "b", "status": "done"})
+    assert session.update_latest_round({"acceptance": {"status": True}}) is True
+    rounds = session.load_rounds()
+    assert "acceptance" not in rounds[0]
+    assert rounds[1]["acceptance"] == {"status": True}
+    assert rounds[1]["run_id"] == "b" and rounds[1]["round_index"] == 2
+    assert session.update_latest_round({}) is False
+
+
+def test_update_latest_round_without_rounds_returns_false(tmp_path):
+    session = SessionStore.new(tmp_path, "m")
+    assert session.update_latest_round({"acceptance": {"status": True}}) is False

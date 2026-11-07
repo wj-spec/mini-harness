@@ -253,3 +253,26 @@ def test_llm_auditor_result_is_rendered_when_present():
     text = format_round_evidence(_record(audit=audit))
     assert "LLM 审计" in text
     assert "contract=aligned" in text
+
+
+def test_evidence_renders_acceptance_tristate():
+    record = _record(
+        acceptance={
+            "status": False, "codes": ["acceptance_failed", "v1"],
+            "plan_id": "pl-acc", "plan_version": 2, "goal_id": None,
+            "commands": [
+                {"id": "v1", "ok": False, "attempts": 2, "reason": "exit=1"},
+                {"id": "v2", "ok": True, "attempts": 1},
+            ],
+        },
+    )
+    text = format_round_evidence(record)
+    assert "- 验收结果：失败（status=false）" in text
+    assert "plan=pl-accv2" in text
+    assert "原因码：acceptance_failed、v1" in text
+    assert "v1：ok=false；attempts=2；exit=1" in text
+
+
+def test_evidence_acceptance_missing_is_explicit():
+    text = format_round_evidence(_record())
+    assert "- 验收结果：未记录" in text

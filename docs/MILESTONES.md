@@ -474,7 +474,7 @@ W1–W5 已完成真实验收；W6 v2 三组对照完成，主假设未获支持
 - `--merge-task` 合并后按绑定计划的可信验收命令自动重验，失败 `exit 1` + `merge_verification_failed` 通知；
 - 无 TUI 时 `--approvals` / `--decide-approval`；`--tasks`/`/task` 显示每任务待审批数；
 - 后台 goal 循环执行 token/费用上限（`VIBE_GOAL_MAX_TOKENS` / `VIBE_GOAL_MAX_COST_USD`）；`/cost` 计入子 Agent usage；
-- goal 完成验收：GoalRecord 的已确认 criteria + verification_plan 由 harness 执行可信命令，通过才 verified 完成；
+- goal 完成验收：GoalRecord 的已确认 criteria + verification_plan 由 harness 执行可信命令，通过才 verified 完成；plan/goal 验收三态写入最近一轮 rounds，`/evidence` 可核对；
 - 外部 webhook 告警（`VIBE_NOTIFY_WEBHOOK`）、events.jsonl 软上限告警、`--doctor` 运行时自检（待审批/events/stale worktree/放宽 profile/JSON 输出）；
 - 计划任务排队入口：`--prepare-plan-task` 准备、`--run-plan-queue` 串行 drain（失败即停、超时可配、执行前复核计划、`--queue-dry-run` 预演、`--queue-all-sessions` 跨会话）；
 - 08 长任务 fake 场景扩到 **12/12**（新增 2 个 5xx 注入），bench 报告含每场景 pass rate/耗时统计。

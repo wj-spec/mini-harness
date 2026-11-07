@@ -66,17 +66,14 @@
 
 ## 未完成
 
-- `/plan acceptance` 可查看 criteria 与 verification plan 清单（不执行）；
-- 已执行结果可在任务目录 `acceptance.v<version>.json` 核对；
-- `/plan acceptance` 若已有结果会追加 status/codes 与每条命令 ok/attempts。
-- 合并后重验已接入 merge 门禁（见下文）；
-- rounds/`/evidence` 展示验收结果；
-- 三态结论写入 rounds/`/evidence` 与 goal 完成判定：goal run done 时若 GoalRecord 有已确认 required
-  criteria，则生成 PlanAcceptance（plan_id=`goal-<goal_id>`）执行可信命令；通过标 `verified=true`，
-  失败 `stopped/acceptance_<code>` 并暂停 goal；结果写任务目录 `acceptance.v1.json` + `goal_acceptance` 通知；
+- 模型提议 criteria 的 `confirmed=false` 独立复核面板（当前覆盖层只展示清单，确认仍由计划/脚本完成）；
+- 跨 task/跨会话的验收历史趋势汇总（`--acceptance` 已能逐条列出）。
 
-- 模型提议 criteria 的 `confirmed=false` 流程接 TUI plan.review。
+## 与 rounds/`/evidence` 的集成（2026-11-07）
 
-## 测试
-
-`tests/test_acceptance.py`：true/false/null、uncovered、manual、untrusted、非法 schema。
+- stdio 后端自动把 `agent.on_round` 接到 `SessionStore.save_round`（即使调用方忘记接线）；
+- plan/goal 验收执行后，`SessionStore.update_latest_round()` 把三态写进最近一轮记录：
+  `acceptance={status, codes, plan_id/plan_version 或 goal_id, commands[{id,ok,attempts,reason}]}`；
+- `/evidence`（`format_round_evidence`）新增「验收结果」段：已通过/失败/待人工、原因码、每条命令 ok/attempts；
+- goal 完成判定：GoalRecord 已确认 criteria 由 harness 执行可信命令，通过 `verified=true`，
+  失败 `stopped/acceptance_<code>` 并暂停；结果写任务目录 `acceptance.v1.json` + `goal_acceptance` 通知。

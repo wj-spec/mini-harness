@@ -411,6 +411,41 @@ class SessionStore:
         rounds = self.load_rounds()
         return rounds[-1] if rounds else None
 
+    def update_latest_round(self, patch: dict) -> bool:
+        """给最近一轮记录补充字段（如验收三态）；原子写，失败返回 False。"""
+        if not isinstance(patch, dict) or not patch:
+            return False
+        rounds_dir = self.rounds_dir
+        if not rounds_dir.is_dir():
+            return False
+        candidates: list[tuple[int, Path]] = []
+        for path in rounds_dir.glob("round_*.json"):
+            try:
+                candidates.append((int(path.stem.split("_", 1)[1]), path))
+            except (IndexError, ValueError):
+                continue
+        if not candidates:
+            return False
+        _, target = max(candidates)
+        try:
+            value = json.loads(target.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return False
+        if not isinstance(value, dict):
+            return False
+        merged = {**value, **dict(patch)}
+        temporary = target.with_name(target.name + ".tmp")
+        try:
+            temporary.write_text(
+                json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8",
+            )
+            os.replace(temporary, target)
+        except OSError:
+            return False
+        finally:
+            temporary.unlink(missing_ok=True)
+        return True
+
 
     def repair_incomplete_tool_calls(self) -> int:
         """崩溃后 assistant(tool_calls) 可能没有对应 tool 结果；补一条 interrupted。"""

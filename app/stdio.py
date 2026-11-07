@@ -1255,6 +1255,32 @@ class _Connection:
             if not self.stop.is_set():
                 self.send("status", phase="idle")
 
+    def _record_acceptance_round(self, verification, *, plan_id=None, plan_version=None,
+                                 goal_id=None) -> None:
+        """把验收三态写进最近一轮 round record，供 /evidence 查看。"""
+        try:
+            commands = []
+            for vid, item in (verification.get("results") or {}).items():
+                if not isinstance(item, dict):
+                    continue
+                commands.append({
+                    "id": vid, "ok": bool(item.get("ok")),
+                    "attempts": item.get("attempts", 1),
+                    "reason": item.get("reason") or item.get("error"),
+                })
+            self.session.update_latest_round({
+                "acceptance": {
+                    "status": verification.get("status"),
+                    "codes": list(verification.get("codes") or []),
+                    "plan_id": plan_id,
+                    "plan_version": plan_version,
+                    "goal_id": goal_id,
+                    "commands": commands[:20],
+                },
+            })
+        except Exception:
+            pass
+
     async def _run_trusted_acceptance(self, acceptance):
         """执行可信验收命令；超时返回 None，否则返回三态结果。"""
         from app.runtime.verification import run_verification_plan
@@ -1333,6 +1359,9 @@ class _Connection:
             save_acceptance_result(task_dir, 1, verification)
         except Exception:
             pass
+        self._record_acceptance_round(
+            verification, goal_id=record.goal_id,
+        )
         try:
             from app.runtime.notifications import notify
             notify(self.agent.tools.root, "goal_acceptance",
@@ -1379,6 +1408,11 @@ class _Connection:
                     )
                 except Exception:
                     pass
+                self._record_acceptance_round(
+                    verification,
+                    plan_id=plan_context["plan"].plan_id,
+                    plan_version=plan_context["plan"].version,
+                )
                 try:
                     from app.runtime.notifications import notify
                     notify(
@@ -1645,6 +1679,9 @@ async def serve(
         config.workspace, config.model,
         purpose="test" if isinstance(agent.provider, FakeProvider) else "user",
     )
+    if getattr(agent, "on_round", None) is None:
+        # 会话轮次记录由 stdio 后端保证：/evidence 与验收三态都依赖最近一轮。
+        agent.on_round = session.save_round
     if emit is None:
         stream = sys.stdout
         emit = lambda event: print(json.dumps(event, ensure_ascii=False), file=stream, flush=True)
