@@ -318,6 +318,24 @@ VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --backgrou
 
 即：修复回灌链路在真实模型下可端到端通过；修复实现对 provider 错误补了一次重试后连续 2/2。
 
+## 3q. 真实 worktree → merge → 合并后重验
+
+`scripts/real_p1_acceptance.py --merge`（deepseek-flash）：
+
+1. 真实模型生成 edit 计划（s1 读 README；s2 写 `merge-marker.txt` 内容 `merge-ok`）；
+2. 后台 worker 在独立 worktree 执行，s1/s2 done，worktree 内验收 `grep -q merge-ok merge-marker.txt` 通过；
+3. `--merge-task` 请求合并审批 → `--approve-merge` 合并；
+4. 合并后使用计划绑定的可信验收命令在主工作区重验；
+5. 结果：task completed、`merged=true`、`post_merge_verified=true`、`merge_completed.verified=true`、
+   主工作区 marker 内容正确。
+
+连续 **2/2** 通过。
+
+**发现并修复的问题**：首跑时 worktree 执行完成、acceptance=true，但任务停在 `paused(unverified_completion)`——
+Agent 完成守卫只看到“文件改动未被模型自己的验证覆盖”，而计划验收是 harness 执行的可信验证。
+修复：绑定计划验收通过时把 run 标为 `verified=True`（`app/stdio.py`），任务按 completed 收口；
+新增回归测试（edit 计划 + 可信验收 → task completed）。
+
 ## 4. 结论与限制
 
 - 已证明：真实模型可以走 `--task` 只读链路、可以生成结构化 proposed plan；
@@ -331,6 +349,7 @@ VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --backgrou
 - 已证明：真实 edit 计划步骤（文件范围/审批/验收）通过；
 - 已证明：真实后台 goal worker 完成；真实后台 Plan worker 完成计划+验收；
 - 已证明（2026-11-07）：真实验收失败 → 自动修复回灌 → 重新验收通过（`--repair`，修复后连续 2/2）；
+- 已证明（2026-11-07）：后台 worktree 执行 → 合并审批 → 合并后按计划重验（`--merge`，连续 2/2）；
 - 仍待：真实 TUI 人工键路（pty 环境）、更多 provider/更大样本；
 - 本次仅 deepseek-flash、一次样本，成本显示 $0；
 - 观察到一次真实 provider 长时间无返回（>300s），需要重跑/检查超时与重试；

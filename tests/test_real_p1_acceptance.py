@@ -36,3 +36,10 @@ def test_real_p1_script_parses_repair_mode(monkeypatch, capsys):
     assert "missing API key" in capsys.readouterr().out
     assert callable(real_p1_acceptance._run_repair)
     assert callable(real_p1_acceptance._generate_plan)
+
+
+def test_real_p1_script_parses_merge_mode(monkeypatch, capsys):
+    monkeypatch.setattr(real_p1_acceptance.Config, "from_env", lambda: Config(workspace=None))
+    assert real_p1_acceptance.main(["--merge"]) == 2
+    assert "missing API key" in capsys.readouterr().out
+    assert callable(real_p1_acceptance._run_merge)

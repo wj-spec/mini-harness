@@ -47,7 +47,8 @@
   1. execution ledger 的 required 步骤全 done；
   2. 若 Plan 有 confirmed required criteria，则从 Plan 生成 PlanAcceptance，
      通过 `run_verification_plan` 执行可信命令；
-  3. 验收结果写入**计划所属任务目录** `acceptance.v<version>.json`（原子替换；后台 plan task 同样如此），并写本地通知
+  3. 验收通过时 run 标为 `verified=True`（harness 可信验证强于模型自证；避免 edit 计划任务因 `unverified_completion` 被暂停），任务按 completed 收口；
+  4. 验收结果写入**计划所属任务目录** `acceptance.v<version>.json`（原子替换；后台 plan task 同样如此），并写本地通知
      `plan_acceptance`（task/plan/version/status/codes）；
      验收非 `True` → run 改为 `stopped/acceptance_<code>`，任务 paused；
      结果文本附失败命令 id/command/exit/输出摘要（最多 5 条），供回灌/排查。

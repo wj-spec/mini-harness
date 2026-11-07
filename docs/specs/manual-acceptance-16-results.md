@@ -61,3 +61,10 @@ VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py
 - 命令：`VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --repair`
 - 结果：run done、s1/s2 done、acceptance=true、`plan_repair` 1 次、marker 已创建、审批 3 次；
 - 稳定性：首次实现 1 通过 / 1 次 provider ConnectTimeout；补 provider 错误重试后连续 2/2 通过。
+
+## TC-16-09 真实 worktree → merge → 合并后重验（2026-11-07）
+
+- 命令：`VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --merge`
+- 结果：edit 计划在后台 worktree 执行 s1/s2 done、acceptance=true → task completed；
+  merge 审批后 `merged=true`、`post_merge_verified=true`、`merge_completed.verified=true`；
+- 稳定性：连续 2/2 通过。

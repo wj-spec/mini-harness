@@ -122,3 +122,4 @@ class WorktreeManager:
    - CLI 退出码 **1**（合并已完成，需修复后重新验收；不做自动回滚）。
 5. **无命令时**：`post_merge_verified=false` 且不发失败通知（保持原行为）。
 6. 计划未批准/stale/找不到时回退为空，不会执行未批准计划的命令。
+7. 真实模型证据（2026-11-07）：edit 计划 → 后台 worktree 执行 → merge 审批 → 合并后重验，连续 **2/2** 通过（`real_p1_acceptance.py --merge`）。

@@ -1282,6 +1282,9 @@ class _Connection:
                     )
                 except Exception:
                     pass
+            if verification is not None and verification["status"] is True:
+                # 计划验收由 harness 执行可信命令，强于模型自证：视为已验证完成。
+                result = replace(result, verified=True)
             if verification is not None and verification["status"] is not True:
                 codes = ",".join(verification["codes"]) or "acceptance_failed"
                 commands = {item.id: item.command for item in acceptance.verification_plan}

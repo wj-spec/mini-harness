@@ -82,11 +82,12 @@ def _init_repo(workspace: Path) -> None:
 
 
 async def _generate_plan(config: Config, workspace: Path, session: SessionStore,
-                        verify_command: str = "true") -> tuple[str | None, dict | None]:
+                        verify_command: str = "true", *, prompt: str | None = None,
+                        adjust=None) -> tuple[str | None, dict | None]:
     gen = Harness(_agent(config, workspace), config, session)
     try:
         await gen.until("ready")
-        prompt = (
+        prompt = prompt or (
             "必须调用 submit_plan 一次，提交恰好两个步骤的只读计划："
             '{"step_id":"s1","title":"读取 README.md","kind":"read"} 和 '
             '{"step_id":"s2","title":"总结项目用途","kind":"read"}，s2 depends_on ["s1"]。'
@@ -106,6 +107,8 @@ async def _generate_plan(config: Config, workspace: Path, session: SessionStore,
     loaded.acceptance_criteria = [{"id": "ac1", "text": "验收命令成功", "confirmed": True}]
     loaded.verification_plan = [{"id": "v1", "covers": ["ac1"], "command": verify_command,
                                  "source": "plan_approval"}]
+    if adjust is not None:
+        adjust(loaded)
     save_plan(session.root / "tasks" / plan_task_id, loaded)
     approve_plan(session.root / "tasks" / plan_task_id, load_plan(plan_file), approved_by="smoke")
     return plan_task_id, json.loads(plan_file.read_text(encoding="utf-8"))
@@ -274,6 +277,110 @@ async def _run_repair(config: Config, workspace: Path,
         "text": (done["result"].get("text") or "")[:800] if done else None,
     }
 
+
+async def _run_merge(config: Config, workspace: Path,
+                     verify_command: str = "grep -q merge-ok merge-marker.txt") -> dict:
+    """真实模型 edit 计划 → 后台 worktree 执行 → 合并审批 → 合并后按计划重验。"""
+    session = SessionStore.new(workspace, "openai", purpose="user")
+    edit_prompt = (
+        "必须调用 submit_plan 一次，提交恰好两个步骤的计划："
+        's1 读取 README.md（kind=read）；'
+        's2 创建 merge-marker.txt，内容为 merge-ok（kind=edit，files 只含 ["merge-marker.txt"]），'
+        's2 depends_on ["s1"]。提交后立即结束。'
+    )
+
+    def adjust(plan) -> None:
+        if len(plan.steps) >= 2:
+            plan.steps[1].kind = "edit"
+            plan.steps[1].files = ["merge-marker.txt"]
+            plan.steps[1].title = "创建 merge-marker.txt，内容 merge-ok"
+
+    plan_task_id, plan = await _generate_plan(
+        config, workspace, session, verify_command, prompt=edit_prompt, adjust=adjust,
+    )
+    if plan is None:
+        return {"ok": False, "stage": "generate", "error": "no plan.v1.json"}
+    prep = Harness(_agent(config, workspace), config, session)
+    try:
+        await prep.until("ready")
+        prep.send("command", "bg-1", command="plan", args={"action": "prepare-background"})
+        prepared = await prep.until("command_result", "bg-1")
+    finally:
+        await prep.close()
+    match = re.search(r"task_id=(t-[0-9a-zA-Z-]+)", str(prepared.get("text") or ""))
+    if not match:
+        return {"ok": False, "stage": "prepare-background",
+                "error": str(prepared.get("text") or "")[:500]}
+    bg_task_id = match.group(1)
+    (workspace / ".vibe").mkdir(exist_ok=True)
+    (workspace / ".vibe" / "unattended.json").write_text(
+        '{"schema_version":1,"allow_exec":true}', encoding="utf-8")
+    env = dict(os.environ, VIBE_TASK_RUNTIME="1", VIBE_AUTONOMY="full",
+               VIBE_LLM_TIMEOUT=str(config.llm_timeout), VIBE_MAX_STEPS="20",
+               VIBE_MAX_RUN_TOKENS="150000", VIBE_ACCEPTANCE_REPAIR_ATTEMPTS="1")
+    worker = subprocess.run(
+        [sys.executable, "-m", "app", "--worker", "--workspace", str(workspace),
+         "--session", session.id, "--task-id", bg_task_id],
+        cwd=str(Path(__file__).resolve().parents[1]), env=env,
+        capture_output=True, text=True, timeout=420,
+    )
+    from app.runtime.tasks import TaskStore
+    final_task = TaskStore(session.root).get(bg_task_id)
+    ledger_file = session.root / "tasks" / plan_task_id / "plan" / "execution.v1.json"
+    ledger = json.loads(ledger_file.read_text(encoding="utf-8")) if ledger_file.is_file() else {}
+    acc_file = session.root / "tasks" / plan_task_id / "acceptance.v1.json"
+    acceptance = json.loads(acc_file.read_text(encoding="utf-8")).get("status") if acc_file.is_file() else None
+    steps = {item["step_id"]: item["status"] for item in ledger.get("steps", [])}
+    if final_task.status != "completed" or acceptance is not True:
+        return {"ok": False, "stage": "execute", "worker_exit": worker.returncode,
+                "worker_stderr": (worker.stderr or "")[-1500:],
+                "task_status": final_task.status, "steps": steps, "acceptance": acceptance}
+
+    root = str(Path(__file__).resolve().parents[1])
+    merge_cmd = [sys.executable, "-m", "app", "--merge-task", bg_task_id,
+                 "--workspace", str(workspace), "--session", session.id]
+    requested = subprocess.run(merge_cmd, cwd=root, env=dict(os.environ),
+                               capture_output=True, text=True, timeout=120)
+    approval = re.search(r"approval requested: (a-[0-9a-zA-Z]+)", requested.stdout or "")
+    if requested.returncode != 2 or not approval:
+        return {"ok": False, "stage": "merge-request", "returncode": requested.returncode,
+                "stdout": (requested.stdout or "")[-1000:],
+                "stderr": (requested.stderr or "")[-1000:]}
+    approved = subprocess.run(merge_cmd + ["--approve-merge", approval.group(1)],
+                              cwd=root, env=dict(os.environ),
+                              capture_output=True, text=True, timeout=180)
+    result: dict = {}
+    try:
+        text = approved.stdout or ""
+        result = json.loads(text[text.index("{"): text.rindex("}") + 1])
+    except (ValueError, json.JSONDecodeError):
+        pass
+    marker = workspace / "merge-marker.txt"
+    from app.runtime.notifications import read_notifications
+    notifications = read_notifications(workspace)
+    kinds = [item.get("kind") for item in notifications]
+    completed = [item for item in notifications if item.get("kind") == "merge_completed"]
+    ok = (
+        approved.returncode == 0
+        and result.get("merged") is True
+        and result.get("post_merge_verified") is True
+        and bool(result.get("verify_commands"))
+        and marker.is_file()
+        and "merge-ok" in marker.read_text(encoding="utf-8", errors="replace")
+        and "merge_approval_requested" in kinds
+        and completed and completed[-1].get("verified") is True
+    )
+    return {
+        "ok": bool(ok), "stage": "merge", "worker_exit": worker.returncode,
+        "task_status": final_task.status, "steps": steps, "acceptance": acceptance,
+        "approval_id": approval.group(1), "merge_returncode": approved.returncode,
+        "merged": result.get("merged"), "post_merge_verified": result.get("post_merge_verified"),
+        "verify_commands": result.get("verify_commands"),
+        "merge_stderr": (approved.stderr or "")[-1000:],
+        "notifications": {"merge_approval_requested": "merge_approval_requested" in kinds,
+                          "merge_completed_verified": bool(completed and completed[-1].get("verified"))},
+    }
+
 async def _run_subagent(config: Config, workspace: Path, session: SessionStore) -> dict:
     harness = Harness(_agent(config, workspace), config, session)
     await harness.until("ready")
@@ -296,6 +403,10 @@ def main(argv: list[str] | None = None) -> int:
                         help="验收命令先失败，验证自动修复回灌后重新验收通过")
     parser.add_argument("--repair-verify-command", default="test -f real-p1-repair-marker.txt",
                         help="--repair 模式的验收命令（默认要求创建 marker 文件）")
+    parser.add_argument("--merge", action="store_true",
+                        help="真实 edit 计划 → 后台 worktree 执行 → 合并审批 → 合并后重验")
+    parser.add_argument("--merge-verify-command", default="grep -q merge-ok merge-marker.txt",
+                        help="--merge 模式的验收命令（同时用于合并后重验）")
     parser.add_argument("--verify-command", default="true",
                         help="计划验收命令（默认 true；需为可信 source=plan_approval）")
     parser.add_argument("--keep", action="store_true", help="保留临时工作区")
@@ -314,6 +425,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.repair:
             result = asyncio.run(_run_repair(config, workspace, args.repair_verify_command))
+        elif args.merge:
+            result = asyncio.run(_run_merge(config, workspace, args.merge_verify_command))
         else:
             result = asyncio.run(_run(config, workspace, args.verify_command, args.background))
     except Exception as exc:

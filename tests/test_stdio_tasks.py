@@ -1283,3 +1283,51 @@ def test_tasks_command_shows_pending_approvals(tmp_path, monkeypatch):
         await harness.close()
 
     asyncio.run(scenario())
+
+
+def test_bound_plan_acceptance_marks_task_verified(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    monkeypatch.setenv("VIBE_AUTONOMY", "full")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    (tmp_path / "a.txt").write_text("a\n", encoding="utf-8")
+    plan_task = "t-20261106-000000-abcdef"
+    plan_dir = session.root / "tasks" / plan_task
+    from app.runtime.plan import Plan, approve_plan, propose_plan
+    plan = Plan.from_dict({
+        "schema_version": 1, "plan_id": "pl-verified", "task_id": plan_task,
+        "objective": "验收后视为已验证",
+        "acceptance_criteria": [{"id": "ac1", "text": "文件存在", "confirmed": True}],
+        "verification_plan": [{"id": "v1", "covers": ["ac1"], "command": "test -f a.txt",
+                               "source": "plan_approval"}],
+        "steps": [{"step_id": "s1", "title": "写 a", "kind": "edit", "files": ["a.txt"]}],
+    })
+    propose_plan(plan_dir, plan)
+    approve_plan(plan_dir, plan, approved_by="user")
+    from core.contracts import Response, ToolCall
+    agent = Agent(FakeProvider([
+        Response(tool_calls=[ToolCall("start_plan_step", {"step_id": "s1"}, id="t1")]),
+        Response(tool_calls=[ToolCall("write_file", {"path": "a.txt", "content": "a2"}, id="t2")]),
+        Response(tool_calls=[ToolCall("complete_plan_step", {"step_id": "s1"}, id="t3")]),
+        "完成",
+    ]), ToolRegistry(tmp_path), approval=ApprovalGate())
+
+    async def allow(call, preview):
+        from app.safety.policy import ApprovalDecision
+        return ApprovalDecision(True, "once")
+    agent.approval.handler = allow
+
+    async def scenario():
+        harness = Harness(agent, Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("run", "r-verified", text="执行", task={
+            "kind": "run", "mode": "act", "objective": "执行",
+            "plan_id": "pl-verified", "plan_version": 1,
+        })
+        done = await harness.until("done", "r-verified")
+        assert done["result"]["status"] == "done"
+        assert done["result"]["verified"] is True
+        states = [event for event in harness.events if event["type"] == "task_state"]
+        assert states and states[-1]["task"]["status"] == "completed"
+        await harness.close()
+
+    asyncio.run(scenario())

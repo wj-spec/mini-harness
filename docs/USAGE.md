@@ -724,6 +724,8 @@ VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --keep
 VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --background
 # 验收失败 → 自动修复回灌 → 重新验收（真实模型，opt-in）
 VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --repair
+# 真实 edit 计划 → 后台 worktree 执行 → 合并审批 → 合并后按计划重验
+VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --merge
 ```
 
 - 自动创建一次性 git 工作区（`--workspace` 可指定）；
@@ -733,6 +735,9 @@ VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --repair
 - `--background` 使用 prepare-background + detached worker（真实后台 Plan 路径）；
 - `--repair` 用默认会失败的验收命令 `test -f real-p1-repair-marker.txt` 触发自动修复：
   模型创建 marker → 重新验收 → 校验 `plan_repair` 通知与 marker 存在（`--repair-verify-command` 可替换）；
+- `--merge` 生成 edit 计划（写 `merge-marker.txt`）→ 后台 worker 在 worktree 执行通过验收 →
+  合并审批 → 合并后用计划可信命令重验；校验 `post_merge_verified=true`、merge 通知 `verified=true`、
+  主工作区 marker 内容（`--merge-verify-command` 可替换验收命令）；
 - `--verify-command` 可替换验收命令（默认 true，需可信 source=plan_approval）；
 - 验收重试/超时/自动修复：`VIBE_ACCEPTANCE_RETRIES`、`VIBE_ACCEPTANCE_TIMEOUT_SECONDS`、
   `VIBE_ACCEPTANCE_TOTAL_TIMEOUT_SECONDS`、`VIBE_ACCEPTANCE_REPAIR_ATTEMPTS`（见 `.env.example`）；
