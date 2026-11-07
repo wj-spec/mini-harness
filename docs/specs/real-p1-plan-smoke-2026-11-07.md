@@ -278,7 +278,7 @@ VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --backgrou
 ```
 
 连续 2 次：ok=true、worker exit 0、task completed、s1/s2 done、acceptance=true、
-`/explore` ok。
+`/explore` ok；另用 deepseek-chat 后台路径 1/1 通过。
 
 ## 4. 结论与限制
 
