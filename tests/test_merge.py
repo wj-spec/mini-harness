@@ -94,3 +94,95 @@ def test_merge_runs_post_merge_verification(repo):
     )
     assert result["post_merge_verified"] is False
     assert [item["ok"] for item in result["verification"]] == [True, False]
+
+
+def _approved_plan(session, repo, *, command="test -f feature.txt"):
+    from app.runtime.plan import Plan, approve_plan, propose_plan
+
+    plan_task = TaskStore(session.root).create(
+        kind="run", objective="计划", workspace=str(repo), mode="plan",
+    )
+    task_dir = TaskStore(session.root).task_dir(plan_task.task_id)
+    plan = Plan.from_dict({
+        "schema_version": 1, "plan_id": "pl-merge", "task_id": plan_task.task_id,
+        "version": 1, "objective": "合并后重验",
+        "steps": [{"step_id": "s1", "title": "改文件"}],
+        "acceptance_criteria": [{"id": "ac1", "text": "文件存在", "confirmed": True}],
+        "verification_plan": [{"id": "v1", "command": command, "covers": ["ac1"],
+                               "source": "plan_approval"}],
+    })
+    propose_plan(task_dir, plan)
+    approve_plan(task_dir, plan, approved_by="alice")
+    return plan
+
+
+def _plan_bound_task(repo, session):
+    from app.runtime.tasks import TaskStore
+
+    plan = _approved_plan(session, repo)
+    task = TaskStore(session.root).create(
+        kind="run", objective="合并计划任务", workspace=str(repo), mode="act",
+        plan_id=plan.plan_id, plan_version=plan.version,
+    )
+    return plan, task
+
+
+def test_plan_verification_commands_only_for_approved_plan(repo):
+    from app.runtime.merge import plan_verification_commands
+    from app.runtime.plan import Plan, propose_plan
+    from app.runtime.tasks import TaskStore
+
+    session = SessionStore.new(repo, "fake", purpose="test")
+    plan_task = TaskStore(session.root).create(kind="run", objective="计划", workspace=str(repo), mode="plan")
+    task_dir = TaskStore(session.root).task_dir(plan_task.task_id)
+    plan = Plan.from_dict({
+        "schema_version": 1, "plan_id": "pl-x", "task_id": plan_task.task_id,
+        "version": 1, "objective": "未批准", "steps": [{"step_id": "s1", "title": "读"}],
+        "acceptance_criteria": [{"id": "ac1", "text": "ok", "confirmed": True}],
+        "verification_plan": [{"id": "v1", "command": "test -f README.md", "covers": ["ac1"]}],
+    })
+    propose_plan(task_dir, plan)
+    task = TaskStore(session.root).create(
+        kind="run", objective="绑定", workspace=str(repo), mode="act",
+        plan_id="pl-x", plan_version=1,
+    )
+    assert plan_verification_commands(session.root, task) == []
+    assert plan_verification_commands(session.root, _task(repo)[1]) == []
+
+
+def test_plan_verification_commands_from_bound_plan(repo):
+    from app.runtime.merge import plan_verification_commands
+
+    session = SessionStore.new(repo, "fake", purpose="test")
+    plan, task = _plan_bound_task(repo, session)
+    assert plan_verification_commands(session.root, task) == ["test -f feature.txt"]
+
+
+def test_merge_approval_preview_lists_verify_commands(repo):
+    session, task = _task(repo)
+    _prepare_with_change(repo, session, task)
+    approval = MergeGate(repo).request_approval(
+        task.task_id, session_root=session.root, verify_commands=["true"],
+        include_preview=True,
+    )
+    assert "合并后验收命令" in approval["preview_redacted"]
+    assert "- true" in approval["preview_redacted"]
+
+
+def test_merge_plan_commands_run_after_merge(repo):
+    from app.runtime.merge import plan_verification_commands
+
+    session = SessionStore.new(repo, "fake", purpose="test")
+    plan, task = _plan_bound_task(repo, session)
+    worktree = WorktreeManager(repo).create(task.task_id, session.id)
+    (worktree.path / "feature.txt").write_text("feature\n", encoding="utf-8")
+    gate = MergeGate(repo)
+    commands = plan_verification_commands(session.root, task)
+    approval = gate.request_approval(
+        task.task_id, session_root=session.root, verify_commands=commands,
+    )
+    ApprovalInbox(session.root).resolve(task.task_id, approval["approval_id"], decision="once")
+    result = gate.apply(task.task_id, session_root=session.root, verify_commands=commands)
+    assert result["merged"] is True
+    assert result["post_merge_verified"] is True
+    assert result["verify_commands"] == ["test -f feature.txt"]

@@ -759,3 +759,25 @@ VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --backgrou
 通知记录在 `.vibe/notifications.jsonl`，可用 `/notifications`、`--notifications` 查看（JSON 含 count，最多 50 条）。
 `--plans` 只读列出本工作区会话的计划版本（session/task/plan_id/version/status/stale/acceptance/objective）。
 `--acceptance` 只读列出计划验收结果（plan_id/objective/plan_version/status/codes/命令数，最多 100 条）。
+
+## worktree 合并
+
+后台写任务产出的改动在任务分支上，合并到主工作区是一个审批事件：
+
+```bash
+./run_vibe.sh --merge-task TID --session SID --workspace /path/to/repo
+# 输出 diff 与审批 id；如需合并后验证，可显式追加命令
+./run_vibe.sh --merge-task TID --session SID --workspace /path/to/repo \
+  --merge-verify "pytest -q"
+# 批准并执行
+./run_vibe.sh --merge-task TID --session SID --workspace /path/to/repo \
+  --approve-merge a-xxxx
+```
+
+- 若任务绑定了已批准计划，未显式给 `--merge-verify` 时会自动使用计划
+  `verification_plan` 中的可信命令，并在审批预览中列出；
+- 合并成功后在工作区重跑这些命令，结果写入输出的 `post_merge_verified` / `verification`；
+- 验收失败时写 `merge_verification_failed` 通知、stderr 报告，CLI **exit 1**
+  （合并已完成，不回滚；修复后重新合并/验收）；
+- 无验收命令时 `post_merge_verified=false`，不视为失败；
+- 审批事件与结果也会写 `.vibe/notifications.jsonl`（`merge_approval_requested` / `merge_completed`）。

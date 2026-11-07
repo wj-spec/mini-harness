@@ -1,6 +1,6 @@
 # 工作区隔离（WorkspaceLock / WorktreeManager，P0）
 
-日期：2026-11-03。状态：P0 基础 + P1 worker 接线 + MergeGate + CLI kill switch/merge + 合并后验证 + TUI `/stop-workers`/`/merge` + 非 git 默认拒绝已实现（worker 无 worktree 时默认拒绝，`VIBE_ALLOW_NON_GIT=1` 仅用于只读）；剩余为更完整的 TUI 交互与 stale 清理提示。
+日期：2026-11-03（2026-11-07 补充计划验收重跑）。状态：P0 基础 + P1 worker 接线 + MergeGate + CLI kill switch/merge + 合并后验证（含绑定计划的可信验收命令）+ TUI `/stop-workers`/`/merge` + 非 git 默认拒绝已实现（worker 无 worktree 时默认拒绝，`VIBE_ALLOW_NON_GIT=1` 仅用于只读）；剩余为更完整的 TUI 交互与 stale 清理提示。
 对应讨论稿：[04 隔离与并发](../design/long-horizon/04-isolation-concurrency.md)（§9 已确认）。
 依赖：[task-runtime](task-runtime.md)、[process-supervision](process-supervision.md)。
 
@@ -102,3 +102,23 @@ class WorktreeManager:
 - 第二个写 worker 设置 `VIBE_WORKSPACE_LOCK_WAIT` 时，任务 created→queued，
   写 `workspace_waiting` 事件；等到锁后由 TaskRuntime queued→running。
 - 等待超时未拿到锁 → 任务 failed(workspace_busy)，避免无限排队。
+
+## 合并后验收：绑定计划自动重验（P1 补充，2026-11-07）
+
+`--merge-task` 的合并审批与执行现在接入计划验收：
+
+1. **命令来源**（按优先级）：
+   - 显式 `--merge-verify CMD`（可重复）；
+   - 若任务带 `plan_id/plan_version` 且计划 approved、hash 匹配、未 stale：
+     读取 `verification_plan` 中 source ∈ `plan_approval`/`project_profile` 的命令。
+2. **审批可见**：请求合并审批时，预览末尾列出合并后要执行的验收命令
+   （最多 10 条，超出提示数量），批准即包含这些命令；
+   CLI 同时打印 `合并后验收（来自已批准计划）` 清单。
+3. **执行与结果**：merge 成功后在工作区重跑命令，输出
+   `post_merge_verified`、每条命令 exit/output、`verify_commands`。
+4. **失败处理**：
+   - 写 `merge_verification_failed` 通知（含命令列表）；
+   - stderr 明确 `post-merge verification failed`；
+   - CLI 退出码 **1**（合并已完成，需修复后重新验收；不做自动回滚）。
+5. **无命令时**：`post_merge_verified=false` 且不发失败通知（保持原行为）。
+6. 计划未批准/stale/找不到时回退为空，不会执行未批准计划的命令。

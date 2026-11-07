@@ -1,6 +1,6 @@
 # 计划验收映射 P0（criteria → verification plan → 三态）
 
-状态：2026-11-06 P0 纯模块实现（映射/校验/三态）；harness 执行验证命令与完成门待后续。
+状态：2026-11-06 P0 纯模块实现（映射/校验/三态）；2026-11-07 已接入绑定计划完成门、可信命令执行（含重试/超时）、结果持久化与合并后重验。
 设计来源：[15 计划验收](../design/long-horizon/15-plan-verification.md)。
 
 ## 已实现
@@ -52,6 +52,9 @@
      验收非 `True` → run 改为 `stopped/acceptance_<code>`，任务 paused；
      结果文本附失败命令 id/command/exit/输出摘要（最多 5 条），供回灌/排查。
 - Plan schema 增加 `verification_plan` / `trusted_source`；submit_plan 可提交。
+- 合并后重验：`./run_vibe.sh --merge-task` 时，若任务绑定 approved 且未 stale 的计划，
+  自动取可信验收命令（显式 `--merge-verify` 优先）在合并后的主工作区重跑；
+  命令会列在合并审批预览中；失败写 `merge_verification_failed` 通知并 exit 1。
 
 ## 未完成
 
@@ -59,7 +62,7 @@
 - 已执行结果可在任务目录 `acceptance.v<version>.json` 核对；
 - `/plan acceptance` 若已有结果会追加 status/codes 与每条命令 ok/attempts。
 - 从 GoalRecord 生成 PlanAcceptance（当前从 Plan 生成）；
-- 失败回灌已带命令证据；单命令有界重试已实现；agent 回灌循环、合并后重验仍待；
+- 失败回灌已带命令证据；单命令有界重试已实现；合并后重验已接入 merge 门禁（见下文）；agent 回灌循环仍待；
 - rounds/`/evidence` 展示验收结果；
 - 三态结论写入 rounds/`/evidence` 与 goal 完成判定；
 - 模型提议 criteria 的 `confirmed=false` 流程接 TUI plan.review。

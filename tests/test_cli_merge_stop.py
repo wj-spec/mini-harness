@@ -92,3 +92,76 @@ def test_pause_task_requires_workspace_and_does_not_write_stop(monkeypatch, caps
     payload = json.loads(out)
     assert payload["paused"] is True and payload["workers"] == []
     assert not (tmp_path / ".vibe" / "stop").exists()
+
+
+def _seed_plan_bound_merge(repo, *, command):
+    from app.runtime.plan import Plan, approve_plan, propose_plan
+
+    session = SessionStore.new(repo, "fake", purpose="test")
+    store = TaskStore(session.root)
+    plan_task = store.create(kind="run", objective="计划", workspace=str(repo), mode="plan")
+    task_dir = store.task_dir(plan_task.task_id)
+    plan = Plan.from_dict({
+        "schema_version": 1, "plan_id": "pl-merge", "task_id": plan_task.task_id,
+        "version": 1, "objective": "合并后重验",
+        "steps": [{"step_id": "s1", "title": "改文件"}],
+        "acceptance_criteria": [{"id": "ac1", "text": "文件存在", "confirmed": True}],
+        "verification_plan": [{"id": "v1", "command": command, "covers": ["ac1"],
+                               "source": "plan_approval"}],
+    })
+    propose_plan(task_dir, plan)
+    approve_plan(task_dir, plan, approved_by="alice")
+    task = store.create(kind="run", objective="merge", workspace=str(repo), mode="act",
+                        plan_id="pl-merge", plan_version=1)
+    worktree = WorktreeManager(repo).create(task.task_id, session.id)
+    (worktree.path / "cli.txt").write_text("cli", encoding="utf-8")
+    return session, task
+
+
+@pytest.mark.skipif(GIT is None, reason="git required")
+def test_merge_cli_uses_plan_verification(repo, monkeypatch, capsys):
+    session, task = _seed_plan_bound_merge(repo, command="test -f cli.txt")
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=repo))
+    monkeypatch.setattr(sys, "argv", ["vibe", "--merge-task", task.task_id, "--session", session.id,
+                                      "--workspace", str(repo), "--fake"])
+    with pytest.raises(SystemExit) as error:
+        entrypoint.main()
+    assert error.value.code == 2
+    out = capsys.readouterr().out
+    assert "合并后验收（来自已批准计划）" in out
+    approval_id = [line.split(": ")[-1] for line in out.splitlines() if "approval requested" in line][0]
+
+    monkeypatch.setattr(sys, "argv", ["vibe", "--merge-task", task.task_id, "--session", session.id,
+                                      "--workspace", str(repo), "--approve-merge", approval_id, "--fake"])
+    entrypoint.main()
+    result = json.loads(capsys.readouterr().out)
+    assert result["merged"] is True
+    assert result["post_merge_verified"] is True
+    assert result["verify_commands"] == ["test -f cli.txt"]
+    from app.runtime.notifications import read_notifications
+    completed = [item for item in read_notifications(repo) if item["kind"] == "merge_completed"]
+    assert completed and completed[-1]["verified"] is True
+
+
+@pytest.mark.skipif(GIT is None, reason="git required")
+def test_merge_cli_reports_plan_verification_failure(repo, monkeypatch, capsys):
+    session, task = _seed_plan_bound_merge(repo, command="test -f missing.txt")
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=repo))
+    monkeypatch.setattr(sys, "argv", ["vibe", "--merge-task", task.task_id, "--session", session.id,
+                                      "--workspace", str(repo), "--fake"])
+    with pytest.raises(SystemExit) as error:
+        entrypoint.main()
+    assert error.value.code == 2
+    out = capsys.readouterr().out
+    approval_id = [line.split(": ")[-1] for line in out.splitlines() if "approval requested" in line][0]
+
+    monkeypatch.setattr(sys, "argv", ["vibe", "--merge-task", task.task_id, "--session", session.id,
+                                      "--workspace", str(repo), "--approve-merge", approval_id, "--fake"])
+    with pytest.raises(SystemExit) as error:
+        entrypoint.main()
+    assert error.value.code == 1
+    assert (repo / "cli.txt").is_file()
+    from app.runtime.notifications import read_notifications
+    kinds = [item["kind"] for item in read_notifications(repo)]
+    assert "merge_verification_failed" in kinds
+    assert "post-merge verification failed" in capsys.readouterr().err

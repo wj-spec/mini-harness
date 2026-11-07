@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from app.runtime.approvals import ApprovalInbox
+from app.runtime.plan import PlanError, can_execute, find_plan
 from app.runtime.workspace import Worktree, WorktreeError, WorktreeManager
 
 
@@ -73,6 +74,48 @@ def _git_checked(cwd: Path, *args: str) -> str:
     return result.stdout.strip()
 
 
+TRUSTED_VERIFICATION_SOURCES = {"plan_approval", "project_profile"}
+MAX_PREVIEW_COMMANDS = 10
+
+
+def plan_verification_commands(session_root: str | Path, task: Any) -> list[str]:
+    """任务绑定的已批准计划里的可信验收命令（用于合并后重验）。"""
+    plan_id = getattr(task, "plan_id", None)
+    if not plan_id:
+        return []
+    try:
+        found = find_plan(session_root, plan_id, getattr(task, "plan_version", None))
+    except (PlanError, OSError):
+        return []
+    if found is None:
+        return []
+    _, plan = found
+    if not can_execute(plan):
+        return []
+    commands: list[str] = []
+    seen: set[str] = set()
+    for item in plan.verification_plan:
+        if str(item.get("source") or "plan_approval") not in TRUSTED_VERIFICATION_SOURCES:
+            continue
+        command = str(item.get("command") or "").strip()
+        if command and command not in seen:
+            seen.add(command)
+            commands.append(command)
+    return commands
+
+
+def verification_preview(commands: list[str] | None) -> str:
+    """合并审批预览里的验收命令段落；空列表返回空串。"""
+    if not commands:
+        return ""
+    shown = commands[:MAX_PREVIEW_COMMANDS]
+    lines = ["", "合并后验收命令："]
+    lines.extend(f"- {command}" for command in shown)
+    if len(commands) > len(shown):
+        lines.append(f"… 另有 {len(commands) - len(shown)} 条")
+    return "\n".join(lines)[:8000]
+
+
 class MergeGate:
     def __init__(self, workspace: str | Path):
         self.workspace = Path(workspace).expanduser().resolve()
@@ -114,13 +157,15 @@ class MergeGate:
     def request_approval(
         self, task_id: str, *, session_root: str | Path,
         requester: str = "harness", include_preview: bool = False,
+        verify_commands: list[str] | None = None,
     ) -> dict[str, Any]:
         candidate = self.prepare(task_id)
         inbox = ApprovalInbox(session_root)
+        preview = (candidate.diff_stat or "(empty diff)") + verification_preview(verify_commands)
         return inbox.submit(
             task_id, tool="merge_worktree", tier="workspace_write",
             decisions=["once", "deny"], requester=requester,
-            preview=candidate.diff_stat or "(empty diff)",
+            preview=preview,
             preview_ref=f"branch:{candidate.branch}",
             include_preview=include_preview,
         )
@@ -181,5 +226,6 @@ class MergeGate:
             "base_commit": candidate.base_commit, "changed_files": candidate.changed_files,
             "diff_stat": candidate.diff_stat, "post_merge_verified": post_merge_verified,
             "verification": verification,
+            "verify_commands": list(verify_commands or []),
             "approval_id": approval.get("approval_id"),
         }

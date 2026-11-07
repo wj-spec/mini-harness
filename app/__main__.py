@@ -280,10 +280,14 @@ def main() -> None:
             print("task workspace mismatch", file=sys.stderr)
             raise SystemExit(2)
         from app.runtime.approvals import ApprovalError, ApprovalInbox
-        from app.runtime.merge import MergeError, MergeGate
+        from app.runtime.merge import MergeError, MergeGate, plan_verification_commands
         from app.runtime.notifications import notify
 
         gate = MergeGate(config.workspace)
+        verify_commands = list(args.merge_verify or [])
+        plan_commands = plan_verification_commands(session.root, task)
+        if not verify_commands:
+            verify_commands = plan_commands
         try:
             if args.approve_merge:
                 try:
@@ -296,15 +300,30 @@ def main() -> None:
                     raise SystemExit(2)
                 result = gate.apply(
                     task.task_id, session_root=session.root,
-                    verify_commands=args.merge_verify,
+                    verify_commands=verify_commands,
                 )
                 print(json.dumps(result, ensure_ascii=False, indent=2))
                 notify(config.workspace, "merge_completed", task_id=task.task_id,
-                       verified=result.get("verified"))
+                       verified=result.get("post_merge_verified"))
+                if verify_commands and not result.get("post_merge_verified"):
+                    notify(config.workspace, "merge_verification_failed",
+                           task_id=task.task_id, commands=verify_commands)
+                    failed = [item["command"] for item in result.get("verification", [])
+                              if not item.get("ok")]
+                    print("merge completed but post-merge verification failed: "
+                          + "; ".join(failed[:5]), file=sys.stderr)
+                    raise SystemExit(1)
                 return
             candidate = gate.prepare(task.task_id)
             print(candidate.diff_stat or "(empty diff)")
-            approval = gate.request_approval(task.task_id, session_root=session.root)
+            if plan_commands and not args.merge_verify:
+                print("合并后验收（来自已批准计划）：")
+                for command in plan_commands:
+                    print(f"- {command}")
+            approval = gate.request_approval(
+                task.task_id, session_root=session.root,
+                verify_commands=verify_commands,
+            )
             print(f"merge approval requested: {approval['approval_id']}")
             notify(config.workspace, "merge_approval_requested", task_id=task.task_id,
                    approval_id=approval["approval_id"])
