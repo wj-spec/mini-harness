@@ -79,7 +79,7 @@ def _init_repo(workspace: Path) -> None:
     subprocess.run(["git", "commit", "-qm", "init"], cwd=workspace, check=True)
 
 
-async def _run(config: Config, workspace: Path) -> dict:
+async def _run(config: Config, workspace: Path, verify_command: str = "true") -> dict:
     session = SessionStore.new(workspace, "openai", purpose="user")
     # 1) generate plan
     gen = Harness(_agent(config, workspace), config, session)
@@ -100,7 +100,7 @@ async def _run(config: Config, workspace: Path) -> dict:
         return {"ok": False, "stage": "generate", "error": "no plan.v1.json"}
     loaded = load_plan(plan_file)
     loaded.acceptance_criteria = [{"id": "ac1", "text": "验收命令成功", "confirmed": True}]
-    loaded.verification_plan = [{"id": "v1", "covers": ["ac1"], "command": "true",
+    loaded.verification_plan = [{"id": "v1", "covers": ["ac1"], "command": verify_command,
                                  "source": "plan_approval"}]
     save_plan(session.root / "tasks" / plan_task_id, loaded)
     approve_plan(session.root / "tasks" / plan_task_id, load_plan(plan_file), approved_by="smoke")
@@ -143,7 +143,8 @@ async def _run(config: Config, workspace: Path) -> dict:
     sub = await _run_subagent(config, workspace, session)
     ok = plan_ok and sub.get("status") == "ok"
     return {
-        "ok": ok, "stage": "execute", "task_id": plan_task_id, "run_status": done["result"].get("status"),
+        "ok": ok, "stage": "execute", "verify_command": verify_command,
+        "task_id": plan_task_id, "run_status": done["result"].get("status"),
         "steps": steps, "acceptance": acceptance, "approvals": approvals,
         "approval_tools": approval_tools,
         "stop_reason": done["result"].get("stop_reason"),
@@ -167,6 +168,8 @@ async def _run_subagent(config: Config, workspace: Path, session: SessionStore) 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workspace", default=None, help="工作区；默认新建临时 git 仓库")
+    parser.add_argument("--verify-command", default="true",
+                        help="计划验收命令（默认 true；需为可信 source=plan_approval）")
     parser.add_argument("--keep", action="store_true", help="保留临时工作区")
     parser.add_argument("--discard-on-failure", action="store_true",
                         help="失败时也删除临时工作区（默认保留便于诊断）")
@@ -181,7 +184,7 @@ def main(argv: list[str] | None = None) -> int:
         _init_repo(workspace)
     config.workspace = workspace
     try:
-        result = asyncio.run(_run(config, workspace))
+        result = asyncio.run(_run(config, workspace, args.verify_command))
     except Exception as exc:
         result = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())

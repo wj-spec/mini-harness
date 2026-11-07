@@ -723,6 +723,7 @@ VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --keep
 - 真实模型生成两步只读计划 → 批准 → 执行；
 - 自动回送 `approval` 帧模拟 TUI 审批；
 - 校验 s1/s2 done、`acceptance.v1.json=true`；
+- `--verify-command` 可替换验收命令（默认 true，需可信 source=plan_approval）；
 - 再跑一次真实 `/explore` 只读子 Agent，校验 `subagent_event.status=ok`；
 - 执行遇到 error/stopped 时自动重试一次；失败默认保留临时工作区（`--discard-on-failure` 可关闭）；
 - 输出 JSON 并写 `.vibe/real-p1-acceptance/<timestamp>.json`；

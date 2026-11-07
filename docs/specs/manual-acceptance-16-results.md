@@ -38,7 +38,7 @@ VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py
 | TC-16-01 模式/只读规划 | 真实 plan.v1 + 单测 plan mode 工具子集 | 通过（真实模型） |
 | TC-16-02 审批与门禁 | `test_bound_unapproved_plan_blocks_write_at_gate`、`plan_binding` | 通过 |
 | TC-16-03 步骤证据/完成门 | 真实 s1/s2 done + ledger evidence；单测 | 通过（真实模型） |
-| TC-16-04 验收命令 | 真实 `true` acceptance=true；失败/超时/重试单测 | 通过（成功路径） |
+| TC-16-04 验收命令 | 真实 `true` 与 `grep -q real-p1` acceptance=true；`grep NOT_PRESENT` acceptance=false；失败/超时/重试单测 | 通过（成功+失败路径） |
 | TC-16-05 stale/修订/版本 | 单测 can_execute stale、revise/list/diff、审批窗口 | 通过（单测） |
 | TC-16-06 子 Agent | 真实 `/explore` ok + subagent_event；单测取消/depth/批量 | 通过（真实模型） |
 | TC-16-07 CLI 只读视图 | `tests/test_cli_tasks/plans/acceptance/notifications*.py` | 通过 |

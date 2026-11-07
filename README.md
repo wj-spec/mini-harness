@@ -206,7 +206,7 @@ npm --prefix tui test       # TypeScript / Ink 测试
 | [Plan/SubAgent 人工验收](docs/specs/manual-acceptance-16-plan-subagent.md) | TC-16-01–08：计划审批/执行/验收、stale/修订、/explore、CLI 只读视图、侧栏摘要 |
 | [Plan/SubAgent 验收结果](docs/specs/manual-acceptance-16-results.md) | 2026-11-07：真实模型 Plan/SubAgent 自动化结果、TC-16 映射、剩余 TUI 键路 |
 | [真实模型 Plan P1 冒烟](docs/specs/real-p1-plan-smoke-2026-11-07.md) | 2026-11-07 deepseek-flash/chat：计划生成、多步执行、审批帧、验收 acceptance=true；重复样本与剩余 TUI 人工验收记录 |
-| [真实 P1 验收脚本](scripts/real_p1_acceptance.py) | 一键真实模型 Plan 生成→批准→执行→审批→验收 + `/explore` 子 Agent，输出 JSON 报告 |
+| [真实 P1 验收脚本](scripts/real_p1_acceptance.py) | 一键真实模型 Plan 生成→批准→执行→审批→验收（`--verify-command`）+ `/explore` 子 Agent，输出 JSON 报告 |
 | [只读子 Agent P0](docs/specs/subagent-runner.md) | harness 内部只读 runner、结构化结果、无审批/写/执行 |
 | [规格](docs/specs/) | 每个功能切片的 spec、边界与验收口径 |
 | [Benchmark 适配（Harbor）](bench/README.md) | SWE-bench Verified / Terminal-Bench 2.1 的 Harbor 接入、单题 smoke 与限制 |
