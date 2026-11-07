@@ -1,6 +1,6 @@
 # 无人值守 profile P0（保守默认 + 能力拒绝）
 
-状态：2026-11-06 P0 实现；env 凭据 scrub（命令工具）与 `--pause-task` 已实现；日志保留/通知、两槽队列仍待后续。
+状态：2026-11-06 P0 实现；env 凭据 scrub（命令工具）与 `--pause-task` 已实现；2026-11-07 补 profile 放宽审计（worker 通知 + doctor 提示）；日志保留/通知、两槽队列仍待后续。
 设计来源：[09 无人值守安全默认值](../design/long-horizon/09-unattended-safety.md)。
 
 ## 已实现
@@ -17,6 +17,11 @@
   - MCP 默认拒绝（`allow_mcp=false`）；
   - browser/remote 默认拒绝（`allow_remote_action=false`）；
   - 未知工具默认拒绝。
+- profile 放宽审计（2026-11-07）：
+  - `relaxed_settings()` 列出相对保守默认被放宽的项（allow_exec/allow_network/allow_mcp/allow_remote_action/require_worktree/approval_mode）；
+  - worker 启动任务事件 `unattended_profile` 记 `profile/hash/relaxed`；
+  - 非空 relaxed 时写本地通知 `unattended_profile_relaxed`（可经 `/notifications`、`--notifications`、webhook 查看）；
+  - `--doctor` 读取 profile：宽松项 → WARN；非法 JSON/未知键/符号链接 → FAIL 并提示 worker 会拒绝启动。
 - worker 接线：
   - 启动时加载 profile，并在任务事件写 `unattended_profile`（profile id + hash）；
   - 收到 child 的 `approval_request` 时先做能力检查；

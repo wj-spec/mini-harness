@@ -5,6 +5,7 @@ profile 文件：<workspace>/.vibe/unattended.json；缺省使用 conservative p
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from dataclasses import asdict, dataclass, fields
@@ -78,6 +79,27 @@ class UnattendedProfile:
 
     def hash_payload(self) -> str:
         return json.dumps(self.to_dict(), sort_keys=True, ensure_ascii=False)
+
+
+RELAXABLE_FLAGS = ("allow_exec", "allow_network", "allow_mcp", "allow_remote_action")
+
+
+def relaxed_settings(profile: UnattendedProfile) -> list[str]:
+    """相对 conservative 默认值被放宽的项（用于启动审计/告警）。"""
+    defaults = UnattendedProfile()
+    relaxed: list[str] = []
+    for name in RELAXABLE_FLAGS:
+        if getattr(profile, name) and not getattr(defaults, name):
+            relaxed.append(name)
+    if not profile.require_worktree:
+        relaxed.append("require_worktree=false")
+    if profile.approval_mode != defaults.approval_mode:
+        relaxed.append(f"approval_mode={profile.approval_mode}")
+    return relaxed
+
+
+def profile_hash(profile: UnattendedProfile) -> str:
+    return hashlib.sha256(profile.hash_payload().encode("utf-8")).hexdigest()
 
 
 def _known_fields() -> set[str]:

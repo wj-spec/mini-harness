@@ -539,3 +539,44 @@ def test_worker_does_not_warn_for_small_session_events(tmp_path, monkeypatch):
     monkeypatch.setenv("VIBE_EVENTS_MAX_BYTES", "1000")
     worker._check_session_events_size()
     assert not [item for item in read_notifications(tmp_path) if item["kind"] == "session_events_large"]
+
+
+def test_worker_logs_relaxed_unattended_profile(tmp_path, monkeypatch):
+    import asyncio
+
+    from app.runtime.notifications import read_notifications
+    from app.runtime.worker import Worker
+
+    monkeypatch.setenv("VIBE_ALLOW_NON_GIT", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="test")
+    store = TaskStore(session.root)
+    task = store.create(kind="goal", objective="profile 审计", workspace=str(tmp_path), mode="goal")
+    (tmp_path / ".vibe" / "unattended.json").write_text(
+        '{"schema_version": 1, "allow_exec": true}', encoding="utf-8",
+    )
+    script = tmp_path / "child.py"
+    script.write_text(
+        "import json, sys\n"
+        "for line in sys.stdin:\n"
+        "    req = json.loads(line)\n"
+        "    if req.get('type') == 'run':\n"
+        "        result = {'text': 'ok', 'steps': 1, 'status': 'done', 'stop_reason': '',\n"
+        "                  'usage': {}, 'cost_usd': 0, 'run_id': req['id']}\n"
+        "        print(json.dumps({'v': 1, 'type': 'done', 'id': req['id'], 'result': result}), flush=True)\n"
+        "    elif req.get('type') == 'shutdown':\n"
+        "        break\n",
+        encoding="utf-8",
+    )
+    worker = Worker(
+        session_root=session.root, task_id=task.task_id, workspace=tmp_path,
+        child_args=[sys.executable, str(script)], child_env={"VIBE_TASK_RUNTIME": "1"},
+    )
+    assert asyncio.run(worker.run()) == 0
+    events = store.read_events(task.task_id)
+    profile_event = next(item for item in events if item.get("event") == "unattended_profile")
+    assert profile_event["data"]["relaxed"] == ["allow_exec"]
+    assert len(profile_event["data"]["hash"]) == 64
+    alerts = [item for item in read_notifications(tmp_path)
+              if item["kind"] == "unattended_profile_relaxed"]
+    assert alerts and alerts[-1]["relaxed"] == ["allow_exec"]
+    assert alerts[-1]["task_id"] == task.task_id

@@ -64,3 +64,17 @@ def test_worker_auto_denies_exec_approval_without_inbox(tmp_path):
     from app.runtime.notifications import read_notifications
     notices = [item for item in read_notifications(tmp_path) if item["kind"] == "unattended_denied"]
     assert notices and notices[-1]["tool"] == "bash"
+
+
+def test_relaxed_settings_reports_only_loosened_fields():
+    from app.safety.unattended import profile_hash, relaxed_settings
+
+    assert relaxed_settings(UnattendedProfile()) == []
+    strict = UnattendedProfile(allow_read=False, allow_write=False, require_worktree=True)
+    assert relaxed_settings(strict) == []
+    relaxed = UnattendedProfile(allow_exec=True, allow_network=True, require_worktree=False)
+    assert relaxed_settings(relaxed) == [
+        "allow_exec", "allow_network", "require_worktree=false",
+    ]
+    assert profile_hash(UnattendedProfile()) == profile_hash(UnattendedProfile())
+    assert len(profile_hash(relaxed)) == 64

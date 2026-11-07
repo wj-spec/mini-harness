@@ -148,6 +148,7 @@ def test_doctor_reports_ready_environment(tmp_path):
     assert "结论：可以启动 ./run_ink.sh" in output
     assert "✓ 没有待审批动作" in output
     assert "✓ worktree 元数据完整" in output
+    assert "✓ 无人值守 profile 使用默认保守策略" in output
     assert "✗" not in output
 
 
@@ -325,3 +326,25 @@ def test_doctor_json_output(tmp_path):
     statuses = {item["label"]: item["status"] for item in payload["checks"]}
     assert statuses["没有待审批动作"] == "ok"
     assert all(item["status"] in {"ok", "warn", "fail"} for item in payload["checks"])
+
+
+def test_doctor_reports_relaxed_unattended_profile(tmp_path):
+    repo, workspace = _green_repo(tmp_path)
+    (workspace / ".vibe").mkdir(exist_ok=True)
+    (workspace / ".vibe" / "unattended.json").write_text(
+        '{"schema_version": 1, "allow_exec": true, "require_worktree": false}',
+        encoding="utf-8",
+    )
+    code, output = _run_doctor(repo, workspace, env={"VIBE_API_KEY": "sk-test"})
+    assert code == 0, output
+    assert "! 无人值守 profile 放宽了：allow_exec, require_worktree=false" in output
+    assert "unattended_profile_relaxed" in output
+
+
+def test_doctor_fails_on_invalid_unattended_profile(tmp_path):
+    repo, workspace = _green_repo(tmp_path)
+    (workspace / ".vibe").mkdir(exist_ok=True)
+    (workspace / ".vibe" / "unattended.json").write_text("{bad json", encoding="utf-8")
+    code, output = _run_doctor(repo, workspace, env={"VIBE_API_KEY": "sk-test"})
+    assert code == 2
+    assert "✗ 无人值守 profile 不可读或不是合法 JSON" in output

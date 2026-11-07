@@ -429,6 +429,50 @@ def check_worktrees(workspace: Path) -> Check:
     return Check(OK, "worktree 元数据完整")
 
 
+UNATTENDED_PROFILE_KEYS = {
+    "schema_version", "profile_id", "allow_read", "allow_write", "allow_exec",
+    "allow_network", "allow_mcp", "allow_remote_action", "require_worktree", "approval_mode",
+}
+
+
+def check_unattended_profile(workspace: Path, env: Mapping[str, str] | None = None) -> Check:
+    environ: Mapping[str, str] = os.environ if env is None else env
+    path = workspace / ".vibe" / "unattended.json"
+    override = (environ.get("VIBE_UNATTENDED_PROFILE") or "").strip()
+    if override:
+        path = Path(override).expanduser()
+    if not path.exists():
+        return Check(OK, "无人值守 profile 使用默认保守策略")
+    if path.is_symlink():
+        return Check(FAIL, "无人值守 profile 不能是符号链接",
+                     "把 .vibe/unattended.json 换成普通文件；worker 会拒绝启动")
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return Check(FAIL, f"无人值守 profile 不可读或不是合法 JSON：{exc}",
+                     "修正 .vibe/unattended.json，或删除它使用默认保守 profile")
+    if not isinstance(raw, dict):
+        return Check(FAIL, "无人值守 profile 必须是 JSON 对象", "修正 .vibe/unattended.json")
+    if raw.get("schema_version", 1) != 1:
+        return Check(FAIL, "无人值守 profile schema_version 不支持", "删除或改成 {\"schema_version\": 1}")
+    unknown = set(raw) - UNATTENDED_PROFILE_KEYS
+    if unknown:
+        return Check(FAIL, f"无人值守 profile 有未知键：{sorted(unknown)}",
+                     "只保留已知字段；未知键会让 worker 拒绝启动")
+    relaxed = [
+        name for name in ("allow_exec", "allow_network", "allow_mcp", "allow_remote_action")
+        if raw.get(name) is True
+    ]
+    if raw.get("require_worktree") is False:
+        relaxed.append("require_worktree=false")
+    if raw.get("approval_mode") not in (None, "queue"):
+        relaxed.append(f"approval_mode={raw.get('approval_mode')}")
+    if relaxed:
+        return Check(WARN, f"无人值守 profile 放宽了：{', '.join(relaxed)}",
+                     "确认 .vibe/unattended.json 的放宽范围；worker 启动会写 unattended_profile_relaxed 通知")
+    return Check(OK, "无人值守 profile 使用默认保守策略")
+
+
 def collect_checks(
     *,
     repo_root: Path | None = None,
@@ -472,6 +516,7 @@ def collect_checks(
         check_pending_approvals(target),
         check_session_logs(target, environ),
         check_worktrees(target),
+        check_unattended_profile(target, environ),
     ]
 
 

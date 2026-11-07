@@ -22,7 +22,9 @@ from typing import Any
 from app.runtime.approvals import ApprovalError, ApprovalInbox
 from app.runtime.goals import GoalStore, continue_decision, goal_prompt
 from app.runtime.notifications import notify
-from app.safety.unattended import UnattendedProfileError, load_profile
+from app.safety.unattended import (
+    UnattendedProfileError, load_profile, profile_hash, relaxed_settings,
+)
 from app.runtime.supervise import (
     WORKER_HEARTBEAT_TTL_SECONDS,
     WorkerState,
@@ -253,15 +255,19 @@ class Worker:
             self.profile = load_profile(self.workspace)
         except UnattendedProfileError as exc:
             raise WorkerError(f"invalid unattended profile: {exc}") from exc
+        relaxed = relaxed_settings(self.profile)
+        digest = profile_hash(self.profile)
         try:
             store.append_event(
                 self.task_id, "unattended_profile",
-                data={"profile": self.profile.profile_id,
-                      "hash": __import__("hashlib").sha256(
-                          self.profile.hash_payload().encode("utf-8")).hexdigest()},
+                data={"profile": self.profile.profile_id, "hash": digest,
+                      "relaxed": relaxed},
             )
         except Exception:
             pass
+        if relaxed:
+            notify(self.workspace, "unattended_profile_relaxed", task_id=self.task_id,
+                   profile=self.profile.profile_id, relaxed=relaxed, hash=digest)
         if task.kind == "goal":
             try:
                 self.goal_record = self.goal_store.ensure_for_task(task)
