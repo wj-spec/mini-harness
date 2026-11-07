@@ -421,3 +421,42 @@ test('trace command renders session observability through the real backend', asy
     await rm(workspace, {recursive: true, force: true});
   }
 });
+
+test('/trace with hours filters through the real backend', async t => {
+  const python = path.join(repoRoot, '.venv', 'bin', 'python3');
+  if (!existsSync(python) || !existsSync(path.join(repoRoot, 'run_vibe.sh'))) {
+    t.skip('python backend unavailable');
+    return;
+  }
+  const workspace = await mkdtemp(path.join(tmpdir(), 'vibe-tui-trace-hours-'));
+  const events: ServerEvent[] = [];
+  const client = createBackendClient({repoRoot, args: ['--fake', '--workspace', workspace]});
+  client.subscribe(event => events.push(event));
+  const view = render(<App client={client}/>);
+  try {
+    client.start();
+    await waitFor(() => events.some(event => event.type === 'ready'));
+    const ready = events.find(event => event.type === 'ready') as Extract<ServerEvent, {type: 'ready'}>;
+    const sessionPath = ready.session_path ?? '';
+    assert.ok(sessionPath, 'ready should include session_path');
+    const now = Date.now() / 1000;
+    await writeFile(path.join(sessionPath, 'trace.jsonl'), [
+      JSON.stringify({type: 'llm_end', ts: now - 7200, prompt_tokens: 100, completion_tokens: 50}),
+      JSON.stringify({type: 'llm_end', ts: now - 60, prompt_tokens: 10, completion_tokens: 5}),
+      JSON.stringify({type: 'run_end', ts: now - 30, status: 'done', stop_reason: ''}),
+    ].join('\n') + '\n');
+    const stdin = view.stdin as unknown as {write(value: string): void};
+    stdin.write('/trace 1');
+    await pause(80);
+    stdin.write('\r');
+    await waitFor(() => events.some(event => event.type === 'command_result' && event.command === 'trace'));
+    const result = events.find(event => event.type === 'command_result' && event.command === 'trace') as
+      Extract<ServerEvent, {type: 'command_result'}>;
+    assert.match(result.text, /tokens 15/);
+    assert.doesNotMatch(result.text, /tokens 150/);
+  } finally {
+    await client.shutdown();
+    cleanup();
+    await rm(workspace, {recursive: true, force: true});
+  }
+});
