@@ -13,7 +13,7 @@
 
 *React/Ink 工作台（左）与只读 Git 变更侧栏（右）；顶部是产品标识像素猫 Mini。截图为 2026-10-26 的当前版本，点击可查看原图。*
 
-> 状态：单 Agent 编码流程已可用（W1–W5 真实验收完成）；后台长任务、Plan 模式、只读子 Agent 已有 P0 基础，持续开发中；最新进度见[工作台里程碑](docs/MILESTONES.md) 与 [P0 收束报告](docs/specs/p0-closure-report.md)。
+> 状态：单 Agent 编码流程已可用（W1–W5 真实验收完成）；前后台 Plan、只读子 Agent、后台 goal worker 已通过真实模型 P1 验收；真实 TUI 人工键路与生产化加固仍待；最新进度见[工作台里程碑](docs/MILESTONES.md)、[P0 收束报告](docs/specs/p0-closure-report.md) 与 [真实 P1 记录](docs/specs/real-p1-plan-smoke-2026-11-07.md)。
 
 ## 项目简介
 
@@ -21,7 +21,7 @@ Agent 执行的步骤一多，最终回答就不足以说明它依据了什么�
 
 - **已交付**：单 Agent 编码工作台（工具、审批、上下文、恢复、评测）、长任务 `/goal`、后台 worker + attach、Plan `/plan`、只读子 Agent `/explore`、项目背景 `/project` 与个人偏好 `/about`；
 - **工程取向**：先把执行边界、证据链和恢复做可靠，再扩展能力；W1–W5 已完成真实验收；
-- **边界**：交互主 loop 仍是单 Agent；后台 worker、只读子 Agent（`/explore`）已有 P0 基础，写子 Agent 与模型自发委派未开放；命令仍以当前用户权限运行，审批 + 黑名单 + 超时是当前边界，可选 macOS Seatbelt 沙箱；
+- **边界**：交互主 loop 仍是单 Agent；后台 worker、只读子 Agent（`/explore`）与前后台 Plan 已通过真实模型 P1 验收，写子 Agent 与模型自发委派未开放；真实 TUI 人工键路待验收；命令仍以当前用户权限运行，审批 + 黑名单 + 超时是当前边界，可选 macOS Seatbelt 沙箱；
 - **自举与学习**：工作台也参与本仓库自身的开发与验收；项目同时用于学习 Agent 原理与 TypeScript / React 全栈和进程间通信。
 
 **技术栈**：Python 3.11+（asyncio、SSE、JSONL、FastMCP、pytest）· TypeScript + React 19 + Ink 8（Node.js 22）· 本地 JSON Lines 协议 · 只读 Git 数据层 · macOS Seatbelt（可选）
@@ -37,7 +37,7 @@ Agent 执行的步骤一多，最终回答就不足以说明它依据了什么�
 | 上下文 | 1M 上下文窗口、预算分区、80% 主动压缩、原文 offload + `recall` 回取、请求前上下文快照与 `/context` |
 | 会话与恢复 | JSONL 会话与原始消息、崩溃对账、交付回执、显式 `/resume` 续做同一任务；每轮写入 `.vibe/sessions/<id>/rounds/` 账本（文件变动前后 hash、验证记录、审计结论），`/evidence` 查看最近一轮证据摘要，不复制文件正文 |
 | 长任务 | `/goal` 目标模式：资源受限停止后自动续段（默认 8 段 / 4 小时）；目标状态写入会话目录，重启 / `--continue` 后恢复为暂停态，需 `/goal resume` 显式续段；完成未验证时暂停而不是标记完成 |
-| 后台 / 计划 / 子 Agent | `/chat` `/act` `/plan`（schema、审批、执行门禁、step 证据、验收命令）；`/explore` 只读子 Agent；后台 worker、`--tasks`、`--attach`、`--stop`、`--pause-task`；本地通知 `/notifications` |
+| 后台 / 计划 / 子 Agent | `/chat` `/act` `/plan`（schema、审批、执行门禁、step 证据、验收命令）；前后台 Plan 与 `/explore` 只读子 Agent 已通过真实模型 P1（deepseek-flash/chat）；后台 worker、`--tasks`、`--attach`、`--stop`、`--pause-task`；本地通知 `/notifications` |
 | 工作台 | 全屏 Ink、Markdown 阅读、多行输入与历史、拖选复制、Git 变更侧栏、像素猫 Mini 首屏；`--doctor` 首用环境自检；审批面板标题显示层级 |
 | 个性化 | 项目背景 `/project`（查看、增删、改来源）与个人偏好 `/about`（确认、编辑、触发词、相关性注入、导出/审计）：均带来源，下一次任务生效；W6 v2 未证明收益，保持显式可管理，不扩 P5 |
 
