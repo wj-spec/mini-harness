@@ -1521,3 +1521,23 @@ def test_trace_command_renders_session_summary(tmp_path, monkeypatch):
         await harness.close()
 
     asyncio.run(scenario())
+
+
+def test_tasks_command_tolerates_corrupt_meta(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    store = TaskStore(session.root)
+    task = store.create(kind="run", objective="损坏容错任务", workspace=str(tmp_path), mode="act")
+    corrupt = session.root / "tasks" / "t-20261107-000000-badbad"
+    corrupt.mkdir(parents=True)
+    (corrupt / "meta.json").write_text("{bad json", encoding="utf-8")
+
+    async def scenario():
+        harness = Harness(_agent(tmp_path), Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("command", "c-corrupt-tasks", command="tasks")
+        result = await harness.until("command_result", "c-corrupt-tasks")
+        assert task.task_id in result["text"]
+        await harness.close()
+
+    asyncio.run(scenario())
