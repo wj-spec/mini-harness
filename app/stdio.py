@@ -989,6 +989,7 @@ class _Connection:
                         acceptance = plan_context["plan"].acceptance()
                         if acceptance is not None:
                             from app.runtime.verification import run_verification_plan
+                            from app.safety.sandbox import CommandCancelled
                             import os
                             try:
                                 retries = int(os.getenv("VIBE_ACCEPTANCE_RETRIES", "0"))
@@ -998,31 +999,51 @@ class _Connection:
                                 timeout = float(os.getenv("VIBE_ACCEPTANCE_TIMEOUT_SECONDS", "300"))
                             except ValueError:
                                 timeout = 300.0
-                            verification = await run_verification_plan(
-                                acceptance, self.agent.tools.root, self.agent.approval,
-                                retries=max(0, min(retries, 3)),
-                                timeout=max(1.0, min(timeout, 3600.0)),
-                            )
                             try:
-                                from app.runtime.acceptance import save_acceptance_result
-                                save_acceptance_result(
-                                    plan_context["task_dir"], plan_context["plan"].version, verification,
-                                )
-                            except Exception:
-                                pass
+                                total_timeout = float(os.getenv("VIBE_ACCEPTANCE_TOTAL_TIMEOUT_SECONDS", "0"))
+                            except ValueError:
+                                total_timeout = 0.0
+                            if total_timeout <= 0:
+                                total_timeout = timeout * (max(0, min(retries, 3)) + 1) + 30.0
                             try:
-                                from app.runtime.notifications import notify
-                                notify(
-                                    self.agent.tools.root, "plan_acceptance",
-                                    task_id=plan_context["plan"].task_id,
-                                    plan_id=plan_context["plan"].plan_id,
-                                    plan_version=plan_context["plan"].version,
-                                    status=verification["status"],
-                                    codes=verification["codes"],
+                                verification = await asyncio.wait_for(
+                                    run_verification_plan(
+                                        acceptance, self.agent.tools.root, self.agent.approval,
+                                        retries=max(0, min(retries, 3)),
+                                        timeout=max(1.0, min(timeout, 3600.0)),
+                                    ),
+                                    timeout=max(1.0, min(total_timeout, 7200.0)),
                                 )
-                            except Exception:
+                            except (asyncio.TimeoutError, CommandCancelled):
+                                result = replace(
+                                    result, status="stopped", stop_reason="acceptance_timeout",
+                                    text=(result.text + "\n[计划验收超时]").strip(),
+                                )
+                                verification = None
+                            if verification is not None:
+                                try:
+                                    from app.runtime.acceptance import save_acceptance_result
+                                    save_acceptance_result(
+                                        plan_context["task_dir"], plan_context["plan"].version, verification,
+                                    )
+                                except Exception:
+                                    pass
+                            if verification is None:
                                 pass
-                            if verification["status"] is not True:
+                            else:
+                                try:
+                                    from app.runtime.notifications import notify
+                                    notify(
+                                        self.agent.tools.root, "plan_acceptance",
+                                        task_id=plan_context["plan"].task_id,
+                                        plan_id=plan_context["plan"].plan_id,
+                                        plan_version=plan_context["plan"].version,
+                                        status=verification["status"],
+                                        codes=verification["codes"],
+                                    )
+                                except Exception:
+                                    pass
+                            if verification is not None and verification["status"] is not True:
                                 codes = ",".join(verification["codes"]) or "acceptance_failed"
                                 commands = {item.id: item.command for item in acceptance.verification_plan}
                                 details = []

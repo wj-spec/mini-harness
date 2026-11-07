@@ -810,3 +810,45 @@ def test_notifications_command_filters_kind(tmp_path, monkeypatch):
         await harness.close()
 
     asyncio.run(scenario())
+
+
+def test_bound_plan_acceptance_total_timeout_stops_run(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    monkeypatch.setenv("VIBE_AUTONOMY", "full")
+    monkeypatch.setenv("VIBE_ACCEPTANCE_TOTAL_TIMEOUT_SECONDS", "0.3")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    (tmp_path / "README.md").write_text("x\n", encoding="utf-8")
+    plan_task = "t-20261106-000000-abcdef"
+    plan_dir = session.root / "tasks" / plan_task
+    from app.runtime.plan import Plan, approve_plan, propose_plan
+    plan = Plan.from_dict({
+        "schema_version": 1, "plan_id": "pl-timeout", "task_id": plan_task,
+        "objective": "验收超时",
+        "acceptance_criteria": [{"id": "ac1", "text": "sleep", "confirmed": True}],
+        "verification_plan": [{"id": "v1", "covers": ["ac1"], "command": "sleep 5",
+                               "source": "plan_approval"}],
+        "steps": [{"step_id": "s1", "title": "读 README", "kind": "read"}],
+    })
+    propose_plan(plan_dir, plan)
+    approve_plan(plan_dir, plan, approved_by="user")
+    from core.contracts import Response, ToolCall
+    agent = Agent(FakeProvider([
+        Response(tool_calls=[ToolCall("start_plan_step", {"step_id": "s1"}, id="t1")]),
+        Response(tool_calls=[ToolCall("read_file", {"path": "README.md"}, id="t2")]),
+        Response(tool_calls=[ToolCall("complete_plan_step", {"step_id": "s1"}, id="t3")]),
+        "完成",
+    ]), ToolRegistry(tmp_path), approval=ApprovalGate())
+
+    async def scenario():
+        harness = Harness(agent, Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("run", "r-timeout", text="执行", task={
+            "kind": "run", "mode": "act", "objective": "执行",
+            "plan_id": "pl-timeout", "plan_version": 1,
+        })
+        done = await harness.until("done", "r-timeout")
+        assert done["result"]["status"] == "stopped"
+        assert done["result"]["stop_reason"] == "acceptance_timeout"
+        await harness.close()
+
+    asyncio.run(scenario())
