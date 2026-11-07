@@ -1413,3 +1413,77 @@ def test_complete_plan_step_accepts_manual_evidence_refs_without_tool(tmp_path, 
         await harness.close()
 
     asyncio.run(scenario())
+
+
+def _goal_with_acceptance(tmp_path, command):
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    (tmp_path / "README.md").write_text("hello\n", encoding="utf-8")
+    store = TaskStore(session.root)
+    task = store.create(kind="goal", objective="目标验收", workspace=str(tmp_path), mode="goal")
+    from app.runtime.goals import GoalStore
+    goals = GoalStore(session.root)
+    record = goals.ensure_for_task(task)
+    record.acceptance_criteria = [{"id": "ac1", "text": "README 存在", "confirmed": True}]
+    record.verification_plan = [{"command": command}]
+    goals.save(record)
+    return session, task
+
+
+def test_goal_acceptance_verifies_and_completes(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    monkeypatch.setenv("VIBE_AUTONOMY", "full")
+    session, task = _goal_with_acceptance(tmp_path, "test -f README.md")
+    from app.runtime.notifications import read_notifications
+    from app.safety.policy import ApprovalDecision
+    agent = _agent(tmp_path, script=("完成",))
+
+    async def allow(call, preview):
+        return ApprovalDecision(True, "once")
+    agent.approval.handler = allow
+
+    async def scenario():
+        harness = Harness(agent, Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("run", "r-goal-acc", text="完成目标", task={
+            "kind": "goal", "task_id": task.task_id, "objective": "目标验收",
+        })
+        done = await harness.until("done", "r-goal-acc")
+        assert done["result"]["status"] == "done"
+        assert done["result"]["verified"] is True
+        states = [event for event in harness.events if event["type"] == "task_state"]
+        assert states and states[-1]["task"]["status"] == "completed"
+        acceptance = session.root / "tasks" / task.task_id / "acceptance.v1.json"
+        assert acceptance.is_file()
+        events = [item for item in read_notifications(tmp_path) if item["kind"] == "goal_acceptance"]
+        assert events and events[-1]["status"] is True
+        await harness.close()
+
+    asyncio.run(scenario())
+
+
+def test_goal_acceptance_failure_pauses_task(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    monkeypatch.setenv("VIBE_AUTONOMY", "full")
+    session, task = _goal_with_acceptance(tmp_path, "false")
+    from app.safety.policy import ApprovalDecision
+    agent = _agent(tmp_path, script=("完成",))
+
+    async def allow(call, preview):
+        return ApprovalDecision(True, "once")
+    agent.approval.handler = allow
+
+    async def scenario():
+        harness = Harness(agent, Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("run", "r-goal-fail", text="完成目标", task={
+            "kind": "goal", "task_id": task.task_id, "objective": "目标验收",
+        })
+        done = await harness.until("done", "r-goal-fail")
+        assert done["result"]["status"] == "stopped"
+        assert done["result"]["stop_reason"].startswith("acceptance_")
+        assert "目标验收未通过" in done["result"]["text"] and "false" in done["result"]["text"]
+        states = [event for event in harness.events if event["type"] == "task_state"]
+        assert states and states[-1]["task"]["status"] == "paused"
+        await harness.close()
+
+    asyncio.run(scenario())

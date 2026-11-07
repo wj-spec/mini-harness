@@ -1147,9 +1147,12 @@ class _Connection:
                 total_cost += float(result.cost_usd or 0.0)
                 for key in total_usage:
                     total_usage[key] += int((result.usage or {}).get(key) or 0)
-                if plan_context is None or result.status != "done":
+                if result.status != "done":
                     break
-                result = await self._verify_bound_plan(plan_context, result)
+                if plan_context is not None:
+                    result = await self._verify_bound_plan(plan_context, result)
+                elif run_task is not None and run_task.record.kind == "goal":
+                    result = await self._verify_goal_acceptance(run_task, result)
                 if result.status == "done":
                     break
                 repair_needed = (
@@ -1252,6 +1255,102 @@ class _Connection:
             if not self.stop.is_set():
                 self.send("status", phase="idle")
 
+    async def _run_trusted_acceptance(self, acceptance):
+        """执行可信验收命令；超时返回 None，否则返回三态结果。"""
+        from app.runtime.verification import run_verification_plan
+        from app.safety.sandbox import CommandCancelled
+
+        try:
+            retries = int(os.getenv("VIBE_ACCEPTANCE_RETRIES", "0"))
+        except ValueError:
+            retries = 0
+        try:
+            timeout = float(os.getenv("VIBE_ACCEPTANCE_TIMEOUT_SECONDS", "300"))
+        except ValueError:
+            timeout = 300.0
+        try:
+            total_timeout = float(os.getenv("VIBE_ACCEPTANCE_TOTAL_TIMEOUT_SECONDS", "0"))
+        except ValueError:
+            total_timeout = 0.0
+        if total_timeout <= 0:
+            total_timeout = timeout * (max(0, min(retries, 3)) + 1) + 30.0
+        try:
+            return await asyncio.wait_for(
+                run_verification_plan(
+                    acceptance, self.agent.tools.root, self.agent.approval,
+                    retries=max(0, min(retries, 3)),
+                    timeout=max(1.0, min(timeout, 3600.0)),
+                ),
+                timeout=max(1.0, min(total_timeout, 7200.0)),
+            )
+        except (asyncio.TimeoutError, CommandCancelled):
+            return None
+
+    @staticmethod
+    def _acceptance_failure_text(acceptance, verification, label: str) -> str:
+        codes = ",".join(verification["codes"]) or "acceptance_failed"
+        commands = {item.id: item.command for item in acceptance.verification_plan}
+        details = []
+        for vid, item in verification["results"].items():
+            if item.get("ok"):
+                continue
+            reason = item.get("reason") or f"exit={item.get('exit_code')}"
+            output = str(item.get("output") or "").strip()[-500:]
+            details.append(f"- {vid}: {commands.get(vid, '?')} → {reason}"
+                           + (f"\n  {output}" if output else ""))
+        suffix = f"\n[{label}未通过：" + codes + "]"
+        if details:
+            suffix += "\n[失败命令]\n" + "\n".join(details[:5])
+        return suffix
+
+    async def _verify_goal_acceptance(self, run_task, result) -> AgentResult:
+        """goal 完成门：已确认 criteria 的可信验收命令通过才视为 verified。"""
+        from app.runtime.goals import GoalStore
+
+        try:
+            record = GoalStore(self.session.root).load()
+        except Exception:
+            return result
+        if record is None or record.task_id != run_task.task_id:
+            return result
+        try:
+            acceptance = record.acceptance()
+        except Exception:
+            return result
+        if acceptance is None:
+            return result
+        verification = await self._run_trusted_acceptance(acceptance)
+        if verification is None:
+            return replace(
+                result, status="stopped", stop_reason="acceptance_timeout",
+                text=(result.text + "\n[目标验收超时]").strip(),
+            )
+        from app.runtime.tasks import TaskStore
+
+        task_dir = TaskStore(self.session.root).task_dir(run_task.task_id)
+        try:
+            from app.runtime.acceptance import save_acceptance_result
+            save_acceptance_result(task_dir, 1, verification)
+        except Exception:
+            pass
+        try:
+            from app.runtime.notifications import notify
+            notify(self.agent.tools.root, "goal_acceptance",
+                   task_id=run_task.task_id, goal_id=record.goal_id,
+                   status=verification["status"], codes=verification["codes"])
+        except Exception:
+            pass
+        if verification["status"] is True:
+            return replace(result, verified=True)
+        if verification["status"] is not True:
+            codes = ",".join(verification["codes"]) or "acceptance_failed"
+            suffix = self._acceptance_failure_text(acceptance, verification, "目标验收")
+            return replace(
+                result, status="stopped", stop_reason=f"acceptance_{codes}",
+                text=(result.text + suffix).strip(),
+            )
+        return result
+
     async def _verify_bound_plan(self, plan_context, result) -> AgentResult:
         """绑定计划的完成门：required 步骤必须 done，然后跑可信验收命令。"""
         from app.runtime.plan_execution import load_ledger
@@ -1266,35 +1365,9 @@ class _Connection:
             acceptance = plan_context["plan"].acceptance()
             if acceptance is None:
                 return result
-            from app.runtime.verification import run_verification_plan
-            from app.safety.sandbox import CommandCancelled
-
-            try:
-                retries = int(os.getenv("VIBE_ACCEPTANCE_RETRIES", "0"))
-            except ValueError:
-                retries = 0
-            try:
-                timeout = float(os.getenv("VIBE_ACCEPTANCE_TIMEOUT_SECONDS", "300"))
-            except ValueError:
-                timeout = 300.0
-            try:
-                total_timeout = float(os.getenv("VIBE_ACCEPTANCE_TOTAL_TIMEOUT_SECONDS", "0"))
-            except ValueError:
-                total_timeout = 0.0
-            if total_timeout <= 0:
-                total_timeout = timeout * (max(0, min(retries, 3)) + 1) + 30.0
-            verification = None
-            try:
-                verification = await asyncio.wait_for(
-                    run_verification_plan(
-                        acceptance, self.agent.tools.root, self.agent.approval,
-                        retries=max(0, min(retries, 3)),
-                        timeout=max(1.0, min(timeout, 3600.0)),
-                    ),
-                    timeout=max(1.0, min(total_timeout, 7200.0)),
-                )
-            except (asyncio.TimeoutError, CommandCancelled):
-                result = replace(
+            verification = await self._run_trusted_acceptance(acceptance)
+            if verification is None:
+                return replace(
                     result, status="stopped", stop_reason="acceptance_timeout",
                     text=(result.text + "\n[计划验收超时]").strip(),
                 )
@@ -1323,18 +1396,7 @@ class _Connection:
                 result = replace(result, verified=True)
             if verification is not None and verification["status"] is not True:
                 codes = ",".join(verification["codes"]) or "acceptance_failed"
-                commands = {item.id: item.command for item in acceptance.verification_plan}
-                details = []
-                for vid, item in verification["results"].items():
-                    if item.get("ok"):
-                        continue
-                    reason = item.get("reason") or f"exit={item.get('exit_code')}"
-                    output = str(item.get("output") or "").strip()[-500:]
-                    details.append(f"- {vid}: {commands.get(vid, '?')} → {reason}"
-                                   + (f"\n  {output}" if output else ""))
-                suffix = "\n[计划验收未通过：" + codes + "]"
-                if details:
-                    suffix += "\n[失败命令]\n" + "\n".join(details[:5])
+                suffix = self._acceptance_failure_text(acceptance, verification, "计划验收")
                 result = replace(
                     result, status="stopped", stop_reason=f"acceptance_{codes}",
                     text=(result.text + suffix).strip(),

@@ -185,3 +185,24 @@ def test_continue_decision_token_and_cost_caps(tmp_path):
                        {"segment": 2, "usage": {"total_tokens": 60}}]
     assert continue_decision(record, task, "stopped", "max_run_seconds",
                              max_tokens=100, now=now)[1] == "goal_max_tokens"
+
+
+def test_goal_record_acceptance_maps_confirmed_criteria(tmp_path):
+    task, record = _record(tmp_path)
+    assert record.acceptance() is None
+    task, record = _record(
+        tmp_path,
+        acceptance_criteria=[
+            {"id": "ac1", "text": "测试通过", "confirmed": True},
+            {"text": "候选未确认", "confirmed": False},
+        ],
+        verification_plan=[{"command": "python -m pytest -q"}],
+    )
+    acceptance = record.acceptance()
+    assert acceptance is not None
+    assert acceptance.task_id == task.task_id
+    assert acceptance.plan_id == "goal-g-1"
+    assert [item.id for item in acceptance.criteria] == ["ac1", "ac2"]
+    command = acceptance.verification_plan[0]
+    assert command.id == "v1" and command.covers == ["ac1"]
+    assert command.command == "python -m pytest -q"

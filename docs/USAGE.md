@@ -265,6 +265,7 @@ history 实际额度 = 窗口 − 输出预留 − 安全余量 − 实际 syste
 - 模型 done 且 `verified` 不为 false 时目标完成；`done` 但 `verified=false` 时目标暂停（`unverified_completion`），核对 `/evidence` 后输入 `/goal resume` 继续；`done` 之前的资源暂停不会丢历史，后续段继续读取同一会话；
 - 默认最多 **8 段**、总时长 **4 小时**：`VIBE_GOAL_MAX_SEGMENTS`、`VIBE_GOAL_SECONDS`；可选总 token/费用上限 `VIBE_GOAL_MAX_TOKENS`、`VIBE_GOAL_MAX_COST_USD`（0=不限）；后台 goal worker 同样执行这些上限（按 `budget.jsonl` 累计），命中时写 `goal_stopped` 通知并暂停；
 - 目标完成/暂停后可以用 `/goal resume` 继续，或输入新 `/goal` 开始新目标；
+- 目标可带已确认 acceptance_criteria + verification_plan：run 完成时执行可信验收命令，通过才标 verified 完成；失败暂停并附失败命令（`goal_acceptance` 通知）；
 - 目标状态以 `goal.json` 保存在当前会话目录（`.vibe/sessions/<id>/goal.json`）；重启 Ink 或 `--continue` 后会恢复目标并标记为 paused，输入 `/goal resume` 显式续段，不会在重启后自动继续花费。
 
 目标模式不会改变审批、沙箱、写文件或命令边界；每段仍然遵守当前配置的单轮限制。

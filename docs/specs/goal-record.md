@@ -86,6 +86,15 @@
 | 总 token | `max_tokens` + `used_tokens` | `goal_max_tokens` |
 | 总费用 | `max_cost_usd` + `used_cost_usd` | `goal_max_cost_usd` |
 
+## 完成验收（2026-11-07 补充）
+
+`GoalRecord.acceptance()`：已确认 required criteria + `verification_plan`（可省略 id/covers，自动补全）
+生成三态验收对象。goal run done 时由 harness 执行可信命令：
+
+- 通过：run `verified=true`，任务 completed；写任务目录 `acceptance.v1.json` 与 `goal_acceptance` 通知；
+- 失败：run `stopped/acceptance_<code>`，goal/task paused，文本附失败命令与输出摘要；
+- 超时：`stopped/acceptance_timeout`。
+
 后台 goal worker 在每段结束后读取 `budget.jsonl` 累计值（`BudgetLedger.totals`）作为
 `used_tokens` / `used_cost_usd`，并从环境变量读取上限：
 

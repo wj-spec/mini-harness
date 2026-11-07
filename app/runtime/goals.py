@@ -122,6 +122,56 @@ class GoalRecord:
     updated_at: str = ""
     extra: dict[str, Any] = field(default_factory=dict, repr=False)
 
+    def acceptance(self):
+        """从已确认 required criteria + verification_plan 生成三态验收对象。"""
+        from app.runtime.acceptance import AcceptanceError, PlanAcceptance
+
+        confirmed = [
+            item for item in self.acceptance_criteria
+            if item.get("confirmed") is True and item.get("required", True) is not False
+        ]
+        if not confirmed:
+            return None
+        criteria = []
+        for index, item in enumerate(self.acceptance_criteria, 1):
+            if not isinstance(item, dict) or not str(item.get("text") or "").strip():
+                continue
+            criteria.append({
+                "id": str(item.get("id") or f"ac{index}"),
+                "text": str(item.get("text")),
+                "required": item.get("required", True) is not False,
+                "confirmed": item.get("confirmed") is True,
+                "manual": bool(item.get("manual", False)),
+                "source": str(item.get("source", "user")),
+            })
+        confirmed_ids = [item["id"] for item in criteria if item["confirmed"] and item["required"]]
+        commands = []
+        for index, item in enumerate(self.verification_plan, 1):
+            if not isinstance(item, dict):
+                continue
+            command = str(item.get("command") or "").strip()
+            if not command:
+                continue
+            covers = [str(entry) for entry in item.get("covers") or [] if str(entry).strip()]
+            commands.append({
+                "id": str(item.get("id") or f"v{index}"),
+                "command": command,
+                "covers": covers or confirmed_ids,
+                "source": str(item.get("source", "project_profile")),
+            })
+        try:
+            return PlanAcceptance.from_dict({
+                "schema_version": 1,
+                "task_id": self.task_id,
+                "plan_id": f"goal-{self.goal_id}",
+                "plan_version": 1,
+                "acceptance_criteria": criteria,
+                "verification_plan": commands,
+                "trusted_source": "project_profile",
+            })
+        except AcceptanceError:
+            return None
+
     def to_dict(self) -> dict[str, Any]:
         payload = {
             "schema_version": self.schema_version,

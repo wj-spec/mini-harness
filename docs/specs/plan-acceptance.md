@@ -69,10 +69,12 @@
 - `/plan acceptance` 可查看 criteria 与 verification plan 清单（不执行）；
 - 已执行结果可在任务目录 `acceptance.v<version>.json` 核对；
 - `/plan acceptance` 若已有结果会追加 status/codes 与每条命令 ok/attempts。
-- 从 GoalRecord 生成 PlanAcceptance（当前从 Plan 生成）；
 - 合并后重验已接入 merge 门禁（见下文）；
 - rounds/`/evidence` 展示验收结果；
-- 三态结论写入 rounds/`/evidence` 与 goal 完成判定；
+- 三态结论写入 rounds/`/evidence` 与 goal 完成判定：goal run done 时若 GoalRecord 有已确认 required
+  criteria，则生成 PlanAcceptance（plan_id=`goal-<goal_id>`）执行可信命令；通过标 `verified=true`，
+  失败 `stopped/acceptance_<code>` 并暂停 goal；结果写任务目录 `acceptance.v1.json` + `goal_acceptance` 通知；
+
 - 模型提议 criteria 的 `confirmed=false` 流程接 TUI plan.review。
 
 ## 测试
