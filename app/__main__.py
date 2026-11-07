@@ -119,6 +119,9 @@ def main() -> None:
     parser.add_argument("--trace-summary", action="store_true", help="只读聚合指定会话 trace（LLM/tool/审批/停止原因）")
     parser.add_argument("--trace-json", action="store_true", help="--trace-summary 的 JSON 输出")
     parser.add_argument("--trace-all-sessions", action="store_true", help="与 --trace-summary 搭配：汇总本工作区所有会话")
+    parser.add_argument("--bench-history", action="store_true", help="只读列出本工作区长任务 benchmark 历史报告")
+    parser.add_argument("--bench-history-json", action="store_true", help="--bench-history 的 JSON 输出")
+    parser.add_argument("--bench-history-limit", type=int, default=20, metavar="N", help="--bench-history 显示条数（默认 20，1-200）")
     parser.add_argument("--redteam", action="store_true", help="只读检查无人值守 profile 默认拒绝矩阵")
     parser.add_argument("--prepare-plan-task", action="store_true", help="把会话中最新可执行计划准备成待运行 task（不启动 worker）")
     parser.add_argument("--run-plan-queue", action="store_true", help="按创建顺序依次运行会话中已准备的计划 task")
@@ -277,6 +280,25 @@ def main() -> None:
             or args.pause_task is not None or args.merge_task is not None or args.cleanup_logs
         ):
             parser.error("--decide-approval cannot be combined with other modes")
+    if args.bench_history_json and not args.bench_history:
+        parser.error("--bench-history-json requires --bench-history")
+    if args.bench_history_limit != 20 and not args.bench_history:
+        parser.error("--bench-history-limit requires --bench-history")
+    if args.bench_history:
+        if args.workspace is None:
+            parser.error("--bench-history requires --workspace")
+        if args.bench_history_limit < 1 or args.bench_history_limit > 200:
+            parser.error("--bench-history-limit must be between 1 and 200")
+        if (
+            args.stdio or args.eval or args.eval_limit is not None or args.eval_tasks is not None
+            or args.list_sessions or args.task is not None or args.bench or args.tasks
+            or args.notifications or args.plans or args.acceptance or args.approvals
+            or args.redteam or args.prune_worktrees or args.worker or args.attach
+            or args.stop or args.stop_task is not None or args.pause_task is not None
+            or args.merge_task is not None or args.cleanup_logs or args.decide_approval is not None
+            or args.evidence or args.trace_summary or args.prepare_plan_task or args.run_plan_queue
+        ):
+            parser.error("--bench-history cannot be combined with other modes")
     if args.trace_json and not args.trace_summary:
         parser.error("--trace-json requires --trace-summary")
     if args.trace_all_sessions and not args.trace_summary:
@@ -403,7 +425,7 @@ def main() -> None:
         parser.error("--bench requires --task")
     if args.telemetry_out and args.task is None:
         parser.error("--telemetry-out requires --task")
-    if not args.stdio and not args.eval and not args.list_sessions and not args.tasks and not args.notifications and not args.plans and not args.acceptance and not args.approvals and not args.redteam and not args.approve_unattended_profile and not args.prune_worktrees and not args.evidence and not args.trace_summary and not args.prepare_plan_task and not args.run_plan_queue and not args.worker and not args.attach and args.merge_task is None and not args.stop and args.pause_task is None and not args.cleanup_logs and args.task is None and args.decide_approval is None:
+    if not args.stdio and not args.eval and not args.list_sessions and not args.tasks and not args.notifications and not args.plans and not args.acceptance and not args.approvals and not args.redteam and not args.approve_unattended_profile and not args.prune_worktrees and not args.evidence and not args.trace_summary and not args.bench_history and not args.prepare_plan_task and not args.run_plan_queue and not args.worker and not args.attach and args.merge_task is None and not args.stop and args.pause_task is None and not args.cleanup_logs and args.task is None and args.decide_approval is None:
         print(
             "Textual 入口已退役。交互界面请运行 ./run_ink.sh（例如 ./run_ink.sh --fake）；"
             "后端与 eval 分别使用 --stdio / --eval。",
@@ -1026,6 +1048,17 @@ def main() -> None:
             print(json.dumps(summary, ensure_ascii=False, indent=2))
             return
         print(render_trace_summary(summary))
+        return
+
+    if args.bench_history:
+        from app.eval.history import bench_reports, render_bench_history
+
+        rows = bench_reports(config.workspace, limit=args.bench_history_limit)
+        if args.bench_history_json:
+            print(json.dumps({"workspace": str(config.workspace), "count": len(rows),
+                              "reports": rows}, ensure_ascii=False, indent=2))
+            return
+        print(render_bench_history(rows))
         return
 
     if args.evidence:

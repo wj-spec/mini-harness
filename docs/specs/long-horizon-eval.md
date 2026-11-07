@@ -46,6 +46,6 @@
 - 多段场景现有 2 个（goal-multisegment、goal-token-segments），其余场景为单段；
 - 已覆盖 fake provider 5xx、本地 mock OpenAI 服务端 503→200、fake 时钟偏移；seed 注入当前不适用
   （评测/基准无随机采样，保持确定性；未来引入随机任务生成再增加 seed）；
-- 重复运行统计已有 pass rate/耗时聚合与 agent_version，但还没有跨机器/跨提交的历史趋势对比；
+- 重复运行统计已有 pass rate/耗时聚合、agent_version 与本地历史视图（`--bench-history`）；跨机器汇总/历史趋势图表仍待；
 - fake 通过只表示接线/生命周期语义，不代表模型能力；真实模型能力证据见
   [真实 P1 记录](real-p1-plan-smoke-2026-11-07.md)。
