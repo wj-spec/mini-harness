@@ -46,11 +46,23 @@ def bench_reports(
     return rows
 
 
+def _comparable_group(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """只比较 mode 与 scenarios 完全一致的历史（fake/real、场景集不同不可比）。"""
+    if not rows:
+        return []
+    key = (rows[-1].get("mode"), tuple(rows[-1].get("scenarios") or []))
+    return [
+        row for row in rows
+        if (row.get("mode"), tuple(row.get("scenarios") or [])) == key
+    ]
+
+
 def latest_regression(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """比较最近两次报告：返回通过数下降/失败增加的信息；无回归返回 None。"""
-    if len(rows) < 2:
+    """比较最近两次可比报告：返回通过数下降/失败增加的信息；无回归返回 None。"""
+    comparable = _comparable_group(rows)
+    if len(comparable) < 2:
         return None
-    previous, latest = rows[-2], rows[-1]
+    previous, latest = comparable[-2], comparable[-1]
     prev_total = int(previous.get("total") or 0)
     prev_passed = int(previous.get("passed") or 0)
     total = int(latest.get("total") or 0)

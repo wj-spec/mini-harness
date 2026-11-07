@@ -480,3 +480,25 @@ def test_version_consistency_check(tmp_path):
     assert mismatch.status == "fail"
     (tmp_path / "tui" / "package.json").write_text('{"version": "0.2.0"}', encoding="utf-8")
     assert doctor.check_version_consistency(tmp_path).status == "ok"
+
+
+def test_doctor_bench_regression_only_compares_same_mode(tmp_path):
+    repo, workspace = _green_repo(tmp_path)
+    root = workspace / ".vibe" / "bench-long"
+    root.mkdir(parents=True)
+
+    def write(name, mode, total, passed, scenarios):
+        directory = root / name
+        directory.mkdir()
+        (directory / "report.json").write_text(json.dumps({
+            "generated_at": name, "mode": mode, "agent_version": "a",
+            "scenarios": scenarios,
+            "summary": {"total": total, "passed": passed, "failed": total - passed},
+        }), encoding="utf-8")
+
+    write("20261101T000000Z", "fake-worker-p0", 15, 15, ["a"])
+    write("20261102T000000Z", "real-worker-p0", 5, 5, ["real-read-summary"])
+    code, output = _run_doctor(repo, workspace, env={"VIBE_API_KEY": "sk-test"})
+    assert code == 0, output
+    assert "可比样本 1" in output
+    assert "有回归" not in output

@@ -503,6 +503,7 @@ def bench_history_rows(workspace: Path) -> list[dict]:
             "generated_at": payload.get("generated_at"),
             "mode": payload.get("mode"),
             "agent_version": payload.get("agent_version"),
+            "scenarios": payload.get("scenarios") or [],
             "total": summary.get("total"),
             "passed": summary.get("passed"),
             "failed": summary.get("failed"),
@@ -519,9 +520,17 @@ def check_bench_history(workspace: Path) -> Check:
     passed = int(latest.get("passed") or 0)
     total = int(latest.get("total") or 0)
     failed = int(latest.get("failed") or 0)
-    if len(rows) < 2:
-        return Check(OK, f"长任务 benchmark 历史 {len(rows)} 次（最近 {passed}/{total}）")
-    previous = rows[-2]
+    key = (latest.get("mode"), tuple(latest.get("scenarios") or []))
+    comparable = [
+        row for row in rows
+        if (row.get("mode"), tuple(row.get("scenarios") or [])) == key
+    ]
+    if len(comparable) < 2:
+        return Check(
+            OK,
+            f"长任务 benchmark 历史 {len(rows)} 次（可比样本 {len(comparable)}；最近 {passed}/{total}）",
+        )
+    previous = comparable[-2]
     previous_passed = int(previous.get("passed") or 0)
     if failed > 0 or passed < previous_passed:
         return Check(

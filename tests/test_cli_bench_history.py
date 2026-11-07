@@ -123,3 +123,22 @@ def test_bench_history_reports_corrupt_reports(tmp_path, monkeypatch, capsys):
     assert payload["count"] == 2
     assert payload["skipped_bench_reports"] == 1
     assert "skipped 1 corrupt bench reports" in captured.err
+
+
+def test_regression_ignores_mixed_modes_and_scenarios(tmp_path):
+    from app.eval.history import latest_regression, bench_reports
+
+    root = tmp_path / ".vibe" / "bench-long"
+    _report(root / "a" / "report.json", generated_at="2026-11-01T00:00:00+00:00",
+            agent_version="a", passed=15, total=15)
+    # fake 15/15 之后 real 5/5 不应被当作回归
+    payload = {
+        "generated_at": "2026-11-02T00:00:00+00:00", "mode": "real-worker-p0",
+        "agent_version": "b", "scenarios": ["real-read-summary"],
+        "summary": {"total": 5, "passed": 5, "failed": 0},
+    }
+    target = root / "b" / "report.json"
+    target.parent.mkdir(parents=True)
+    target.write_text(json.dumps(payload), encoding="utf-8")
+    rows = bench_reports(tmp_path, limit=10)
+    assert latest_regression(rows) is None
