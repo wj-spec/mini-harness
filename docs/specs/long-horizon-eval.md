@@ -59,6 +59,7 @@
 - 场景按 `modes` 声明适用 provider：默认 `[fake]`；`real-read-summary` 为 fake+real，`real-task-deadline` 为 real-only。
   fake 默认跑 15 个、`--real` 只跑 5 个真实适配场景；2026-11-07 双模型 `--real` 均 **5/5 PASS**
   （read/attach=completed 无改动；deadline=failed + task_deadline_exceeded；kill-switch=paused + worker killed；two-slot 串行完成）。
+  稳定性：deepseek-flash `--real --runs 2` → **10/10 PASS**（5 场景 ×2 轮，无 flake）。
 - 已覆盖 fake provider 5xx、本地 mock OpenAI 服务端 503→200、fake 时钟偏移；seed 注入当前不适用
   （评测/基准无随机采样，保持确定性；未来引入随机任务生成再增加 seed）；
 - 重复运行统计已有 pass rate/耗时聚合、agent_version 与本地历史视图（`--bench-history`）；跨机器汇总/历史趋势图表仍待；
