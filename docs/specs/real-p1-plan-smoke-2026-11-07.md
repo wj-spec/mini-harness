@@ -342,8 +342,9 @@ Agent 完成守卫只看到“文件改动未被模型自己的验证覆盖”�
 
 1. `foreground`：真实两步计划 + 验收（stdio 审批帧）；
 2. `background`：`plan prepare-background` + detached worker（worktree）；
-3. `repair`：验收失败 → 自动修复回灌 → 重新验收（marker 写 `.vibe/`，避免弄脏 suite 后续合并）；
-4. `merge`：edit 计划在 worktree 执行 → 合并审批 → 合并后计划重验。
+3. `queue`：`--prepare-plan-task` + `--run-plan-queue --queue-dry-run` 预演 + 串行 drain；
+4. `repair`：验收失败 → 自动修复回灌 → 重新验收（marker 写 `.vibe/`，避免弄脏 suite 后续合并）；
+5. `merge`：edit 计划在 worktree 执行 → 合并审批 → 合并后计划重验。
 
 deepseek-flash 一次 suite 结果（2026-11-07）：
 
@@ -351,12 +352,13 @@ deepseek-flash 一次 suite 结果（2026-11-07）：
 |---|---|
 | foreground | run done、s1/s2 done、acceptance=true |
 | background | task completed、s1/s2 done、acceptance=true |
+| queue | dry-run executable=true、queue completed=1、task completed、acceptance=true |
 | repair | run done、repair 1 次、acceptance=true |
 | merge | task completed、merged=true、post_merge_verified=true |
 
 聚合 `ok=true`。单模式异常不阻断后续；任一失败最终 exit 1。
 
-跨模型重复（2026-11-07）：deepseek-flash 与 deepseek-chat 各跑一次 suite，**均 4/4 通过**。
+跨模型重复（2026-11-07）：suite 扩展为五种模式后，deepseek-flash 与 deepseek-chat 各跑一次，**均 5/5 通过**（`queue` 模式新增）。
 
 **chat 首跑暴露并修复的三个问题**：
 

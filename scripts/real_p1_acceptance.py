@@ -397,6 +397,7 @@ async def _run_suite(config: Config, workspace: Path, verify_command: str = "tru
     modes = [
         ("foreground", lambda: _run(config, workspace, verify_command)),
         ("background", lambda: _run(config, workspace, verify_command, background=True)),
+        ("queue", lambda: _run_queue(config, workspace)),
         ("repair", lambda: _run_repair(config, workspace)),
         ("merge", lambda: _run_merge(config, workspace)),
     ]
@@ -412,11 +413,78 @@ async def _run_suite(config: Config, workspace: Path, verify_command: str = "tru
         "modes": {
             name: {key: item.get(key) for key in (
                 "ok", "stage", "run_status", "task_status", "steps", "acceptance",
-                "repair_attempts", "merged", "post_merge_verified", "error",
+                "repair_attempts", "merged", "post_merge_verified",
+                "queue_completed", "queue_stopped_early", "dry_run_executable", "error",
             ) if key in item}
             for name, item in results.items()
         },
         "detail": results,
+    }
+
+
+async def _run_queue(config: Config, workspace: Path) -> dict:
+    """真实计划 → --prepare-plan-task → --run-plan-queue 串行 drain 的真实链路。"""
+    session = SessionStore.new(workspace, "openai", purpose="user")
+    plan_task_id, plan = await _generate_plan(config, workspace, session, "true")
+    if plan is None:
+        return {"ok": False, "stage": "generate", "error": "no plan.v1.json"}
+    (workspace / ".vibe").mkdir(exist_ok=True)
+    (workspace / ".vibe" / "unattended.json").write_text(
+        '{"schema_version":1,"allow_exec":true}', encoding="utf-8")
+    root = str(Path(__file__).resolve().parents[1])
+    base = [sys.executable, "-m", "app", "--workspace", str(workspace), "--session", session.id]
+    env = dict(os.environ, VIBE_AUTONOMY="full")
+    prepared = subprocess.run(base + ["--prepare-plan-task"], cwd=root, env=env,
+                              capture_output=True, text=True, timeout=120)
+    task_id = None
+    try:
+        prepared_payload = json.loads((prepared.stdout or "").strip())
+        task_id = prepared_payload.get("task_id")
+    except json.JSONDecodeError:
+        pass
+    if prepared.returncode != 0 or not task_id:
+        return {"ok": False, "stage": "prepare",
+                "stdout": (prepared.stdout or "")[-1000:],
+                "stderr": (prepared.stderr or "")[-1000:]}
+    dry = subprocess.run(base + ["--run-plan-queue", "--queue-dry-run"], cwd=root, env=env,
+                         capture_output=True, text=True, timeout=60)
+    dry_payload: dict = {}
+    try:
+        dry_payload = json.loads((dry.stdout or "").strip())
+    except json.JSONDecodeError:
+        pass
+    run = subprocess.run(base + ["--run-plan-queue", "--queue-task-timeout", "420"],
+                         cwd=root, env=env, capture_output=True, text=True, timeout=600)
+    payload: dict = {}
+    try:
+        payload = json.loads((run.stdout or "").strip())
+    except json.JSONDecodeError:
+        pass
+    from app.runtime.tasks import TaskStore
+    final_task = TaskStore(session.root).get(task_id)
+    ledger_file = session.root / "tasks" / plan_task_id / "plan" / "execution.v1.json"
+    ledger = json.loads(ledger_file.read_text(encoding="utf-8")) if ledger_file.is_file() else {}
+    acc_file = session.root / "tasks" / plan_task_id / "acceptance.v1.json"
+    acceptance = json.loads(acc_file.read_text(encoding="utf-8")).get("status") if acc_file.is_file() else None
+    steps = {item["step_id"]: item["status"] for item in ledger.get("steps", [])}
+    dry_rows = dry_payload.get("queue") or []
+    ok = (
+        dry.returncode == 0
+        and bool(dry_rows) and dry_rows[0].get("plan_executable") is True
+        and run.returncode == 0
+        and payload.get("completed") == 1 and payload.get("stopped_early") is None
+        and final_task.status == "completed"
+        and steps == {"s1": "done", "s2": "done"} and acceptance is True
+    )
+    return {
+        "ok": ok, "stage": "queue", "task_id": task_id,
+        "dry_run_returncode": dry.returncode,
+        "dry_run_executable": bool(dry_rows and dry_rows[0].get("plan_executable")),
+        "queue_returncode": run.returncode,
+        "queue_completed": payload.get("completed"),
+        "queue_stopped_early": payload.get("stopped_early"),
+        "task_status": final_task.status, "steps": steps, "acceptance": acceptance,
+        "stderr": (run.stderr or "")[-1000:],
     }
 
 async def _run_subagent(config: Config, workspace: Path, session: SessionStore) -> dict:
@@ -446,7 +514,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--merge-verify-command", default="grep -q merge-ok merge-marker.txt",
                         help="--merge 模式的验收命令（同时用于合并后重验）")
     parser.add_argument("--suite", action="store_true",
-                        help="依次跑 foreground/background/repair/merge 四种真实模型验收")
+                        help="依次跑 foreground/background/queue/repair/merge 五种真实模型验收")
     parser.add_argument("--verify-command", default="true",
                         help="计划验收命令（默认 true；需为可信 source=plan_approval）")
     parser.add_argument("--keep", action="store_true", help="保留临时工作区")
