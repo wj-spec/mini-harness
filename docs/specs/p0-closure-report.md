@@ -97,7 +97,7 @@ TUI /goal /chat /act /plan
 **这不是生产完成**；剩余为：真实 TUI 终端渲染/键盘人工验收（沙箱无 pty，已给 [10 分钟清单](manual-acceptance-tui-quick.md)）、
 模型自发委派（设计列为 P2，需用户拍板）、attach 回放子 Agent（当前无使用路径）、文件集级并行写、跨机器/跨提交趋势对比。
 
-## 7. 100 轮加固摘要（2026-11-07）
+## 7. 55–100 轮加固摘要（2026-11-07 快照）
 
 ### 当前基线（第 151 轮，2026-11-07）
 
@@ -123,8 +123,9 @@ TUI /goal /chat /act /plan
 - **子 Agent**：`/explore` 预算可配置（`VIBE_EXPLORE_*`）并新增 `--explore PROMPT` CLI（JSON 输出）。
 - **真实模型**：`--suite-runs 2` 稳定性样本，deepseek-flash/chat 各 **2×6/6**；计划生成缺失自动重试一次。
 - **损坏状态容错**：只读视图统一「跳过 + 计数 + stderr 告警」，并有全损坏工作区集成测试。
-- **基线**：Python **1604 passed / 13 skipped**；TUI **414 passed / 1 failed**（无 pty 环境）；长任务 fake **14/14**；
-  真实 suite 双模型 **6/6**。
+- **第 101–153 轮补充**：真实长任务 bench 5 场景（read/deadline/kill-switch/restart-attach/two-slot）双模型 5/5；
+  P2 opt-in 只读 `delegate` + A/B 脚本与结论；doctor 增加 stop 文件/待运行计划/版本一致性/bench 存储检查；
+  文档链接与 spec/research 引用完整性测试。
 
-剩余均依赖用户/环境：真实 TUI 终端键路人工验收、模型自发委派（P2）、文件集级并行写、跨机器集中观测
+剩余均依赖用户/环境：真实 TUI 终端键路人工验收；P2 委派是否默认开启/扩 A/B；文件集级并行写；跨机器集中观测
 （见 [待用户拍板事项](open-decisions.md)）；一页交接见 [交接摘要](final-handoff-2026-11-07.md)。
