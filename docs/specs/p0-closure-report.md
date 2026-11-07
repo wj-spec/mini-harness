@@ -74,7 +74,7 @@ TUI /goal /chat /act /plan
    文件集级并行写仍待；profile 放宽审批门已实现（`--approve-unattended-profile` + `VIBE_UNATTENDED_REQUIRE_APPROVAL`）。
 5. **08 剩余**：5xx 注入（含本地 mock 服务端 503→200）、fake 时钟偏移注入、goal 成本 cap、
    重复运行统计、`agent_version`（bench 报告）已实现；seed 注入当前不适用（无随机采样）。
-6. **环境**：真实 TUI 验收受 pty 限制；browser smoke 与 TUI 侧栏渲染在负载下偶发 flake（复跑即过）。
+6. **环境**：真实 TUI 验收受 pty 限制；browser smoke 在负载下偶发 flake；TUI 侧栏测试已改为等待目标帧，不再受负载影响。
 7. **生产级**：合并后重验（真实链路 2/2 已跑通）、外部 webhook 告警、doctor 运行时自检、
    计划任务 prepare+drain（含跨会话/跨工作区、continue-on-failure、1-8 并行、priority 排序）排队入口已接入；
    trace 观测摘要（`--trace-summary`）已提供，跨机器集中观测/追踪仍非生产完成。

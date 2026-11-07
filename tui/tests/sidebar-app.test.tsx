@@ -18,6 +18,19 @@ const status: StatusResult = {ok: true, status: {root: '/repo', branch: 'main', 
 const diffText = ['diff --git a/tui/src/app.tsx b/tui/src/app.tsx', '@@ -1,2 +1,3 @@', ' context', '-old line', '+added line'].join('\n');
 const diff: DiffResult = {ok: true, text: diffText, truncated: false};
 
+async function waitForFrame(
+  lastFrame: () => string | undefined, pattern: RegExp, timeoutMs = 2000,
+): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  let frame = '';
+  while (Date.now() < deadline) {
+    frame = lastFrame() ?? '';
+    if (pattern.test(frame)) return frame;
+    await pause(10);
+  }
+  return frame;
+}
+
 function mount(overrides: {
   statusResult?: StatusResult;
   diffResult?: DiffResult;
@@ -34,8 +47,7 @@ function mount(overrides: {
 
 test('sidebar renders branch, changed files, follow mode and the selected diff', async () => {
   const {lastFrame} = mount();
-  await pause(40);
-  const frame = lastFrame() ?? '';
+  const frame = await waitForFrame(lastFrame, /\+added line/u);
   assert.match(frame, /main/u);
   assert.match(frame, /tui\/src\/app\.tsx/u);
   assert.match(frame, /new\.ts/u);
@@ -57,11 +69,10 @@ test('sidebar keeps every rendered row within the terminal width', async () => {
 
 test('keyboard selection moves to the next file and stops following', async () => {
   const {stdin, lastFrame} = mount();
-  await pause(40);
+  await waitForFrame(lastFrame, /\+added line/u);
   stdin.write('j');
-  await pause(30);
-  assert.match(lastFrame() ?? '', /新增 · new\.ts/u);
-  assert.match(lastFrame() ?? '', /手动/u);
+  const frame = await waitForFrame(lastFrame, /新增 · new\.ts/u);
+  assert.match(frame, /手动/u);
 });
 
 test('empty workspace explains there is nothing to review', async () => {
