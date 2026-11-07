@@ -452,6 +452,11 @@ class _Connection:
                     for item in plan.verification_plan:
                         covers = ",".join(item.get("covers") or [])
                         lines.append(f"- {item.get('id')} covers={covers} source={item.get('source')} cmd={item.get('command')}")
+                lines.append("步骤：")
+                for index, step in enumerate(plan.steps, 1):
+                    deps = f" depends={','.join(step.depends_on)}" if step.depends_on else ""
+                    files = f" files={','.join(step.files)}" if step.files else ""
+                    lines.append(f"{index}. {step.step_id} {step.title} [{step.kind}/{step.risk}]{deps}{files}")
                 lines.append(f"执行门禁：executable={can_execute(plan)}")
                 lines.append(f"批准：by={approval.get('approved_by') or '-'} at={approval.get('approved_at') or '-'}")
                 lines.append(f"hash 匹配：{approval.get('plan_hash') == plan_content_hash(plan)}")

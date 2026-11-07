@@ -1841,6 +1841,7 @@ def test_plan_card_shows_approval_details(tmp_path, monkeypatch):
         assert "计划审批卡" in text and "审批卡目标" in text
         assert "约束：只读" in text and "验收标准" in text
         assert "验证命令" in text and "cmd=true" in text
+        assert "步骤：" in text and "1. s1 读 [read/read]" in text
         assert "executable=False" in text
         await harness.close()
 
