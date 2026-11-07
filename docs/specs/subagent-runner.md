@@ -51,3 +51,10 @@
 
 `./run_vibe.sh --explore "<prompt>" --workspace <ws>` 输出 JSON（status/summary/task_id/session/tokens/cost/error），
 与 TUI `/explore` 共用预算 env（`VIBE_EXPLORE_*`）；真实模型 flash/chat 各一次均 ok（约 2.2k/2.4k tokens）。
+
+## opt-in 委派（delegate，P2）
+
+`VIBE_SUBAGENT_DELEGATE=1` 时主 Agent 获得只读 `delegate(prompt)` 工具：单次只读子 Agent、
+不嵌套、预算 `VIBE_DELEGATE_*` 且不超过父 `max_run_tokens`；结果标 `untrusted claim`，
+完成后写 `subagent_finished` 通知与 `kind=subagent` TaskRecord。
+A/B 初版结果（小任务无收益、默认关闭）见 [delegation-ab](delegation-ab.md)。

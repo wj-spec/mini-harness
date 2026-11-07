@@ -53,6 +53,10 @@ def test_delegate_tool_registers_and_reports_untrusted_claim(tmp_path, monkeypat
     assert captured["max_run_tokens"] == 9000
     assert captured["max_run_seconds"] == 45.0
     assert captured["session_root"] == tmp_path
+    from app.runtime.notifications import read_notifications
+
+    kinds = [item["kind"] for item in read_notifications(tmp_path)]
+    assert "subagent_finished" in kinds
 
 
 def test_delegate_tool_respects_parent_token_cap(tmp_path, monkeypatch):

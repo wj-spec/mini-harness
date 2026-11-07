@@ -78,6 +78,14 @@ def register_delegate_tool(agent, session_root) -> bool:
             max_steps=max_steps, max_run_tokens=max_tokens,
             max_run_seconds=max_seconds, session_root=session_root,
         )
+        try:
+            from app.runtime.notifications import notify
+
+            notify(tools_root, "subagent_finished",
+                   task_id=getattr(result, "task_id", None),
+                   status=getattr(result, "status", "unknown"))
+        except Exception:
+            pass
         usage = dict(getattr(result, "usage", None) or {})
         tokens = int(usage.get("total_tokens") or 0)
         return (
