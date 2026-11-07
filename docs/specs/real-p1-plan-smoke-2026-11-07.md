@@ -189,6 +189,16 @@ VIBE_MAX_STEPS=4 VIBE_MAX_RUN_TOKENS=8000 \
 即：干净会话下 3/3 多步+验收通过；审批帧路径 2/2 通过。
 TUI 真实键路仍需人工在支持 pty 的终端执行。
 
+## 3j. 跨模型样本（deepseek-chat）
+
+用 `VIBE_MODEL=deepseek-chat` 覆盖默认模型：
+
+- 干净两步计划 + `true` 验收（autonomy full）：run done、s1/s2 done、acceptance=true；
+- 审批帧路径：run done、s1/s2 done、acceptance=true，审批 1 次。
+
+即 deepseek-chat 在同样脚本下 1/1 多步验收 + 1/1 审批路径通过。
+目前仅验证 deepseek-flash/chat 两个模型、单机单 key；更多 provider 仍待。
+
 ## 4. 结论与限制
 
 - 已证明：真实模型可以走 `--task` 只读链路、可以生成结构化 proposed plan；
@@ -197,7 +207,8 @@ TUI 真实键路仍需人工在支持 pty 的终端执行。
 - 已证明（干净会话）：真实模型两步计划全部完成，并通过可信验收命令（acceptance=true）；
 - 已证明：stdio approval 帧模拟审批下的多步+验收全链路（5 次审批）；
 - 已证明：干净会话 3/3、多步+验收 acceptance=true，审批帧路径 2/2；
-- 仍待：真实 TUI 人工键路（pty 环境）、更多 provider；
+- 已证明：deepseek-flash 3/3 多步验收、2/2 审批；deepseek-chat 1/1 多步验收、1/1 审批；
+- 仍待：真实 TUI 人工键路（pty 环境）、更多 provider/更大样本；
 - 本次仅 deepseek-flash、一次样本，成本显示 $0；
 - 观察到一次真实 provider 长时间无返回（>300s），需要重跑/检查超时与重试；
 - 下一步：重跑第 3 步（更强提示/更多步数/不同 provider），再按
