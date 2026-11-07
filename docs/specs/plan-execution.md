@@ -32,7 +32,7 @@
 - 步骤级工具门禁：read 步骤只允许只读工具，edit 允许写，run/verify 允许 bash；
   越界返回 `plan_step_tool_blocked`；
 - edit 步骤声明 files 时，write_file/edit_file 只能写这些文件，越界返回
-  `plan_step_file_scope`；
+  `plan_step_file_scope`；apply_patch 无法校验范围，直接提示改用 write_file/edit_file；
 - 完成一步返回下一步提示（start directly / do not re-read）；
 - 全部步骤完成后 harness 设置 tool_gate，拒绝后续非计划工具并提示停止；
   连续 2 次 gate 命中后 Agent 直接以 done 收尾，避免模型无限探索；

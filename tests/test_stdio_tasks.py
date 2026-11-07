@@ -1025,6 +1025,7 @@ def test_bound_plan_edit_step_enforces_file_scope(tmp_path, monkeypatch):
     agent = Agent(FakeProvider([
         Response(tool_calls=[ToolCall("start_plan_step", {"step_id": "s1"}, id="t1")]),
         Response(tool_calls=[ToolCall("write_file", {"path": "b.txt", "content": "b"}, id="t2")]),
+        Response(tool_calls=[ToolCall("apply_patch", {"patch": "*** Begin Patch\n*** End Patch"}, id="t2b")]),
         Response(tool_calls=[ToolCall("write_file", {"path": "a.txt", "content": "a2"}, id="t3")]),
         Response(tool_calls=[ToolCall("complete_plan_step", {"step_id": "s1"}, id="t4")]),
         "完成",
@@ -1043,6 +1044,7 @@ def test_bound_plan_edit_step_enforces_file_scope(tmp_path, monkeypatch):
         assert (tmp_path / "a.txt").read_text(encoding="utf-8") == "a2"
         outputs = [event.get("output", "") for event in harness.events if event["type"] == "tool_result"]
         assert any("plan_step_file_scope" in output for output in outputs)
+        assert any("apply_patch" in output and "plan_step_file_scope" in output for output in outputs)
         await harness.close()
 
     asyncio.run(scenario())
