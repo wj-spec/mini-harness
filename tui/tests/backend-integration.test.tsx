@@ -299,7 +299,7 @@ test('task and approvals commands surface seeded pending approvals through the r
     await writeFile(path.join(taskDir, 'meta.json'), JSON.stringify({
       schema_version: 1, task_id: taskId, session_id: sessionId, kind: 'goal',
       status: 'paused', objective: '待审批任务', mode: 'goal', workspace,
-      parent_id: null, goal_id: null, plan_id: null, plan_version: null,
+      parent_id: null, goal_id: null, plan_id: null, plan_version: null, priority: 4,
       budget: {max_run_tokens: 0, max_goal_tokens: 0, max_wall_seconds: 0},
       approval_policy: {autonomy: 'ask', scope: 'own', capabilities: []},
       segments: [], result_ref: null, created_at: stamp, updated_at: stamp,
@@ -317,6 +317,7 @@ test('task and approvals commands surface seeded pending approvals through the r
     const tasksResult = events.find(event => event.type === 'command_result' && event.command === 'tasks') as
       Extract<ServerEvent, {type: 'command_result'}>;
     assert.match(tasksResult.text, /待审批 1/);
+    assert.match(tasksResult.text, /priority=4/);
     assert.match(tasksResult.text, new RegExp(taskId));
     stdin.write('/approvals');
     await pause(80);

@@ -224,6 +224,7 @@ mini-harness/
       manual-acceptance-16-plan-subagent.md  # Plan/SubAgent 人工验收 TC-16-01..08
       real-p1-plan-smoke-2026-11-07.md      # 真实模型 Plan P1 冒烟记录
       manual-acceptance-16-results.md       # Plan/SubAgent 验收结果（自动化部分）
+      manual-acceptance-tui-quick.md        # 真实终端 TUI 快速人工验收清单（10 分钟）
     design/             # 未来方向的分块讨论（长任务/后台/进阶模式/子 Agent），拍板后收敛为 spec
     history/            # 旧 M1–M8 模块建设计划
 
