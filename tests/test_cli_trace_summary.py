@@ -126,3 +126,39 @@ def test_trace_all_sessions_rejects_session(tmp_path, monkeypatch, capsys):
         entrypoint.main()
     assert error.value.code == 2
     assert "--trace-all-sessions cannot combine with --session" in capsys.readouterr().err
+
+
+def _seed_window(tmp_path):
+    import time
+
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    now = time.time()
+    session.append_trace({"type": "llm_end", "ts": now - 7200, "prompt_tokens": 100,
+                          "completion_tokens": 50, "cost_usd": 0.01})
+    session.append_trace({"type": "llm_end", "ts": now - 60, "prompt_tokens": 10,
+                          "completion_tokens": 5, "cost_usd": 0.001})
+    session.append_trace({"type": "run_end", "ts": now - 30, "status": "done", "stop_reason": ""})
+    return session
+
+
+def test_trace_last_hours_filters_events(tmp_path, monkeypatch, capsys):
+    session = _seed_window(tmp_path)
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path))
+    monkeypatch.setattr("sys.argv", ["vibe", "--trace-summary", "--trace-json",
+                                     "--trace-last-hours", "1",
+                                     "--session", session.id, "--workspace", str(tmp_path)])
+    entrypoint.main()
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["llm_calls"] == 1
+    assert payload["total_tokens"] == 15
+    assert payload["since_ts"] is not None
+
+
+def test_trace_last_hours_validation(monkeypatch, capsys):
+    for value in ("0", "-1", "9000"):
+        monkeypatch.setattr("sys.argv", ["vibe", "--trace-summary", "--trace-last-hours", value,
+                                         "--session", "s-1", "--workspace", "/tmp"])
+        with pytest.raises(SystemExit) as error:
+            entrypoint.main()
+        assert error.value.code == 2
+        assert "--trace-last-hours must be between 0 and 8760" in capsys.readouterr().err

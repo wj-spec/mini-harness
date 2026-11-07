@@ -119,6 +119,7 @@ def main() -> None:
     parser.add_argument("--trace-summary", action="store_true", help="只读聚合指定会话 trace（LLM/tool/审批/停止原因）")
     parser.add_argument("--trace-json", action="store_true", help="--trace-summary 的 JSON 输出")
     parser.add_argument("--trace-all-sessions", action="store_true", help="与 --trace-summary 搭配：汇总本工作区所有会话")
+    parser.add_argument("--trace-last-hours", type=float, default=None, metavar="H", help="与 --trace-summary 搭配：只统计最近 H 小时事件")
     parser.add_argument("--bench-history", action="store_true", help="只读列出本工作区长任务 benchmark 历史报告")
     parser.add_argument("--bench-history-json", action="store_true", help="--bench-history 的 JSON 输出")
     parser.add_argument("--bench-history-limit", type=int, default=20, metavar="N", help="--bench-history 显示条数（默认 20，1-200）")
@@ -323,6 +324,10 @@ def main() -> None:
         parser.error("--trace-json requires --trace-summary")
     if args.trace_all_sessions and not args.trace_summary:
         parser.error("--trace-all-sessions requires --trace-summary")
+    if args.trace_last_hours is not None and not args.trace_summary:
+        parser.error("--trace-last-hours requires --trace-summary")
+    if args.trace_last_hours is not None and not 0 < args.trace_last_hours <= 8760:
+        parser.error("--trace-last-hours must be between 0 and 8760")
     if args.trace_summary:
         if args.trace_all_sessions:
             if args.session is not None or args.continue_session:
@@ -1039,11 +1044,16 @@ def main() -> None:
         return
 
     if args.trace_summary:
+        import time as _time
+
         from app.session.observability import (
             aggregate_trace_summaries, render_trace_summary,
             render_trace_totals, summarize_trace,
         )
 
+        since_ts = None
+        if args.trace_last_hours is not None:
+            since_ts = _time.time() - args.trace_last_hours * 3600.0
         purpose = "test" if args.test_session or args.fake or config.provider == "fake" else "user"
         if args.trace_all_sessions:
             root = Path(config.workspace) / ".vibe" / "sessions"
@@ -1058,7 +1068,7 @@ def main() -> None:
             candidates.sort(key=lambda path: path.stat().st_mtime, reverse=True)
             summaries = []
             for candidate in candidates:
-                summary = summarize_trace(candidate)
+                summary = summarize_trace(candidate, since_ts=since_ts)
                 summaries.append({"session": candidate.name, **summary})
             totals = aggregate_trace_summaries(summaries)
             if args.trace_json:
@@ -1071,7 +1081,7 @@ def main() -> None:
         if session is None:
             print(f"no session {args.session} under {config.workspace}", file=sys.stderr)
             raise SystemExit(2)
-        summary = summarize_trace(session.root)
+        summary = summarize_trace(session.root, since_ts=since_ts)
         if args.trace_json:
             print(json.dumps(summary, ensure_ascii=False, indent=2))
             return

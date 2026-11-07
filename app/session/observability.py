@@ -9,8 +9,10 @@ from typing import Any
 MAX_TRACE_LINES = 500_000
 
 
-def summarize_trace(session_root: str | Path) -> dict[str, Any]:
-    """返回 trace.jsonl 的聚合摘要；文件缺失/损坏时返回空摘要而不抛错。"""
+def summarize_trace(
+    session_root: str | Path, *, since_ts: float | None = None,
+) -> dict[str, Any]:
+    """返回 trace.jsonl 的聚合摘要；since_ts 非空时只统计该时间戳之后的事件。"""
     root = Path(session_root)
     path = root / "trace.jsonl"
     event_counts: dict[str, int] = {}
@@ -50,8 +52,10 @@ def summarize_trace(session_root: str | Path) -> dict[str, Any]:
         if not isinstance(kind, str):
             malformed += 1
             continue
-        event_counts[kind] = event_counts.get(kind, 0) + 1
         ts = event.get("ts")
+        if since_ts is not None and isinstance(ts, (int, float)) and ts < since_ts:
+            continue
+        event_counts[kind] = event_counts.get(kind, 0) + 1
         if ts is not None:
             first_ts = first_ts if first_ts is not None else ts
             last_ts = ts
@@ -104,6 +108,7 @@ def summarize_trace(session_root: str | Path) -> dict[str, Any]:
         "stop_reasons": stop_reasons,
         "first_ts": first_ts,
         "last_ts": last_ts,
+        "since_ts": since_ts,
         "event_counts": event_counts,
     }
 
