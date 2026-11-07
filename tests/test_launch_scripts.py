@@ -418,7 +418,7 @@ def test_verify_all_script_present_and_valid():
     assert path.is_file()
     assert path.stat().st_mode & 0o111
     source = path.read_text(encoding="utf-8")
-    for step in ("run_tests.sh", "npm test", "bench_long.py", "doctor.py", "redteam", "real_p1_acceptance.py"):
+    for step in ("run_tests.sh", "npm test", "bench_long.py", "doctor.py", "redteam", "real_p1_acceptance.py", "--suite-runs"):
         assert step in source
     result = subprocess.run(["bash", "-n", str(path)], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr

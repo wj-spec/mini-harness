@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # 一次性本地验收：Python 全量 + TUI + 长任务 fake benchmark + doctor
-# 用法：./scripts/verify_all.sh [--with-real]
-#   --with-real  额外跑真实模型六模式 suite（需要 .env 或环境变量里的 key）
+# 用法：./scripts/verify_all.sh [--with-real [--real-runs N]]
+#   --with-real    额外跑真实模型六模式 suite（需要 .env 或环境变量里的 key）
+#   --real-runs N  与 --with-real 搭配：重复跑 N 轮 suite（稳定性样本，1-5）
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -14,9 +15,25 @@ if [ -f .env ]; then
 fi
 
 WITH_REAL=0
-if [ "${1:-}" = "--with-real" ]; then
-  WITH_REAL=1
-fi
+REAL_RUNS=1
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --with-real) WITH_REAL=1 ;;
+    --real-runs)
+      shift
+      if [ "${1:-}" = "" ]; then
+        echo "--real-runs 需要次数（1-5）" >&2
+        exit 2
+      fi
+      REAL_RUNS="$1"
+      ;;
+    *)
+      echo "未知参数：$1（支持 --with-real / --real-runs N）" >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
 
 PYTHON=".venv/bin/python3"
 if [ ! -x "$PYTHON" ]; then
@@ -80,9 +97,9 @@ else
 fi
 
 if [ "$WITH_REAL" = "1" ]; then
-  echo "== 真实模型 suite（六模式） =="
-  if VIBE_TASK_RUNTIME=1 "$PYTHON" scripts/real_p1_acceptance.py --suite --keep > /tmp/verify-real.log 2>&1; then
-    report "real-suite" PASS "六模式通过"
+  echo "== 真实模型 suite（六模式 × ${REAL_RUNS}） =="
+  if VIBE_TASK_RUNTIME=1 "$PYTHON" scripts/real_p1_acceptance.py --suite --suite-runs "$REAL_RUNS" --keep > /tmp/verify-real.log 2>&1; then
+    report "real-suite" PASS "六模式 × ${REAL_RUNS} 通过"
   else
     report "real-suite" FAIL "见 /tmp/verify-real.log"
   fi
