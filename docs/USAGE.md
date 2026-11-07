@@ -775,6 +775,7 @@ VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --suite --
 ./run_vibe.sh --tasks --tasks-json --workspace /path/to/repo  # 机器可读
 ./run_vibe.sh --notifications --workspace /path/to/repo
 ./run_vibe.sh --notifications --notification-kind plan_acceptance --workspace /path/to/repo
+./run_vibe.sh --plan-card --session SID --workspace /path/to/repo  # 最近计划的审批卡
 ./run_vibe.sh --plans --workspace /path/to/repo
 ./run_vibe.sh --acceptance --workspace /path/to/repo
 ./run_vibe.sh --approvals --workspace /path/to/repo
@@ -819,6 +820,7 @@ worker 启动会审计 profile：任务事件 `unattended_profile` 记 `profile/
 `--doctor` 也会提示 `.vibe/unattended.json` 被放宽的项；非法 profile 会阻塞自检。
 可选的**外部告警 webhook**：设置 `VIBE_NOTIFY_WEBHOOK=https://...` 后，通知会异步 POST JSON（仅 2xx 视为成功、失败自动重试一次；最大 64 KiB，超出只发 kind/ts/truncated）；
 `VIBE_NOTIFY_WEBHOOK_KINDS` 过滤 kind（逗号分隔，`*`=全部，默认全部）；只允许 http/https，请求失败静默，不影响任务与本地通知。
+`--plan-card [--plan-card-version N]` 只读输出指定会话某版本计划的审批卡（JSON 含 plan/version/status/executable/card）。
 `--plans` 只读列出本工作区会话的计划版本（损坏计划文件跳过并 stderr 告警，JSON 含 `skipped_plan_files`）（session/task/plan_id/version/status/stale/acceptance/total_steps/done_steps/executed_steps/objective），便于外部监控计划进度。
 `--acceptance` 只读列出计划验收结果（plan_id/objective/plan_version/status/codes/命令数，最多 100 条）。
 `--tasks` 会跳过并 stderr 提示损坏的 task 目录（`--tasks-json` 输出 `skipped_task_dirs`）；`--tasks` / `--tasks-json` 的 `pending_approvals` 显示每个任务待审批数量、`priority` 显示队列优先级（`/task` 同时显示「待审批 N」与 `priority=N`），便于无人值守时定位卡在审批上的任务。

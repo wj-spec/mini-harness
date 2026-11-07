@@ -377,6 +377,51 @@ def content_hash(plan: Plan) -> str:
     ).hexdigest()
 
 
+def render_approval_card(plan: Plan) -> str:
+    """渲染计划审批卡：约束/验收/验证命令/步骤/门禁/hash/不可执行原因。"""
+    approval = plan.approval if isinstance(plan.approval, dict) else {}
+    lines = [f"计划审批卡：{plan.plan_id} · v{plan.version} · {plan.status}"
+             + (" · stale" if approval.get("stale") else "")]
+    lines.append(f"目标：{plan.objective}")
+    if plan.constraints:
+        lines.append("约束：" + "；".join(plan.constraints))
+    if plan.out_of_scope:
+        lines.append("范围外：" + "；".join(plan.out_of_scope))
+    if plan.acceptance_criteria:
+        lines.append("验收标准：")
+        for item in plan.acceptance_criteria:
+            mark = "已确认" if item.get("confirmed") is True else "候选"
+            lines.append(f"- [{mark}] {item.get('text', '')}")
+    if plan.verification_plan:
+        lines.append("验证命令：")
+        for item in plan.verification_plan:
+            covers = ",".join(item.get("covers") or [])
+            lines.append(f"- {item.get('id')} covers={covers} source={item.get('source')} cmd={item.get('command')}")
+    lines.append("步骤：")
+    for index, step in enumerate(plan.steps, 1):
+        deps = f" depends={','.join(step.depends_on)}" if step.depends_on else ""
+        files = f" files={','.join(step.files)}" if step.files else ""
+        lines.append(f"{index}. {step.step_id} {step.title} [{step.kind}/{step.risk}]{deps}{files}")
+    executable = can_execute(plan)
+    lines.append(f"执行门禁：executable={executable}")
+    if not executable:
+        reasons = []
+        if plan.status != "approved":
+            reasons.append(f"status={plan.status}")
+        if approval.get("capability") != "plan.review":
+            reasons.append("缺少 plan.review 审批")
+        if approval.get("stale"):
+            reasons.append("审批已 stale")
+        if approval.get("plan_hash") != content_hash(plan):
+            reasons.append("hash 不匹配")
+        if not approval.get("approved_by"):
+            reasons.append("无批准人")
+        lines.append("不可执行原因：" + "；".join(reasons or ["未知"]))
+    lines.append(f"批准：by={approval.get('approved_by') or '-'} at={approval.get('approved_at') or '-'}")
+    lines.append(f"hash 匹配：{approval.get('plan_hash') == content_hash(plan)}")
+    return "\n".join(lines)
+
+
 def _audit(task_dir: str | Path, event: str, **data: Any) -> None:
     directory = Path(task_dir)
     directory.mkdir(parents=True, exist_ok=True)

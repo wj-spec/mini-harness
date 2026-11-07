@@ -137,6 +137,8 @@ def main() -> None:
     parser.add_argument("--task-priority", type=int, default=None, metavar="N", help="与 --set-task-priority 搭配：新优先级（0-100）")
     parser.add_argument("--approve-unattended-profile", action="store_true", help="批准当前无人值守 profile（记录 hash，可含放宽项）")
     parser.add_argument("--explore", default=None, metavar="PROMPT", help="用只读子 Agent 探索工作区并输出 JSON 摘要")
+    parser.add_argument("--plan-card", action="store_true", help="只读输出指定会话最近计划的审批卡")
+    parser.add_argument("--plan-card-version", type=int, default=None, metavar="N", help="与 --plan-card 搭配：指定计划版本")
     parser.add_argument("--prune-worktrees", action="store_true", help="只读报告 stale/孤立的 worktree")
     parser.add_argument("--prune-apply", action="store_true", help="与 --prune-worktrees 搭配：把目录缺失的 worktree 标记 removed 并删分支")
     parser.add_argument("--worker", action="store_true", help="后台 worker：执行一个 task segment 并暴露 attach socket")
@@ -463,6 +465,27 @@ def main() -> None:
             or args.approve_unattended_profile or args.cleanup_bench or args.set_task_priority is not None
         ):
             parser.error("--explore cannot be combined with other modes")
+    if args.plan_card_version is not None and not args.plan_card:
+        parser.error("--plan-card-version requires --plan-card")
+    if args.plan_card:
+        if args.session is None or args.continue_session:
+            parser.error("--plan-card requires a concrete --session")
+        if args.workspace is None:
+            parser.error("--plan-card requires --workspace")
+        if args.plan_card_version is not None and args.plan_card_version < 1:
+            parser.error("--plan-card-version must be positive")
+        if (
+            args.stdio or args.eval or args.eval_limit is not None or args.eval_tasks is not None
+            or args.list_sessions or args.task is not None or args.bench or args.tasks
+            or args.notifications or args.plans or args.acceptance or args.approvals
+            or args.redteam or args.prune_worktrees or args.worker or args.attach
+            or args.stop or args.stop_task is not None or args.pause_task is not None
+            or args.merge_task is not None or args.cleanup_logs or args.decide_approval is not None
+            or args.evidence or args.trace_summary or args.prepare_plan_task or args.run_plan_queue
+            or args.bench_history or args.approve_unattended_profile or args.cleanup_bench
+            or args.set_task_priority is not None or args.explore is not None
+        ):
+            parser.error("--plan-card cannot be combined with other modes")
     if args.prune_apply and not args.prune_worktrees:
         parser.error("--prune-apply requires --prune-worktrees")
     if args.prune_worktrees:
@@ -489,7 +512,7 @@ def main() -> None:
         parser.error("--bench requires --task")
     if args.telemetry_out and args.task is None:
         parser.error("--telemetry-out requires --task")
-    if not args.stdio and not args.eval and not args.list_sessions and not args.tasks and not args.notifications and not args.plans and not args.acceptance and not args.approvals and not args.redteam and not args.approve_unattended_profile and not args.prune_worktrees and not args.evidence and not args.trace_summary and not args.bench_history and not args.prepare_plan_task and not args.run_plan_queue and not args.worker and not args.attach and args.merge_task is None and not args.stop and args.pause_task is None and not args.cleanup_logs and not args.cleanup_bench and args.task is None and args.decide_approval is None and args.set_task_priority is None and args.explore is None:
+    if not args.stdio and not args.eval and not args.list_sessions and not args.tasks and not args.notifications and not args.plans and not args.acceptance and not args.approvals and not args.redteam and not args.approve_unattended_profile and not args.prune_worktrees and not args.evidence and not args.trace_summary and not args.bench_history and not args.prepare_plan_task and not args.run_plan_queue and not args.worker and not args.attach and args.merge_task is None and not args.stop and args.pause_task is None and not args.cleanup_logs and not args.cleanup_bench and args.task is None and args.decide_approval is None and args.set_task_priority is None and args.explore is None and not args.plan_card:
         print(
             "Textual 入口已退役。交互界面请运行 ./run_ink.sh（例如 ./run_ink.sh --fake）；"
             "后端与 eval 分别使用 --stdio / --eval。",
@@ -1172,6 +1195,36 @@ def main() -> None:
                               "reports": rows}, ensure_ascii=False, indent=2))
             return
         print(render_bench_history(rows))
+        return
+
+    if args.plan_card:
+        from app.runtime.plan import can_execute, load_plan, render_approval_card
+
+        purpose = "test" if args.test_session or args.fake or config.provider == "fake" else "user"
+        session = SessionStore.open_existing(config.workspace, args.session, purpose=purpose)
+        if session is None:
+            print(f"no session {args.session} under {config.workspace}", file=sys.stderr)
+            raise SystemExit(2)
+        candidates = []
+        for path in (session.root / "tasks").glob("*/plan/plan.v*.json"):
+            try:
+                plan = load_plan(path)
+            except Exception:
+                continue
+            if args.plan_card_version is not None and plan.version != args.plan_card_version:
+                continue
+            candidates.append((path.stat().st_mtime, plan))
+        if not candidates:
+            print("当前会话没有符合条件的计划产物", file=sys.stderr)
+            raise SystemExit(2)
+        candidates.sort(key=lambda item: (item[0], item[1].version))
+        _, plan = candidates[-1]
+        print(json.dumps({
+            "workspace": str(config.workspace), "session": session.id,
+            "plan_id": plan.plan_id, "version": plan.version, "status": plan.status,
+            "task_id": plan.task_id, "executable": can_execute(plan),
+            "card": render_approval_card(plan),
+        }, ensure_ascii=False, indent=2))
         return
 
     if args.explore is not None:

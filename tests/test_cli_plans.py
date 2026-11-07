@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 
 import pytest
 
@@ -88,3 +89,45 @@ def test_plans_reports_corrupt_plan_files(tmp_path, monkeypatch, capsys):
     assert payload["skipped_plan_files"] == 1
     assert [item["version"] for item in payload["plans"]] == [1, 2]
     assert "skipped 1 corrupt plan files" in captured.err
+
+
+def test_plan_card_cli_outputs_latest(tmp_path, monkeypatch, capsys):
+    session = _seed(tmp_path)
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path))
+    monkeypatch.setattr(sys, "argv", ["vibe", "--plan-card", "--session", session.id,
+                                      "--workspace", str(tmp_path)])
+    entrypoint.main()
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["version"] == 2 and payload["status"] == "draft"
+    assert payload["executable"] is False
+    assert "计划审批卡" in payload["card"] and "不可执行原因：" in payload["card"]
+
+
+def test_plan_card_cli_selects_version(tmp_path, monkeypatch, capsys):
+    session = _seed(tmp_path)
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path))
+    monkeypatch.setattr(sys, "argv", ["vibe", "--plan-card", "--plan-card-version", "1",
+                                      "--session", session.id, "--workspace", str(tmp_path)])
+    entrypoint.main()
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["version"] == 1
+
+
+def test_plan_card_cli_without_plan_exits_2(tmp_path, monkeypatch, capsys):
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path))
+    monkeypatch.setattr(sys, "argv", ["vibe", "--plan-card", "--session", session.id,
+                                      "--workspace", str(tmp_path)])
+    with pytest.raises(SystemExit) as error:
+        entrypoint.main()
+    assert error.value.code == 2
+    assert "没有符合条件的计划" in capsys.readouterr().err
+
+
+def test_plan_card_rejects_other_modes(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["vibe", "--plan-card", "--session", "s-1",
+                                      "--workspace", "/tmp", "--stdio"])
+    with pytest.raises(SystemExit) as error:
+        entrypoint.main()
+    assert error.value.code == 2
+    assert "--plan-card cannot be combined" in capsys.readouterr().err
