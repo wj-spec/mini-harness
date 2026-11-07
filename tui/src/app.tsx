@@ -1517,6 +1517,24 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       } catch (error) {notice(`未能提交计划任务：${String(error)}`);}
       return;
     }
+    const traceMatch = /^\/trace(?:\s+(\S+))?$/.exec(text);
+    if (traceMatch) {
+      if (state.phase === 'idle' && !activeRun.current) {
+        const raw = traceMatch[1];
+        const hours = raw === undefined ? undefined : Number(raw);
+        if (raw !== undefined && !Number.isFinite(hours)) {
+          notice('用法：/trace [最近小时数，0 < H ≤ 8760]');
+          return;
+        }
+        try {
+          const id = client.command('trace', raw === undefined ? undefined : {hours});
+          activeRun.current = id;
+          dispatch({type: 'begin_command', id, command: 'trace'});
+          setInput(''); setFeedback(''); setScroll({follow: true, top: 0});
+        } catch (error) {reportError(`操作未送达：${String(error)}`);}
+      }
+      return;
+    }
     const notificationsMatch = /^\/notifications(?:\s+(\S+))?$/.exec(text);
     if (notificationsMatch) {
       if (state.phase !== 'idle' || activeRun.current) {notice('当前有运行中任务；结束后再查看通知。'); return;}

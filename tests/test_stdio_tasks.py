@@ -1541,3 +1541,32 @@ def test_tasks_command_tolerates_corrupt_meta(tmp_path, monkeypatch):
         await harness.close()
 
     asyncio.run(scenario())
+
+
+def test_trace_command_accepts_hours_argument(tmp_path, monkeypatch):
+    import time
+
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    now = time.time()
+    session.append_trace({"type": "llm_end", "ts": now - 7200, "prompt_tokens": 100,
+                          "completion_tokens": 50})
+    session.append_trace({"type": "llm_end", "ts": now - 60, "prompt_tokens": 10,
+                          "completion_tokens": 5})
+
+    async def scenario():
+        harness = Harness(_agent(tmp_path), Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("command", "c-trace-hours", command="trace", args={"hours": 1})
+        result = await harness.until("command_result", "c-trace-hours")
+        assert "tokens 15" in result["text"]
+        assert "tokens 150" not in result["text"]
+        harness.send("command", "c-trace-bad", command="trace", args={"hours": 0})
+        bad = await harness.until("error", "c-trace-bad")
+        assert "hours" in bad["message"]
+        harness.send("command", "c-after-bad", command="tasks")
+        after = await harness.until("command_result", "c-after-bad")
+        assert after["command"] == "tasks"
+        await harness.close()
+
+    asyncio.run(scenario())

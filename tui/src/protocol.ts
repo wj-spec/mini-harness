@@ -35,11 +35,19 @@ export type AutonomyCommandArgs = {level: AutonomyLevel};
 export type PlanCommandArgs = {action?: 'show' | 'list' | 'step' | 'edit-step' | 'diff' | 'acceptance' | 'prepare-background' | 'approve' | 'reject' | 'revise'; objective?: string; step_id?: string; title?: string; version_a?: number; version_b?: number};
 export type ExploreCommandArgs = {prompt: string};
 export type NotificationsCommandArgs = {kind?: string};
-export type CommandArgs = SkillsCommandArgs | AutonomyCommandArgs | PlanCommandArgs | ExploreCommandArgs | NotificationsCommandArgs;
+export type TraceCommandArgs = {hours?: number};
+export type CommandArgs = SkillsCommandArgs | AutonomyCommandArgs | PlanCommandArgs | ExploreCommandArgs | NotificationsCommandArgs | TraceCommandArgs;
 export function validateNotificationsArgs(value: unknown): asserts value is NotificationsCommandArgs {
   if (!record(value) || Object.keys(value).some(key => key !== 'kind') ||
       (value.kind !== undefined && (typeof value.kind !== 'string' || !value.kind.trim()))) {
     throw new Error('notifications 参数只允许非空 kind');
+  }
+}
+export function validateTraceArgs(value: unknown): asserts value is TraceCommandArgs {
+  if (!record(value) || Object.keys(value).some(key => key !== 'hours') ||
+      (value.hours !== undefined &&
+       (typeof value.hours !== 'number' || !Number.isFinite(value.hours) || value.hours <= 0 || value.hours > 8760))) {
+    throw new Error('trace 参数只允许 0-8760 的 hours');
   }
 }
 export function validateExploreArgs(value: unknown): asserts value is ExploreCommandArgs {

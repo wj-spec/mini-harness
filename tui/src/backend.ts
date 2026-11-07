@@ -2,7 +2,7 @@ import {spawn, type ChildProcessWithoutNullStreams} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import {StringDecoder} from 'node:string_decoder';
 import {backendCommand, backendLaunchOptions} from './backend-launch.js';
-import {BACKEND_COMMANDS, MAX_FRAME_BYTES, parseServerEvent, validateAutonomyArgs, validateClientArgs, validateExploreArgs, validateNotificationsArgs, validatePlanArgs, validateSkillsArgs, type ApprovalDecision, type AutonomyCommandArgs, type BackendCommand, type ClientRequest, type CommandArgs, type ExploreCommandArgs, type NotificationsCommandArgs, type PlanCommandArgs, type RunTaskMeta, type ServerEvent, type SkillsCommandArgs} from './protocol.js';
+import {BACKEND_COMMANDS, MAX_FRAME_BYTES, parseServerEvent, validateAutonomyArgs, validateClientArgs, validateExploreArgs, validateNotificationsArgs, validatePlanArgs, validateSkillsArgs, validateTraceArgs, type ApprovalDecision, type AutonomyCommandArgs, type BackendCommand, type ClientRequest, type CommandArgs, type ExploreCommandArgs, type NotificationsCommandArgs, type PlanCommandArgs, type RunTaskMeta, type ServerEvent, type SkillsCommandArgs, type TraceCommandArgs} from './protocol.js';
 
 export interface BackendClient {
   subscribe(listener: (event: ServerEvent) => void): () => void;
@@ -388,6 +388,7 @@ export function createBackendClient(options: BackendOptions = {}): BackendClient
         else if (command === 'plan') validatePlanArgs(args);
         else if (command === 'explore') validateExploreArgs(args);
         else if (command === 'notifications') validateNotificationsArgs(args);
+        else if (command === 'trace') validateTraceArgs(args);
         else throw new Error('只有 skills/autonomy/plan/explore 命令接受参数');
       }
       const id = randomUUID();
@@ -395,6 +396,7 @@ export function createBackendClient(options: BackendOptions = {}): BackendClient
       else if (command === 'autonomy') send({v: 1, type: 'command', id, command, args: args as AutonomyCommandArgs});
       else if (command === 'explore') send({v: 1, type: 'command', id, command, args: args as ExploreCommandArgs});
       else if (command === 'notifications') send({v: 1, type: 'command', id, command, ...(args === undefined ? {} : {args: args as NotificationsCommandArgs})});
+      else if (command === 'trace') send({v: 1, type: 'command', id, command, ...(args === undefined ? {} : {args: args as TraceCommandArgs})});
       else if (command === 'plan') send({v: 1, type: 'command', id, command, ...(args === undefined ? {} : {args: args as PlanCommandArgs})});
       else send({v: 1, type: 'command', id, command});
       return id;

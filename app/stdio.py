@@ -736,8 +736,18 @@ class _Connection:
                 if sub.error:
                     text += f"\n错误：{sub.error}"
             elif command == "trace":
+                import time as _time
+
                 from app.session.observability import render_trace_summary, summarize_trace
-                text = render_trace_summary(summarize_trace(self.session.root))
+
+                hours = float(args["hours"]) if isinstance(args, dict) and args.get("hours") is not None else None
+                since_ts = None
+                if hours is not None:
+                    since_ts = _time.time() - hours * 3600.0
+                summary = summarize_trace(self.session.root, since_ts=since_ts)
+                text = render_trace_summary(summary)
+                if summary.get("events", 0) == 0 and since_ts is not None:
+                    text += f"\n（最近 {hours:g} 小时没有事件）"
             elif command == "tasks":
                 text = _format_task_hints(_task_hints(self.session.root))
             elif command == "approvals":
@@ -1535,7 +1545,7 @@ class _Connection:
             }
             if not isinstance(kind, str) or kind not in fields:
                 raise ValueError("unknown request type")
-            if kind == "command" and request.get("command") in {"skills", "autonomy", "plan", "explore", "notifications"} and "args" in request:
+            if kind == "command" and request.get("command") in {"skills", "autonomy", "plan", "explore", "notifications", "trace"} and "args" in request:
                 fields[kind] = fields[kind] | {"args"}
             allowed = {"v", "type", "id"} | fields[kind]
             if kind == "run" and "task" in request:
@@ -1550,7 +1560,7 @@ class _Connection:
                     raise ValueError("run text must be a nonempty string")
                 if kind == "command" and (not isinstance(request["command"], str) or request["command"] not in COMMANDS):
                     raise ValueError("unknown command")
-                if kind == "command" and request["command"] in {"skills", "plan"} and "args" in request:
+                if kind == "command" and request["command"] in {"skills", "plan", "trace"} and "args" in request:
                     args = request["args"]
                     if not isinstance(args, dict):
                         raise ValueError("command args must be an object")
@@ -1576,6 +1586,15 @@ class _Connection:
                     elif request["command"] == "explore":
                         if set(args) != {"prompt"} or not isinstance(args.get("prompt"), str) or not args["prompt"].strip():
                             raise ValueError("explore args must contain only a nonempty prompt")
+                    elif request["command"] == "trace":
+                        if set(args) - {"hours"}:
+                            raise ValueError("trace args must contain only hours")
+                        hours_value = args.get("hours")
+                        if hours_value is not None and (
+                            not isinstance(hours_value, (int, float)) or isinstance(hours_value, bool)
+                            or not 0 < float(hours_value) <= 8760
+                        ):
+                            raise ValueError("trace hours must be between 0 and 8760")
                     else:
                         if set(args) - {"action", "name"}:
                             raise ValueError("skills args must contain only action and name")

@@ -2234,3 +2234,16 @@ test('/trace sends the trace command to the backend', async () => {
   await enter(stdin, '/trace');
   assert.equal(client.commands.at(-1), 'trace');
 });
+
+
+test('/trace with hours forwards bounded hours argument', async () => {
+  const client = new MockClient();
+  const {stdin} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}/>);
+  await pause(20);
+  client.emit({type: 'ready', workspace: '/tmp/repo', model: 'fake', session_id: 'test', capabilities: []});
+  client.emit({type: 'status', phase: 'idle'});
+  await pause(20);
+  await enter(stdin, '/trace 24');
+  assert.equal(client.commands.at(-1), 'trace');
+  assert.deepEqual(client.commandArgs.at(-1), {hours: 24});
+});

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {MAX_FRAME_BYTES, parseServerEvent, validateClientArgs} from '../src/protocol.js';
+import {MAX_FRAME_BYTES, parseServerEvent, validateClientArgs, validateTraceArgs} from '../src/protocol.js';
 import {contextSnapshot, loadedContextSnapshot} from './context-fixture.js';
 
 test('accepts startup context independently of model requests and only zero startup usage', () => {
@@ -300,4 +300,14 @@ test('accepts subagent_event with child task id', () => {
   assert.throws(() => parseServerEvent(JSON.stringify({
     v: 1, type: 'subagent_event', id: null, task_id: '', status: 'ok',
   })));
+});
+
+
+test('validateTraceArgs accepts bounded hours and rejects others', () => {
+  assert.doesNotThrow(() => validateTraceArgs({}));
+  assert.doesNotThrow(() => validateTraceArgs({hours: 1}));
+  assert.doesNotThrow(() => validateTraceArgs({hours: 8760}));
+  for (const bad of [{hours: 0}, {hours: -1}, {hours: 8761}, {hours: '24'}, {kind: 'x'}]) {
+    assert.throws(() => validateTraceArgs(bad), /trace 参数/);
+  }
 });
