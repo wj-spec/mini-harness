@@ -124,12 +124,32 @@ VIBE_MAX_STEPS=4 VIBE_MAX_RUN_TOKENS=8000 \
 已加“连续 2 次 tool_gate 后强制 done”的收敛兜底；真实重试仍出现模型未最终完成 s2
 的情况（token/max_steps 停止），多步 P1 仍需继续验证。
 
+## 3f. 干净工作区真实两步计划成功
+
+新建一次性工作区与会话（避免旧 session 的失败轨迹污染），真实模型：
+
+1. submit_plan 生成 2 步计划：
+   - s1 读取 README；
+   - s2 总结（depends_on=[s1]）；
+2. 批准；
+3. 新 Harness 执行：
+   - 依次 start/read/complete s1；
+   - 依次 start/complete s2；
+4. run status=**done**，steps=6；
+5. `execution.v1.json`：s1=done、s2=done。
+
+这是真实模型 **多步计划执行**的干净成功样本。
+
+结论修正：之前的“多步不收敛”主要受旧 session 中反复失败的 ledger/轨迹影响；
+干净会话中多步可完成。仍建议用单一运行隔离/新会话做真实验收。
+
 ## 4. 结论与限制
 
 - 已证明：真实模型可以走 `--task` 只读链路、可以生成结构化 proposed plan；
 - 已证明：计划批准后绑定/门禁/step 工具在真实模型下可运行，s1 产生 read 证据；
 - 已证明（单步）：真实模型能完成全部步骤并通过可信验收命令（acceptance=true）；
-- 仍待：多步计划收敛、TUI 审批下的真实验收、更多样本；
+- 已证明（干净会话）：真实模型两步计划全部完成；
+- 仍待：多步 + 验收命令、TUI 审批下的真实验收、更多样本；
 - 本次仅 deepseek-flash、一次样本，成本显示 $0；
 - 观察到一次真实 provider 长时间无返回（>300s），需要重跑/检查超时与重试；
 - 下一步：重跑第 3 步（更强提示/更多步数/不同 provider），再按
