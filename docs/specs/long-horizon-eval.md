@@ -48,6 +48,10 @@
 ./.venv/bin/python3 scripts/bench_long.py --scenario detach-continue --runs 3
 ```
 
+## 已有一键入口（2026-11-07）
+
+- `./scripts/verify_all.sh --with-real-bench`：fake 15 场景 + 真实 5 场景一次跑完（真实场景消耗 token）。
+
 ## 未完成（P0 剩余）
 
 - `two-slot-write-serial` 已覆盖写任务排队串行、只读任务并发已实现；文件集级并行写仍待后续；

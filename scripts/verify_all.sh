@@ -3,6 +3,7 @@
 # 用法：./scripts/verify_all.sh [--with-real [--real-runs N]]
 #   --with-real    额外跑真实模型六模式 suite（需要 .env 或环境变量里的 key）
 #   --real-runs N  与 --with-real 搭配：重复跑 N 轮 suite（稳定性样本，1-5）
+#   --with-real-bench 额外跑真实模型长任务场景（bench_long --real，消耗 token）
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -15,10 +16,12 @@ if [ -f .env ]; then
 fi
 
 WITH_REAL=0
+WITH_REAL_BENCH=0
 REAL_RUNS=1
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --with-real) WITH_REAL=1 ;;
+    --with-real-bench) WITH_REAL_BENCH=1 ;;
     --real-runs)
       shift
       if [ "${1:-}" = "" ]; then
@@ -28,7 +31,7 @@ while [ "$#" -gt 0 ]; do
       REAL_RUNS="$1"
       ;;
     *)
-      echo "未知参数：$1（支持 --with-real / --real-runs N）" >&2
+      echo "未知参数：$1（支持 --with-real / --real-runs N / --with-real-bench）" >&2
       exit 2
       ;;
   esac
@@ -94,6 +97,17 @@ if "$PYTHON" -m app --redteam --workspace "$ROOT" > /tmp/verify-redteam.log 2>&1
   report "redteam" PASS "默认拒绝矩阵通过"
 else
   report "redteam" FAIL "见 /tmp/verify-redteam.log"
+fi
+
+if [ "$WITH_REAL_BENCH" = "1" ]; then
+  echo "== 真实模型长任务 bench（--real） =="
+  if "$PYTHON" scripts/bench_long.py --real --runs 1 > /tmp/verify-real-bench.log 2>&1; then
+    passed=$(grep -c "PASS" /tmp/verify-real-bench.log)
+    report "real-bench" PASS "$passed real scenarios PASS"
+  else
+    passed=$(grep -c "PASS" /tmp/verify-real-bench.log)
+    report "real-bench" FAIL "$passed real scenarios PASS"
+  fi
 fi
 
 if [ "$WITH_REAL" = "1" ]; then

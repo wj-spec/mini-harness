@@ -14,7 +14,7 @@
 | Plan/SubAgent 人工验收清单 | TC-16-01–08 已编写；自动化/真实模型部分已记录（[清单](manual-acceptance-16-plan-subagent.md)、[结果](manual-acceptance-16-results.md)），真实 TUI 键路待；新增 [TUI 终端快速验收清单](manual-acceptance-tui-quick.md) 便于终端一次走完 |
 | 真实模型 Plan P1 冒烟 | deepseek-flash：只读任务 done、单步+验收 acceptance=true、两步计划+验收 acceptance=true、deepseek-flash/chat 多步+验收与审批帧样本通过；脚本步骤门禁/重试修复后连续 5/5 ok（审批均 1 次）；/explore ok；真实后台 goal worker、后台 Plan worker、edit 步骤（文件范围+审批+验收）通过；验收失败自动修复（--repair）连续 2/2；真实 TUI 人工键路待（[记录](real-p1-plan-smoke-2026-11-07.md)） |
 | 文档链接 | 104 个 docs 文档，**0 失效**（`tests/test_docs_links.py` 持续校验） |
-| 一键验收 | `./scripts/verify_all.sh [--with-real --real-runs N]` 汇总 Python/TUI/bench/doctor/redteam（2026-11-07 `--real-runs 2` 实测全通过，真实 suite ×2） |
+| 一键验收 | `./scripts/verify_all.sh [--with-real --real-runs N] [--with-real-bench]` 汇总 Python/TUI/bench/doctor/redteam；2026-11-07 `--with-real-bench` 实测 real-bench 5 场景全通过 |
 | 本地自检（2026-11-07） | `--doctor` exit 0（含 key）；`--bench-history` 11 次无回归；`--cleanup-bench --log-dry-run` 11 candidates；`--trace-summary --trace-all-sessions` 28 会话/457 LLM calls/失败工具分布 |
 
 ## 2. 16 块 P0 状态

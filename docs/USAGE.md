@@ -8,6 +8,7 @@
 ./scripts/verify_all.sh              # Python 全量 + TUI + 长任务 fake 14 场景 + doctor + 红队
 ./scripts/verify_all.sh --with-real  # 额外跑真实模型六模式 suite（需要 key）
 ./scripts/verify_all.sh --with-real --real-runs 2  # 真实模型稳定性样本（两轮独立工作区）
+./scripts/verify_all.sh --with-real-bench  # 额外跑真实模型长任务场景（消耗 token）
 ```
 
 脚本会汇总每项 PASS/FAIL；无 pty 环境下 TUI 唯一的 pty smoke 失败按 EXPECTED 记录。
