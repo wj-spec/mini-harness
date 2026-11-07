@@ -183,3 +183,82 @@ test('explore command forwards its prompt through the real backend', async t => 
     await rm(workspace, {recursive: true, force: true});
   }
 });
+
+test('notifications kind filter is forwarded through the real backend', async t => {
+  const python = path.join(repoRoot, '.venv', 'bin', 'python3');
+  if (!existsSync(python) || !existsSync(path.join(repoRoot, 'run_vibe.sh'))) {
+    t.skip('python backend unavailable');
+    return;
+  }
+  const workspace = await mkdtemp(path.join(tmpdir(), 'vibe-tui-notify-'));
+  await mkdir(path.join(workspace, '.vibe'), {recursive: true});
+  await writeFile(path.join(workspace, '.vibe', 'notifications.jsonl'), [
+    JSON.stringify({schema_version: 1, kind: 'worker_started', ts: '2026-11-07T00:00:00+00:00', task_id: 't-1'}),
+    JSON.stringify({schema_version: 1, kind: 'plan_acceptance', ts: '2026-11-07T00:00:01+00:00',
+      task_id: 't-2', status: true}),
+  ].join('\n') + '\n');
+  const events: ServerEvent[] = [];
+  const client = createBackendClient({repoRoot, args: ['--fake', '--workspace', workspace]});
+  client.subscribe(event => events.push(event));
+  const view = render(<App client={client}/>);
+  try {
+    client.start();
+    await waitFor(() => events.some(event => event.type === 'ready'));
+    const stdin = view.stdin as unknown as {write(value: string): void};
+    stdin.write('/notifications plan_acceptance');
+    await pause(80);
+    stdin.write('\r');
+    await waitFor(() => events.some(event => event.type === 'command_result' && event.command === 'notifications'));
+    const result = events.find(event => event.type === 'command_result' && event.command === 'notifications') as
+      Extract<ServerEvent, {type: 'command_result'}>;
+    assert.match(result.text, /plan_acceptance/);
+    assert.doesNotMatch(result.text, /worker_started/);
+    assert.match(result.text, /最近通知（1）/);
+  } finally {
+    await client.shutdown();
+    cleanup();
+    await rm(workspace, {recursive: true, force: true});
+  }
+});
+
+test('plan step command forwards step_id through the real backend', async t => {
+  const python = path.join(repoRoot, '.venv', 'bin', 'python3');
+  if (!existsSync(python) || !existsSync(path.join(repoRoot, 'run_vibe.sh'))) {
+    t.skip('python backend unavailable');
+    return;
+  }
+  const workspace = await mkdtemp(path.join(tmpdir(), 'vibe-tui-step-'));
+  const events: ServerEvent[] = [];
+  const client = createBackendClient({repoRoot, args: ['--fake', '--workspace', workspace]});
+  client.subscribe(event => events.push(event));
+  const view = render(<App client={client}/>);
+  try {
+    client.start();
+    await waitFor(() => events.some(event => event.type === 'ready'));
+    const ready = events.find(event => event.type === 'ready') as Extract<ServerEvent, {type: 'ready'}>;
+    const sessionPath = ready.session_path ?? '';
+    assert.ok(sessionPath, 'ready should include session_path');
+    const taskId = 't-20261001-000000-abcdef';
+    const planDir = path.join(sessionPath, 'tasks', taskId, 'plan');
+    await mkdir(planDir, {recursive: true});
+    await writeFile(path.join(planDir, 'plan.v1.json'), JSON.stringify({
+      schema_version: 1, plan_id: 'pl-tui-step', task_id: taskId, version: 1,
+      status: 'approved', objective: '步骤详情计划',
+      steps: [{step_id: 's1', title: '读 README', kind: 'read', files: ['README.md']}],
+    }, null, 2));
+    const stdin = view.stdin as unknown as {write(value: string): void};
+    stdin.write('/plan step s1');
+    await pause(80);
+    stdin.write('\r');
+    await waitFor(() => events.some(event => event.type === 'command_result' && event.command === 'plan'));
+    const result = events.find(event => event.type === 'command_result' && event.command === 'plan') as
+      Extract<ServerEvent, {type: 'command_result'}>;
+    assert.match(result.text, /s1/);
+    assert.match(result.text, /读 README/);
+    assert.match(result.text, /files/);
+  } finally {
+    await client.shutdown();
+    cleanup();
+    await rm(workspace, {recursive: true, force: true});
+  }
+});
