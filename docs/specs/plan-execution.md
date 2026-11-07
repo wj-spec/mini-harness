@@ -91,6 +91,7 @@ read/file_change 证据的步骤；缺少证据的错误提示也会提示传 `e
 - `--run-plan-queue --session SID --workspace WS`：按 `created_at` 顺序串行启动这些 task 的 `--worker`，
   全部依赖 workspace 锁自然串行；任一 task 未 `completed` 即停止并 exit 1（JSON 输出 ran/completed/stopped_early）；
 - `--queue-task-timeout` 控制单个 worker 超时（默认 1800s，上限 24h）；
+- 默认任一 task 未 completed 即停止；`--queue-continue-on-failure` 继续后续任务（输出 `failed` 计数，最终仍 exit 1）；
 - 队列只处理 status=created 且带 plan 的 task，不会重跑已完成/失败任务；
 - 执行前用 `find_plan` + `can_execute` 复核计划仍可执行（plan 被删/修订/过期时标记 `skipped_plan_unavailable` 并停止）；
 - `--queue-dry-run` 只读输出队列与 `plan_executable`，便于预演；

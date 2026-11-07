@@ -36,8 +36,8 @@ Agent 执行的步骤一多，最终回答就不足以说明它依据了什么�
 | 过程控制 | 运行中纠偏、排队后续任务、取消与超时回收；重复调用 / 重复读取 / 无产物进展的空转护栏；交互单轮默认 30 分钟；完成守卫：动作任务的“完成”必须有覆盖最后一次改动的成功验证，否则只标 `verified=false`；结束状态区分「本轮结束 · 已验证 / 待验证」；可选 `VIBE_LLM_AUDITOR=1` 启用全新上下文的 LLM 只读审计（默认关闭，额外一次模型调用）；开启后默认要求契约反查 `aligned`，可用 `VIBE_CONTRACT_BACKCHECK=0` 放宽 unknown |
 | 上下文 | 1M 上下文窗口、预算分区、80% 主动压缩、原文 offload + `recall` 回取、请求前上下文快照与 `/context` |
 | 会话与恢复 | JSONL 会话与原始消息、崩溃对账、交付回执、显式 `/resume` 续做同一任务；每轮写入 `.vibe/sessions/<id>/rounds/` 账本（文件变动前后 hash、验证记录、审计结论），`/evidence` 查看最近一轮证据摘要，不复制文件正文 |
-| 长任务 | `/goal` 目标模式：资源受限停止后自动续段（默认 8 段 / 4 小时）；目标状态写入会话目录，重启 / `--continue` 后恢复为暂停态，需 `/goal resume` 显式续段；完成未验证时暂停而不是标记完成 |
-| 后台 / 计划 / 子 Agent | `/chat` `/act` `/plan`（schema、审批、执行门禁、step 证据、验收命令）；前后台 Plan 与 `/explore` 只读子 Agent 已通过真实模型 P1（deepseek-flash/chat）；后台 worker、`--tasks`、`--attach`、`--stop`、`--pause-task`；本地通知 `/notifications` |
+| 长任务 | `/goal` 目标模式：资源受限停止后自动续段（默认 8 段 / 4 小时）；目标状态写入会话目录，重启 / `--continue` 后恢复为暂停态，需 `/goal resume` 显式续段；完成未验证时暂停而不是标记完成；已确认 criteria 由 harness 执行可信命令（失败暂停）；`--prepare-plan-task`/`--run-plan-queue` 支持计划任务串行/跨会话/跨工作区排队 |
+| 后台 / 计划 / 子 Agent | `/chat` `/act` `/plan`（schema、审批、执行门禁、step 证据、验收命令、失败自动修复、合并后重验）；前后台 Plan 与 `/explore` 只读子 Agent 已通过真实模型 P1（deepseek-flash/chat，suite 六模式 6/6）；后台 worker、`--tasks`、`--attach`、`--stop`、`--pause-task`；本地通知 `/notifications` + 可选外部 webhook；只读 CLI `--tasks/--plans/--acceptance/--notifications/--approvals/--evidence` |
 | 工作台 | 全屏 Ink、Markdown 阅读、多行输入与历史、拖选复制、Git 变更侧栏、像素猫 Mini 首屏；`--doctor` 首用环境自检（含待审批/events 软上限/stale worktree 运行时提示）；审批面板标题显示层级 |
 | 个性化 | 项目背景 `/project`（查看、增删、改来源）与个人偏好 `/about`（确认、编辑、触发词、相关性注入、导出/审计）：均带来源，下一次任务生效；W6 v2 未证明收益，保持显式可管理，不扩 P5 |
 

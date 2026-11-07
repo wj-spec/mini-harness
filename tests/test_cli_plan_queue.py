@@ -218,3 +218,36 @@ def test_queue_workspace_requires_run(monkeypatch, capsys):
         entrypoint.main()
     assert error.value.code == 2
     assert "--queue-workspace requires --run-plan-queue" in capsys.readouterr().err
+
+
+@pytest.mark.skipif(GIT is None, reason="git required")
+def test_plan_queue_continue_on_failure_keeps_going(repo, monkeypatch, capsys):
+    first_session, first_task = _prepared_task(repo)
+    bad_plan = first_session.root / "tasks" / "t-20261106-000000-abcdef" / "plan" / "plan.v1.json"
+    # 第一个 task 绑定的计划来自 _prepared_task 里的计划任务目录；直接删掉该会话计划文件。
+    for candidate in first_session.root.glob("tasks/*/plan/plan.v1.json"):
+        candidate.unlink()
+    second_session, second_task = _prepared_task(repo)
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=repo))
+    monkeypatch.setattr(sys, "argv", ["vibe", "--run-plan-queue", "--queue-all-sessions",
+                                      "--queue-continue-on-failure",
+                                      "--workspace", str(repo), "--fake"])
+    with pytest.raises(SystemExit) as error:
+        entrypoint.main()
+    assert error.value.code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["continue_on_failure"] is True
+    assert payload["completed"] == 1 and payload["failed"] == 1
+    assert payload["stopped_early"] is None
+    statuses = {item["task_id"]: item["status"] for item in payload["ran"]}
+    assert statuses[first_task.task_id] == "skipped_plan_unavailable"
+    assert statuses[second_task.task_id] == "completed"
+    assert TaskStore(second_session.root).get(second_task.task_id).status == "completed"
+
+
+def test_queue_continue_on_failure_requires_run(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["vibe", "--queue-continue-on-failure", "--workspace", "/tmp"])
+    with pytest.raises(SystemExit) as error:
+        entrypoint.main()
+    assert error.value.code == 2
+    assert "--queue-continue-on-failure requires --run-plan-queue" in capsys.readouterr().err

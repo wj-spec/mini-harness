@@ -123,6 +123,7 @@ def main() -> None:
     parser.add_argument("--queue-dry-run", action="store_true", help="与 --run-plan-queue 搭配：只报告队列与计划可执行性，不启动 worker")
     parser.add_argument("--queue-all-sessions", action="store_true", help="与 --run-plan-queue 搭配：跨会话收集 created 计划 task 并串行执行")
     parser.add_argument("--queue-workspace", action="append", default=None, metavar="PATH", help="与 --run-plan-queue 搭配：指定工作区（可重复；默认当前 --workspace）")
+    parser.add_argument("--queue-continue-on-failure", action="store_true", help="与 --run-plan-queue 搭配：某个任务失败/计划不可执行时继续后续任务")
     parser.add_argument("--prune-worktrees", action="store_true", help="只读报告 stale/孤立的 worktree")
     parser.add_argument("--prune-apply", action="store_true", help="与 --prune-worktrees 搭配：把目录缺失的 worktree 标记 removed 并删分支")
     parser.add_argument("--worker", action="store_true", help="后台 worker：执行一个 task segment 并暴露 attach socket")
@@ -295,6 +296,8 @@ def main() -> None:
         parser.error("--queue-all-sessions requires --run-plan-queue")
     if args.queue_workspace and not args.run_plan_queue:
         parser.error("--queue-workspace requires --run-plan-queue")
+    if args.queue_continue_on_failure and not args.run_plan_queue:
+        parser.error("--queue-continue-on-failure requires --run-plan-queue")
     if args.prepare_plan_task or args.run_plan_queue:
         if args.continue_session:
             parser.error("--prepare-plan-task/--run-plan-queue cannot use --continue")
@@ -843,13 +846,18 @@ def main() -> None:
         repo_root = str(Path(__file__).resolve().parents[1])
         ran: list[dict] = []
         stopped_early: str | None = None
+        failed = 0
         for workspace, session, store, task in entries:
             if not plan_executable(session, task):
                 ran.append({"workspace": str(workspace), "session": session.id,
                             "task_id": task.task_id, "plan_id": task.plan_id,
                             "plan_version": task.plan_version, "exit_code": None,
                             "status": "skipped_plan_unavailable", "stderr": ""})
-                stopped_early = "plan_unavailable"
+                failed += 1
+                if stopped_early is None:
+                    stopped_early = "plan_unavailable"
+                if args.queue_continue_on_failure:
+                    continue
                 break
             command = [sys.executable, "-m", "app", "--worker",
                        "--workspace", str(workspace), "--session", session.id,
@@ -873,18 +881,24 @@ def main() -> None:
                         "plan_version": task.plan_version,
                         "exit_code": exit_code, "status": status, "stderr": stderr})
             if status != "completed":
-                stopped_early = status
+                failed += 1
+                if stopped_early is None:
+                    stopped_early = status
+                if args.queue_continue_on_failure:
+                    continue
                 break
         payload = {"ran": ran,
                    "completed": sum(1 for item in ran if item["status"] == "completed"),
-                   "stopped_early": stopped_early,
+                   "failed": failed,
+                   "stopped_early": stopped_early if not args.queue_continue_on_failure else None,
+                   "continue_on_failure": bool(args.queue_continue_on_failure),
                    "workspaces": workspace_names, "sessions": session_ids}
         if len(workspaces) == 1:
             payload["workspace"] = workspace_names[0]
         if len(session_ids) == 1:
             payload["session"] = session_ids[0]
         print(json.dumps(payload, ensure_ascii=False, indent=2))
-        if stopped_early is not None:
+        if failed or (stopped_early is not None and not args.queue_continue_on_failure):
             raise SystemExit(1)
         return
 
