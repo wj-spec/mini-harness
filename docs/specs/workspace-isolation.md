@@ -97,6 +97,8 @@ class WorktreeManager:
 
 ## 队列状态（P0 补充）
 
+- 只读任务（mode=chat/plan）不占 workspace 写锁、不创建 worktree，可并发运行；
+  写任务（goal/act）仍按 workspace lock 串行（`workspace_lock_skipped` 事件）；
 - 第二个写 worker 设置 `VIBE_WORKSPACE_LOCK_WAIT` 时，任务 created→queued，
   写 `workspace_waiting` 事件；等到锁后由 TaskRuntime queued→running。
 - 等待超时未拿到锁 → 任务 failed(workspace_busy)，避免无限排队。

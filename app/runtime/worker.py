@@ -277,6 +277,7 @@ class Worker:
                 except Exception:
                     pass
                 return 0
+        read_only_task = task.mode in {"chat", "plan"}
         try:
             wait_seconds = _env_float("VIBE_WORKSPACE_LOCK_WAIT", 0.0)
             if wait_seconds > 0:
@@ -289,10 +290,16 @@ class Worker:
                                        data={"max_wait_seconds": wait_seconds})
                 except Exception:
                     pass
-            self.workspace_lock = acquire_workspace_lock(
-                self.workspace, task_id=self.task_id, session_id=self.session_root.name,
-                wait_seconds=wait_seconds,
-            )
+            if read_only_task:
+                try:
+                    store.append_event(self.task_id, "workspace_lock_skipped", data={"mode": task.mode})
+                except Exception:
+                    pass
+            else:
+                self.workspace_lock = acquire_workspace_lock(
+                    self.workspace, task_id=self.task_id, session_id=self.session_root.name,
+                    wait_seconds=wait_seconds,
+                )
         except WorkspaceBusy as exc:
             try:
                 if store.get(self.task_id).status == "queued":
@@ -301,7 +308,7 @@ class Worker:
                 pass
             raise WorkerError(f"workspace busy: {exc}") from exc
         self.task_dir.mkdir(parents=True, exist_ok=True)
-        if os.getenv("VIBE_WORKTREE", "1").strip().lower() not in {"0", "false", "off", "no"}:
+        if not read_only_task and os.getenv("VIBE_WORKTREE", "1").strip().lower() not in {"0", "false", "off", "no"}:
             allow_non_git = os.getenv("VIBE_ALLOW_NON_GIT", "").strip().lower() in {"1", "true", "yes"}
             manager = None
             try:

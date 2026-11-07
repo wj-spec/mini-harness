@@ -421,3 +421,28 @@ def test_worker_approval_inbox_full_notifies(tmp_path, monkeypatch):
     from app.runtime.notifications import read_notifications
     notices = [item for item in read_notifications(tmp_path) if item["kind"] == "approval_inbox_full"]
     assert notices and "inbox full" in notices[-1]["reason"]
+
+
+def test_read_only_worker_skips_workspace_lock(tmp_path, monkeypatch):
+    import asyncio, sys
+    monkeypatch.setenv("VIBE_ALLOW_NON_GIT", "1")
+    from app.runtime.tasks import TaskStore
+    from app.runtime.worker import Worker
+    from app.runtime.workspace import acquire_workspace_lock
+    from app.session.store import SessionStore
+
+    session = SessionStore.new(tmp_path, "fake", purpose="test")
+    store = TaskStore(session.root)
+    task = store.create(kind="run", objective="plan lock", workspace=str(tmp_path), mode="plan")
+    lock = acquire_workspace_lock(tmp_path, task_id="t-other", session_id="s-other")
+    try:
+        worker = Worker(session_root=session.root, task_id=task.task_id, workspace=tmp_path,
+                        child_args=[sys.executable, "-c", "import sys; [None for _ in sys.stdin]"],
+                        child_env={"VIBE_TASK_RUNTIME": "1"})
+        monkeypatch.setenv("VIBE_TASK_DEADLINE_SECONDS", "0.3")
+        assert asyncio.run(worker.run()) in {0, 1}
+        assert worker.workspace_lock is None
+        events = (store.task_dir(task.task_id) / "events.jsonl").read_text(encoding="utf-8")
+        assert "workspace_lock_skipped" in events
+    finally:
+        lock.release()
