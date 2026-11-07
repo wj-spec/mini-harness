@@ -122,8 +122,8 @@ flowchart TD
 
 **下一步**
 
-- **长任务可靠性**：`/goal` 的真实长任务与跨段成本验收。
-- **长任务 / 后台 / 进阶模式**：先逐块讨论并拍板，再按切片写 spec；分块文档与待拍板问题见[长任务、后台任务与进阶模式分块讨论](docs/design/long-horizon/README.md)。
+- **长任务可靠性**：fake 15 场景 + 真实 5 场景 benchmark、六模式真实 suite 已建；真实使用中的长期 goal 成本/质量仍待反馈。
+- **进阶模式**：任务运行时/后台/审批收件箱/isolation/Plan/goal/模式/子 Agent 等 P0–P1 已实现并通过真实模型验收；后续按使用反馈演进，当前状态见 [P0 收束报告](docs/specs/p0-closure-report.md)。
 - **个性化精细化**：W6 v2 未观察到重复说明减少；已停止 P0 扩张、不进入 P5，保留显式偏好管理；后续只有新证据/新评估方法才重新评估。
 - **评测扩题**：固定前三题参考补丁自检与 `--limit 3` 扩题，建立多次运行基线。
 - **方向探索**：MCP HTTP transport / 资源与 prompt、LSP、多 Agent 主 / 子编排、Computer Use、W7 第二种工作流，按实际需求再评估；两方向调研与规格见 [Multi-Agent 与 Computer Use](docs/specs/multi-agent-computer-use.md)；Computer Use 先收窄为 [Browser Use](docs/specs/browser-use.md)。
@@ -132,7 +132,7 @@ flowchart TD
 
 ## 快速开始
 
-一键本地验收：`./scripts/verify_all.sh`（Python + TUI + 长任务 benchmark + doctor；`--with-real` 追加真实模型 suite）。
+一键本地验收：`./scripts/verify_all.sh`（Python + TUI + 长任务 benchmark + doctor；`--with-real` 追加真实模型 suite，`--with-real-bench` 追加真实长任务场景）。
 
 依赖：Python 3.11+、Node.js 22+；`uv` 可选（没有 uv 用第 2 步里的 venv + pip 等价路径）。三步启动：
 
