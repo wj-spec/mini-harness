@@ -132,6 +132,8 @@ flowchart TD
 
 ## 快速开始
 
+一键本地验收：`./scripts/verify_all.sh`（Python + TUI + 长任务 benchmark + doctor；`--with-real` 追加真实模型 suite）。
+
 依赖：Python 3.11+、Node.js 22+；`uv` 可选（没有 uv 用第 2 步里的 venv + pip 等价路径）。三步启动：
 
 ```bash

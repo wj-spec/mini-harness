@@ -406,3 +406,17 @@ def test_doctor_accepts_approved_relaxed_profile(tmp_path):
     })
     assert code == 0, output
     assert "✓ 无人值守 profile 已批准（放宽：allow_exec）" in output
+
+
+def test_verify_all_script_present_and_valid():
+    import subprocess
+
+    repo_root = Path(__file__).resolve().parents[1]
+    path = repo_root / "scripts" / "verify_all.sh"
+    assert path.is_file()
+    assert path.stat().st_mode & 0o111
+    source = path.read_text(encoding="utf-8")
+    for step in ("run_tests.sh", "npm test", "bench_long.py", "doctor.py", "real_p1_acceptance.py"):
+        assert step in source
+    result = subprocess.run(["bash", "-n", str(path)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr

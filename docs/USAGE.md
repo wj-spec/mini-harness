@@ -2,6 +2,15 @@
 
 安装、模型配置、命令和运行边界。项目概览见 [README](../README.md)。以下命令在项目根目录执行。
 
+## 一键验收
+
+```bash
+./scripts/verify_all.sh              # Python 全量 + TUI + 长任务 fake 14 场景 + doctor
+./scripts/verify_all.sh --with-real  # 额外跑真实模型六模式 suite（需要 key）
+```
+
+脚本会汇总每项 PASS/FAIL；无 pty 环境下 TUI 唯一的 pty smoke 失败按 EXPECTED 记录。
+
 ## 怎么跑
 
 首次使用先跑环境自检：`./run_ink.sh --doctor`（没有 `.venv` 时可用 `python3 scripts/doctor.py`）。它逐项检查 Node / Python / 依赖 / API Key / TTY / 工作区/ git 仓库，缺项给出补齐命令；阻塞项 exit 2。运行时状态也会提示（非阻塞）：待审批动作数（`--approvals` / `--decide-approval`）、超过 `VIBE_EVENTS_MAX_BYTES` 的会话 events、目录缺失的 worktree、benchmark 历史回归（用 `--bench-history` 查看）；开启 `VIBE_UNATTENDED_REQUIRE_APPROVAL=1` 时还会检查放宽 profile 是否已有批准记录。脚本 / CI 用 `python3 scripts/doctor.py --json` 获取机器可读结果（`ok/failures/warnings/checks`）。
