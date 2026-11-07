@@ -98,6 +98,15 @@ TUI /goal /chat /act /plan
 
 ## 7. 100 轮加固摘要（2026-11-07）
 
+### 当前基线（第 114 轮，2026-11-07）
+
+- Python **1601 passed / 13 skipped**；TUI **414 passed / 1 failed**（无 pty）。
+- 长任务 fake：单轮 **14/14**；三轮 **42/42**，各场景 pass_rate=1.0。
+- 真实模型：deepseek-flash/chat 各 **6/6**；`verify_all.sh --with-real --real-runs 2` 实测通过。
+- 只读视图 12 个、真实后端跨层用例 14 个、文档链接 0 失效（有测试守护）。
+
+
+
 第 55–100 轮在 P0/P1 基础上做生产化加固，所有改动均有测试与真实模型证据：
 
 - **协议与前端一致性**：TUI/Python 命令集合一致性测试、命令参数校验补齐（notifications/explore/trace/plan）、
