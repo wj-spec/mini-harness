@@ -530,3 +530,29 @@ test('actual FastMCP startup is approved through Node and its process exits on s
     assert.equal(state.events.some(event=>event.type==='error'),false);
   }finally{await client.shutdown();if(alive()&&pid)process.kill(pid,'SIGKILL');await f.close();}
 });
+
+test('explore notification and plan commands forward their args', async()=>{
+  const f = await fixture(`import readline from 'node:readline';import {appendFileSync} from 'node:fs';
+console.log(JSON.stringify(${JSON.stringify(ready)}));
+readline.createInterface({input:process.stdin}).on('line',line=>{
+appendFileSync('requests.jsonl',line+'\\n');const request=JSON.parse(line);
+if(request.type==='command')console.log(JSON.stringify({v:1,type:'command_result',id:request.id,command:request.command,text:'ok'}));
+if(request.type==='shutdown'){console.log(JSON.stringify({v:1,type:'closed',id:request.id}));process.exit(0);}
+});`);
+  const client = createBackendClient({repoRoot: f.root, shutdownTimeoutMs: 500});
+  const state = observer(client);
+  try {
+    client.start(); await state.wait(event=>event.type==='ready');
+    const ids = [
+      client.command('explore', {prompt: 'read'}),
+      client.command('notifications', {kind: 'plan_acceptance'}),
+      client.command('plan', {action: 'list'}),
+    ];
+    for (const id of ids) await state.wait(event=>event.type==='command_result'&&event.id===id);
+    await client.shutdown();
+    const requests = (await readFile(path.join(f.root,'requests.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line));
+    assert.deepEqual(requests[0].args, {prompt: 'read'});
+    assert.deepEqual(requests[1].args, {kind: 'plan_acceptance'});
+    assert.deepEqual(requests[2].args, {action: 'list'});
+  } finally {await client.shutdown(); await f.close();}
+});

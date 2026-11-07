@@ -282,9 +282,12 @@ export type ServerEvent =
 
 export type ClientRequest = (
   | Envelope<'run', {text: string; task?: RunTaskMeta}>
-  | Envelope<'command', {command: Exclude<BackendCommand, 'skills' | 'autonomy'>}>
+  | Envelope<'command', {command: Exclude<BackendCommand, 'skills' | 'autonomy' | 'plan' | 'explore' | 'notifications'>}>
   | Envelope<'command', {command: 'skills'; args?: SkillsCommandArgs}>
   | Envelope<'command', {command: 'autonomy'; args: AutonomyCommandArgs}>
+  | Envelope<'command', {command: 'plan'; args?: PlanCommandArgs}>
+  | Envelope<'command', {command: 'explore'; args: ExploreCommandArgs}>
+  | Envelope<'command', {command: 'notifications'; args?: NotificationsCommandArgs}>
   | Envelope<'cancel', {target: string}>
   | Envelope<'steer', {target: string; text: string}>
   | Envelope<'approval', {approval_id: string; decision: ApprovalDecision}>
