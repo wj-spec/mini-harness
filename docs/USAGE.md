@@ -715,6 +715,7 @@ VIBE_DEBUG=1 ./run_ink.sh --workspace /path/to/repo
 - `/plan background`：准备后台 task 并启动 detached worker，适用于长计划；
 - `/explore <任务>`：只读子 Agent 探索，创建 `kind=subagent` 任务；结果附 token/费用，`/cost` 的 totals 与 `subagent_runs/subagent_tokens/subagent_cost_usd` 一并可见；
 
+  - CLI 等价入口：`./run_vibe.sh --explore "读取 README 并总结，只读" --workspace <ws>`（输出 JSON：status/summary/task_id/tokens/cost，exit 0/1/2）。
   - 子 Agent 预算可用 `VIBE_EXPLORE_MAX_STEPS`（1-20，默认 6）、`VIBE_EXPLORE_MAX_TOKENS`（500-200000，默认 20000）、`VIBE_EXPLORE_MAX_SECONDS`（5-600，默认 60）调整；文件仍只读。
 - `/notifications [kind]`：查看后台 worker 本地通知，可按 kind 过滤；
 - `/queue`：查看待运行的 created 计划任务队列（按 priority/created_at 排序，显示 plan 绑定）。

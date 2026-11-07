@@ -136,6 +136,7 @@ def main() -> None:
     parser.add_argument("--set-task-priority", default=None, metavar="TASK_ID", help="调整尚未开始的 created 任务优先级")
     parser.add_argument("--task-priority", type=int, default=None, metavar="N", help="与 --set-task-priority 搭配：新优先级（0-100）")
     parser.add_argument("--approve-unattended-profile", action="store_true", help="批准当前无人值守 profile（记录 hash，可含放宽项）")
+    parser.add_argument("--explore", default=None, metavar="PROMPT", help="用只读子 Agent 探索工作区并输出 JSON 摘要")
     parser.add_argument("--prune-worktrees", action="store_true", help="只读报告 stale/孤立的 worktree")
     parser.add_argument("--prune-apply", action="store_true", help="与 --prune-worktrees 搭配：把目录缺失的 worktree 标记 removed 并删分支")
     parser.add_argument("--worker", action="store_true", help="后台 worker：执行一个 task segment 并暴露 attach socket")
@@ -447,6 +448,21 @@ def main() -> None:
             or args.evidence or args.prepare_plan_task or args.run_plan_queue
         ):
             parser.error("--approve-unattended-profile cannot be combined with other modes")
+    if args.explore is not None:
+        if not args.explore.strip():
+            parser.error("--explore requires a nonempty prompt")
+        if (
+            args.stdio or args.eval or args.eval_limit is not None or args.eval_tasks is not None
+            or args.list_sessions or args.task is not None or args.continue_session
+            or args.bench or args.tasks or args.notifications or args.plans or args.acceptance
+            or args.approvals or args.redteam or args.prune_worktrees or args.prune_apply
+            or args.worker or args.attach or args.stop or args.stop_task is not None
+            or args.pause_task is not None or args.merge_task is not None or args.cleanup_logs
+            or args.decide_approval is not None or args.evidence or args.trace_summary
+            or args.prepare_plan_task or args.run_plan_queue or args.bench_history
+            or args.approve_unattended_profile or args.cleanup_bench or args.set_task_priority is not None
+        ):
+            parser.error("--explore cannot be combined with other modes")
     if args.prune_apply and not args.prune_worktrees:
         parser.error("--prune-apply requires --prune-worktrees")
     if args.prune_worktrees:
@@ -473,7 +489,7 @@ def main() -> None:
         parser.error("--bench requires --task")
     if args.telemetry_out and args.task is None:
         parser.error("--telemetry-out requires --task")
-    if not args.stdio and not args.eval and not args.list_sessions and not args.tasks and not args.notifications and not args.plans and not args.acceptance and not args.approvals and not args.redteam and not args.approve_unattended_profile and not args.prune_worktrees and not args.evidence and not args.trace_summary and not args.bench_history and not args.prepare_plan_task and not args.run_plan_queue and not args.worker and not args.attach and args.merge_task is None and not args.stop and args.pause_task is None and not args.cleanup_logs and not args.cleanup_bench and args.task is None and args.decide_approval is None and args.set_task_priority is None:
+    if not args.stdio and not args.eval and not args.list_sessions and not args.tasks and not args.notifications and not args.plans and not args.acceptance and not args.approvals and not args.redteam and not args.approve_unattended_profile and not args.prune_worktrees and not args.evidence and not args.trace_summary and not args.bench_history and not args.prepare_plan_task and not args.run_plan_queue and not args.worker and not args.attach and args.merge_task is None and not args.stop and args.pause_task is None and not args.cleanup_logs and not args.cleanup_bench and args.task is None and args.decide_approval is None and args.set_task_priority is None and args.explore is None:
         print(
             "Textual 入口已退役。交互界面请运行 ./run_ink.sh（例如 ./run_ink.sh --fake）；"
             "后端与 eval 分别使用 --stdio / --eval。",
@@ -1157,6 +1173,43 @@ def main() -> None:
             return
         print(render_bench_history(rows))
         return
+
+    if args.explore is not None:
+        import asyncio
+
+        from app.runtime.subagents import run_subagent
+        from app.stdio import _env_bounded
+
+        provider = build_provider(config, args.fake)
+        session = SessionStore.new(
+            config.workspace, config.provider,
+            purpose="test" if args.fake or config.provider == "fake" else "user",
+        )
+        try:
+            result = asyncio.run(run_subagent(
+                provider, config.tools_root or config.workspace, args.explore,
+                max_steps=_env_bounded("VIBE_EXPLORE_MAX_STEPS", 6, 1, 20, cast=int),
+                max_run_tokens=_env_bounded("VIBE_EXPLORE_MAX_TOKENS", 20_000, 500, 200_000, cast=int),
+                max_run_seconds=_env_bounded("VIBE_EXPLORE_MAX_SECONDS", 60.0, 5.0, 600.0),
+                session_root=session.root,
+            ))
+        except Exception as exc:
+            print(json.dumps({"ok": False, "error": f"{type(exc).__name__}: {exc}"},
+                             ensure_ascii=False))
+            return 2
+        usage = dict(getattr(result, "usage", None) or {})
+        payload = {
+            "ok": result.status == "ok",
+            "status": result.status,
+            "summary": result.summary,
+            "task_id": result.task_id,
+            "session": session.id,
+            "tokens": int(usage.get("total_tokens") or usage.get("prompt_tokens") or 0),
+            "cost_usd": float(getattr(result, "cost_usd", 0.0) or 0.0),
+            "error": getattr(result, "error", None),
+        }
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0 if payload["ok"] else 1
 
     if args.set_task_priority is not None:
         from app.runtime.tasks import TaskStore, TaskError
