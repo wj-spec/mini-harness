@@ -422,3 +422,15 @@ def test_set_task_priority_validation(monkeypatch, capsys):
         entrypoint.main()
     assert error.value.code == 2
     assert "--task-priority requires --set-task-priority" in capsys.readouterr().err
+
+
+def test_run_plan_queue_rejects_missing_workspace(tmp_path, monkeypatch, capsys):
+    existing = _init_repo(tmp_path / "existing")
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=existing))
+    monkeypatch.setattr(sys, "argv", ["vibe", "--run-plan-queue", "--queue-all-sessions",
+                                      "--queue-workspace", str(existing),
+                                      "--queue-workspace", str(tmp_path / "missing"), "--fake"])
+    with pytest.raises(SystemExit) as error:
+        entrypoint.main()
+    assert error.value.code == 2
+    assert "queue workspace is not a directory" in capsys.readouterr().err
