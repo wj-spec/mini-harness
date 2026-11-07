@@ -403,7 +403,7 @@ Ink 两轮实际日志补充：`.vibe/browser/ink-smoke/309dc558d44d/report.json
 - `./run_ink.sh --doctor` 实机：缺 API key exit 2 并给出补齐命令；配置 key 后 exit 0「可以启动」。
 - stdio 端到端（fake）：ready 带档位；`/evidence` 无记录/有记录；`/autonomy edits` 切换且 command_result 带档位；非法 level 返回 `invalid_request`；`/permissions` 含规则明细。
 
-**未验收 / 未做**：真实模型任务下的 `verified` 体验与额外轮次、真实 PTY 键路与终端渲染、审批自动放行标记、规则撤销 UI、规则持久化、安装分发。真实模型验收前，对外只陈述“机制已验证、真实任务待验收”。
+**未验收 / 未做**（用户决策项见 [待用户拍板事项](specs/open-decisions.md)）：真实模型任务下的 `verified` 体验与额外轮次、真实 PTY 键路与终端渲染、审批自动放行标记、规则撤销 UI、规则持久化、安装分发。真实模型验收前，对外只陈述“机制已验证、真实任务待验收”。
 
 **下一步**：先用真实模型跑 3 道保留题 ×3 次，记录误完成率/误杀率/额外轮次；再决定审批自动放行标记与规则撤销 UI 的投入。
 
