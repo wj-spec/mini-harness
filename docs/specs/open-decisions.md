@@ -36,7 +36,7 @@
 
 ## 4. 真实模型长任务评测预算
 
-**现状**：长任务 benchmark 16 场景中 14 个 fake-only（生命周期/故障注入，不消耗 token）；2 个已真实适配（`real-read-summary` 双模式、`real-task-deadline` real-only），2026-11-07 双模型 `--real` 各 2/2 PASS；
+**现状**：长任务 benchmark 17 场景中 14 个 fake-only（生命周期/故障注入，不消耗 token）；3 个已真实适配（`real-read-summary` 双模式、`real-task-deadline`/`real-kill-switch` real-only），2026-11-07 双模型 `--real` 各 3/3 PASS；
 真实模型证据目前来自 `--suite`（六模式，含 plan/goal/repair/merge）与 `--suite-runs 2` 稳定性样本。
 `bench_long.py --real` 可让 14 个场景改用真实 provider，但会消耗 token 且部分场景预期依赖 fake 行为，需要按场景挑选或改造。
 

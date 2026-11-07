@@ -9,7 +9,7 @@
 |---|---|
 | Python 全量 | **1607 passed / 13 skipped** |
 | TUI | **414 passed / 1 failed**（415 收集）；失败为环境 pty smoke（`out of pty devices`）；含 14 个真实 Python 后端跨层集成用例 + TUI/Python 命令集合一致性检查；计划覆盖层新增 `d` 版本比较、`t` 步骤标题编辑、`k` 步骤类型编辑 |
-| 长任务 fake 场景 | **15/15 PASS**（默认 `modes=fake`）；真实模式 2 场景（`real-read-summary`、`real-task-deadline`）deepseek-flash/chat 各 **2/2 PASS** |
+| 长任务 fake 场景 | **15/15 PASS**（默认 `modes=fake`）；真实模式 3 场景（read/deadline/kill-switch）deepseek-flash/chat 各 **3/3 PASS** |
 | 07 attach 人工验收 | TC-01–09 通过（[记录](manual-acceptance-07-results.md)） |
 | Plan/SubAgent 人工验收清单 | TC-16-01–08 已编写；自动化/真实模型部分已记录（[清单](manual-acceptance-16-plan-subagent.md)、[结果](manual-acceptance-16-results.md)），真实 TUI 键路待；新增 [TUI 终端快速验收清单](manual-acceptance-tui-quick.md) 便于终端一次走完 |
 | 真实模型 Plan P1 冒烟 | deepseek-flash：只读任务 done、单步+验收 acceptance=true、两步计划+验收 acceptance=true、deepseek-flash/chat 多步+验收与审批帧样本通过；脚本步骤门禁/重试修复后连续 5/5 ok（审批均 1 次）；/explore ok；真实后台 goal worker、后台 Plan worker、edit 步骤（文件范围+审批+验收）通过；验收失败自动修复（--repair）连续 2/2；真实 TUI 人工键路待（[记录](real-p1-plan-smoke-2026-11-07.md)） |
@@ -73,7 +73,7 @@ TUI /goal /chat /act /plan
 4. **09 剩余**：events 软上限告警、红队清单自动化、只读任务并发、外部 webhook 告警、profile 放宽审计已实现；
    文件集级并行写仍待；profile 放宽审批门已实现（`--approve-unattended-profile` + `VIBE_UNATTENDED_REQUIRE_APPROVAL`）。
 5. **08 剩余**：5xx 注入、fake 时钟偏移注入、goal 成本 cap、重复运行统计、`agent_version`、
-   场景 modes（fake/real）+ 2 个真实适配场景（read/deadline，双模型 2/2）已实现；更多真实场景需预算。
+   场景 modes（fake/real）+ 3 个真实适配场景（read/deadline/kill-switch，双模型 3/3）已实现；更多真实场景需预算。
 6. **环境**：真实 TUI 验收受 pty 限制；browser smoke 在负载下偶发 flake；TUI 侧栏测试已改为等待目标帧，不再受负载影响。
 7. **生产级**：合并后重验（真实链路 2/2 已跑通）、外部 webhook 告警、doctor 运行时自检、
    计划任务 prepare+drain（含跨会话/跨工作区、continue-on-failure、1-8 并行、priority 排序）排队入口已接入；
@@ -101,7 +101,7 @@ TUI /goal /chat /act /plan
 ### 当前基线（第 120 轮，2026-11-07）
 
 - Python **1607 passed / 13 skipped**；TUI **414 passed / 1 failed**（无 pty）。
-- 长任务：fake **15/15**；真实模式 2 场景 flash/chat 各 **2/2**。
+- 长任务：fake **15/15**；真实模式 3 场景 flash/chat 各 **3/3**。
 - 真实模型：deepseek-flash/chat 各 **6/6**；`verify_all.sh --with-real --real-runs 2` 实测通过；第 120 轮 `verify_all.sh` 复跑全通过。
 - 只读视图 12 个、真实后端跨层用例 14 个、文档链接 0 失效（有测试守护）。
 

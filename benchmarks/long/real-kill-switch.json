@@ -1,0 +1,13 @@
+{
+  "id": "real-kill-switch",
+  "modes": ["real"],
+  "description": "真实 provider 运行中通过 kill switch 停止 worker；task 暂停/取消、worker killed、stop 文件存在",
+  "objective": "长任务评测：真实模型 kill switch（读取 README 并总结）",
+  "action": "stop",
+  "expected": {
+    "task_status": ["paused", "cancelled", "failed"],
+    "worker_status": ["killed"],
+    "stop_file": true
+  },
+  "timeout_seconds": 120
+}
