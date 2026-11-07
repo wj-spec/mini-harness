@@ -91,3 +91,24 @@ def test_explore_cli_rejects_other_modes(monkeypatch, capsys):
         entrypoint.main()
     assert error.value.code == 2
     assert "--explore cannot be combined" in capsys.readouterr().err
+
+
+def test_explore_cli_real_fake_backend_records_subagent_task(tmp_path):
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[1]
+    (tmp_path / "README.md").write_text("mini-harness\n", encoding="utf-8")
+    result = subprocess.run(
+        [sys.executable, "-m", "app", "--explore", "读取 README.md 并总结",
+         "--fake", "--workspace", str(tmp_path)],
+        cwd=repo_root, capture_output=True, text=True, timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is True and payload["status"] == "ok"
+    assert payload["tokens"] > 0 and payload["task_id"]
+    metas = [json.loads(path.read_text(encoding="utf-8"))
+             for path in (tmp_path / ".vibe" / "sessions").glob("*/tasks/*/meta.json")]
+    assert any(meta.get("kind") == "subagent" for meta in metas)

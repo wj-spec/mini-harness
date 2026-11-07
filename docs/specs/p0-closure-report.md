@@ -7,7 +7,7 @@
 
 | 检查 | 结果 |
 |---|---|
-| Python 全量 | **1585 passed / 13 skipped** |
+| Python 全量 | **1586 passed / 13 skipped** |
 | TUI | **413 passed / 1 failed**（414 收集）；失败为环境 pty smoke（`out of pty devices`）；含 13 个真实 Python 后端跨层集成用例 + TUI/Python 命令集合一致性检查；计划覆盖层新增 `d` 版本比较、`t` 步骤标题编辑、`k` 步骤类型编辑 |
 | 长任务 fake 场景 | **14/14 PASS**（`scripts/bench_long.py --runs 1`；含 2 个 5xx 注入、1 个 fake 时钟、2 个多段场景；另有 `--real` 真 provider 入口） |
 | 07 attach 人工验收 | TC-01–09 通过（[记录](manual-acceptance-07-results.md)） |
