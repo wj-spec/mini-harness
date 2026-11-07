@@ -150,6 +150,7 @@ def test_doctor_reports_ready_environment(tmp_path):
     assert "✓ worktree 元数据完整" in output
     assert "✓ 无人值守 profile 使用默认保守策略" in output
     assert "✓ 没有长任务 benchmark 历史（可选）" in output
+    assert "✓ 没有长任务 benchmark 运行目录" in output
     assert "✗" not in output
 
 
@@ -449,3 +450,20 @@ def test_doctor_reports_real_suite_pass_and_failure(tmp_path):
     code, output = _run_doctor(repo, workspace, env={"VIBE_API_KEY": "sk-test"})
     assert code == 0, output
     assert "! 最近真实模型验收失败：no plan.v1.json" in output
+
+
+def test_doctor_warns_when_bench_runs_accumulate(tmp_path):
+    repo, workspace = _green_repo(tmp_path)
+    root = workspace / ".vibe" / "bench-long"
+    root.mkdir(parents=True)
+    for index in range(3):
+        (root / f"2026110{index + 1}T000000Z").mkdir()
+    code, output = _run_doctor(repo, workspace, env={"VIBE_API_KEY": "sk-test"})
+    assert code == 0, output
+    assert "✓ benchmark 运行目录 3 个" in output
+    for index in range(3, 55):
+        (root / f"202612{index:02d}T000000Z").mkdir()
+    code, output = _run_doctor(repo, workspace, env={"VIBE_API_KEY": "sk-test"})
+    assert code == 0, output
+    assert "! benchmark 运行目录 55 个" in output
+    assert "--cleanup-bench" in output

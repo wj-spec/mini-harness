@@ -561,6 +561,22 @@ def check_real_suite(workspace: Path) -> Check:
     )
 
 
+def check_bench_storage(workspace: Path) -> Check:
+    root = workspace / ".vibe" / "bench-long"
+    if not root.is_dir():
+        return Check(OK, "没有长任务 benchmark 运行目录")
+    run_dirs = [path for path in root.iterdir()
+                if path.is_dir() and re.fullmatch(r"\d{8}T\d{6}Z", path.name)]
+    total = sum(path.stat().st_size for path in root.rglob("*") if path.is_file())
+    size_mb = total / (1024 * 1024)
+    if len(run_dirs) > 50:
+        return Check(
+            WARN, f"benchmark 运行目录 {len(run_dirs)} 个（{size_mb:.1f} MiB），建议清理",
+            "运行 --cleanup-bench --bench-keep 20（--log-dry-run 先预演）",
+        )
+    return Check(OK, f"benchmark 运行目录 {len(run_dirs)} 个（{size_mb:.1f} MiB）")
+
+
 def collect_checks(
     *,
     repo_root: Path | None = None,
@@ -606,6 +622,7 @@ def collect_checks(
         check_worktrees(target),
         check_unattended_profile(target, environ),
         check_bench_history(target),
+        check_bench_storage(target),
         check_real_suite(target),
     ]
 
