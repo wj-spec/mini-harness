@@ -432,6 +432,30 @@ class _Connection:
             path = candidates[0]
         try:
             plan = load_plan(path) if action != "prepare-background" else plan
+            if action == "card":
+                from app.runtime.plan import can_execute, content_hash as plan_content_hash
+                approval = plan.approval if isinstance(plan.approval, dict) else {}
+                lines = [f"计划审批卡：{plan.plan_id} · v{plan.version} · {plan.status}"
+                         + (" · stale" if approval.get("stale") else "")]
+                lines.append(f"目标：{plan.objective}")
+                if plan.constraints:
+                    lines.append("约束：" + "；".join(plan.constraints))
+                if plan.out_of_scope:
+                    lines.append("范围外：" + "；".join(plan.out_of_scope))
+                if plan.acceptance_criteria:
+                    lines.append("验收标准：")
+                    for item in plan.acceptance_criteria:
+                        mark = "已确认" if item.get("confirmed") is True else "候选"
+                        lines.append(f"- [{mark}] {item.get('text', '')}")
+                if plan.verification_plan:
+                    lines.append("验证命令：")
+                    for item in plan.verification_plan:
+                        covers = ",".join(item.get("covers") or [])
+                        lines.append(f"- {item.get('id')} covers={covers} source={item.get('source')} cmd={item.get('command')}")
+                lines.append(f"执行门禁：executable={can_execute(plan)}")
+                lines.append(f"批准：by={approval.get('approved_by') or '-'} at={approval.get('approved_at') or '-'}")
+                lines.append(f"hash 匹配：{approval.get('plan_hash') == plan_content_hash(plan)}")
+                return "\n".join(lines)
             if action == "prepare-background":
                 if self.task_runtime is None or not getattr(self.task_runtime, "enabled", False):
                     return "任务运行时未启用，无法准备后台计划。"
@@ -1613,7 +1637,7 @@ class _Connection:
                     if not isinstance(args, dict):
                         raise ValueError("command args must be an object")
                     if request["command"] == "plan":
-                        if set(args) - {"action", "objective", "step_id", "title", "kind", "files", "depends_on", "version_a", "version_b"} or args.get("action", "show") not in {"show", "list", "step", "edit-step", "diff", "acceptance", "approve", "reject", "revise", "prepare-background"}:
+                        if set(args) - {"action", "objective", "step_id", "title", "kind", "files", "depends_on", "version_a", "version_b"} or args.get("action", "show") not in {"show", "list", "step", "edit-step", "diff", "acceptance", "card", "approve", "reject", "revise", "prepare-background"}:
                             raise ValueError("plan args allowed: action=show|list|step|edit-step|diff|acceptance|approve|reject|revise|prepare-background")
                         if args.get("action") == "revise" and (not isinstance(args.get("objective"), str) or not args["objective"].strip()):
                             raise ValueError("plan revise requires a nonempty objective")

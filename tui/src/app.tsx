@@ -1104,6 +1104,16 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       setOverlayScroll({key: 'plan', top: nextTop});
       return;
     }
+    if (planOpen && !key.ctrl && !key.meta && keyInput === 'c') {
+      if (state.phase !== 'idle' || activeRun.current) {notice('当前有运行中任务；结束后再查看审批卡。'); return;}
+      try {
+        const id = client.command('plan', {action: 'card'});
+        activeRun.current = id;
+        dispatch({type: 'begin_command', id, command: 'plan'});
+        setPlanOpen(false);
+      } catch (error) {notice(`审批卡查询未送达：${String(error)}`);}
+      return;
+    }
     if (planOpen && !key.ctrl && !key.meta && keyInput === 'a') {
       if (state.phase !== 'idle' || activeRun.current) {notice('当前有运行中任务；结束后再查看验收标准。'); return;}
       try {
@@ -1682,7 +1692,7 @@ export function App({client, attach = false, initialState = emptyState, windowSi
   const goalTitle = goal?.active ? `目标模式 · ${goalLabel(goal)} · ` : '';
   const paneTitle = goalTitle + (state.approval ? `等待审批 · ${position}` : contextOpen ? `上下文分区 · ${position}` : planOpen ? `计划 · ${position}` : detailEntry ? `工具详情 · ${position}` : isEmpty ? '工作台首页 · 输入任务开始' : `对话 · ${reading ? '阅读焦点 · ' : ''}${scroll.follow ? '跟随最新' : `回看 · 下方 ${maximum-top} 行`} · ${position}`);
   const goalHint = goal ? `${goalStatusText(goal)} · ` : '';
-  const hint = goalHint + (state.approval ? `${approvalHint} · 滚轮/PgUp/PgDn 翻页 · Ctrl+C 取消` : contextOpen ? '←/→ 选快照 · l 最新 · ↑↓/滚轮 翻阅 · Esc 返回' : planOpen ? '↑↓ 选择 · s步骤 · t改标题 · k改类型 · v版本 · d比较 · a验收 · e修订 · b后台 · y批准 · n拒绝 · Enter执行 · PgUp/PgDn · Esc 返回' : detailEntry ? '滚轮/↑↓ 翻阅 · Home/End 首尾 · Esc 返回' :
+  const hint = goalHint + (state.approval ? `${approvalHint} · 滚轮/PgUp/PgDn 翻页 · Ctrl+C 取消` : contextOpen ? '←/→ 选快照 · l 最新 · ↑↓/滚轮 翻阅 · Esc 返回' : planOpen ? '↑↓ 选择 · s步骤 · t改标题 · k改类型 · c审批卡 · v版本 · d比较 · a验收 · e修订 · b后台 · y批准 · n拒绝 · Enter执行 · PgUp/PgDn · Esc 返回' : detailEntry ? '滚轮/↑↓ 翻阅 · Home/End 首尾 · Esc 返回' :
     reading ? '阅读焦点：↑↓滚动  空格翻页  End最新  Esc输入  Ctrl+Q退出' :
       state.phase === 'running' ? (columns < 60 ? 'Enter 纠偏 · /followup 排队 · Ctrl+C 停止' : 'Enter 提交纠偏  /followup 文本 排队后续  Ctrl+C 停止  Ctrl+Q 退出') :
         state.lastStatus === 'done' ? (columns < 60 ? `${doneText} · /evidence 核对 · /resume 续做` : `${doneText}  /evidence 证据  /resume 续做  /copy 复制回复  Ctrl+Q 退出`) :

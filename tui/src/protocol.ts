@@ -32,7 +32,7 @@ export function commandMatches(value: string): string[] {
 export type BackendCommand = typeof BACKEND_COMMANDS[number];
 export type SkillsCommandArgs = {action?: 'list' | 'refresh' | 'activate' | 'unload'; name?: string};
 export type AutonomyCommandArgs = {level: AutonomyLevel};
-export type PlanCommandArgs = {action?: 'show' | 'list' | 'step' | 'edit-step' | 'diff' | 'acceptance' | 'prepare-background' | 'approve' | 'reject' | 'revise'; objective?: string; step_id?: string; title?: string; kind?: 'read' | 'edit' | 'run' | 'verify'; files?: string[]; depends_on?: string[]; version_a?: number; version_b?: number};
+export type PlanCommandArgs = {action?: 'show' | 'list' | 'step' | 'edit-step' | 'diff' | 'acceptance' | 'card' | 'prepare-background' | 'approve' | 'reject' | 'revise'; objective?: string; step_id?: string; title?: string; kind?: 'read' | 'edit' | 'run' | 'verify'; files?: string[]; depends_on?: string[]; version_a?: number; version_b?: number};
 export type ExploreCommandArgs = {prompt: string};
 export type NotificationsCommandArgs = {kind?: string};
 export type TraceCommandArgs = {hours?: number};
@@ -67,7 +67,7 @@ export function validateExploreArgs(value: unknown): asserts value is ExploreCom
 }
 export function validatePlanArgs(value: unknown): asserts value is PlanCommandArgs {
   if (!record(value) || Object.keys(value).some(key => !['action', 'objective', 'step_id', 'title', 'kind', 'files', 'depends_on', 'version_a', 'version_b'].includes(key)) ||
-      (value.action !== undefined && !['show', 'list', 'step', 'edit-step', 'diff', 'acceptance', 'prepare-background', 'approve', 'reject', 'revise'].includes(String(value.action))) ||
+      (value.action !== undefined && !['show', 'list', 'step', 'edit-step', 'diff', 'acceptance', 'card', 'prepare-background', 'approve', 'reject', 'revise'].includes(String(value.action))) ||
       (value.objective !== undefined && (typeof value.objective !== 'string' || !value.objective.trim())) ||
       (value.step_id !== undefined && (typeof value.step_id !== 'string' || !value.step_id.trim())) ||
       (value.kind !== undefined && !['read', 'edit', 'run', 'verify'].includes(String(value.kind))) ||

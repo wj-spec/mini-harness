@@ -1814,3 +1814,34 @@ def test_plan_edit_step_can_change_dependencies(tmp_path, monkeypatch):
     revised = load_plan(plan_dir / "plan.v2.json")
     assert revised.steps[1].depends_on == ["s1"]
     assert not (plan_dir / "plan.v3.json").exists()
+
+
+def test_plan_card_shows_approval_details(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    task_id = "t-20261106-000000-abcdef"
+    task_dir = session.root / "tasks" / task_id
+    from app.runtime.plan import Plan, propose_plan
+    plan = Plan.from_dict({
+        "schema_version": 1, "plan_id": "pl-card", "task_id": task_id,
+        "objective": "审批卡目标", "constraints": ["只读"],
+        "acceptance_criteria": [{"id": "ac1", "text": "命令通过", "confirmed": True}],
+        "verification_plan": [{"id": "v1", "covers": ["ac1"], "command": "true",
+                               "source": "plan_approval"}],
+        "steps": [{"step_id": "s1", "title": "读"}],
+    })
+    propose_plan(task_dir, plan)
+
+    async def scenario():
+        harness = Harness(_agent(tmp_path), Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("command", "c-card", command="plan", args={"action": "card"})
+        result = await harness.until("command_result", "c-card")
+        text = result["text"]
+        assert "计划审批卡" in text and "审批卡目标" in text
+        assert "约束：只读" in text and "验收标准" in text
+        assert "验证命令" in text and "cmd=true" in text
+        assert "executable=False" in text
+        await harness.close()
+
+    asyncio.run(scenario())

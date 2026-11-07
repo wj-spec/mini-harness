@@ -2353,3 +2353,33 @@ test('/plan depends forwards step dependencies', async () => {
   await enter(stdin, '/plan depends s2 s1');
   assert.deepEqual(client.commandArgs.at(-1), {action: 'edit-step', step_id: 's2', depends_on: ['s1']});
 });
+
+
+test('plan overlay c opens approval card', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'mini-harness-plan-card-'));
+  try {
+    const taskDir = path.join(dir, 'tasks', 't-20261103-120000-abcdef', 'plan');
+    await mkdir(taskDir, {recursive: true});
+    await writeFile(path.join(taskDir, 'plan.v1.json'), JSON.stringify({
+      schema_version: 1, plan_id: 'pl-card', task_id: 't-20261103-120000-abcdef',
+      version: 1, status: 'proposed', objective: '审批卡计划', acceptance_criteria: [],
+      steps: [{step_id: 's1', title: '读', kind: 'read'}],
+    }));
+    const client = new MockClient();
+    client.capabilityList = ['tasks'];
+    const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}/>);
+    await pause(20);
+    client.emit({type: 'ready', workspace: '/tmp/repo', model: 'fake', session_id: 'test',
+      session_path: dir, capabilities: ['tasks']});
+    client.emit({type: 'status', phase: 'idle'});
+    await pause(20);
+    await enter(stdin, '/plan');
+    for (let i = 0; i < 5; i += 1) {stdin.write('\u001b[B'); await pause(10);}
+    assert.match(lastFrame() ?? '', /›\s+- s1/);
+    stdin.write('c');
+    await pause(30);
+    assert.deepEqual(client.commandArgs.at(-1), {action: 'card'});
+  } finally {
+    await rm(dir, {recursive: true, force: true});
+  }
+});
