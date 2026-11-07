@@ -37,7 +37,8 @@
   15. `real-read-summary`：只读读取 README 并总结后结束；fake/real 双模式，期望 completed 且不改文件；
   16. `real-task-deadline`：real-only，真实 provider 下 2s 任务 deadline 到期 → worker cancelled/failed、task failed；
   17. `real-kill-switch`：real-only，真实 provider 运行中 kill switch → task paused、worker killed、stop 文件存在；
-  18. `real-restart-attach`：real-only，attach 观察后 detach，任务继续完成且无文件改动。
+  18. `real-restart-attach`：real-only，attach 观察后 detach，任务继续完成且无文件改动；
+  19. `real-two-slot`：real-only，两个真实 provider worker 同工作区，第二个等 workspace lock，双双 completed。
 - 测试：`tests/test_bench_long.py`（场景 schema、校验、列表、报告可重复标记、scenario_stats）。
 
 ## 用法
@@ -52,8 +53,8 @@
 - `two-slot-write-serial` 已覆盖写任务排队串行、只读任务并发已实现；文件集级并行写仍待后续；
 - 多段场景现有 2 个（goal-multisegment、goal-token-segments），其余场景为单段；
 - 场景按 `modes` 声明适用 provider：默认 `[fake]`；`real-read-summary` 为 fake+real，`real-task-deadline` 为 real-only。
-  fake 默认跑 15 个、`--real` 只跑 4 个真实适配场景；2026-11-07 双模型 `--real` 均 **4/4 PASS**
-  （read/attach=completed 无改动；deadline=failed + task_deadline_exceeded；kill-switch=paused + worker killed + stop 文件）。
+  fake 默认跑 15 个、`--real` 只跑 5 个真实适配场景；2026-11-07 双模型 `--real` 均 **5/5 PASS**
+  （read/attach=completed 无改动；deadline=failed + task_deadline_exceeded；kill-switch=paused + worker killed；two-slot 串行完成）。
 - 已覆盖 fake provider 5xx、本地 mock OpenAI 服务端 503→200、fake 时钟偏移；seed 注入当前不适用
   （评测/基准无随机采样，保持确定性；未来引入随机任务生成再增加 seed）；
 - 重复运行统计已有 pass rate/耗时聚合、agent_version 与本地历史视图（`--bench-history`）；跨机器汇总/历史趋势图表仍待；

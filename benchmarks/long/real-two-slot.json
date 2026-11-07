@@ -1,0 +1,23 @@
+{
+  "id": "real-two-slot",
+  "modes": ["real"],
+  "description": "真实 provider 两个 worker 同工作区：第二个等待 workspace lock，第一个完成后串行完成",
+  "objective": "读取 README.md，用一句话说明项目用途后结束。只读，不要修改任何文件。",
+  "action": "two_slot",
+  "worker_env": {
+    "VIBE_MAX_STEPS": "4",
+    "VIBE_MAX_RUN_TOKENS": "60000"
+  },
+  "secondary_env": {
+    "VIBE_WORKSPACE_LOCK_WAIT": "60"
+  },
+  "expected": {
+    "task_status": ["completed"],
+    "worker_status": ["exited"],
+    "secondary_exit_code": 0,
+    "secondary_task_status": "completed",
+    "secondary_worker_status": "exited",
+    "no_changed_files": true
+  },
+  "timeout_seconds": 240
+}

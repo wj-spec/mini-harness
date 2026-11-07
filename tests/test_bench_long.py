@@ -24,7 +24,8 @@ def test_bench_long_scenarios_are_well_formed():
     assert {"detach-continue", "approval-timeout", "kill-switch", "restart-attach",
             "provider-retry-recovers", "provider-error-gives-up",
             "goal-max-seconds", "goal-token-segments", "real-read-summary",
-            "real-task-deadline", "real-kill-switch", "real-restart-attach"} <= set(scenarios)
+            "real-task-deadline", "real-kill-switch", "real-restart-attach",
+            "real-two-slot"} <= set(scenarios)
     assert scenarios["provider-retry-recovers"]["worker_env"]["VIBE_FAKE_STREAM_ERRORS"] == "1"
     assert scenarios["provider-error-gives-up"]["expected"]["task_status"] == ["paused"]
     assert scenarios["goal-max-seconds"]["worker_env"]["VIBE_FAKE_TIME_OFFSET_SECONDS"] == "120"
@@ -149,6 +150,7 @@ def test_scenario_modes_select_fake_and_real():
     real_only = scenarios["real-task-deadline"]
     kill = scenarios["real-kill-switch"]
     attach = scenarios["real-restart-attach"]
+    two_slot = scenarios["real-two-slot"]
     assert bench.scenario_supported(fake_only, real=False)
     assert not bench.scenario_supported(fake_only, real=True)
     assert bench.scenario_supported(dual, real=False) and bench.scenario_supported(dual, real=True)
@@ -158,3 +160,5 @@ def test_scenario_modes_select_fake_and_real():
     assert not bench.scenario_supported(kill, real=False)
     assert bench.scenario_supported(attach, real=True)
     assert not bench.scenario_supported(attach, real=False)
+    assert bench.scenario_supported(two_slot, real=True)
+    assert not bench.scenario_supported(two_slot, real=False)
