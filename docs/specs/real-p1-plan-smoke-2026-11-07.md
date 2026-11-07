@@ -212,6 +212,23 @@ TUI 真实键路仍需人工在支持 pty 的终端执行。
 - 2026-11-07 实跑：ok=true，s1/s2 done，acceptance=true，审批 4 次，
   子 Agent status=ok（task t-20261107-042450-30ca97）。
 
+## 3l. 可复用脚本稳定性样本
+
+`scripts/real_p1_acceptance.py`（Plan 多步 + 验收 + `/explore`）连续运行：
+
+| 样本 | 结果 | 审批 |
+|---|---|---|
+| 1 | ok=true，s1/s2 done，acceptance=true，subagent ok | 4 |
+| 2 | ok=true | 4 |
+| 3 | **ok=false**：run stopped，s1 in_progress，s2 pending，7 次审批，subagent ok | 7 |
+| 4 | ok=true | 4 |
+| 5 | ok=true | 4 |
+| 6 | ok=true | 3 |
+
+即 5/6 通过；1 次失败表现为模型在 s1 阶段多次触发审批后停止。
+脚本已增加 `stop_reason`、审批工具记录和 `--keep-on-failure`，便于后续定位失败样本。
+计划/执行核心链路已有稳定成功样本，但真实模型 P1 仍非 100% 稳定。
+
 ## 4. 结论与限制
 
 - 已证明：真实模型可以走 `--task` 只读链路、可以生成结构化 proposed plan；
@@ -221,6 +238,7 @@ TUI 真实键路仍需人工在支持 pty 的终端执行。
 - 已证明：stdio approval 帧模拟审批下的多步+验收全链路（5 次审批）；
 - 已证明：干净会话 3/3、多步+验收 acceptance=true，审批帧路径 2/2；
 - 已证明：deepseek-flash 3/3 多步验收、2/2 审批；deepseek-chat 1/1 多步验收、1/1 审批；
+- 脚本稳定性：6 次中 5 次通过；失败样本表现为 s1 阶段多次审批后停止；
 - 仍待：真实 TUI 人工键路（pty 环境）、更多 provider/更大样本；
 - 本次仅 deepseek-flash、一次样本，成本显示 $0；
 - 观察到一次真实 provider 长时间无返回（>300s），需要重跑/检查超时与重试；

@@ -113,10 +113,13 @@ async def _run(config: Config, workspace: Path) -> dict:
         "plan_id": plan["plan_id"], "plan_version": plan["version"],
     })
     approvals = 0
+    approval_tools: list[str] = []
     while True:
         event = await asyncio.wait_for(exe.outgoing.get(), 300)
         if event["type"] == "approval_request":
             approvals += 1
+            call = event.get("call") if isinstance(event.get("call"), dict) else {}
+            approval_tools.append(str(call.get("name") or event.get("tool") or "tool"))
             exe.send("approval", f"approval-{approvals}",
                      approval_id=event["approval_id"], decision="once")
         if event["type"] == "done" and event["id"] == "exec-1":
@@ -134,7 +137,10 @@ async def _run(config: Config, workspace: Path) -> dict:
     ok = plan_ok and sub.get("status") == "ok"
     return {
         "ok": ok, "stage": "execute", "task_id": plan_task_id, "run_status": done["result"].get("status"),
-        "steps": steps, "acceptance": acceptance, "approvals": approvals, "subagent": sub,
+        "steps": steps, "acceptance": acceptance, "approvals": approvals,
+        "approval_tools": approval_tools,
+        "stop_reason": done["result"].get("stop_reason"),
+        "subagent": sub,
     }
 
 
@@ -155,6 +161,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workspace", default=None, help="工作区；默认新建临时 git 仓库")
     parser.add_argument("--keep", action="store_true", help="保留临时工作区")
+    parser.add_argument("--keep-on-failure", action="store_true",
+                        help="失败时保留临时工作区（默认删除）")
     args = parser.parse_args(argv)
     config = Config.from_env()
     if not config.api_key:
@@ -175,7 +183,7 @@ def main(argv: list[str] | None = None) -> int:
     out_file = out_dir / f"{stamp}.json"
     out_file.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({**result, "report": str(out_file)}, ensure_ascii=False, indent=2))
-    if temporary and not args.keep:
+    if temporary and not args.keep and (result.get("ok") or not args.keep_on_failure):
         shutil.rmtree(workspace, ignore_errors=True)
     return 0 if result.get("ok") else 1
 
