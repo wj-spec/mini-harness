@@ -7,7 +7,7 @@
 
 | 检查 | 结果 |
 |---|---|
-| Python 全量 | **1470 passed / 13 skipped** |
+| Python 全量 | **1473 passed / 13 skipped** |
 | TUI | **383 passed / 1 failed**（384 收集）；失败为环境 pty smoke（`out of pty devices`） |
 | 长任务 fake 场景 | **12/12 PASS**（`scripts/bench_long.py --runs 1`；含 2 个 5xx 注入场景；另有 `--real` 真 provider 入口） |
 | 07 attach 人工验收 | TC-01–09 通过（[记录](manual-acceptance-07-results.md)） |
@@ -22,7 +22,7 @@
 | 01 | 任务运行时 | 已实现 | `app/runtime/tasks.py`、`task_runtime.py` |
 | 02 | worker 监督/attach | 已实现 | `worker.py`、`supervise.py`、`control-plane-attach.md` |
 | 03 | 审批收件箱/超时 | 已实现 | `approvals.py`、worker approval timeout |
-| 04 | 隔离/worktree/merge/stop | 已实现 | `workspace.py`、`merge.py`、`killswitch.py` |
+| 04 | 隔离/worktree/merge/stop | 已实现 | `workspace.py`、`merge.py`、`killswitch.py`、`--prune-worktrees` |
 | 05 | GoalRecord | 已实现 | `goals.py`、goal continuation |
 | 06 | 预算账本 | 已实现 | `budget.py`、`budget-ledger.md` |
 | 07 | 控制面 attach | 已实现 | controller/observer、心跳、v2 帧、TC-01–09 |

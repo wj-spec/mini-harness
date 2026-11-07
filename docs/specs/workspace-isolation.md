@@ -11,7 +11,7 @@
 3. **锁与 worktree 不同层**：workspace 锁防跨任务写冲突；worker.lock 防同一 task 双开；task lock 防同一 task 双段。
 4. **非 git 工作区明确拒绝后台写**：P0 只读允许；不静默降级到共享工作区写。
 5. **不自动合并/不自动解决冲突**：合并是审批事件；冲突交人工/父级。
-6. **stale 只报告不静默删除**：缺失/孤儿 worktree 可发现，清理需显式。
+6. **stale 只报告不静默删除**：缺失/孤儿 worktree 可发现，清理需显式（`--prune-worktrees` 只读报告；`--prune-apply` 才清理）。
 7. **复用主环境**：worktree 不重新安装依赖；`.venv`/node_modules 等用绝对路径/链接（P1 接线，P0 只建目录）。
 
 ## 1 范围
@@ -122,4 +122,5 @@ class WorktreeManager:
    - CLI 退出码 **1**（合并已完成，需修复后重新验收；不做自动回滚）。
 5. **无命令时**：`post_merge_verified=false` 且不发失败通知（保持原行为）。
 6. 计划未批准/stale/找不到时回退为空，不会执行未批准计划的命令。
-7. 真实模型证据（2026-11-07）：edit 计划 → 后台 worktree 执行 → merge 审批 → 合并后重验，连续 **2/2** 通过（`real_p1_acceptance.py --merge`）。
+7. stale 清理入口（2026-11-07）：`--prune-worktrees` 只读报告，`--prune-apply` 显式清理（目录缺失时先 `git worktree prune` 再删分支，meta 标记 removed）；doctor 同时提示 stale worktree。
+8. 真实模型证据（2026-11-07）：edit 计划 → 后台 worktree 执行 → merge 审批 → 合并后重验，连续 **2/2** 通过（`real_p1_acceptance.py --merge`）。

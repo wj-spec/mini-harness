@@ -165,3 +165,49 @@ def test_merge_cli_reports_plan_verification_failure(repo, monkeypatch, capsys):
     kinds = [item["kind"] for item in read_notifications(repo)]
     assert "merge_verification_failed" in kinds
     assert "post-merge verification failed" in capsys.readouterr().err
+
+
+@pytest.mark.skipif(GIT is None, reason="git required")
+def test_prune_worktrees_reports_stale(repo, monkeypatch, capsys):
+    import shutil as _shutil
+
+    session = SessionStore.new(repo, "fake", purpose="test")
+    task = TaskStore(session.root).create(kind="goal", objective="prune", workspace=str(repo), mode="goal")
+    worktree = WorktreeManager(repo).create(task.task_id, session.id)
+    _shutil.rmtree(worktree.path)
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=repo))
+    monkeypatch.setattr(sys, "argv", ["vibe", "--prune-worktrees", "--workspace", str(repo)])
+    entrypoint.main()
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["stale"] == [task.task_id]
+    row = next(item for item in payload["worktrees"] if item["task_id"] == task.task_id)
+    assert row["stale"] is True and row["status"] == "active"
+    assert WorktreeManager(repo).list()[0].status == "active"  # 只读不修改
+
+
+@pytest.mark.skipif(GIT is None, reason="git required")
+def test_prune_worktrees_apply_marks_removed(repo, monkeypatch, capsys):
+    import shutil as _shutil
+
+    session = SessionStore.new(repo, "fake", purpose="test")
+    task = TaskStore(session.root).create(kind="goal", objective="prune apply", workspace=str(repo), mode="goal")
+    worktree = WorktreeManager(repo).create(task.task_id, session.id)
+    branch = worktree.branch
+    _shutil.rmtree(worktree.path)
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=repo))
+    monkeypatch.setattr(sys, "argv", ["vibe", "--prune-worktrees", "--prune-apply",
+                                      "--workspace", str(repo)])
+    entrypoint.main()
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["applied"] == [task.task_id]
+    assert WorktreeManager(repo).list()[0].status == "removed"
+    branches = subprocess.run([GIT, "-C", str(repo), "branch", "--list"], capture_output=True, text=True, check=True)
+    assert branch not in branches.stdout
+
+
+def test_prune_worktrees_rejects_other_modes(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["vibe", "--prune-worktrees", "--workspace", "/tmp", "--stdio"])
+    with pytest.raises(SystemExit) as error:
+        entrypoint.main()
+    assert error.value.code == 2
+    assert "--prune-worktrees cannot be combined" in capsys.readouterr().err

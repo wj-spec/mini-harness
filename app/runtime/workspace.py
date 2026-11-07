@@ -199,6 +199,12 @@ class WorktreeManager:
             raise WorktreeError(f"unknown worktree: {task_id}")
         if match.path.is_dir():
             _git(self.repo_root, "worktree", "remove", "--force", str(match.path))
+        else:
+            # 目录被外部删除时 git 仍登记着 worktree；先 prune 才能删分支。
+            subprocess.run(
+                ["git", "-C", str(self.repo_root), "worktree", "prune"],
+                capture_output=True, text=True, timeout=60,
+            )
         if not keep_branch:
             subprocess.run(
                 ["git", "-C", str(self.repo_root), "branch", "-D", match.branch],

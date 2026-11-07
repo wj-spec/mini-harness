@@ -115,6 +115,8 @@ def main() -> None:
     parser.add_argument("--acceptance", action="store_true", help="只读列出本工作区会话的计划验收结果")
     parser.add_argument("--approvals", action="store_true", help="只读列出本工作区会话的待审批项")
     parser.add_argument("--redteam", action="store_true", help="只读检查无人值守 profile 默认拒绝矩阵")
+    parser.add_argument("--prune-worktrees", action="store_true", help="只读报告 stale/孤立的 worktree")
+    parser.add_argument("--prune-apply", action="store_true", help="与 --prune-worktrees 搭配：把目录缺失的 worktree 标记 removed 并删分支")
     parser.add_argument("--worker", action="store_true", help="后台 worker：执行一个 task segment 并暴露 attach socket")
     parser.add_argument("--attach", action="store_true", help="attach 到运行中的 worker（JSONL 回放 + live）")
     parser.add_argument("--mode", choices=["observe", "control"], default="observe", help="attach 模式：observe/control")
@@ -260,6 +262,21 @@ def main() -> None:
             or args.pause_task is not None or args.merge_task is not None or args.cleanup_logs
         ):
             parser.error("--decide-approval cannot be combined with other modes")
+    if args.prune_apply and not args.prune_worktrees:
+        parser.error("--prune-apply requires --prune-worktrees")
+    if args.prune_worktrees:
+        if args.workspace is None:
+            parser.error("--prune-worktrees requires --workspace")
+        if (
+            args.stdio or args.eval or args.eval_limit is not None or args.eval_tasks is not None
+            or args.list_sessions or args.task is not None or args.continue_session
+            or args.session is not None or args.bench or args.tasks or args.notifications
+            or args.plans or args.acceptance or args.approvals or args.redteam
+            or args.worker or args.attach or args.stop or args.stop_task is not None
+            or args.pause_task is not None or args.merge_task is not None or args.cleanup_logs
+            or args.decide_approval is not None
+        ):
+            parser.error("--prune-worktrees cannot be combined with other modes")
     if args.eval_limit is not None and args.eval_limit < 1:
         parser.error("--eval-limit must be positive")
     if args.task is not None:
@@ -271,7 +288,7 @@ def main() -> None:
         parser.error("--bench requires --task")
     if args.telemetry_out and args.task is None:
         parser.error("--telemetry-out requires --task")
-    if not args.stdio and not args.eval and not args.list_sessions and not args.tasks and not args.notifications and not args.plans and not args.acceptance and not args.approvals and not args.redteam and not args.worker and not args.attach and args.merge_task is None and not args.stop and args.pause_task is None and not args.cleanup_logs and args.task is None and args.decide_approval is None:
+    if not args.stdio and not args.eval and not args.list_sessions and not args.tasks and not args.notifications and not args.plans and not args.acceptance and not args.approvals and not args.redteam and not args.prune_worktrees and not args.worker and not args.attach and args.merge_task is None and not args.stop and args.pause_task is None and not args.cleanup_logs and args.task is None and args.decide_approval is None:
         print(
             "Textual 入口已退役。交互界面请运行 ./run_ink.sh（例如 ./run_ink.sh --fake）；"
             "后端与 eval 分别使用 --stdio / --eval。",
@@ -663,6 +680,38 @@ def main() -> None:
         recent = items[-50:]
         print(json.dumps({"workspace": str(config.workspace), "count": len(recent),
                           "notifications": recent}, ensure_ascii=False, indent=2))
+        return
+
+    if args.prune_worktrees:
+        from app.runtime.workspace import WorktreeError, WorktreeManager
+
+        try:
+            manager = WorktreeManager(config.workspace)
+            worktrees = manager.list()
+        except WorktreeError as exc:
+            print(f"worktree unavailable: {exc}", file=sys.stderr)
+            raise SystemExit(2)
+        stale = [item for item in worktrees if item.status == "active" and not item.path.is_dir()]
+        applied = []
+        if args.prune_apply:
+            for item in stale:
+                try:
+                    manager.remove(item.task_id)
+                    applied.append(item.task_id)
+                except (WorktreeError, OSError) as exc:
+                    applied.append({"task_id": item.task_id, "error": str(exc)[:200]})
+        rows = [
+            {"task_id": item.task_id, "session_id": item.session_id,
+             "path": str(item.path), "branch": item.branch,
+             "status": item.status, "stale": item.status == "active" and not item.path.is_dir()}
+            for item in worktrees
+        ]
+        print(json.dumps({
+            "workspace": str(config.workspace),
+            "worktrees": rows,
+            "stale": [item.task_id for item in stale],
+            "applied": applied,
+        }, ensure_ascii=False, indent=2))
         return
 
     if args.tasks:
