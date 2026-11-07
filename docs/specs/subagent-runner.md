@@ -46,3 +46,8 @@
 
 `tests/test_subagents.py`：只读探索结构化结果、write_file/bash 被 subset 拒绝、结果 schema 校验、
 子 TaskRecord 生命周期与 subagent-result.json、usage 写入父 ledger、父取消级联、depth 拒绝、批量扇出上限。
+
+## CLI 入口（2026-11-07）
+
+`./run_vibe.sh --explore "<prompt>" --workspace <ws>` 输出 JSON（status/summary/task_id/session/tokens/cost/error），
+与 TUI `/explore` 共用预算 env（`VIBE_EXPLORE_*`）；真实模型 flash/chat 各一次均 ok（约 2.2k/2.4k tokens）。

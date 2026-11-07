@@ -69,7 +69,7 @@ TUI /goal /chat /act /plan
    `--suite-runs 2` 扩样本后 flash/chat 各 **2×6/6**；剩余为真实 TUI 人工键路。
    08 长任务 benchmark 仍为 fake worker 场景（含 5xx/时钟注入），真实模型长任务样本仍有限。
 2. **Plan TUI**：覆盖层 + 侧栏步骤面板、审批/修订/执行、审批时限、审批卡（约束/验收/验证命令/门禁/hash）已接；步骤标题/类型/文件范围/依赖均可在 draft 阶段编辑（依赖有环检测）；更丰富的可视化仍可继续。
-3. **子 Agent**：已有子 TaskRecord/subagent_event/取消/depth/批量扇出/可配置预算、CLI `--explore`；attach 回放、按 mode 委派开关、父预算硬上限联动仍待。
+3. **子 Agent**：已有子 TaskRecord/subagent_event/取消/depth/批量扇出/可配置预算、CLI `--explore`（真实 flash/chat 各一次 ok）；attach 回放、按 mode 委派开关、父预算硬上限联动仍待。
 4. **09 剩余**：events 软上限告警、红队清单自动化、只读任务并发、外部 webhook 告警、profile 放宽审计已实现；
    文件集级并行写仍待；profile 放宽审批门已实现（`--approve-unattended-profile` + `VIBE_UNATTENDED_REQUIRE_APPROVAL`）。
 5. **08 剩余**：5xx 注入、fake 时钟偏移注入、goal 成本 cap、重复运行统计、`agent_version`、

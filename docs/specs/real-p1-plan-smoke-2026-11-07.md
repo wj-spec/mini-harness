@@ -389,6 +389,9 @@ Python 1601/13、TUI 414/415、bench 14/14、doctor/redteam、真实六模式 ×
 一键含真实长任务（2026-11-07）：`./scripts/verify_all.sh --with-real-bench` →
 Python 1607/13、TUI 414/415、fake bench 15/15、doctor/redteam、**real-bench 5/5** 全部通过。
 
+真实模型 `--explore` CLI（2026-11-07）：deepseek-flash tokens 2153、deepseek-chat tokens 2434，
+均 `ok/status=ok`，单次 read_file 后给出正确摘要，无写操作（任务以 subagent TaskRecord 落盘）。
+
 **计划生成重试（2026-11-07）**：deepseek-chat 偶发一次运行只输出文字、不调用 `submit_plan`，
 导致 repair 模式在 `generate` 阶段失败（`no plan.v1.json`）。脚本现对计划生成自动重试一次
 （同一会话、第二段提示明确要求调用 `submit_plan`）；复跑 chat `--repair` 通过、suite 六模式 6/6。
