@@ -131,7 +131,7 @@ async def _run(config: Config, workspace: Path) -> dict:
                     break
         finally:
             await exe.close()
-        if done is not None and done["result"].get("status") != "error":
+        if done is not None and done["result"].get("status") == "done":
             break
     ledger_file = session.root / "tasks" / plan_task_id / "plan" / "execution.v1.json"
     ledger = json.loads(ledger_file.read_text(encoding="utf-8")) if ledger_file.is_file() else {}

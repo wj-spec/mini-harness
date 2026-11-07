@@ -238,7 +238,8 @@ TUI 真实键路仍需人工在支持 pty 的终端执行。
 
 - `start_plan_step` 也接受模型额外 evidence 参数（忽略），避免 TypeError；
 - 脚本对 `run_status=error`（如 ConnectTimeout）自动重试一次；
-- 修复后再跑 3 次：3/3 ok，s1/s2 done，acceptance=true，审批均 1 次。
+- 修复后再跑 3 次：3/3 ok，s1/s2 done，acceptance=true，审批均 1 次；
+- 脚本进一步对 error/stopped 自动重试一次，再跑 3 次仍 3/3 ok（审批均 1 次）。
 
 ## 4. 结论与限制
 
