@@ -53,6 +53,41 @@ def _fake_stream_faults() -> list[dict]:
     ]
 
 
+def _build_info(repo_root: Path) -> dict:
+    import platform
+    import subprocess
+
+    version = "0.1.0"
+    try:
+        import tomllib
+
+        with (repo_root / "pyproject.toml").open("rb") as handle:
+            version = str(tomllib.load(handle).get("project", {}).get("version") or version)
+    except Exception:
+        pass
+    agent_version = "unknown"
+    dirty = False
+    try:
+        out = subprocess.run(["git", "-C", str(repo_root), "rev-parse", "--short", "HEAD"],
+                             capture_output=True, text=True, timeout=5)
+        if out.returncode == 0 and out.stdout.strip():
+            agent_version = out.stdout.strip()
+            status = subprocess.run(
+                ["git", "-C", str(repo_root), "status", "--porcelain", "--untracked-files=no"],
+                capture_output=True, text=True, timeout=5,
+            )
+            dirty = status.returncode == 0 and bool(status.stdout.strip())
+    except Exception:
+        pass
+    return {
+        "version": version,
+        "python": platform.python_version(),
+        "agent_version": agent_version,
+        "dirty": dirty,
+        "platform": platform.system().lower(),
+    }
+
+
 def build_provider(config: Config, fake: bool, debug_path=None):
     debug_path = debug_path or os.getenv("VIBE_LLM_DEBUG_PATH") or None
     if fake or config.provider == "fake":
@@ -539,39 +574,8 @@ def main() -> None:
         )
         raise SystemExit(2)
     if args.version:
-        import platform
-        import subprocess
-
-        version = "0.1.0"
-        try:
-            import tomllib
-            with (Path(__file__).resolve().parents[1] / "pyproject.toml").open("rb") as handle:
-                version = str(tomllib.load(handle).get("project", {}).get("version") or version)
-        except Exception:
-            pass
-        agent_version = "unknown"
-        dirty = False
-        try:
-            out = subprocess.run(["git", "-C", str(Path(__file__).resolve().parents[1]),
-                                  "rev-parse", "--short", "HEAD"],
-                                 capture_output=True, text=True, timeout=5)
-            if out.returncode == 0 and out.stdout.strip():
-                agent_version = out.stdout.strip()
-                status = subprocess.run(
-                    ["git", "-C", str(Path(__file__).resolve().parents[1]),
-                     "status", "--porcelain"],
-                    capture_output=True, text=True, timeout=5,
-                )
-                dirty = status.returncode == 0 and bool(status.stdout.strip())
-        except Exception:
-            pass
-        print(json.dumps({
-            "version": version,
-            "python": platform.python_version(),
-            "agent_version": agent_version,
-            "dirty": dirty,
-            "platform": platform.system().lower(),
-        }, ensure_ascii=False, indent=2))
+        print(json.dumps(_build_info(Path(__file__).resolve().parents[1]),
+                         ensure_ascii=False, indent=2))
         return
 
     config = Config.from_env()
