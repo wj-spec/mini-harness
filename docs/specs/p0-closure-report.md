@@ -7,7 +7,7 @@
 
 | 检查 | 结果 |
 |---|---|
-| Python 全量 | **1603 passed / 13 skipped** |
+| Python 全量 | **1604 passed / 13 skipped** |
 | TUI | **414 passed / 1 failed**（415 收集）；失败为环境 pty smoke（`out of pty devices`）；含 14 个真实 Python 后端跨层集成用例 + TUI/Python 命令集合一致性检查；计划覆盖层新增 `d` 版本比较、`t` 步骤标题编辑、`k` 步骤类型编辑 |
 | 长任务 fake 场景 | **14/14 PASS**（`--runs 1`）；重复运行 `--runs 3` → **42/42**，各场景 pass_rate=1.0（含 5xx/时钟/多段注入场景） |
 | 07 attach 人工验收 | TC-01–09 通过（[记录](manual-acceptance-07-results.md)） |
@@ -100,7 +100,7 @@ TUI /goal /chat /act /plan
 
 ### 当前基线（第 114 轮，2026-11-07）
 
-- Python **1603 passed / 13 skipped**；TUI **414 passed / 1 failed**（无 pty）。
+- Python **1604 passed / 13 skipped**；TUI **414 passed / 1 failed**（无 pty）。
 - 长任务 fake：单轮 **14/14**；三轮 **42/42**，各场景 pass_rate=1.0。
 - 真实模型：deepseek-flash/chat 各 **6/6**；`verify_all.sh --with-real --real-runs 2` 实测通过。
 - 只读视图 12 个、真实后端跨层用例 14 个、文档链接 0 失效（有测试守护）。
@@ -122,7 +122,7 @@ TUI /goal /chat /act /plan
 - **子 Agent**：`/explore` 预算可配置（`VIBE_EXPLORE_*`）并新增 `--explore PROMPT` CLI（JSON 输出）。
 - **真实模型**：`--suite-runs 2` 稳定性样本，deepseek-flash/chat 各 **2×6/6**；计划生成缺失自动重试一次。
 - **损坏状态容错**：只读视图统一「跳过 + 计数 + stderr 告警」，并有全损坏工作区集成测试。
-- **基线**：Python **1603 passed / 13 skipped**；TUI **414 passed / 1 failed**（无 pty 环境）；长任务 fake **14/14**；
+- **基线**：Python **1604 passed / 13 skipped**；TUI **414 passed / 1 failed**（无 pty 环境）；长任务 fake **14/14**；
   真实 suite 双模型 **6/6**。
 
 剩余均依赖用户/环境：真实 TUI 终端键路人工验收、模型自发委派（P2）、文件集级并行写、跨机器集中观测

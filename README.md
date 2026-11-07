@@ -217,6 +217,9 @@ npm --prefix tui test       # TypeScript / Ink 测试
 | [预算收敛与暂停（历史）](docs/specs/token-budget-stop.md) | 初版 80% 收尾暂停策略与验证；现行策略见自动压缩继续 |
 | [规格](docs/specs/) | 每个功能切片的 spec、边界与验收口径 |
 | [Benchmark 适配（Harbor）](bench/README.md) | SWE-bench Verified / Terminal-Bench 2.1 的 Harbor 接入、单题 smoke 与限制 |
+| [关于你研究笔记](docs/research/about-you-context-control-2026-10-20.md) | 个人上下文可见性与用户控制的产品方向讨论 |
+| [预算撞车排查](docs/research/budget-pause-collision-2026-10-25.md) | 任务预算与上下文预算「撞车」的成因与默认值分析 |
+| [Coding Agent 评测集调研](docs/research/coding-agent-benchmarks-2026-10-21.md) | SWE-bench 等公开评测集的核实与接入取舍 |
 | [调研](docs/research/) | TUI、评测、沙箱、上下文等选型记录 |
 
 ## 使用边界
