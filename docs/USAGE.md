@@ -49,6 +49,7 @@ VIBE_FAKE_DEMO=1 ./run_ink.sh --fake
 
 # 列出用户会话 ID、用途、原始消息数、更新时间和标题；无需 TTY 或 API key
 ./run_ink.sh --workspace /path/to/your/repo --list-sessions
+./run_ink.sh --workspace /path/to/your/repo --list-sessions --sessions-json  # 机器可读
 
 # 打开更早的指定会话；不要同时加 --continue
 ./run_ink.sh --workspace /path/to/your/repo --session SESSION_ID

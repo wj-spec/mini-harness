@@ -108,6 +108,7 @@ def main() -> None:
     sessions.add_argument("--continue", dest="continue_session", action="store_true", help="打开 workspace 中最近有对话的 session")
     sessions.add_argument("--session", metavar="SESSION_ID", help="恢复本工作区指定 session，不自动续跑")
     sessions.add_argument("--list-sessions", action="store_true", help="只读列出本工作区已有对话的 session 后退出")
+    parser.add_argument("--sessions-json", action="store_true", help="--list-sessions 的 JSON 输出")
     parser.add_argument("--tasks", action="store_true", help="只读列出最近会话的任务与 worker 状态")
     parser.add_argument("--tasks-json", action="store_true", help="--tasks 的 JSON 输出")
     parser.add_argument("--notifications", action="store_true", help="只读输出本工作区最近的本地通知")
@@ -499,6 +500,8 @@ def main() -> None:
         or args.set_task_priority is not None or args.explore is not None or args.plan_card
     ):
         parser.error("--version cannot be combined with other modes")
+    if args.sessions_json and not args.list_sessions:
+        parser.error("--sessions-json requires --list-sessions")
     if args.prune_apply and not args.prune_worktrees:
         parser.error("--prune-apply requires --prune-worktrees")
     if args.prune_worktrees:
@@ -1547,6 +1550,11 @@ def main() -> None:
 
     if args.list_sessions:
         rows = SessionStore.list_sessions(config.workspace, purpose=session_purpose)
+        if args.sessions_json:
+            print(json.dumps({"workspace": str(config.workspace), "purpose": session_purpose,
+                              "count": len(rows), "sessions": rows},
+                             ensure_ascii=False, indent=2))
+            return
         if not rows:
             print(f"no conversation found under {config.workspace}/.vibe/sessions")
             return

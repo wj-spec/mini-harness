@@ -1,3 +1,4 @@
+import json
 import sys
 
 import pytest
@@ -200,3 +201,28 @@ def test_session_selection_flags_are_mutually_exclusive(monkeypatch, capsys):
         entrypoint.main()
     assert error.value.code == 2
     assert "not allowed" in capsys.readouterr().err
+
+
+def test_list_sessions_json_output_is_read_only(tmp_path, monkeypatch, capsys):
+    session = SessionStore.new(tmp_path, "m")
+    session.append_message(Message("user", "查找这条会话\n不要展示正文"))
+    session.append_message(Message("assistant", "private response"))
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path))
+    monkeypatch.setattr(entrypoint, "build_provider", lambda *a, **k: pytest.fail("provider initialized"))
+    monkeypatch.setattr(sys, "argv", ["vibe", "--list-sessions", "--sessions-json"])
+    before = session.events_path.read_bytes()
+    entrypoint.main()
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["count"] == 1
+    row = payload["sessions"][0]
+    assert row["id"] == session.id and row["message_count"] == 2
+    assert "不要展示正文" not in json.dumps(payload, ensure_ascii=False)
+    assert session.events_path.read_bytes() == before
+
+
+def test_sessions_json_requires_list_sessions(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["vibe", "--sessions-json"])
+    with pytest.raises(SystemExit) as error:
+        entrypoint.main()
+    assert error.value.code == 2
+    assert "--sessions-json requires --list-sessions" in capsys.readouterr().err
