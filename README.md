@@ -13,7 +13,7 @@
 
 *React/Ink 工作台（左）与只读 Git 变更侧栏（右）；顶部是产品标识像素猫 Mini。截图为 2026-10-26 的当前版本，点击可查看原图。*
 
-> 状态：单 Agent 编码流程已可用（W1–W5 真实验收完成）；前后台 Plan、只读子 Agent、后台 goal worker、验收失败自动修复、worktree→merge→重验均通过真实模型 P1（suite 六模式 deepseek-flash/chat 各 6/6）；只读 CLI/观测（tasks/plans/acceptance/approvals/evidence/trace-summary）齐备；真实 TUI 终端渲染键路仍待人工验收（[10 分钟清单](docs/specs/manual-acceptance-tui-quick.md)）；最新进度见[工作台里程碑](docs/MILESTONES.md)、[P0 收束报告](docs/specs/p0-closure-report.md) 与 [真实 P1 记录](docs/specs/real-p1-plan-smoke-2026-11-07.md)。
+> 状态：单 Agent 编码流程已可用（W1–W5 真实验收完成）；前后台 Plan、只读子 Agent、后台 goal worker、验收失败自动修复、worktree→merge→重验均通过真实模型 P1（suite 六模式 deepseek-flash/chat 各 6/6）；只读 CLI/观测（tasks/plans/plan-card/acceptance/approvals/evidence/trace-summary/bench-history）齐备；真实 TUI 终端渲染键路仍待人工验收（[10 分钟清单](docs/specs/manual-acceptance-tui-quick.md)）；最新进度见[工作台里程碑](docs/MILESTONES.md)、[P0 收束报告](docs/specs/p0-closure-report.md) 与 [真实 P1 记录](docs/specs/real-p1-plan-smoke-2026-11-07.md)。
 
 ## 项目简介
 
@@ -204,7 +204,7 @@ npm --prefix tui test       # TypeScript / Ink 测试
 | [计划审批门 P0](docs/specs/plan-approval.md) | plan propose/approve/reject、content hash、plan.review capability、审计事件 |
 | [计划执行绑定 P0](docs/specs/plan-execution.md) | step ledger、状态机、证据推进、原子 execution 文件 |
 | [计划验收映射 P0](docs/specs/plan-acceptance.md) | criteria→verification plan、三态结论与失败原因码 |
-| [P0 收束报告](docs/specs/p0-closure-report.md) | 2026-11-06：16 块 P0 状态、测试基线、10 个长任务场景、已知限制 |
+| [P0 收束报告](docs/specs/p0-closure-report.md) | 16 块 P0 状态、当前测试基线、14 个长任务场景、已知限制与 100 轮加固摘要 |
 | [Plan/SubAgent 人工验收](docs/specs/manual-acceptance-16-plan-subagent.md) | TC-16-01–08：计划审批/执行/验收、stale/修订、/explore、CLI 只读视图、侧栏摘要 |
 | [Plan/SubAgent 验收结果](docs/specs/manual-acceptance-16-results.md) | 2026-11-07：真实模型 Plan/SubAgent 自动化结果、TC-16 映射、剩余 TUI 键路 |
 | [TUI 终端快速验收](docs/specs/manual-acceptance-tui-quick.md) | 真实终端 10 分钟走完启动/审批/Plan 覆盖层/explore/后台/队列/attach/侧栏的可见效果与手感 |
