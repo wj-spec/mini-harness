@@ -7,8 +7,8 @@
 
 | 检查 | 结果 |
 |---|---|
-| Python 全量 | **1492 passed / 13 skipped** |
-| TUI | **393 passed / 1 failed**（394 收集）；失败为环境 pty smoke（`out of pty devices`）；含 7 个真实 Python 后端跨层集成用例；计划覆盖层新增 `d` 版本比较、`t` 步骤标题编辑 |
+| Python 全量 | **1497 passed / 13 skipped** |
+| TUI | **394 passed / 1 failed**（395 收集）；失败为环境 pty smoke（`out of pty devices`）；含 8 个真实 Python 后端跨层集成用例；计划覆盖层新增 `d` 版本比较、`t` 步骤标题编辑 |
 | 长任务 fake 场景 | **12/12 PASS**（`scripts/bench_long.py --runs 1`；含 2 个 5xx 注入场景；另有 `--real` 真 provider 入口） |
 | 07 attach 人工验收 | TC-01–09 通过（[记录](manual-acceptance-07-results.md)） |
 | Plan/SubAgent 人工验收清单 | TC-16-01–08 已编写；自动化/真实模型部分已记录（[清单](manual-acceptance-16-plan-subagent.md)、[结果](manual-acceptance-16-results.md)），真实 TUI 键路待 |
@@ -53,7 +53,7 @@ TUI /goal /chat /act /plan
   → 侧栏：p 打开计划步骤面板（↑↓ 选择、done/total、✓/✗）
   → 通知：plan_proposed/approved/rejected/acceptance、goal_segment/stopped、
     subagent_finished、workspace_queued、merge_*；可选 webhook 外发
-  → CLI 只读：--tasks/--plans/--acceptance/--notifications/--approvals
+  → CLI 只读：--tasks/--plans/--acceptance/--notifications/--approvals/--evidence
   → CLI 响应：--decide-approval（无 TUI 时经 worker attach 通道）
   → /plan background：创建计划绑定 task + detached worker；TUI 退出后继续
   → --merge-task：合并审批预览含计划可信验收命令；合并后重跑，失败 exit 1 + 通知

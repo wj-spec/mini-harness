@@ -332,3 +332,50 @@ test('task and approvals commands surface seeded pending approvals through the r
     await rm(workspace, {recursive: true, force: true});
   }
 });
+
+test('evidence command surfaces acceptance tri-state through the real backend', async t => {
+  const python = path.join(repoRoot, '.venv', 'bin', 'python3');
+  if (!existsSync(python) || !existsSync(path.join(repoRoot, 'run_vibe.sh'))) {
+    t.skip('python backend unavailable');
+    return;
+  }
+  const workspace = await mkdtemp(path.join(tmpdir(), 'vibe-tui-evidence-'));
+  const events: ServerEvent[] = [];
+  const client = createBackendClient({repoRoot, args: ['--fake', '--workspace', workspace]});
+  client.subscribe(event => events.push(event));
+  const view = render(<App client={client}/>);
+  try {
+    client.start();
+    await waitFor(() => events.some(event => event.type === 'ready'));
+    const ready = events.find(event => event.type === 'ready') as Extract<ServerEvent, {type: 'ready'}>;
+    const sessionPath = ready.session_path ?? '';
+    assert.ok(sessionPath, 'ready should include session_path');
+    const roundsDir = path.join(sessionPath, 'rounds');
+    await mkdir(roundsDir, {recursive: true});
+    await writeFile(path.join(roundsDir, 'round_001.json'), JSON.stringify({
+      schema_version: 1, round_index: 1, run_id: 'r-ev', goal: '证据任务',
+      task_kind: 'run', status: 'done', stop_reason: '', steps: 1,
+      usage: {prompt_tokens: 1, completion_tokens: 1, total_tokens: 2},
+      cost_usd: 0, started_at: '2026-11-07T00:00:00+00:00', ended_at: '2026-11-07T00:00:01+00:00',
+      verified: true,
+      completion: {allowed: true, codes: [], messages: []},
+      acceptance: {status: false, codes: ['acceptance_failed'],
+        plan_id: 'pl-ev', plan_version: 1,
+        commands: [{id: 'v1', ok: false, attempts: 2, reason: 'exit=1'}]},
+      task_state: {},
+    }, null, 2));
+    const stdin = view.stdin as unknown as {write(value: string): void};
+    stdin.write('/evidence');
+    await pause(80);
+    stdin.write('\r');
+    await waitFor(() => events.some(event => event.type === 'command_result' && event.command === 'evidence'));
+    const result = events.find(event => event.type === 'command_result' && event.command === 'evidence') as
+      Extract<ServerEvent, {type: 'command_result'}>;
+    assert.match(result.text, /最近一轮证据/);
+    assert.match(result.text, /验收结果：失败/);
+  } finally {
+    await client.shutdown();
+    cleanup();
+    await rm(workspace, {recursive: true, force: true});
+  }
+});

@@ -86,4 +86,5 @@ VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py
   - `/notifications plan_acceptance`：kind 过滤生效（只出现 plan_acceptance）；
   - `/plan step s1`：step_id 转发成功，返回步骤定义与 files；
   - `/task` + `/approvals`：seeded task meta + 待审批后分别显示「待审批 1」与审批条目；
-- 结果：TUI **393/394**（唯一失败为环境 pty smoke）。真实键盘/渲染路径仍需人工终端验收。
+  - `/evidence`：seeded round 含失败验收后显示「验收结果：失败」；
+- 结果：TUI **394/395**（唯一失败为环境 pty smoke）。真实键盘/渲染路径仍需人工终端验收。

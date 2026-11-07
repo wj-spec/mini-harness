@@ -762,6 +762,8 @@ VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --suite
 ./run_vibe.sh --approvals --workspace /path/to/repo
 ./run_vibe.sh --decide-approval APPROVAL_ID --approval-decision once --workspace /path/to/repo
 ./run_vibe.sh --redteam --workspace /path/to/repo
+./run_vibe.sh --evidence --session SID --workspace /path/to/repo  # 最近一轮证据
+./run_vibe.sh --evidence --evidence-json --session SID --workspace /path/to/repo  # JSON
 ./run_vibe.sh --prepare-plan-task --session SID --workspace /path/to/repo  # 准备计划 task（不启动 worker）
 ./run_vibe.sh --run-plan-queue --session SID --workspace /path/to/repo     # 串行运行已准备计划 task
 ./run_vibe.sh --run-plan-queue --queue-dry-run --session SID --workspace /path/to/repo  # 只看队列
@@ -790,6 +792,7 @@ worker 启动会审计 profile：任务事件 `unattended_profile` 记 `profile/
 `--tasks` / `--tasks-json` 的 `pending_approvals` 显示每个任务待审批数量（`/task` 同时显示「待审批 N」），便于无人值守时定位卡在审批上的任务。
 `--run-plan-queue --queue-all-sessions` 会跨本工作区所有会话收集 created 计划 task（按 created_at 排序），逐会话串行执行；dry-run 同样支持。
 `--prepare-plan-task` 选取会话中最新可执行（approved、非 stale）计划并创建 `kind=run/mode=act` 的待运行 task（JSON 输出 task_id/plan）；`--run-plan-queue` 按创建顺序串行启动这些 created 计划 task 的 worker，任一未 completed 即停止（exit 1），`--queue-task-timeout` 控制单任务超时（默认 1800s）；执行前会核对计划仍可执行（approved/未 stale），不可执行时标记 `skipped_plan_unavailable` 并停止；`--queue-dry-run` 只输出队列与 `plan_executable`，不启动 worker。
+`--evidence` 只读输出指定会话最近一轮证据（完成判定/验收三态/审计/hash/验证记录），`--evidence-json` 输出原始 round JSON；无轮次时提示先完成任务。
 `--prune-worktrees` 只读报告 `.vibe/worktrees/*.meta.json`（含目录缺失的 stale）；加 `--prune-apply` 才把 stale worktree 标记 removed 并删分支（先 `git worktree prune`）。
 `--approvals` 只读列出跨会话待审批项（session/task/approval_id/tool/tier/requester/created_at/expires_at，最多 100 条）；已解决/过期项不显示。
 `--decide-approval` 在无 TUI 时通过 worker 的 attach control 通道响应审批（默认 once，可 `deny`/`session`/`workspace`）：

@@ -114,6 +114,8 @@ def main() -> None:
     parser.add_argument("--plans", action="store_true", help="只读列出本工作区会话的计划版本")
     parser.add_argument("--acceptance", action="store_true", help="只读列出本工作区会话的计划验收结果")
     parser.add_argument("--approvals", action="store_true", help="只读列出本工作区会话的待审批项")
+    parser.add_argument("--evidence", action="store_true", help="只读输出指定会话最近一轮验收证据")
+    parser.add_argument("--evidence-json", action="store_true", help="--evidence 的 JSON 输出")
     parser.add_argument("--redteam", action="store_true", help="只读检查无人值守 profile 默认拒绝矩阵")
     parser.add_argument("--prepare-plan-task", action="store_true", help="把会话中最新可执行计划准备成待运行 task（不启动 worker）")
     parser.add_argument("--run-plan-queue", action="store_true", help="按创建顺序依次运行会话中已准备的计划 task")
@@ -267,6 +269,23 @@ def main() -> None:
             or args.pause_task is not None or args.merge_task is not None or args.cleanup_logs
         ):
             parser.error("--decide-approval cannot be combined with other modes")
+    if args.evidence_json and not args.evidence:
+        parser.error("--evidence-json requires --evidence")
+    if args.evidence:
+        if args.session is None or args.continue_session:
+            parser.error("--evidence requires a concrete --session")
+        if args.workspace is None:
+            parser.error("--evidence requires --workspace")
+        if (
+            args.stdio or args.eval or args.eval_limit is not None or args.eval_tasks is not None
+            or args.list_sessions or args.task is not None or args.bench or args.tasks
+            or args.notifications or args.plans or args.acceptance or args.approvals
+            or args.redteam or args.prune_worktrees or args.worker or args.attach
+            or args.stop or args.stop_task is not None or args.pause_task is not None
+            or args.merge_task is not None or args.cleanup_logs or args.decide_approval is not None
+            or args.prepare_plan_task or args.run_plan_queue
+        ):
+            parser.error("--evidence cannot be combined with other modes")
     if args.queue_task_timeout is not None and not args.run_plan_queue:
         parser.error("--queue-task-timeout requires --run-plan-queue")
     if args.queue_dry_run and not args.run_plan_queue:
@@ -324,7 +343,7 @@ def main() -> None:
         parser.error("--bench requires --task")
     if args.telemetry_out and args.task is None:
         parser.error("--telemetry-out requires --task")
-    if not args.stdio and not args.eval and not args.list_sessions and not args.tasks and not args.notifications and not args.plans and not args.acceptance and not args.approvals and not args.redteam and not args.prune_worktrees and not args.prepare_plan_task and not args.run_plan_queue and not args.worker and not args.attach and args.merge_task is None and not args.stop and args.pause_task is None and not args.cleanup_logs and args.task is None and args.decide_approval is None:
+    if not args.stdio and not args.eval and not args.list_sessions and not args.tasks and not args.notifications and not args.plans and not args.acceptance and not args.approvals and not args.redteam and not args.prune_worktrees and not args.evidence and not args.prepare_plan_task and not args.run_plan_queue and not args.worker and not args.attach and args.merge_task is None and not args.stop and args.pause_task is None and not args.cleanup_logs and args.task is None and args.decide_approval is None:
         print(
             "Textual 入口已退役。交互界面请运行 ./run_ink.sh（例如 ./run_ink.sh --fake）；"
             "后端与 eval 分别使用 --stdio / --eval。",
@@ -847,6 +866,22 @@ def main() -> None:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         if stopped_early is not None:
             raise SystemExit(1)
+        return
+
+    if args.evidence:
+        from app.session.evidence import format_round_evidence
+
+        purpose = "test" if args.test_session or args.fake or config.provider == "fake" else "user"
+        session = SessionStore.open_existing(config.workspace, args.session, purpose=purpose)
+        if session is None:
+            print(f"no session {args.session} under {config.workspace}", file=sys.stderr)
+            raise SystemExit(2)
+        record = session.latest_round()
+        if args.evidence_json:
+            print(json.dumps({"session": session.id, "round": record},
+                             ensure_ascii=False, indent=2))
+            return
+        print(format_round_evidence(record))
         return
 
     if args.prune_worktrees:
