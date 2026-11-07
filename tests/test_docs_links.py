@@ -46,3 +46,22 @@ def test_docs_have_no_placeholders():
     for path in DOCS:
         text = path.read_text(encoding="utf-8", errors="replace")
         assert "TODO(填写)" not in text and "{{待补" not in text, path
+
+
+def test_every_spec_is_referenced_somewhere():
+    referenced: set[Path] = set()
+    for doc in _docs():
+        text = doc.read_text(encoding="utf-8", errors="replace")
+        for match in LINK_RE.finditer(text):
+            link = match.group(1).strip()
+            if not link or link.startswith(("http://", "https://", "mailto:", "#")):
+                continue
+            target = (doc.parent / link).resolve()
+            try:
+                target.relative_to(REPO_ROOT)
+            except ValueError:
+                continue
+            referenced.add(target)
+    specs = {path.resolve() for path in (REPO_ROOT / "docs" / "specs").glob("*.md")}
+    orphans = sorted(path.relative_to(REPO_ROOT).as_posix() for path in specs - referenced)
+    assert orphans == [], f"unreferenced specs: {orphans}"

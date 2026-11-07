@@ -212,6 +212,9 @@ npm --prefix tui test       # TypeScript / Ink 测试
 | [真实模型 Plan P1 冒烟](docs/specs/real-p1-plan-smoke-2026-11-07.md) | 2026-11-07 deepseek-flash/chat：计划生成、多步执行、审批帧、验收 acceptance=true；重复样本与剩余 TUI 人工验收记录 |
 | [真实 P1 验收脚本](scripts/real_p1_acceptance.py) | 一键真实模型 Plan 生成→批准→执行（前台/`--background`）→审批→验收 + `/explore`，输出 JSON 报告 |
 | [只读子 Agent P0](docs/specs/subagent-runner.md) | harness 内部只读 runner、结构化结果、无审批/写/执行 |
+| [单 Agent loop 清理](docs/specs/single-loop-cleanup.md) | TUI/eval 统一走 `Agent.run`，删除未接入入口的同步教学循环 |
+| [技能菜单](docs/specs/skills-menu.md) | `/skills` 菜单、Tab 补全与按需加载/卸载的交互约定 |
+| [预算收敛与暂停（历史）](docs/specs/token-budget-stop.md) | 初版 80% 收尾暂停策略与验证；现行策略见自动压缩继续 |
 | [规格](docs/specs/) | 每个功能切片的 spec、边界与验收口径 |
 | [Benchmark 适配（Harbor）](bench/README.md) | SWE-bench Verified / Terminal-Bench 2.1 的 Harbor 接入、单题 smoke 与限制 |
 | [调研](docs/research/) | TUI、评测、沙箱、上下文等选型记录 |
