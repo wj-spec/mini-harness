@@ -142,3 +142,31 @@ def test_regression_ignores_mixed_modes_and_scenarios(tmp_path):
     target.write_text(json.dumps(payload), encoding="utf-8")
     rows = bench_reports(tmp_path, limit=10)
     assert latest_regression(rows) is None
+
+
+def test_bench_history_mode_filter(tmp_path, monkeypatch, capsys):
+    _seed(tmp_path)  # fake-worker-p0 两条
+    real_root = tmp_path / ".vibe" / "bench-long" / "20261103T000000Z"
+    real_root.mkdir(parents=True)
+    (real_root / "report.json").write_text(json.dumps({
+        "generated_at": "2026-11-03T00:00:00+00:00", "mode": "real-worker-p0",
+        "agent_version": "ccc", "scenarios": ["real-read-summary"],
+        "summary": {"total": 5, "passed": 5, "failed": 0},
+    }), encoding="utf-8")
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path))
+    monkeypatch.setattr("sys.argv", ["vibe", "--bench-history", "--bench-history-json",
+                                     "--bench-history-mode", "real",
+                                     "--workspace", str(tmp_path)])
+    entrypoint.main()
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["count"] == 1
+    assert payload["reports"][0]["mode"] == "real-worker-p0"
+
+
+def test_bench_history_mode_requires_history(monkeypatch, capsys):
+    monkeypatch.setattr("sys.argv", ["vibe", "--bench-history-mode", "fake",
+                                     "--workspace", "/tmp"])
+    with pytest.raises(SystemExit) as error:
+        entrypoint.main()
+    assert error.value.code == 2
+    assert "--bench-history-mode requires --bench-history" in capsys.readouterr().err

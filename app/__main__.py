@@ -125,6 +125,7 @@ def main() -> None:
     parser.add_argument("--bench-history", action="store_true", help="只读列出本工作区长任务 benchmark 历史报告")
     parser.add_argument("--bench-history-json", action="store_true", help="--bench-history 的 JSON 输出")
     parser.add_argument("--bench-history-limit", type=int, default=20, metavar="N", help="--bench-history 显示条数（默认 20，1-200）")
+    parser.add_argument("--bench-history-mode", choices=["fake", "real"], default=None, help="与 --bench-history 搭配：只显示 fake 或 real 报告")
     parser.add_argument("--redteam", action="store_true", help="只读检查无人值守 profile 默认拒绝矩阵")
     parser.add_argument("--prepare-plan-task", action="store_true", help="把会话中最新可执行计划准备成待运行 task（不启动 worker）")
     parser.add_argument("--run-plan-queue", action="store_true", help="按创建顺序依次运行会话中已准备的计划 task")
@@ -312,6 +313,8 @@ def main() -> None:
         parser.error("--bench-history-json requires --bench-history")
     if args.bench_history_limit != 20 and not args.bench_history:
         parser.error("--bench-history-limit requires --bench-history")
+    if args.bench_history_mode is not None and not args.bench_history:
+        parser.error("--bench-history-mode requires --bench-history")
     if args.bench_history:
         if args.workspace is None:
             parser.error("--bench-history requires --workspace")
@@ -1254,6 +1257,8 @@ def main() -> None:
 
         stats: dict[str, int] = {}
         rows = bench_reports(config.workspace, limit=args.bench_history_limit, stats=stats)
+        if args.bench_history_mode:
+            rows = [row for row in rows if str(row.get("mode") or "").startswith(args.bench_history_mode)]
         skipped_bench_reports = int(stats.get("skipped", 0))
         if skipped_bench_reports:
             print(f"warning: skipped {skipped_bench_reports} corrupt bench reports",
