@@ -34,8 +34,11 @@
   - 每条命令走 ApprovalGate.request（risk=exec）；拒绝则不执行；
   - 通过 `run_command_async` 执行，记录 exit/timed_out/digest/output；
   - 汇总 `acceptance.status(results)` 三态与原因码；
-  - 单命令超时可用 `VIBE_ACCEPTANCE_TIMEOUT_SECONDS`（默认 300，范围 1–3600）。
+  - 单命令超时可用 `VIBE_ACCEPTANCE_TIMEOUT_SECONDS`（默认 300，范围 1–3600）；
+  - 整轮验收可用 `VIBE_ACCEPTANCE_TOTAL_TIMEOUT_SECONDS`（默认单命令超时×尝试次数+30；
+    超时 run 转 stopped/acceptance_timeout）。
 - `trusted_commands()`、`command_digest()`。
+- 测试：整轮验收超时 → stopped/acceptance_timeout。
 - 测试：成功/失败、不可信命令不执行、审批拒绝不执行、digest。
 
 ## 集成
