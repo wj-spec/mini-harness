@@ -398,6 +398,7 @@ async def _run_suite(config: Config, workspace: Path, verify_command: str = "tru
         ("foreground", lambda: _run(config, workspace, verify_command)),
         ("background", lambda: _run(config, workspace, verify_command, background=True)),
         ("queue", lambda: _run_queue(config, workspace)),
+        ("goal", lambda: _run_goal_stage(config, workspace)),
         ("repair", lambda: _run_repair(config, workspace)),
         ("merge", lambda: _run_merge(config, workspace)),
     ]
@@ -413,7 +414,7 @@ async def _run_suite(config: Config, workspace: Path, verify_command: str = "tru
         "modes": {
             name: {key: item.get(key) for key in (
                 "ok", "stage", "run_status", "task_status", "steps", "acceptance",
-                "repair_attempts", "merged", "post_merge_verified",
+                "repair_attempts", "merged", "post_merge_verified", "verified",
                 "queue_completed", "queue_stopped_early", "dry_run_executable", "error",
             ) if key in item}
             for name, item in results.items()
@@ -487,6 +488,64 @@ async def _run_queue(config: Config, workspace: Path) -> dict:
         "stderr": (run.stderr or "")[-1000:],
     }
 
+
+async def _run_goal_stage(config: Config, workspace: Path) -> dict:
+    """真实模型 goal run + 已确认 criteria 可信验收（goal_acceptance）。"""
+    from app.runtime.goals import GoalStore
+    from app.runtime.tasks import TaskStore
+
+    session = SessionStore.new(workspace, "openai", purpose="user")
+    store = TaskStore(session.root)
+    task = store.create(kind="goal", objective="真实目标验收", workspace=str(workspace), mode="goal")
+    goals = GoalStore(session.root)
+    record = goals.ensure_for_task(task)
+    record.acceptance_criteria = [{"id": "ac1", "text": "可信命令通过", "confirmed": True}]
+    record.verification_plan = [{"command": "true"}]
+    goals.save(record)
+    approvals = 0
+    done = None
+    harness = Harness(_agent(config, workspace), config, session)
+    try:
+        await harness.until("ready")
+        harness.send("run", "goal-1", text="用一句话说明当前工作区用途后结束。", task={
+            "kind": "goal", "task_id": task.task_id, "objective": task.objective,
+        })
+        while True:
+            event = await asyncio.wait_for(harness.outgoing.get(), 300)
+            if event["type"] == "approval_request":
+                approvals += 1
+                harness.send("approval", f"approval-{approvals}",
+                             approval_id=event["approval_id"], decision="once")
+            if event["type"] == "done" and event.get("id") == "goal-1":
+                done = event
+                break
+    finally:
+        await harness.close()
+    final = store.get(task.task_id)
+    from app.runtime.notifications import read_notifications
+    events = [item for item in read_notifications(workspace) if item.get("kind") == "goal_acceptance"]
+    acceptance_file = session.root / "tasks" / task.task_id / "acceptance.v1.json"
+    acceptance = None
+    if acceptance_file.is_file():
+        try:
+            acceptance = json.loads(acceptance_file.read_text(encoding="utf-8")).get("status")
+        except (OSError, json.JSONDecodeError):
+            acceptance = None
+    verified = bool(done and done["result"].get("verified") is True)
+    ok = (
+        done is not None and done["result"].get("status") == "done"
+        and verified and final.status == "completed"
+        and acceptance is True
+        and bool(events) and events[-1].get("status") is True
+    )
+    return {
+        "ok": ok, "stage": "goal", "task_id": task.task_id,
+        "run_status": done["result"].get("status") if done else None,
+        "verified": verified, "task_status": final.status,
+        "acceptance": acceptance, "approvals": approvals,
+        "stop_reason": done["result"].get("stop_reason") if done else None,
+    }
+
 async def _run_subagent(config: Config, workspace: Path, session: SessionStore) -> dict:
     harness = Harness(_agent(config, workspace), config, session)
     await harness.until("ready")
@@ -514,7 +573,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--merge-verify-command", default="grep -q merge-ok merge-marker.txt",
                         help="--merge 模式的验收命令（同时用于合并后重验）")
     parser.add_argument("--suite", action="store_true",
-                        help="依次跑 foreground/background/queue/repair/merge 五种真实模型验收")
+                        help="依次跑 foreground/background/queue/goal/repair/merge 六种真实模型验收")
     parser.add_argument("--verify-command", default="true",
                         help="计划验收命令（默认 true；需为可信 source=plan_approval）")
     parser.add_argument("--keep", action="store_true", help="保留临时工作区")

@@ -63,7 +63,7 @@ TUI /goal /chat /act /plan
 ## 4. 已知限制（P0 之后仍需）
 
 1. **真模型 P1**：2026-11-07 已跑通 Plan 多步+验收+审批帧、`/explore`、后台 Plan/goal、edit 步骤，
-   以及验收失败自动修复（`--repair` 修复后连续 2/2）、worktree→merge→合并后重验（`--merge` 连续 2/2）、`--suite` 五种模式（含 queue）跨模型 **5/5 ×2**；仍有真实 TUI 人工键路与更大样本；
+   以及验收失败自动修复（`--repair` 修复后连续 2/2）、worktree→merge→合并后重验（`--merge` 连续 2/2）、`--suite` 六种模式（含 queue/goal）跨模型 **6/6 ×2**；仍有真实 TUI 人工键路与更大样本；
    08 长任务 benchmark 仍为 fake worker 场景（含 5xx 注入）。
 2. **Plan TUI**：覆盖层 + 侧栏步骤面板、审批/修订/执行、审批时限已接；完整审批卡片与更细粒度编辑仍待。
 3. **子 Agent**：已有子 TaskRecord/subagent_event/取消/depth/批量扇出；attach 回放、按 mode 委派开关、父预算硬上限联动仍待。

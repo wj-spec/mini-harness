@@ -51,3 +51,4 @@ def test_real_p1_script_parses_suite_mode(monkeypatch, capsys):
     assert "missing API key" in capsys.readouterr().out
     assert callable(real_p1_acceptance._run_suite)
     assert callable(real_p1_acceptance._run_queue)
+    assert callable(real_p1_acceptance._run_goal_stage)
