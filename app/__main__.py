@@ -115,6 +115,9 @@ def main() -> None:
     parser.add_argument("--acceptance", action="store_true", help="只读列出本工作区会话的计划验收结果")
     parser.add_argument("--approvals", action="store_true", help="只读列出本工作区会话的待审批项")
     parser.add_argument("--redteam", action="store_true", help="只读检查无人值守 profile 默认拒绝矩阵")
+    parser.add_argument("--prepare-plan-task", action="store_true", help="把会话中最新可执行计划准备成待运行 task（不启动 worker）")
+    parser.add_argument("--run-plan-queue", action="store_true", help="按创建顺序依次运行会话中已准备的计划 task")
+    parser.add_argument("--queue-task-timeout", type=float, default=None, help="--run-plan-queue 单个 worker 超时秒数（默认 1800）")
     parser.add_argument("--prune-worktrees", action="store_true", help="只读报告 stale/孤立的 worktree")
     parser.add_argument("--prune-apply", action="store_true", help="与 --prune-worktrees 搭配：把目录缺失的 worktree 标记 removed 并删分支")
     parser.add_argument("--worker", action="store_true", help="后台 worker：执行一个 task segment 并暴露 attach socket")
@@ -262,6 +265,23 @@ def main() -> None:
             or args.pause_task is not None or args.merge_task is not None or args.cleanup_logs
         ):
             parser.error("--decide-approval cannot be combined with other modes")
+    if args.queue_task_timeout is not None and not args.run_plan_queue:
+        parser.error("--queue-task-timeout requires --run-plan-queue")
+    if args.prepare_plan_task or args.run_plan_queue:
+        if args.session is None or args.continue_session:
+            parser.error("--prepare-plan-task/--run-plan-queue require a concrete --session")
+        if (
+            args.stdio or args.eval or args.eval_limit is not None or args.eval_tasks is not None
+            or args.list_sessions or args.task is not None or args.bench or args.tasks
+            or args.notifications or args.plans or args.acceptance or args.approvals
+            or args.redteam or args.prune_worktrees or args.worker or args.attach
+            or args.stop or args.stop_task is not None or args.pause_task is not None
+            or args.merge_task is not None or args.cleanup_logs or args.decide_approval is not None
+            or (args.prepare_plan_task and args.run_plan_queue)
+        ):
+            parser.error("--prepare-plan-task/--run-plan-queue cannot be combined with other modes")
+        if args.workspace is None:
+            parser.error("--prepare-plan-task/--run-plan-queue require --workspace")
     if args.prune_apply and not args.prune_worktrees:
         parser.error("--prune-apply requires --prune-worktrees")
     if args.prune_worktrees:
@@ -288,7 +308,7 @@ def main() -> None:
         parser.error("--bench requires --task")
     if args.telemetry_out and args.task is None:
         parser.error("--telemetry-out requires --task")
-    if not args.stdio and not args.eval and not args.list_sessions and not args.tasks and not args.notifications and not args.plans and not args.acceptance and not args.approvals and not args.redteam and not args.prune_worktrees and not args.worker and not args.attach and args.merge_task is None and not args.stop and args.pause_task is None and not args.cleanup_logs and args.task is None and args.decide_approval is None:
+    if not args.stdio and not args.eval and not args.list_sessions and not args.tasks and not args.notifications and not args.plans and not args.acceptance and not args.approvals and not args.redteam and not args.prune_worktrees and not args.prepare_plan_task and not args.run_plan_queue and not args.worker and not args.attach and args.merge_task is None and not args.stop and args.pause_task is None and not args.cleanup_logs and args.task is None and args.decide_approval is None:
         print(
             "Textual 入口已退役。交互界面请运行 ./run_ink.sh（例如 ./run_ink.sh --fake）；"
             "后端与 eval 分别使用 --stdio / --eval。",
@@ -680,6 +700,86 @@ def main() -> None:
         recent = items[-50:]
         print(json.dumps({"workspace": str(config.workspace), "count": len(recent),
                           "notifications": recent}, ensure_ascii=False, indent=2))
+        return
+
+    if args.prepare_plan_task or args.run_plan_queue:
+        import subprocess
+
+        from app.runtime.plan import executable_plans
+        from app.runtime.tasks import TaskStore
+
+        purpose = "test" if args.test_session or args.fake or config.provider == "fake" else "user"
+        session = SessionStore.open_existing(config.workspace, args.session, purpose=purpose)
+        if session is None:
+            print(f"no session {args.session} under {config.workspace}", file=sys.stderr)
+            raise SystemExit(2)
+        store = TaskStore(session.root)
+        if args.prepare_plan_task:
+            plans = executable_plans(session.root)
+            if not plans:
+                print("no executable approved plan in this session", file=sys.stderr)
+                raise SystemExit(2)
+            plan_path, plan = plans[0]
+            try:
+                task = store.create(
+                    kind="run", objective=plan.objective, workspace=str(config.workspace),
+                    mode="act", plan_id=plan.plan_id, plan_version=plan.version,
+                    session_id=session.id,
+                )
+            except Exception as exc:
+                print(f"prepare plan task failed: {exc}", file=sys.stderr)
+                raise SystemExit(2)
+            print(json.dumps({
+                "session": session.id, "task_id": task.task_id,
+                "plan_id": plan.plan_id, "plan_version": plan.version,
+                "objective": plan.objective, "plan_path": str(plan_path),
+            }, ensure_ascii=False, indent=2))
+            return
+        queue = [task for task in store.list() if task.status == "created" and task.plan_id]
+        queue.sort(key=lambda task: (task.created_at, task.task_id))
+        if not queue:
+            print(json.dumps({"session": session.id, "ran": [], "completed": 0,
+                              "stopped_early": None}, ensure_ascii=False, indent=2))
+            return
+        try:
+            timeout = float(args.queue_task_timeout or 1800)
+        except ValueError:
+            timeout = 1800.0
+        timeout = max(10.0, min(timeout, 24 * 3600.0))
+        repo_root = str(Path(__file__).resolve().parents[1])
+        ran: list[dict] = []
+        stopped_early: str | None = None
+        for task in queue:
+            command = [sys.executable, "-m", "app", "--worker",
+                       "--workspace", str(config.workspace), "--session", session.id,
+                       "--task-id", task.task_id]
+            if args.fake or config.provider == "fake":
+                command.append("--fake")
+            env = dict(os.environ, VIBE_TASK_RUNTIME="1")
+            try:
+                proc = subprocess.run(command, cwd=repo_root, env=env,
+                                      capture_output=True, text=True, timeout=timeout)
+                exit_code: int | None = proc.returncode
+                stderr = (proc.stderr or "")[-1000:]
+            except subprocess.TimeoutExpired:
+                exit_code, stderr = None, f"worker timeout after {timeout}s"
+            try:
+                final = store.get(task.task_id)
+                status = final.status
+            except Exception:
+                status = "unknown"
+            ran.append({"task_id": task.task_id, "plan_id": task.plan_id,
+                        "plan_version": task.plan_version, "exit_code": exit_code,
+                        "status": status, "stderr": stderr})
+            if status != "completed":
+                stopped_early = status
+                break
+        payload = {"session": session.id, "ran": ran,
+                   "completed": sum(1 for item in ran if item["status"] == "completed"),
+                   "stopped_early": stopped_early}
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        if stopped_early is not None:
+            raise SystemExit(1)
         return
 
     if args.prune_worktrees:

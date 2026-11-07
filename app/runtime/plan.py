@@ -451,6 +451,27 @@ def revise_plan(
     return revised
 
 
+def executable_plans(session_root: str | Path) -> list[tuple[Path, Plan]]:
+    """按 mtime 倒序列出会话中可执行的 approved 计划（供后台排队/CLI 复用）。"""
+    tasks_root = Path(session_root) / "tasks"
+    if not tasks_root.is_dir():
+        return []
+    candidates = sorted(
+        tasks_root.glob("*/plan/plan.v*.json"),
+        key=lambda path: path.stat().st_mtime if path.exists() else 0,
+        reverse=True,
+    )
+    result: list[tuple[Path, Plan]] = []
+    for path in candidates:
+        try:
+            plan = load_plan(path)
+        except PlanError:
+            continue
+        if can_execute(plan):
+            result.append((path, plan))
+    return result
+
+
 def can_execute(plan: Plan) -> bool:
     return (
         plan.status == "approved"

@@ -81,3 +81,14 @@ deviation、原子写。
 `complete_plan_step` 现在接受模型传入的 `evidence` / `evidence_refs`（字符串或含 `ref/path/command/detail`
 的对象），记为 `kind=manual` 的证据后再尝试完成步骤。用于“总结/分析”这类没有工具副作用、无法自动记录
 read/file_change 证据的步骤；缺少证据的错误提示也会提示传 `evidence_refs`。最多取 10 条、每条截断 500 字符。
+
+## 计划任务排队（2026-11-07 补充）
+
+无人值守批量执行入口：
+
+- `--prepare-plan-task --session SID --workspace WS`：取会话中最新可执行计划（`executable_plans()`：
+  approved、hash 匹配、非 stale），创建 `kind=run/mode=act` + `plan_id/plan_version` 的待运行 task，不启动 worker；
+- `--run-plan-queue --session SID --workspace WS`：按 `created_at` 顺序串行启动这些 task 的 `--worker`，
+  全部依赖 workspace 锁自然串行；任一 task 未 `completed` 即停止并 exit 1（JSON 输出 ran/completed/stopped_early）；
+- `--queue-task-timeout` 控制单个 worker 超时（默认 1800s，上限 24h）；
+- 队列只处理 status=created 且带 plan 的 task，不会重跑已完成/失败任务。
