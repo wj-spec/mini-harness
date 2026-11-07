@@ -282,6 +282,18 @@ VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --backgrou
 
 最终追加 2 次后台样本均 ok；后台路径累计 deepseek-flash 4/4、deepseek-chat 1/1。
 
+## 3o. 真实 edit 步骤成功（含审批帧）
+
+真实模型生成单步 edit 计划（文件范围 `out.txt`），批准后：
+
+- 无 autonomy（默认 ask），脚本回送 approval 帧；
+- 模型调用 start_plan_step → write_file out.txt=ok → complete_plan_step；
+- 验收命令 `grep -q ok out.txt`；
+- 结果：run done，out.txt=ok，ledger s1=done，acceptance=true，审批 **2 次**（写文件 + 验收命令）。
+
+另在 `VIBE_AUTONOMY=full` 下同样通过（审批 0 次）。
+这验证了真实模型 **edit 步骤 + 文件范围 + 审批 + 验收** 的完整路径。
+
 ## 4. 结论与限制
 
 - 已证明：真实模型可以走 `--task` 只读链路、可以生成结构化 proposed plan；
@@ -292,6 +304,7 @@ VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --backgrou
 - 已证明：干净会话 3/3、多步+验收 acceptance=true，审批帧路径 2/2；
 - 已证明：deepseek-flash 3/3 多步验收、2/2 审批；deepseek-chat 1/1 多步验收、1/1 审批；
 - 脚本稳定性：6 次中 5 次通过；失败样本表现为 s1 阶段多次审批后停止；
+- 已证明：真实 edit 计划步骤（文件范围/审批/验收）通过；
 - 已证明：真实后台 goal worker 完成；真实后台 Plan worker 完成计划+验收；
 - 仍待：真实 TUI 人工键路（pty 环境）、更多 provider/更大样本；
 - 本次仅 deepseek-flash、一次样本，成本显示 $0；

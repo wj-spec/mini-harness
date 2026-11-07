@@ -12,7 +12,7 @@
 | 长任务 fake 场景 | **10/10 PASS**（`scripts/bench_long.py --runs 1`；新增 `--real` 真 provider 入口） |
 | 07 attach 人工验收 | TC-01–09 通过（[记录](manual-acceptance-07-results.md)） |
 | Plan/SubAgent 人工验收清单 | TC-16-01–08 已编写；自动化/真实模型部分已记录（[清单](manual-acceptance-16-plan-subagent.md)、[结果](manual-acceptance-16-results.md)），真实 TUI 键路待 |
-| 真实模型 Plan P1 冒烟 | deepseek-flash：只读任务 done、单步+验收 acceptance=true、两步计划+验收 acceptance=true、deepseek-flash/chat 多步+验收与审批帧样本通过；脚本步骤门禁/重试修复后连续 5/5 ok（审批均 1 次）；/explore ok；真实后台 goal worker 与后台 Plan worker（计划+验收）完成；真实 TUI 人工键路待（[记录](real-p1-plan-smoke-2026-11-07.md)） |
+| 真实模型 Plan P1 冒烟 | deepseek-flash：只读任务 done、单步+验收 acceptance=true、两步计划+验收 acceptance=true、deepseek-flash/chat 多步+验收与审批帧样本通过；脚本步骤门禁/重试修复后连续 5/5 ok（审批均 1 次）；/explore ok；真实后台 goal worker、后台 Plan worker、edit 步骤（文件范围+审批+验收）通过；真实 TUI 人工键路待（[记录](real-p1-plan-smoke-2026-11-07.md)） |
 | 文档链接 | 78 个 specs/long-horizon 文档，**0 失效** |
 
 ## 2. 16 块 P0 状态
