@@ -94,3 +94,29 @@ def test_notify_webhook_failure_does_not_break_local_log(tmp_path, monkeypatch):
     monkeypatch.setenv("VIBE_NOTIFY_WEBHOOK", "http://127.0.0.1:1/hook")
     assert notify(tmp_path, "worker_started", task_id="t") is True
     assert notify_path(tmp_path).is_file()
+
+
+def test_post_webhook_retries_and_requires_2xx(monkeypatch):
+    import sys
+    import types
+
+    from app.runtime import notifications as module
+
+    responses: list[object] = []
+
+    class Response:
+        def __init__(self, status_code):
+            self.status_code = status_code
+
+    def fake_post(url, json, timeout):
+        return responses.pop(0)
+
+    monkeypatch.setitem(sys.modules, "httpx", types.SimpleNamespace(post=fake_post))
+    responses.extend([Response(500), Response(204)])
+    assert module.post_webhook("http://example.invalid", {}) is True
+
+    responses.extend([Exception("network down"), Response(200)])
+    assert module.post_webhook("http://example.invalid", {}) is True
+
+    responses.extend([Response(500), Response(500)])
+    assert module.post_webhook("http://example.invalid", {}) is False

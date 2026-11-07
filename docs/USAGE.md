@@ -814,7 +814,7 @@ worker 启动会审计 profile：任务事件 `unattended_profile` 记 `profile/
 可选审批门：设置 `VIBE_UNATTENDED_REQUIRE_APPROVAL=1` 后，放宽 profile 需先
 `./run_vibe.sh --approve-unattended-profile --workspace <ws>`（记录 hash；profile 改动需重新批准），否则 worker 拒绝启动。
 `--doctor` 也会提示 `.vibe/unattended.json` 被放宽的项；非法 profile 会阻塞自检。
-可选的**外部告警 webhook**：设置 `VIBE_NOTIFY_WEBHOOK=https://...` 后，通知会异步 POST JSON（最大 64 KiB，超出只发 kind/ts/truncated）；
+可选的**外部告警 webhook**：设置 `VIBE_NOTIFY_WEBHOOK=https://...` 后，通知会异步 POST JSON（仅 2xx 视为成功、失败自动重试一次；最大 64 KiB，超出只发 kind/ts/truncated）；
 `VIBE_NOTIFY_WEBHOOK_KINDS` 过滤 kind（逗号分隔，`*`=全部，默认全部）；只允许 http/https，请求失败静默，不影响任务与本地通知。
 `--plans` 只读列出本工作区会话的计划版本（损坏计划文件跳过并 stderr 告警，JSON 含 `skipped_plan_files`）（session/task/plan_id/version/status/stale/acceptance/total_steps/done_steps/executed_steps/objective），便于外部监控计划进度。
 `--acceptance` 只读列出计划验收结果（plan_id/objective/plan_version/status/codes/命令数，最多 100 条）。

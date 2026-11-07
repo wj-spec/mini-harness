@@ -45,13 +45,20 @@ def _webhook_timeout() -> float:
 
 
 def post_webhook(url: str, payload: dict[str, Any]) -> bool:
-    """POST 一条通知到外部 webhook；失败静默（不能影响主流程）。测试可替换。"""
+    """POST 一条通知到外部 webhook；仅 2xx 算成功，失败重试一次后静默（不能影响主流程）。"""
     try:
         import httpx
-        httpx.post(url, json=payload, timeout=_webhook_timeout())
     except Exception:
         return False
-    return True
+    for _ in range(2):
+        try:
+            response = httpx.post(url, json=payload, timeout=_webhook_timeout())
+            status = int(getattr(response, "status_code", 0) or 0)
+            if 200 <= status < 300:
+                return True
+        except Exception:
+            continue
+    return False
 
 
 def _dispatch_webhook(record: dict[str, Any]) -> None:
