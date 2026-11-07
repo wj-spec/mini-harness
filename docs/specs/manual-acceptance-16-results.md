@@ -55,3 +55,9 @@ VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py
 - 多步 + 非 `true` 的真实业务验收命令。
 
 结论：Plan/SubAgent P1 的**真实模型与自动化路径已通过**；TUI 键路与更大样本仍待。
+
+## TC-16-04b 真实验收失败自动修复（2026-11-07）
+
+- 命令：`VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --repair`
+- 结果：run done、s1/s2 done、acceptance=true、`plan_repair` 1 次、marker 已创建、审批 3 次；
+- 稳定性：首次实现 1 通过 / 1 次 provider ConnectTimeout；补 provider 错误重试后连续 2/2 通过。

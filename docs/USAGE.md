@@ -722,6 +722,8 @@ set -a; . ./.env; set +a
 VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --keep
 # 后台 worker 模式（等价 /plan background）
 VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --background
+# 验收失败 → 自动修复回灌 → 重新验收（真实模型，opt-in）
+VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --repair
 ```
 
 - 自动创建一次性 git 工作区（`--workspace` 可指定）；
@@ -729,11 +731,13 @@ VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --backgrou
 - 自动回送 `approval` 帧模拟 TUI 审批；
 - 校验 s1/s2 done、`acceptance.v1.json=true`；
 - `--background` 使用 prepare-background + detached worker（真实后台 Plan 路径）；
+- `--repair` 用默认会失败的验收命令 `test -f real-p1-repair-marker.txt` 触发自动修复：
+  模型创建 marker → 重新验收 → 校验 `plan_repair` 通知与 marker 存在（`--repair-verify-command` 可替换）；
 - `--verify-command` 可替换验收命令（默认 true，需可信 source=plan_approval）；
 - 验收重试/超时/自动修复：`VIBE_ACCEPTANCE_RETRIES`、`VIBE_ACCEPTANCE_TIMEOUT_SECONDS`、
   `VIBE_ACCEPTANCE_TOTAL_TIMEOUT_SECONDS`、`VIBE_ACCEPTANCE_REPAIR_ATTEMPTS`（见 `.env.example`）；
 - 再跑一次真实 `/explore` 只读子 Agent，校验 `subagent_event.status=ok`；
-- 执行遇到 error/stopped 时自动重试一次（验收失败/计划未完成不重试）；失败默认保留临时工作区（`--discard-on-failure` 可关闭）；
+- 执行遇到 error/stopped 时自动重试一次（验收失败/计划未完成不重试；`--repair` 路径对 provider 错误也重试一次）；失败默认保留临时工作区（`--discard-on-failure` 可关闭）；
 - 输出 JSON 并写 `.vibe/real-p1-acceptance/<timestamp>.json`；
 - 需要 API key；失败 exit 1。
 

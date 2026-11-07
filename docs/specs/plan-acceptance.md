@@ -61,6 +61,7 @@
   修复后重新验收；通过则 run 为 done，仍失败且在次数内继续，用完则 `stopped/acceptance_<code>`。
   每轮写 `plan_repair` 通知（task/plan/attempt/stop_reason）；总 steps/usage/cost 汇总到最后结果。
   只对验收失败生效：`plan_incomplete`、`acceptance_timeout` 不触发修复。
+- 真实模型证据：`scripts/real_p1_acceptance.py --repair` 连续 2/2 通过（修复创建 marker → 重新验收 acceptance=true），见 [真实 P1 记录](real-p1-plan-smoke-2026-11-07.md)。
 
 ## 未完成
 

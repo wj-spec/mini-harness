@@ -28,3 +28,11 @@ def test_real_p1_script_parses_background_and_verify(monkeypatch, capsys):
     monkeypatch.setattr(real_p1_acceptance.Config, "from_env", lambda: Config(workspace=None))
     assert real_p1_acceptance.main(["--background", "--verify-command", "true"]) == 2
     assert "missing API key" in capsys.readouterr().out
+
+
+def test_real_p1_script_parses_repair_mode(monkeypatch, capsys):
+    monkeypatch.setattr(real_p1_acceptance.Config, "from_env", lambda: Config(workspace=None))
+    assert real_p1_acceptance.main(["--repair"]) == 2
+    assert "missing API key" in capsys.readouterr().out
+    assert callable(real_p1_acceptance._run_repair)
+    assert callable(real_p1_acceptance._generate_plan)

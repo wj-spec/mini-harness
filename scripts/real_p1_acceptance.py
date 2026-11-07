@@ -81,33 +81,43 @@ def _init_repo(workspace: Path) -> None:
     subprocess.run(["git", "commit", "-qm", "init"], cwd=workspace, check=True)
 
 
-async def _run(config: Config, workspace: Path, verify_command: str = "true",
-               background: bool = False) -> dict:
-    session = SessionStore.new(workspace, "openai", purpose="user")
-    # 1) generate plan
+async def _generate_plan(config: Config, workspace: Path, session: SessionStore,
+                        verify_command: str = "true") -> tuple[str | None, dict | None]:
     gen = Harness(_agent(config, workspace), config, session)
-    await gen.until("ready")
-    prompt = (
-        "必须调用 submit_plan 一次，提交恰好两个步骤的只读计划："
-        '{"step_id":"s1","title":"读取 README.md","kind":"read"} 和 '
-        '{"step_id":"s2","title":"总结项目用途","kind":"read"}，s2 depends_on ["s1"]。'
-        "提交后立即结束。"
-    )
-    gen.send("run", "gen-1", text=prompt, task={"kind": "run", "mode": "plan", "objective": "真实 P1 计划"})
-    state = await gen.until("task_state", "gen-1")
-    plan_task_id = state["task"]["task_id"]
-    await gen.until("done", "gen-1")
-    await gen.close()
+    try:
+        await gen.until("ready")
+        prompt = (
+            "必须调用 submit_plan 一次，提交恰好两个步骤的只读计划："
+            '{"step_id":"s1","title":"读取 README.md","kind":"read"} 和 '
+            '{"step_id":"s2","title":"总结项目用途","kind":"read"}，s2 depends_on ["s1"]。'
+            "提交后立即结束。"
+        )
+        gen.send("run", "gen-1", text=prompt,
+                 task={"kind": "run", "mode": "plan", "objective": "真实 P1 计划"})
+        state = await gen.until("task_state", "gen-1")
+        plan_task_id = state["task"]["task_id"]
+        await gen.until("done", "gen-1")
+    finally:
+        await gen.close()
     plan_file = session.root / "tasks" / plan_task_id / "plan" / "plan.v1.json"
     if not plan_file.is_file():
-        return {"ok": False, "stage": "generate", "error": "no plan.v1.json"}
+        return None, None
     loaded = load_plan(plan_file)
     loaded.acceptance_criteria = [{"id": "ac1", "text": "验收命令成功", "confirmed": True}]
     loaded.verification_plan = [{"id": "v1", "covers": ["ac1"], "command": verify_command,
                                  "source": "plan_approval"}]
     save_plan(session.root / "tasks" / plan_task_id, loaded)
     approve_plan(session.root / "tasks" / plan_task_id, load_plan(plan_file), approved_by="smoke")
-    plan = json.loads(plan_file.read_text(encoding="utf-8"))
+    return plan_task_id, json.loads(plan_file.read_text(encoding="utf-8"))
+
+
+async def _run(config: Config, workspace: Path, verify_command: str = "true",
+               background: bool = False) -> dict:
+    session = SessionStore.new(workspace, "openai", purpose="user")
+    # 1) generate plan
+    plan_task_id, plan = await _generate_plan(config, workspace, session, verify_command)
+    if plan is None:
+        return {"ok": False, "stage": "generate", "error": "no plan.v1.json"}
     # 2) execute；--background 走 prepare-background + detached worker
     approvals = 0
     approval_tools: list[str] = []
@@ -200,6 +210,70 @@ async def _run(config: Config, workspace: Path, verify_command: str = "true",
     }
 
 
+
+async def _run_repair(config: Config, workspace: Path,
+                      verify_command: str = "test -f real-p1-repair-marker.txt") -> dict:
+    """真实验收失败 → 修复回灌 → 重新验收（VIBE_ACCEPTANCE_REPAIR_ATTEMPTS=1）。"""
+    session = SessionStore.new(workspace, "openai", purpose="user")
+    plan_task_id, plan = await _generate_plan(config, workspace, session, verify_command)
+    if plan is None:
+        return {"ok": False, "stage": "generate", "error": "no plan.v1.json"}
+    approvals = 0
+    approval_tools: list[str] = []
+    done = None
+    previous = os.environ.get("VIBE_ACCEPTANCE_REPAIR_ATTEMPTS")
+    os.environ["VIBE_ACCEPTANCE_REPAIR_ATTEMPTS"] = "1"
+    try:
+        for attempt in range(2):
+            request_id = f"repair-{attempt + 1}"
+            exe = Harness(_agent(config, workspace), config, session)
+            try:
+                await exe.until("ready")
+                exe.send("run", request_id, text="按计划执行 s1、s2，全部完成后结束。", task={
+                    "kind": "run", "mode": "act", "objective": "执行真实修复计划",
+                    "plan_id": plan["plan_id"], "plan_version": plan["version"],
+                })
+                while True:
+                    event = await asyncio.wait_for(exe.outgoing.get(), 300)
+                    if event["type"] == "approval_request":
+                        approvals += 1
+                        call = event.get("call") if isinstance(event.get("call"), dict) else {}
+                        approval_tools.append(str(call.get("name") or event.get("tool") or "tool"))
+                        exe.send("approval", f"approval-{approvals}",
+                                 approval_id=event["approval_id"], decision="once")
+                    if event["type"] == "done" and event.get("id") == request_id:
+                        done = event
+                        break
+            finally:
+                await exe.close()
+            # 与前台路径一致：只有 provider 错误才重试一次；验收失败/计划问题不再重试。
+            if done is None or done["result"].get("status") != "error":
+                break
+    finally:
+        if previous is None:
+            os.environ.pop("VIBE_ACCEPTANCE_REPAIR_ATTEMPTS", None)
+        else:
+            os.environ["VIBE_ACCEPTANCE_REPAIR_ATTEMPTS"] = previous
+    ledger_file = session.root / "tasks" / plan_task_id / "plan" / "execution.v1.json"
+    ledger = json.loads(ledger_file.read_text(encoding="utf-8")) if ledger_file.is_file() else {}
+    acc_file = session.root / "tasks" / plan_task_id / "acceptance.v1.json"
+    acceptance = json.loads(acc_file.read_text(encoding="utf-8")).get("status") if acc_file.is_file() else None
+    steps = {item["step_id"]: item["status"] for item in ledger.get("steps", [])}
+    from app.runtime.notifications import read_notifications
+    repairs = [item for item in read_notifications(workspace) if item["kind"] == "plan_repair"]
+    marker = (workspace / "real-p1-repair-marker.txt").is_file()
+    status = done["result"].get("status") if done else None
+    ok = status == "done" and acceptance is True and bool(repairs) and marker
+    return {
+        "ok": ok, "stage": "repair", "verify_command": verify_command,
+        "task_id": plan_task_id, "run_status": status,
+        "steps": steps, "acceptance": acceptance, "approvals": approvals,
+        "approval_tools": approval_tools,
+        "repair_attempts": len(repairs), "marker_created": marker,
+        "stop_reason": done["result"].get("stop_reason") if done else None,
+        "text": (done["result"].get("text") or "")[:800] if done else None,
+    }
+
 async def _run_subagent(config: Config, workspace: Path, session: SessionStore) -> dict:
     harness = Harness(_agent(config, workspace), config, session)
     await harness.until("ready")
@@ -218,6 +292,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--workspace", default=None, help="工作区；默认新建临时 git 仓库")
     parser.add_argument("--background", action="store_true",
                         help="使用后台 worker 执行计划（等价 /plan background）")
+    parser.add_argument("--repair", action="store_true",
+                        help="验收命令先失败，验证自动修复回灌后重新验收通过")
+    parser.add_argument("--repair-verify-command", default="test -f real-p1-repair-marker.txt",
+                        help="--repair 模式的验收命令（默认要求创建 marker 文件）")
     parser.add_argument("--verify-command", default="true",
                         help="计划验收命令（默认 true；需为可信 source=plan_approval）")
     parser.add_argument("--keep", action="store_true", help="保留临时工作区")
@@ -234,7 +312,10 @@ def main(argv: list[str] | None = None) -> int:
         _init_repo(workspace)
     config.workspace = workspace
     try:
-        result = asyncio.run(_run(config, workspace, args.verify_command, args.background))
+        if args.repair:
+            result = asyncio.run(_run_repair(config, workspace, args.repair_verify_command))
+        else:
+            result = asyncio.run(_run(config, workspace, args.verify_command, args.background))
     except Exception as exc:
         result = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())

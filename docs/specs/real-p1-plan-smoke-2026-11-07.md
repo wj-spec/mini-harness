@@ -294,6 +294,30 @@ VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --backgrou
 另在 `VIBE_AUTONOMY=full` 下同样通过（审批 0 次）。
 这验证了真实模型 **edit 步骤 + 文件范围 + 审批 + 验收** 的完整路径。
 
+## 3p. 真实验收失败自动修复（repair 回灌）
+
+`scripts/real_p1_acceptance.py --repair`（deepseek-flash，默认 ask + approval 帧）：
+
+1. 真实模型生成两步只读计划 → 批准；
+2. 注入 confirmed criterion + 会失败的验收命令 `test -f real-p1-repair-marker.txt`；
+3. 执行：s1/s2 完成后首次验收失败（marker 不存在）；
+4. harness 触发修复回灌（`VIBE_ACCEPTANCE_REPAIR_ATTEMPTS=1`）：
+   - 模型收到失败命令与输出，创建 `real-p1-repair-marker.txt`；
+   - 修复门禁允许读/写（只读计划无 edit 文件范围限制）；
+5. 重新验收通过：run **done**、s1/s2 done、`acceptance.v1.json=true`、`plan_repair` 通知 1 次；
+6. 审批 3 次（首次验收 bash / 修复写入 write_file / 二次验收 bash）。
+
+样本：
+
+| 样本 | 结果 | 修复次数 | marker | 备注 |
+|---|---|---|---|---|
+| 1 | ok，run done，acceptance=true | 1 | 已创建 | 首次实现通过 |
+| 2 | run error（ConnectTimeout） | 0 | 未创建 | provider 偶发长尾 |
+| 3 | ok（加 provider 错误重试后） | 1 | 已创建 | 重试修复生效 |
+| 4 | ok（加 provider 错误重试后） | 1 | 已创建 | 连续 2/2 |
+
+即：修复回灌链路在真实模型下可端到端通过；修复实现对 provider 错误补了一次重试后连续 2/2。
+
 ## 4. 结论与限制
 
 - 已证明：真实模型可以走 `--task` 只读链路、可以生成结构化 proposed plan；
@@ -306,6 +330,7 @@ VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --backgrou
 - 脚本稳定性：6 次中 5 次通过；失败样本表现为 s1 阶段多次审批后停止；
 - 已证明：真实 edit 计划步骤（文件范围/审批/验收）通过；
 - 已证明：真实后台 goal worker 完成；真实后台 Plan worker 完成计划+验收；
+- 已证明（2026-11-07）：真实验收失败 → 自动修复回灌 → 重新验收通过（`--repair`，修复后连续 2/2）；
 - 仍待：真实 TUI 人工键路（pty 环境）、更多 provider/更大样本；
 - 本次仅 deepseek-flash、一次样本，成本显示 $0；
 - 观察到一次真实 provider 长时间无返回（>300s），需要重跑/检查超时与重试；
