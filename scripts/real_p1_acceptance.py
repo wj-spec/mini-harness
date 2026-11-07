@@ -128,11 +128,27 @@ async def _run(config: Config, workspace: Path) -> dict:
     acc_file = session.root / "tasks" / plan_task_id / "acceptance.v1.json"
     acceptance = json.loads(acc_file.read_text(encoding="utf-8")).get("status") if acc_file.is_file() else None
     steps = {item["step_id"]: item["status"] for item in ledger.get("steps", [])}
-    ok = done["result"].get("status") == "done" and steps == {"s1": "done", "s2": "done"} and acceptance is True
+    plan_ok = done["result"].get("status") == "done" and steps == {"s1": "done", "s2": "done"} and acceptance is True
+    # 3) read-only subagent smoke
+    sub = await _run_subagent(config, workspace, session)
+    ok = plan_ok and sub.get("status") == "ok"
     return {
         "ok": ok, "stage": "execute", "task_id": plan_task_id, "run_status": done["result"].get("status"),
-        "steps": steps, "acceptance": acceptance, "approvals": approvals,
+        "steps": steps, "acceptance": acceptance, "approvals": approvals, "subagent": sub,
     }
+
+
+async def _run_subagent(config: Config, workspace: Path, session: SessionStore) -> dict:
+    harness = Harness(_agent(config, workspace), config, session)
+    await harness.until("ready")
+    harness.send("command", "explore-1", command="explore",
+                 args={"prompt": "读取 README.md，一句话说明项目用途。只读。"})
+    result = await harness.until("command_result", "explore-1")
+    events = [event for event in harness.events if event["type"] == "subagent_event"]
+    await harness.close()
+    status = events[-1].get("status") if events else "missing"
+    return {"status": status, "task_id": events[-1].get("task_id") if events else None,
+            "text": str(result.get("text", ""))[:300]}
 
 
 def main(argv: list[str] | None = None) -> int:

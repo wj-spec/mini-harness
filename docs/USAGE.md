@@ -722,7 +722,8 @@ VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --keep
 - 自动创建一次性 git 工作区（`--workspace` 可指定）；
 - 真实模型生成两步只读计划 → 批准 → 执行；
 - 自动回送 `approval` 帧模拟 TUI 审批；
-- 校验 s1/s2 done 与 `acceptance.v1.json=true`；
+- 校验 s1/s2 done、`acceptance.v1.json=true`；
+- 再跑一次真实 `/explore` 只读子 Agent，校验 `subagent_event.status=ok`；
 - 输出 JSON 并写 `.vibe/real-p1-acceptance/<timestamp>.json`；
 - 需要 API key；失败 exit 1。
 

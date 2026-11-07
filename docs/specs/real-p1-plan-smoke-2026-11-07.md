@@ -207,8 +207,10 @@ TUI 真实键路仍需人工在支持 pty 的终端执行。
 - 真实模型生成两步计划、批准、执行；
 - 自动回送 approval 帧；
 - 校验 steps/acceptance；
+- 再跑一次真实 `/explore`，校验 `subagent_event.status=ok`；
 - 输出 JSON 报告并写 `.vibe/real-p1-acceptance/`；
-- 2026-11-07 实跑一次：ok=true，s1/s2 done，acceptance=true，审批 3 次。
+- 2026-11-07 实跑：ok=true，s1/s2 done，acceptance=true，审批 4 次，
+  子 Agent status=ok（task t-20261107-042450-30ca97）。
 
 ## 4. 结论与限制
 
