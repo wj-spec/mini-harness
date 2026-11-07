@@ -632,3 +632,16 @@ def test_worker_accepts_relaxed_profile_after_approval(tmp_path, monkeypatch):
     worker = Worker(session_root=session.root, task_id=task.task_id, workspace=tmp_path,
                     child_args=[sys.executable, str(script)], child_env={"VIBE_TASK_RUNTIME": "1"})
     assert asyncio.run(worker.run()) == 0
+
+
+def test_clock_offset_env_is_bounded(monkeypatch):
+    from app.runtime.worker import _clock_offset_seconds
+
+    monkeypatch.delenv("VIBE_FAKE_TIME_OFFSET_SECONDS", raising=False)
+    assert _clock_offset_seconds() == 0.0
+    monkeypatch.setenv("VIBE_FAKE_TIME_OFFSET_SECONDS", "120")
+    assert _clock_offset_seconds() == 120.0
+    monkeypatch.setenv("VIBE_FAKE_TIME_OFFSET_SECONDS", "nope")
+    assert _clock_offset_seconds() == 0.0
+    monkeypatch.setenv("VIBE_FAKE_TIME_OFFSET_SECONDS", str(10**9))
+    assert _clock_offset_seconds() == 365 * 24 * 3600.0

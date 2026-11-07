@@ -1,0 +1,20 @@
+{
+  "id": "goal-max-seconds",
+  "description": "目标总时长上限（fake 时钟偏移注入）触发 goal_max_seconds 并停止续段",
+  "objective": "长任务评测：目标时长上限",
+  "action": "wait",
+  "worker_args": ["--max-steps", "1"],
+  "worker_env": {
+    "VIBE_FAKE_READ": "1",
+    "VIBE_GOAL_SECONDS": "60",
+    "VIBE_FAKE_TIME_OFFSET_SECONDS": "120"
+  },
+  "expected": {
+    "task_status": ["paused"],
+    "worker_status": ["exited"],
+    "min_segments": 1,
+    "notification_kind": "goal_stopped",
+    "no_changed_files": true
+  },
+  "timeout_seconds": 90
+}

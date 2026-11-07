@@ -7,9 +7,9 @@
 
 | 检查 | 结果 |
 |---|---|
-| Python 全量 | **1518 passed / 13 skipped** |
+| Python 全量 | **1520 passed / 13 skipped** |
 | TUI | **395 passed / 1 failed**（396 收集）；失败为环境 pty smoke（`out of pty devices`）；含 8 个真实 Python 后端跨层集成用例；计划覆盖层新增 `d` 版本比较、`t` 步骤标题编辑 |
-| 长任务 fake 场景 | **12/12 PASS**（`scripts/bench_long.py --runs 1`；含 2 个 5xx 注入场景；另有 `--real` 真 provider 入口） |
+| 长任务 fake 场景 | **13/13 PASS**（`scripts/bench_long.py --runs 1`；含 2 个 5xx 注入、1 个 fake 时钟场景；另有 `--real` 真 provider 入口） |
 | 07 attach 人工验收 | TC-01–09 通过（[记录](manual-acceptance-07-results.md)） |
 | Plan/SubAgent 人工验收清单 | TC-16-01–08 已编写；自动化/真实模型部分已记录（[清单](manual-acceptance-16-plan-subagent.md)、[结果](manual-acceptance-16-results.md)），真实 TUI 键路待；新增 [TUI 终端快速验收清单](manual-acceptance-tui-quick.md) 便于终端一次走完 |
 | 真实模型 Plan P1 冒烟 | deepseek-flash：只读任务 done、单步+验收 acceptance=true、两步计划+验收 acceptance=true、deepseek-flash/chat 多步+验收与审批帧样本通过；脚本步骤门禁/重试修复后连续 5/5 ok（审批均 1 次）；/explore ok；真实后台 goal worker、后台 Plan worker、edit 步骤（文件范围+审批+验收）通过；验收失败自动修复（--repair）连续 2/2；真实 TUI 人工键路待（[记录](real-p1-plan-smoke-2026-11-07.md)） |
@@ -26,7 +26,7 @@
 | 05 | GoalRecord | 已实现 | `goals.py`、goal continuation、confirmed criteria 可信验收 |
 | 06 | 预算账本 | 已实现 | `budget.py`、`budget-ledger.md` |
 | 07 | 控制面 attach | 已实现 | controller/observer、心跳、v2 帧、TC-01–09 |
-| 08 | 长任务评测 | P0 fake 场景 12/12（含 5xx 注入） | `bench_long.py`、`benchmarks/long/` |
+| 08 | 长任务评测 | P0 fake 场景 13/13（含 5xx/时钟注入） | `bench_long.py`、`benchmarks/long/` |
 | 09 | 无人值守默认 | P0 部分 | conservative profile、env scrub、pause、两槽串行、deadline、retention、events 软上限告警、doctor 运行时提示、外部 webhook 告警通道、profile 放宽审计 |
 | 10 | 模式状态机 | P0 chat/act/plan | `modes.py`、TUI `/chat` `/act` `/plan` |
 | 11 | 模式契约 | P0 profile | mode profile、plan 只读子集 |
@@ -69,8 +69,8 @@ TUI /goal /chat /act /plan
 3. **子 Agent**：已有子 TaskRecord/subagent_event/取消/depth/批量扇出；attach 回放、按 mode 委派开关、父预算硬上限联动仍待。
 4. **09 剩余**：events 软上限告警、红队清单自动化、只读任务并发、外部 webhook 告警、profile 放宽审计已实现；
    文件集级并行写仍待；profile 放宽审批门已实现（`--approve-unattended-profile` + `VIBE_UNATTENDED_REQUIRE_APPROVAL`）。
-5. **08 剩余**：5xx 注入、goal 成本 cap、重复运行统计、`agent_version`（bench 报告）已实现；
-   时钟/seed 注入、真实 5xx 服务端注入仍待。
+5. **08 剩余**：5xx 注入、fake 时钟偏移注入、goal 成本 cap、重复运行统计、`agent_version`（bench 报告）已实现；
+   seed 注入、真实 5xx 服务端注入仍待。
 6. **环境**：真实 TUI 验收受 pty 限制；browser smoke 在负载下偶发 flake。
 7. **生产级**：合并后重验（真实链路 2/2 已跑通）、外部 webhook 告警、doctor 运行时自检、
    计划任务 prepare+drain（含跨会话/跨工作区、continue-on-failure、1-8 并行、priority 排序）排队入口已接入；

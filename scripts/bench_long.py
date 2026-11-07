@@ -126,6 +126,19 @@ def summary(workspace: Path, session_id: str, task_id: str, before: dict[str, st
         events_text = (task_dir / "events.jsonl").read_text(encoding="utf-8")
     except OSError:
         pass
+    notification_kinds: list[str] = []
+    notifications_path = workspace / ".vibe" / "notifications.jsonl"
+    if notifications_path.is_file():
+        try:
+            for line in notifications_path.read_text(encoding="utf-8").splitlines():
+                try:
+                    item = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(item, dict) and isinstance(item.get("kind"), str):
+                    notification_kinds.append(item["kind"])
+        except OSError:
+            pass
     return {
         "task_status": meta.get("status"),
         "events_text": events_text,
@@ -135,6 +148,7 @@ def summary(workspace: Path, session_id: str, task_id: str, before: dict[str, st
         "worker_exit_code": worker.get("exit_code"),
         "approval_statuses": [item.get("status") or item.get("type") for item in approvals],
         "stop_file": (workspace / ".vibe" / "stop").exists(),
+        "notifications": notification_kinds,
         "changed_files": changed,
         "duration_seconds": None,
     }
@@ -297,6 +311,9 @@ def validate(scenario: dict, result: dict) -> list[str]:
     if "event_contains" in expected:
         if expected["event_contains"] not in result.get("events_text", ""):
             errors.append(f"event missing {expected['event_contains']}")
+    if "notification_kind" in expected:
+        if expected["notification_kind"] not in (result.get("notifications") or []):
+            errors.append(f"notification missing {expected['notification_kind']}")
     return errors
 
 

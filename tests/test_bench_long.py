@@ -22,9 +22,12 @@ def test_bench_long_scenarios_are_well_formed():
     bench = _load()
     scenarios = bench.load_scenarios()
     assert {"detach-continue", "approval-timeout", "kill-switch", "restart-attach",
-            "provider-retry-recovers", "provider-error-gives-up"} <= set(scenarios)
+            "provider-retry-recovers", "provider-error-gives-up",
+            "goal-max-seconds"} <= set(scenarios)
     assert scenarios["provider-retry-recovers"]["worker_env"]["VIBE_FAKE_STREAM_ERRORS"] == "1"
     assert scenarios["provider-error-gives-up"]["expected"]["task_status"] == ["paused"]
+    assert scenarios["goal-max-seconds"]["worker_env"]["VIBE_FAKE_TIME_OFFSET_SECONDS"] == "120"
+    assert scenarios["goal-max-seconds"]["expected"]["notification_kind"] == "goal_stopped"
     for scenario in scenarios.values():
         assert scenario["id"] == Path(scenario["_path"]).stem
         assert scenario["action"] in {"wait", "attach", "stop", "approval_timeout", "crash", "two_slot", "criteria"}
@@ -97,3 +100,15 @@ def test_bench_long_report_includes_agent_version(tmp_path, monkeypatch):
     assert data["agent_version"] == "test-sha"
     md = (tmp_path / "report.md").read_text(encoding="utf-8")
     assert "- agent_version: test-sha" in md
+
+
+def test_bench_long_validates_notification_kind():
+    bench = _load()
+    scenario = {"id": "goal-x", "expected": {"notification_kind": "goal_stopped"}}
+    result = {"task_status": "paused", "worker_status": "exited", "segments": 1,
+              "approval_statuses": [], "segment_statuses": [], "stop_file": False,
+              "changed_files": [], "notifications": ["worker_started"]}
+    errors = bench.validate(scenario, result)
+    assert any("notification missing goal_stopped" in error for error in errors)
+    result["notifications"] = ["goal_stopped"]
+    assert bench.validate(scenario, result) == []

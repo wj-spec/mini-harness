@@ -96,6 +96,14 @@ def _env_int(name: str, default: int) -> int:
     return value if value > 0 else default
 
 
+def _clock_offset_seconds() -> float:
+    try:
+        value = float(os.getenv("VIBE_FAKE_TIME_OFFSET_SECONDS", "0") or 0)
+    except ValueError:
+        return 0.0
+    return max(0.0, min(value, 365 * 24 * 3600.0))
+
+
 def _heartbeat_interval() -> float:
     return _env_float("VIBE_WORKER_HEARTBEAT_SECONDS", 10.0)
 
@@ -673,6 +681,8 @@ class Worker:
         result = event.get("result") if isinstance(event.get("result"), dict) else {}
         status = str(result.get("status") or "")
         stop_reason = str(result.get("stop_reason") or "")
+        from datetime import datetime, timedelta, timezone
+
         used_tokens, used_cost = 0, 0.0
         try:
             from app.runtime.budget import BudgetLedger
@@ -691,6 +701,7 @@ class Worker:
                 max_tokens=_env_int("VIBE_GOAL_MAX_TOKENS", 0),
                 max_cost_usd=_env_float("VIBE_GOAL_MAX_COST_USD", 0.0),
                 used_tokens=used_tokens, used_cost_usd=used_cost,
+                now=datetime.now(timezone.utc) + timedelta(seconds=_clock_offset_seconds()),
             )
         except (OSError, ValueError, Exception):
             self.done.set()
