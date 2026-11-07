@@ -769,6 +769,8 @@ VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --suite
 ./run_vibe.sh --trace-summary --trace-all-sessions --workspace /path/to/repo  # 跨会话汇总
 ./run_vibe.sh --bench-history --workspace /path/to/repo  # 长任务 benchmark 历史
 ./run_vibe.sh --bench-history --bench-history-json --workspace /path/to/repo  # JSON
+./run_vibe.sh --cleanup-bench --bench-keep 20 --workspace /path/to/repo  # 清理旧 bench 运行
+./run_vibe.sh --cleanup-bench --bench-keep 5 --log-dry-run --workspace /path/to/repo  # 预演
 ./run_vibe.sh --evidence --evidence-json --session SID --workspace /path/to/repo  # JSON
 ./run_vibe.sh --prepare-plan-task --session SID --workspace /path/to/repo  # 准备计划 task（不启动 worker）
 ./run_vibe.sh --run-plan-queue --session SID --workspace /path/to/repo     # 串行运行已准备计划 task

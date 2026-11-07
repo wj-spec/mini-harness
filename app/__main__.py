@@ -149,6 +149,8 @@ def main() -> None:
     parser.add_argument("--decide-approval", default=None, metavar="APPROVAL_ID", help="通过 worker attach 通道处理一个待审批项")
     parser.add_argument("--approval-decision", choices=["once", "session", "workspace", "deny"], default=None, help="与 --decide-approval 搭配，默认 once")
     parser.add_argument("--cleanup-logs", action="store_true", help="显式轮转会话 trace（记录到 .vibe/retention.jsonl）")
+    parser.add_argument("--cleanup-bench", action="store_true", help="显式清理 .vibe/bench-long 旧运行目录")
+    parser.add_argument("--bench-keep", type=int, default=None, metavar="N", help="与 --cleanup-bench 搭配：保留最近 N 次（默认 20）")
     parser.add_argument("--log-max-bytes", type=int, default=None, metavar="N")
     parser.add_argument("--log-dry-run", action="store_true", help="只报告 --cleanup-logs 会轮转什么")
     parser.add_argument("--eval", action="store_true", help="跑 eval 任务并退出")
@@ -259,8 +261,26 @@ def main() -> None:
             parser.error("--cleanup-logs requires --workspace")
         if args.log_max_bytes is not None and args.log_max_bytes < 1:
             parser.error("--log-max-bytes must be positive")
-        if args.stdio or args.eval or args.task is not None or args.list_sessions or args.tasks or args.worker or args.attach or args.merge_task is not None or args.bench or args.stop or args.pause_task is not None:
+        if args.stdio or args.eval or args.task is not None or args.list_sessions or args.tasks or args.worker or args.attach or args.merge_task is not None or args.bench or args.stop or args.pause_task is not None or args.cleanup_bench:
             parser.error("--cleanup-logs cannot be combined with other modes")
+    if args.bench_keep is not None and not args.cleanup_bench:
+        parser.error("--bench-keep requires --cleanup-bench")
+    if args.cleanup_bench:
+        if args.workspace is None:
+            parser.error("--cleanup-bench requires --workspace")
+        if args.bench_keep is not None and args.bench_keep < 0:
+            parser.error("--bench-keep must be non-negative")
+        if (
+            args.stdio or args.eval or args.eval_limit is not None or args.eval_tasks is not None
+            or args.list_sessions or args.task is not None or args.bench or args.tasks
+            or args.notifications or args.plans or args.acceptance or args.approvals
+            or args.redteam or args.prune_worktrees or args.worker or args.attach
+            or args.stop or args.stop_task is not None or args.pause_task is not None
+            or args.merge_task is not None or args.cleanup_logs or args.decide_approval is not None
+            or args.evidence or args.trace_summary or args.prepare_plan_task or args.run_plan_queue
+            or args.bench_history or args.approve_unattended_profile
+        ):
+            parser.error("--cleanup-bench cannot be combined with other modes")
     if args.pause_task is not None:
         if args.workspace is None:
             parser.error("--pause-task requires --workspace")
@@ -425,7 +445,7 @@ def main() -> None:
         parser.error("--bench requires --task")
     if args.telemetry_out and args.task is None:
         parser.error("--telemetry-out requires --task")
-    if not args.stdio and not args.eval and not args.list_sessions and not args.tasks and not args.notifications and not args.plans and not args.acceptance and not args.approvals and not args.redteam and not args.approve_unattended_profile and not args.prune_worktrees and not args.evidence and not args.trace_summary and not args.bench_history and not args.prepare_plan_task and not args.run_plan_queue and not args.worker and not args.attach and args.merge_task is None and not args.stop and args.pause_task is None and not args.cleanup_logs and args.task is None and args.decide_approval is None:
+    if not args.stdio and not args.eval and not args.list_sessions and not args.tasks and not args.notifications and not args.plans and not args.acceptance and not args.approvals and not args.redteam and not args.approve_unattended_profile and not args.prune_worktrees and not args.evidence and not args.trace_summary and not args.bench_history and not args.prepare_plan_task and not args.run_plan_queue and not args.worker and not args.attach and args.merge_task is None and not args.stop and args.pause_task is None and not args.cleanup_logs and not args.cleanup_bench and args.task is None and args.decide_approval is None:
         print(
             "Textual 入口已退役。交互界面请运行 ./run_ink.sh（例如 ./run_ink.sh --fake）；"
             "后端与 eval 分别使用 --stdio / --eval。",
@@ -581,6 +601,14 @@ def main() -> None:
 
         policy = RetentionPolicy(max_bytes=args.log_max_bytes or RetentionPolicy.max_bytes)
         result = cleanup_workspace_logs(config.workspace, policy=policy, dry_run=args.log_dry_run)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return
+
+    if args.cleanup_bench:
+        from app.session.retention import DEFAULT_BENCH_KEEP, cleanup_bench_reports
+
+        keep = args.bench_keep if args.bench_keep is not None else DEFAULT_BENCH_KEEP
+        result = cleanup_bench_reports(config.workspace, keep=keep, dry_run=args.log_dry_run)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return
 

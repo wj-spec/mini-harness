@@ -14,7 +14,8 @@
   - 同场景多次运行报告 `repeated_scenarios`（terminal/worker/segments/changed_files 一致）；
   - `summary.scenario_stats`：每场景 runs/passed/failed/pass_rate/avg_duration/max_duration，
     `report.md` 同步生成 scenario stats 表（重复运行稳定性对照）；
-  - 报告含 `agent_version`（`VIBE_BENCH_AGENT_VERSION` 或 git short HEAD），便于跨提交对比。
+  - 报告含 `agent_version`（`VIBE_BENCH_AGENT_VERSION` 或 git short HEAD），便于跨提交对比；
+  - `--bench-history` 查看历史、`--cleanup-bench --bench-keep N` 显式清理旧运行目录。
 - 场景目录 `benchmarks/long/*.json`，schema 包含 `id/description/objective/action/worker_env/expected/timeout_seconds`。
 - 当前场景（`benchmarks/long/`）：
   1. `detach-continue`：后台自然完成；

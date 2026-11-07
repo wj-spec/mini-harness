@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,6 +13,7 @@ DEFAULT_MAX_BYTES = 64 * 1024 * 1024
 DEFAULT_BACKUPS = 3
 # events.jsonl 是会话恢复的权威来源，不自动轮转；只做软上限告警。
 DEFAULT_EVENTS_MAX_BYTES = 32 * 1024 * 1024
+DEFAULT_BENCH_KEEP = 20
 
 
 @dataclass(frozen=True)
@@ -77,6 +79,42 @@ def oversized_session_events(
     if soft <= 0:
         return []
     return [item for item in session_events_sizes(workspace) if item["bytes"] > soft]
+
+
+def cleanup_bench_reports(
+    workspace: str | Path, *, keep: int = DEFAULT_BENCH_KEEP, dry_run: bool = False,
+) -> dict[str, Any]:
+    """显式清理 .vibe/bench-long 的旧运行目录，仅保留最近 keep 次。"""
+    root = Path(workspace) / ".vibe" / "bench-long"
+    keep = max(0, int(keep))
+    directories = []
+    if root.is_dir():
+        directories = sorted(
+            (path for path in root.iterdir() if path.is_dir() and not path.is_symlink()),
+            key=lambda path: path.name,
+        )
+    stale = directories[:-keep] if keep else directories
+    removed: list[dict[str, Any]] = []
+    for path in stale:
+        entry = {"path": str(path)}
+        if dry_run:
+            entry["removed"] = False
+        else:
+            try:
+                shutil.rmtree(path, ignore_errors=False)
+                entry["removed"] = True
+            except OSError as exc:
+                entry["removed"] = False
+                entry["error"] = str(exc)[:200]
+        removed.append(entry)
+    return {
+        "workspace": str(Path(workspace)),
+        "keep": keep,
+        "candidates": len(directories),
+        "dry_run": dry_run,
+        "removed": removed,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 def cleanup_workspace_logs(
