@@ -1065,7 +1065,7 @@ def main() -> None:
                     session = SessionStore(candidate)
                     if session.purpose == purpose:
                         candidates.append(candidate)
-            candidates.sort(key=lambda path: path.stat().st_mtime, reverse=True)
+            candidates.sort(key=lambda path: path.stat().st_mtime)
             summaries = []
             for candidate in candidates:
                 summary = summarize_trace(candidate, since_ts=since_ts)

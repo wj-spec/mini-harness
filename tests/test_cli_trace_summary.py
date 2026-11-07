@@ -93,8 +93,15 @@ def _seed_second(tmp_path):
 
 
 def test_trace_all_sessions_cli_text(tmp_path, monkeypatch, capsys):
+    import os
+
     _seed(tmp_path)
+    sessions_dir = tmp_path / ".vibe" / "sessions"
     _seed_second(tmp_path)
+    sessions = [path for path in sessions_dir.iterdir() if path.is_dir()]
+    old = min(sessions, key=lambda path: path.stat().st_mtime)
+    newest = max(sessions, key=lambda path: path.stat().st_mtime)
+    os.utime(old, (old.stat().st_atime, old.stat().st_mtime - 100))
     monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path))
     monkeypatch.setattr("sys.argv", ["vibe", "--trace-summary", "--trace-all-sessions",
                                      "--workspace", str(tmp_path)])
@@ -103,6 +110,8 @@ def test_trace_all_sessions_cli_text(tmp_path, monkeypatch, capsys):
     assert "工作区 trace 汇总（2 个会话）" in out
     assert "LLM：calls 2" in out
     assert "最近会话" in out
+    lines = [line for line in out.splitlines() if line.startswith("  - ")]
+    assert lines and lines[-1].startswith(f"  - {newest.name}")
 
 
 def test_trace_all_sessions_cli_json(tmp_path, monkeypatch, capsys):
