@@ -8,6 +8,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from app.runtime.supervise import WorkerState, write_worker_state
 from app.runtime.tasks import TaskStore
 from app.session.store import SessionStore
@@ -446,3 +448,60 @@ def test_read_only_worker_skips_workspace_lock(tmp_path, monkeypatch):
         assert "workspace_lock_skipped" in events
     finally:
         lock.release()
+
+
+@pytest.mark.parametrize("env,reason,ledger_entry", [
+    ({"VIBE_GOAL_MAX_TOKENS": "10"}, "goal_max_tokens",
+     {"entry_kind": "llm", "tokens_in": 20, "tokens_out": 0, "cost_usd": 0.0}),
+    ({"VIBE_GOAL_MAX_COST_USD": "0.5"}, "goal_max_cost_usd",
+     {"entry_kind": "llm", "tokens_in": 0, "tokens_out": 0, "cost_usd": 1.0}),
+])
+def test_worker_goal_loop_stops_on_budget(tmp_path, monkeypatch, env, reason, ledger_entry):
+    import asyncio
+
+    monkeypatch.setenv("VIBE_ALLOW_NON_GIT", "1")
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+
+    from app.runtime.budget import BudgetLedger
+    from app.runtime.worker import Worker
+
+    session = SessionStore.new(tmp_path, "fake", purpose="test")
+    store = TaskStore(session.root)
+    task = store.create(kind="goal", objective="预算目标", workspace=str(tmp_path), mode="goal")
+    BudgetLedger(session.root).append({
+        "schema_version": 1, "task_id": task.task_id, "goal_id": None,
+        "parent_id": None, "node_kind": "goal", "segment": 1, "run_id": "r0",
+        **ledger_entry, "estimated": False, "tool_calls": 0, "active_seconds": 0.0,
+        "approval_wait_seconds": 0.0, "source": "test",
+    })
+    count_file = tmp_path / "runs.txt"
+    script = tmp_path / "child.py"
+    script.write_text(
+        "import json, sys\n"
+        "from pathlib import Path\n"
+        f"count_file = Path({str(count_file)!r})\n"
+        "count = 0\n"
+        "for line in sys.stdin:\n"
+        "    req = json.loads(line)\n"
+        "    if req.get('type') == 'run':\n"
+        "        count += 1\n"
+        "        count_file.write_text(str(count))\n"
+        "        result = {'text': 'x', 'steps': 1, 'status': 'stopped',\n"
+        "                  'stop_reason': 'max_run_seconds', 'usage': {},\n"
+        "                  'cost_usd': 0, 'run_id': req['id']}\n"
+        "        print(json.dumps({'v': 1, 'type': 'done', 'id': req['id'], 'result': result}), flush=True)\n"
+        "    elif req.get('type') == 'shutdown':\n"
+        "        break\n",
+        encoding="utf-8",
+    )
+    worker = Worker(
+        session_root=session.root, task_id=task.task_id, workspace=tmp_path,
+        child_args=[sys.executable, str(script)],
+        child_env={"VIBE_TASK_RUNTIME": "1"},
+    )
+    assert asyncio.run(worker.run()) == 0
+    assert count_file.read_text(encoding="utf-8") == "1"
+    from app.runtime.notifications import read_notifications
+    stopped = [item for item in read_notifications(tmp_path) if item["kind"] == "goal_stopped"]
+    assert stopped and stopped[-1]["reason"] == reason

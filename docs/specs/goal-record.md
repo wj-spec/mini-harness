@@ -74,6 +74,30 @@
 }
 ```
 
+
+## 资源上限执行（2026-11-07 补充）
+
+`continue_decision` 支持四类资源上限，返回对应停止原因：
+
+| 上限 | 参数 | 停止原因 |
+|---|---|---|
+| 段数 | `max_segments` | `goal_max_segments` |
+| 总时长 | `max_seconds` | `goal_max_seconds` |
+| 总 token | `max_tokens` + `used_tokens` | `goal_max_tokens` |
+| 总费用 | `max_cost_usd` + `used_cost_usd` | `goal_max_cost_usd` |
+
+后台 goal worker 在每段结束后读取 `budget.jsonl` 累计值（`BudgetLedger.totals`）作为
+`used_tokens` / `used_cost_usd`，并从环境变量读取上限：
+
+- `VIBE_GOAL_MAX_SEGMENTS`（默认 8）；
+- `VIBE_GOAL_SECONDS`（默认 4 小时）；
+- `VIBE_GOAL_MAX_TOKENS`（默认 0=不限）；
+- `VIBE_GOAL_MAX_COST_USD`（默认 0=不限）。
+
+命中上限时 worker 写 `goal_stopped` 通知（reason 为表中原因）并停止续段；任务保持 paused，
+用户可用 `/resume` 或 `/goal resume` 显式继续。未提供 `used_tokens` 时保留旧的
+`segments[*].usage.total_tokens` 累加兼容逻辑。
+
 约束：
 
 - `goal_id` 若 task 未提供，由 task_id 派生（`g-<task_id 去掉 t- 后的部分>`），稳定可读；

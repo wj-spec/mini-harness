@@ -370,6 +370,9 @@ def continue_decision(
     max_segments: int = 8,
     max_seconds: float = 4 * 60 * 60,
     max_tokens: int = 0,
+    max_cost_usd: float = 0,
+    used_tokens: int = 0,
+    used_cost_usd: float = 0.0,
     now: datetime | None = None,
 ) -> tuple[bool, str | None]:
     """返回 (是否继续下一段, 停止原因)。P1 先复刻 TUI goalDecision 的资源停止规则。"""
@@ -388,13 +391,16 @@ def continue_decision(
     except (ValueError, TypeError):
         pass
     if max_tokens > 0:
-        used = 0
-        for segment in record.segments:
-            usage = segment.get("usage") if isinstance(segment, dict) else None
-            if isinstance(usage, dict):
-                value = usage.get("total_tokens")
-                if isinstance(value, int):
-                    used += value
+        used = used_tokens
+        if used <= 0:
+            for segment in record.segments:
+                usage = segment.get("usage") if isinstance(segment, dict) else None
+                if isinstance(usage, dict):
+                    value = usage.get("total_tokens")
+                    if isinstance(value, int):
+                        used += value
         if used >= max_tokens:
             return False, "goal_max_tokens"
+    if max_cost_usd > 0 and used_cost_usd >= max_cost_usd:
+        return False, "goal_max_cost_usd"
     return True, None

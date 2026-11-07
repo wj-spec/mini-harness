@@ -85,6 +85,14 @@ def _env_float(name: str, default: float) -> float:
     return value if value > 0 else default
 
 
+def _env_int(name: str, default: int) -> int:
+    try:
+        value = int(float(os.getenv(name, "")))
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
 def _heartbeat_interval() -> float:
     return _env_float("VIBE_WORKER_HEARTBEAT_SECONDS", 10.0)
 
@@ -650,6 +658,14 @@ class Worker:
         result = event.get("result") if isinstance(event.get("result"), dict) else {}
         status = str(result.get("status") or "")
         stop_reason = str(result.get("stop_reason") or "")
+        used_tokens, used_cost = 0, 0.0
+        try:
+            from app.runtime.budget import BudgetLedger
+            totals = BudgetLedger(self.session_root).totals(task_id=self.task_id)
+            used_tokens = int(totals.get("tokens_total") or 0)
+            used_cost = float(totals.get("cost_usd") or 0.0)
+        except Exception:
+            pass
         try:
             task = TaskStore(self.session_root).get(self.task_id)
             self.goal_record = self.goal_store.load() or self.goal_record
@@ -657,6 +673,9 @@ class Worker:
                 self.goal_record, task, status, stop_reason,
                 max_segments=int(os.getenv("VIBE_GOAL_MAX_SEGMENTS", "8")),
                 max_seconds=float(os.getenv("VIBE_GOAL_SECONDS", str(4 * 60 * 60))),
+                max_tokens=_env_int("VIBE_GOAL_MAX_TOKENS", 0),
+                max_cost_usd=_env_float("VIBE_GOAL_MAX_COST_USD", 0.0),
+                used_tokens=used_tokens, used_cost_usd=used_cost,
             )
         except (OSError, ValueError, Exception):
             self.done.set()

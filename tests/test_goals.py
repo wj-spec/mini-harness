@@ -158,3 +158,30 @@ def test_continue_decision_only_for_resource_stops(tmp_path):
     task.segments = []  # type: ignore[assignment]
     assert continue_decision(record, task, "stopped", "max_run_seconds", max_seconds=1, now=datetime(2026, 11, 4, tzinfo=timezone.utc))[1] == "goal_max_seconds"
 
+
+
+def test_continue_decision_token_and_cost_caps(tmp_path):
+    from datetime import datetime
+    now = datetime.fromisoformat("2026-11-03T00:10:00+00:00")
+    task, record = _record(tmp_path)
+    assert continue_decision(record, task, "stopped", "max_run_seconds", now=now)[0] is True
+    # 未达到上限仍继续
+    assert continue_decision(record, task, "stopped", "max_run_seconds",
+                             max_tokens=100, used_tokens=99, now=now)[0] is True
+    # token 上限
+    assert continue_decision(record, task, "stopped", "max_run_seconds",
+                             max_tokens=100, used_tokens=100, now=now)[1] == "goal_max_tokens"
+    # cost 上限
+    assert continue_decision(record, task, "stopped", "max_run_seconds",
+                             max_cost_usd=1.5, used_cost_usd=1.5, now=now)[1] == "goal_max_cost_usd"
+    assert continue_decision(record, task, "stopped", "max_run_seconds",
+                             max_cost_usd=1.5, used_cost_usd=1.49, now=now)[0] is True
+    # 0 表示不设上限
+    assert continue_decision(record, task, "stopped", "max_run_seconds",
+                             max_tokens=0, used_tokens=10**6,
+                             max_cost_usd=0, used_cost_usd=999.0, now=now)[0] is True
+    # 兼容旧行为：segments.usage.total_tokens 累加
+    record.segments = [{"segment": 1, "usage": {"total_tokens": 40}},
+                       {"segment": 2, "usage": {"total_tokens": 60}}]
+    assert continue_decision(record, task, "stopped", "max_run_seconds",
+                             max_tokens=100, now=now)[1] == "goal_max_tokens"
