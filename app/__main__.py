@@ -1207,10 +1207,12 @@ def main() -> None:
             print(f"no session {args.session} under {config.workspace}", file=sys.stderr)
             raise SystemExit(2)
         candidates = []
+        skipped_plan_files = 0
         for path in (session.root / "tasks").glob("*/plan/plan.v*.json"):
             try:
                 plan = load_plan(path)
             except Exception:
+                skipped_plan_files += 1
                 continue
             if args.plan_card_version is not None and plan.version != args.plan_card_version:
                 continue
@@ -1220,10 +1222,13 @@ def main() -> None:
             raise SystemExit(2)
         candidates.sort(key=lambda item: (item[0], item[1].version))
         _, plan = candidates[-1]
+        if skipped_plan_files:
+            print(f"warning: skipped {skipped_plan_files} corrupt plan files", file=sys.stderr)
         print(json.dumps({
             "workspace": str(config.workspace), "session": session.id,
             "plan_id": plan.plan_id, "version": plan.version, "status": plan.status,
             "task_id": plan.task_id, "executable": can_execute(plan),
+            "skipped_plan_files": skipped_plan_files,
             "card": render_approval_card(plan),
         }, ensure_ascii=False, indent=2))
         return
