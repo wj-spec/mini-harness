@@ -7,8 +7,8 @@
 
 | 检查 | 结果 |
 |---|---|
-| Python 全量 | **1421 passed / 13 skipped** |
-| TUI | **382 passed / 1 failed**；失败为环境 pty smoke（`out of pty devices`） |
+| Python 全量 | **1441 passed / 13 skipped** |
+| TUI | **383 passed / 1 failed**；失败为环境 pty smoke（`out of pty devices`） |
 | 长任务 fake 场景 | **10/10 PASS**（`scripts/bench_long.py --runs 1`；新增 `--real` 真 provider 入口） |
 | 07 attach 人工验收 | TC-01–09 通过（[记录](manual-acceptance-07-results.md)） |
 | Plan/SubAgent 人工验收清单 | TC-16-01–08 已编写；自动化/真实模型部分已记录（[清单](manual-acceptance-16-plan-subagent.md)、[结果](manual-acceptance-16-results.md)），真实 TUI 键路待 |
@@ -53,10 +53,11 @@ TUI /goal /chat /act /plan
   → 侧栏：p 打开计划步骤面板（↑↓ 选择、done/total、✓/✗）
   → 通知：plan_proposed/approved/rejected/acceptance、goal_segment/stopped、
     subagent_finished、workspace_queued、merge_*
-```
   → CLI 只读：--tasks/--plans/--acceptance/--notifications/--approvals
   → CLI 响应：--decide-approval（无 TUI 时经 worker attach 通道）
   → /plan background：创建计划绑定 task + detached worker；TUI 退出后继续
+  → --merge-task：合并审批预览含计划可信验收命令；合并后重跑，失败 exit 1 + 通知
+  → goal 资源上限：段数/时长/总 token/总费用（后台按 budget.jsonl 累计）
 ```
 
 ## 4. 已知限制（P0 之后仍需）
