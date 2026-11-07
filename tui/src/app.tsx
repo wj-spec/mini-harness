@@ -1398,6 +1398,17 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       }
       return;
     }
+    if (text === '/plan card') {
+      if (state.phase !== 'idle' || activeRun.current) {notice('当前有运行中任务；结束后再查看审批卡。'); return;}
+      try {
+        const id = client.command('plan', {action: 'card'});
+        activeRun.current = id;
+        dispatch({type: 'begin_command', id, command: 'plan'});
+        setPlanOpen(false);
+        setInput('');
+      } catch (error) {notice(`审批卡查询未送达：${String(error)}`);}
+      return;
+    }
     if (text === '/plan list') {
       if (state.phase !== 'idle' || activeRun.current) {notice('当前有运行中任务；结束后再查看计划版本。'); return;}
       try {

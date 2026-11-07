@@ -551,3 +551,49 @@ test('/plan kind edits a step through the real backend', async t => {
     await rm(workspace, {recursive: true, force: true});
   }
 });
+
+
+test('/plan card renders approval card through the real backend', async t => {
+  const python = path.join(repoRoot, '.venv', 'bin', 'python3');
+  if (!existsSync(python) || !existsSync(path.join(repoRoot, 'run_vibe.sh'))) {
+    t.skip('python backend unavailable');
+    return;
+  }
+  const workspace = await mkdtemp(path.join(tmpdir(), 'vibe-tui-plan-card-'));
+  const events: ServerEvent[] = [];
+  const client = createBackendClient({repoRoot, args: ['--fake', '--workspace', workspace]});
+  client.subscribe(event => events.push(event));
+  const view = render(<App client={client}/>);
+  try {
+    client.start();
+    await waitFor(() => events.some(event => event.type === 'ready'));
+    const ready = events.find(event => event.type === 'ready') as Extract<ServerEvent, {type: 'ready'}>;
+    const sessionPath = ready.session_path ?? '';
+    assert.ok(sessionPath, 'ready should include session_path');
+    const taskId = 't-20261103-120000-abcdef';
+    const planDir = path.join(sessionPath, 'tasks', taskId, 'plan');
+    await mkdir(planDir, {recursive: true});
+    await writeFile(path.join(planDir, 'plan.v1.json'), JSON.stringify({
+      schema_version: 1, plan_id: 'pl-card-it', task_id: taskId, version: 1,
+      status: 'proposed', objective: '审批卡', acceptance_criteria: [],
+      constraints: ['只读'],
+      verification_plan: [{id: 'v1', covers: [], command: 'true', source: 'plan_approval'}],
+      steps: [{step_id: 's1', title: '读', kind: 'read'}],
+    }));
+    const stdin = view.stdin as unknown as {write(value: string): void};
+    stdin.write('/plan card');
+    await pause(80);
+    stdin.write('\r');
+    await waitFor(() => events.some(event => event.type === 'command_result' && event.command === 'plan'));
+    const result = events.find(event => event.type === 'command_result' && event.command === 'plan') as
+      Extract<ServerEvent, {type: 'command_result'}>;
+    assert.match(result.text, /计划审批卡/);
+    assert.match(result.text, /约束：只读/);
+    assert.match(result.text, /cmd=true/);
+    assert.match(result.text, /executable=False/);
+  } finally {
+    await client.shutdown();
+    cleanup();
+    await rm(workspace, {recursive: true, force: true});
+  }
+});
