@@ -320,3 +320,49 @@ def test_plan_task_priority_bounds(monkeypatch, capsys):
         entrypoint.main()
     assert error.value.code == 2
     assert "--plan-task-priority must be between 0 and 100" in capsys.readouterr().err
+
+
+@pytest.mark.skipif(GIT is None, reason="git required")
+def test_queue_concurrency_reports_skipped_plan(tmp_path, monkeypatch, capsys):
+    first_repo = _init_repo(tmp_path / "qfirst")
+    second_repo = _init_repo(tmp_path / "qsecond")
+    bad_session, bad_task = _prepared_task(first_repo)
+    for candidate in bad_session.root.glob("tasks/*/plan/plan.v1.json"):
+        candidate.unlink()
+    good_session, good_task = _prepared_task(second_repo)
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=first_repo))
+    monkeypatch.setattr(sys, "argv", [
+        "vibe", "--run-plan-queue", "--queue-all-sessions", "--queue-concurrency", "2",
+        "--queue-workspace", str(first_repo), "--queue-workspace", str(second_repo), "--fake",
+    ])
+    with pytest.raises(SystemExit) as error:
+        entrypoint.main()
+    assert error.value.code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["concurrency"] == 2
+    assert payload["completed"] == 1 and payload["failed"] == 1
+    statuses = {item["task_id"]: item["status"] for item in payload["ran"]}
+    assert statuses[bad_task.task_id] == "skipped_plan_unavailable"
+    assert statuses[good_task.task_id] == "completed"
+    assert TaskStore(good_session.root).get(good_task.task_id).status == "completed"
+
+
+@pytest.mark.skipif(GIT is None, reason="git required")
+def test_queue_concurrency_one_keeps_stop_semantics(tmp_path, monkeypatch, capsys):
+    first_repo = _init_repo(tmp_path / "sfirst")
+    second_repo = _init_repo(tmp_path / "ssecond")
+    bad_session, _bad_task = _prepared_task(first_repo)
+    for candidate in bad_session.root.glob("tasks/*/plan/plan.v1.json"):
+        candidate.unlink()
+    _prepared_task(second_repo)
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=first_repo))
+    monkeypatch.setattr(sys, "argv", [
+        "vibe", "--run-plan-queue", "--queue-all-sessions", "--queue-concurrency", "1",
+        "--queue-workspace", str(first_repo), "--queue-workspace", str(second_repo), "--fake",
+    ])
+    with pytest.raises(SystemExit) as error:
+        entrypoint.main()
+    assert error.value.code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["stopped_early"] == "plan_unavailable"
+    assert payload["completed"] == 0
