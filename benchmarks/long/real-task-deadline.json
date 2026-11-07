@@ -1,0 +1,17 @@
+{
+  "id": "real-task-deadline",
+  "modes": ["real"],
+  "description": "真实 provider 下任务级 wall deadline 到期，worker 取消运行并标 failed（fake 模式会先完成任务，故仅 real）",
+  "objective": "长任务评测：真实模型任务级 deadline",
+  "action": "wait",
+  "worker_env": {
+    "VIBE_TASK_DEADLINE_SECONDS": "2"
+  },
+  "expected": {
+    "task_status": ["failed"],
+    "worker_status": ["failed"],
+    "min_segments": 1,
+    "event_contains": "task_deadline_exceeded"
+  },
+  "timeout_seconds": 120
+}

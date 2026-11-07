@@ -33,6 +33,12 @@ def scenario_files() -> list[Path]:
     return sorted(SCENARIOS.glob("*.json"))
 
 
+def scenario_supported(scenario: dict, *, real: bool) -> bool:
+    """场景声明 modes（默认 fake）；real 模式只跑声明 real 的场景。"""
+    modes = scenario.get("modes") or ["fake"]
+    return ("real" if real else "fake") in modes
+
+
 def load_scenarios() -> dict[str, dict]:
     result = {}
     for path in scenario_files():
@@ -444,9 +450,13 @@ def main() -> int:
     scenarios = load_scenarios()
     if args.list:
         for scenario in scenarios.values():
-            print(f"{scenario['id']}\t{scenario.get('description', '')}")
+            modes = ",".join(scenario.get("modes") or ["fake"])
+            print(f"{scenario['id']}\t[{modes}]\t{scenario.get('description', '')}")
         return 0
-    selected = args.scenario or list(scenarios)
+    selected = args.scenario or [
+        scenario_id for scenario_id, scenario in scenarios.items()
+        if scenario_supported(scenario, real=args.real)
+    ]
     missing = [item for item in selected if item not in scenarios]
     if missing:
         print(f"unknown scenario: {', '.join(missing)}", file=sys.stderr)

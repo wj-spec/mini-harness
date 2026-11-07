@@ -23,7 +23,8 @@ def test_bench_long_scenarios_are_well_formed():
     scenarios = bench.load_scenarios()
     assert {"detach-continue", "approval-timeout", "kill-switch", "restart-attach",
             "provider-retry-recovers", "provider-error-gives-up",
-            "goal-max-seconds", "goal-token-segments"} <= set(scenarios)
+            "goal-max-seconds", "goal-token-segments", "real-read-summary",
+            "real-task-deadline"} <= set(scenarios)
     assert scenarios["provider-retry-recovers"]["worker_env"]["VIBE_FAKE_STREAM_ERRORS"] == "1"
     assert scenarios["provider-error-gives-up"]["expected"]["task_status"] == ["paused"]
     assert scenarios["goal-max-seconds"]["worker_env"]["VIBE_FAKE_TIME_OFFSET_SECONDS"] == "120"
@@ -138,3 +139,16 @@ def test_create_task_uses_real_session_purpose(tmp_path):
     assert SessionStore(tmp_path / ".vibe" / "sessions" / test_session).purpose == "test"
     assert SessionStore(tmp_path / ".vibe" / "sessions" / real_session).purpose == "user"
     assert task_id and real_task
+
+
+def test_scenario_modes_select_fake_and_real():
+    bench = _load()
+    scenarios = bench.load_scenarios()
+    fake_only = scenarios["kill-switch"]
+    dual = scenarios["real-read-summary"]
+    real_only = scenarios["real-task-deadline"]
+    assert bench.scenario_supported(fake_only, real=False)
+    assert not bench.scenario_supported(fake_only, real=True)
+    assert bench.scenario_supported(dual, real=False) and bench.scenario_supported(dual, real=True)
+    assert bench.scenario_supported(real_only, real=True)
+    assert not bench.scenario_supported(real_only, real=False)

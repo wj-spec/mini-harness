@@ -36,12 +36,12 @@
 
 ## 4. 真实模型长任务评测预算
 
-**现状**：长任务 benchmark 15 场景中 14 个用 fake worker（覆盖生命周期/故障注入，不消耗 token）；`real-read-summary` 已做成双模式，2026-11-07 真实 provider（flash/chat）各 1 次 PASS；
+**现状**：长任务 benchmark 16 场景中 14 个 fake-only（生命周期/故障注入，不消耗 token）；2 个已真实适配（`real-read-summary` 双模式、`real-task-deadline` real-only），2026-11-07 双模型 `--real` 各 2/2 PASS；
 真实模型证据目前来自 `--suite`（六模式，含 plan/goal/repair/merge）与 `--suite-runs 2` 稳定性样本。
 `bench_long.py --real` 可让 14 个场景改用真实 provider，但会消耗 token 且部分场景预期依赖 fake 行为，需要按场景挑选或改造。
 
 **选项**：
-- A. **推荐（部分已做）**：双模式机制 + 1 个只读场景已落地；是否再投入预算改造 1-2 个生命周期场景（如 `kill-switch`、`task-deadline` 的等待条件需改成模型无关触发）；
+- A. **推荐（已落地 2 个）**：场景 modes 机制 + read/deadline 已真实验证；是否再投入预算改造更多生命周期场景（如 `kill-switch`、`restart-attach`）；
 - B. 保持现状（fake 生命周期 + suite 六模式），等真实使用反馈再扩；
 - C. 全量 `--real` 跑 14 场景（成本高、需要先调场景预期）。
 

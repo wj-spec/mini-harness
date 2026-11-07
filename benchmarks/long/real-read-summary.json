@@ -8,10 +8,18 @@
     "VIBE_MAX_RUN_TOKENS": "60000"
   },
   "expected": {
-    "task_status": ["completed"],
-    "worker_status": ["exited"],
+    "task_status": [
+      "completed"
+    ],
+    "worker_status": [
+      "exited"
+    ],
     "min_segments": 1,
     "no_changed_files": true
   },
-  "timeout_seconds": 150
+  "timeout_seconds": 150,
+  "modes": [
+    "fake",
+    "real"
+  ]
 }
