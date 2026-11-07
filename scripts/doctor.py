@@ -621,6 +621,16 @@ def check_version_consistency(repo_root: Path) -> Check:
     return Check(OK, f"Python/TUI 版本一致：{python_version}")
 
 
+def check_stop_file(workspace: Path) -> Check:
+    stop = workspace / ".vibe" / "stop"
+    if stop.exists():
+        return Check(
+            WARN, "workspace stop 文件存在（kill switch 激活）",
+            "新 worker 会立即停止；确认不再停止后删除 .vibe/stop",
+        )
+    return Check(OK, "没有 workspace stop 文件")
+
+
 def collect_checks(
     *,
     repo_root: Path | None = None,
@@ -668,6 +678,7 @@ def collect_checks(
         check_bench_history(target),
         check_bench_storage(target),
         check_real_suite(target),
+        check_stop_file(target),
         check_version_consistency(root),
     ]
 

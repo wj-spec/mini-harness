@@ -151,6 +151,7 @@ def test_doctor_reports_ready_environment(tmp_path):
     assert "✓ 无人值守 profile 使用默认保守策略" in output
     assert "✓ 没有长任务 benchmark 历史（可选）" in output
     assert "✓ 没有长任务 benchmark 运行目录" in output
+    assert "✓ 没有 workspace stop 文件" in output
     assert "✗" not in output
 
 
@@ -502,3 +503,13 @@ def test_doctor_bench_regression_only_compares_same_mode(tmp_path):
     assert code == 0, output
     assert "可比样本 1" in output
     assert "有回归" not in output
+
+
+def test_doctor_warns_about_active_stop_file(tmp_path):
+    repo, workspace = _green_repo(tmp_path)
+    (workspace / ".vibe").mkdir()
+    (workspace / ".vibe" / "stop").write_text("", encoding="utf-8")
+    code, output = _run_doctor(repo, workspace, env={"VIBE_API_KEY": "sk-test"})
+    assert code == 0, output
+    assert "! workspace stop 文件存在（kill switch 激活）" in output
+    assert ".vibe/stop" in output

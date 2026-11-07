@@ -15,7 +15,7 @@
 
 ## 怎么跑
 
-首次使用先跑环境自检：`./run_ink.sh --doctor`（没有 `.venv` 时可用 `python3 scripts/doctor.py`）。它逐项检查 Node / Python / 依赖 / API Key / TTY / 工作区/ git 仓库，缺项给出补齐命令；阻塞项 exit 2。运行时状态也会提示（非阻塞）：待审批动作数（`--approvals` / `--decide-approval`）、超过 `VIBE_EVENTS_MAX_BYTES` 的会话 events、目录缺失的 worktree、benchmark 历史回归（用 `--bench-history` 查看）、运行目录堆积（>50 个建议 `--cleanup-bench`）、Python/TUI 版本一致性、最近一次真实模型验收报告；开启 `VIBE_UNATTENDED_REQUIRE_APPROVAL=1` 时还会检查放宽 profile 是否已有批准记录。脚本 / CI 用 `python3 scripts/doctor.py --json` 获取机器可读结果（`ok/failures/warnings/checks` + 构建信息 `version/agent_version`）。
+首次使用先跑环境自检：`./run_ink.sh --doctor`（没有 `.venv` 时可用 `python3 scripts/doctor.py`）。它逐项检查 Node / Python / 依赖 / API Key / TTY / 工作区/ git 仓库，缺项给出补齐命令；阻塞项 exit 2。运行时状态也会提示（非阻塞）：待审批动作数（`--approvals` / `--decide-approval`）、超过 `VIBE_EVENTS_MAX_BYTES` 的会话 events、目录缺失的 worktree、benchmark 历史回归（用 `--bench-history` 查看）、运行目录堆积（>50 个建议 `--cleanup-bench`）、workspace stop 文件（kill switch 激活时提示清理）、Python/TUI 版本一致性、最近一次真实模型验收报告；开启 `VIBE_UNATTENDED_REQUIRE_APPROVAL=1` 时还会检查放宽 profile 是否已有批准记录。脚本 / CI 用 `python3 scripts/doctor.py --json` 获取机器可读结果（`ok/failures/warnings/checks` + 构建信息 `version/agent_version`）。
 
 排查问题时可用 `./run_vibe.sh --version` 输出 JSON（版本 / Python / git short SHA / 平台）。
 
