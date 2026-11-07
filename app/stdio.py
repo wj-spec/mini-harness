@@ -457,7 +457,21 @@ class _Connection:
                     deps = f" depends={','.join(step.depends_on)}" if step.depends_on else ""
                     files = f" files={','.join(step.files)}" if step.files else ""
                     lines.append(f"{index}. {step.step_id} {step.title} [{step.kind}/{step.risk}]{deps}{files}")
-                lines.append(f"执行门禁：executable={can_execute(plan)}")
+                executable = can_execute(plan)
+                lines.append(f"执行门禁：executable={executable}")
+                if not executable:
+                    reasons = []
+                    if plan.status != "approved":
+                        reasons.append(f"status={plan.status}")
+                    if approval.get("capability") != "plan.review":
+                        reasons.append("缺少 plan.review 审批")
+                    if approval.get("stale"):
+                        reasons.append("审批已 stale")
+                    if approval.get("plan_hash") != plan_content_hash(plan):
+                        reasons.append("hash 不匹配")
+                    if not approval.get("approved_by"):
+                        reasons.append("无批准人")
+                    lines.append("不可执行原因：" + "；".join(reasons or ["未知"]))
                 lines.append(f"批准：by={approval.get('approved_by') or '-'} at={approval.get('approved_at') or '-'}")
                 lines.append(f"hash 匹配：{approval.get('plan_hash') == plan_content_hash(plan)}")
                 return "\n".join(lines)

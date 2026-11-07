@@ -1843,6 +1843,7 @@ def test_plan_card_shows_approval_details(tmp_path, monkeypatch):
         assert "验证命令" in text and "cmd=true" in text
         assert "步骤：" in text and "1. s1 读 [read/read]" in text
         assert "executable=False" in text
+        assert "不可执行原因：" in text and "status=proposed" in text
         await harness.close()
 
     asyncio.run(scenario())
