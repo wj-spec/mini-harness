@@ -1048,3 +1048,43 @@ def test_bound_plan_edit_step_enforces_file_scope(tmp_path, monkeypatch):
         await harness.close()
 
     asyncio.run(scenario())
+
+
+def test_resume_rebinds_paused_plan_task(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    plan_task = "t-20261106-000000-abcdef"
+    plan_dir = session.root / "tasks" / plan_task
+    from app.runtime.plan import Plan, approve_plan, propose_plan
+    plan = Plan.from_dict({"schema_version": 1, "plan_id": "pl-resume", "task_id": plan_task,
+                           "objective": "resume", "steps": [{"step_id": "s1", "title": "读"}]})
+    propose_plan(plan_dir, plan)
+    approve_plan(plan_dir, plan, approved_by="user")
+    agent = _agent(tmp_path, script=("完成", "继续完成"))
+    from app.safety.policy import ApprovalDecision
+
+    async def allow(call, preview):
+        return ApprovalDecision(True, "once")
+    agent.approval.handler = allow
+
+    async def scenario():
+        harness = Harness(agent, Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("run", "r-resume", text="执行", task={
+            "kind": "run", "mode": "act", "objective": "执行",
+            "plan_id": "pl-resume", "plan_version": 1,
+        })
+        first = await harness.until("done", "r-resume")
+        assert first["result"]["status"] == "stopped"
+        tasks = TaskStore(session.root).list(kind="run")
+        assert tasks[-1].status == "paused"
+        harness.send("command", "c-resume", command="resume")
+        state = await harness.until("task_state")
+        assert state["id"] == "c-resume" and state["task"]["task_id"] == tasks[-1].task_id
+        done = await harness.until("done", "c-resume")
+        assert done["result"]["status"] in {"stopped", "done"}
+        resumed = TaskStore(session.root).get(tasks[-1].task_id)
+        assert len(resumed.segments) >= 2
+        await harness.close()
+
+    asyncio.run(scenario())

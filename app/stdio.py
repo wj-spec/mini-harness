@@ -201,6 +201,7 @@ class _Connection:
         self.output_open = True
         self.has_started_run = False
         self.plan_context = None
+        self.last_task_record = None
 
     def send(self, kind: str, request_id: str | None = None, **data):
         if not self.output_open:
@@ -526,6 +527,28 @@ class _Connection:
     async def command(self, request_id, command, args=None):
         skills = None
         if command == "resume" and self.agent.history:
+            record = self.last_task_record
+            if record is not None and self.task_runtime is not None and self.task_runtime.enabled:
+                meta = {"kind": record.kind, "task_id": record.task_id,
+                        "objective": record.objective, "mode": record.mode}
+                if record.plan_id:
+                    meta["plan_id"] = record.plan_id
+                    meta["plan_version"] = record.plan_version
+                if record.goal_id:
+                    meta["goal_id"] = record.goal_id
+                try:
+                    run_task = self.task_runtime.prepare_run(request_id, meta)
+                except Exception:
+                    run_task = None
+                if run_task is not None:
+                    self.last_task_record = run_task.record
+                    self.active_id = request_id
+                    self.active_phase = "running"
+                    self.send("task_state", request_id,
+                              task=self.task_runtime.payload(run_task.record))
+                    self.send("status", request_id, phase="running")
+                    await self.run(request_id, RESUME_INSTRUCTION, run_task)
+                    return
             await self.run(request_id, RESUME_INSTRUCTION)
             return
         try:
@@ -1301,6 +1324,8 @@ class _Connection:
                     except (TaskRuntimeError, TaskError) as exc:
                         self.error(request_id, "task_error", f"{type(exc).__name__}: {exc}")
                         return
+                if run_task is not None:
+                    self.last_task_record = run_task.record
                 self.active_id = request_id
                 self.cancel = asyncio.Event()
                 if run_task is not None and self.task_runtime is not None:

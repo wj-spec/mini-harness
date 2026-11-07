@@ -36,6 +36,7 @@
 - 完成一步返回下一步提示（start directly / do not re-read）；
 - 全部步骤完成后 harness 设置 tool_gate，拒绝后续非计划工具并提示停止；
   连续 2 次 gate 命中后 Agent 直接以 done 收尾，避免模型无限探索；
+- `/resume` 续做已暂停的 bound plan task 时保留 task_id/plan 绑定并开启新 segment；
 - 计划级完成门：绑定 plan 的 run 返回 done 时，若 required 步骤仍有未 done，
   改写为 `stopped/plan_incomplete`，任务转 paused，等待继续执行/重规划；
   步骤完成后若 Plan 有 confirmed criteria，再执行可信验收命令，未通过则
