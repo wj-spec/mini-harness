@@ -105,27 +105,34 @@ async def _run(config: Config, workspace: Path) -> dict:
     save_plan(session.root / "tasks" / plan_task_id, loaded)
     approve_plan(session.root / "tasks" / plan_task_id, load_plan(plan_file), approved_by="smoke")
     plan = json.loads(plan_file.read_text(encoding="utf-8"))
-    # 2) execute with approval frames
-    exe = Harness(_agent(config, workspace), config, session)
-    await exe.until("ready")
-    exe.send("run", "exec-1", text="按计划执行 s1、s2，全部完成后结束。", task={
-        "kind": "run", "mode": "act", "objective": "执行真实 P1 计划",
-        "plan_id": plan["plan_id"], "plan_version": plan["version"],
-    })
+    # 2) execute with approval frames；ConnectTimeout/error 重试一次
+    done = None
     approvals = 0
     approval_tools: list[str] = []
-    while True:
-        event = await asyncio.wait_for(exe.outgoing.get(), 300)
-        if event["type"] == "approval_request":
-            approvals += 1
-            call = event.get("call") if isinstance(event.get("call"), dict) else {}
-            approval_tools.append(str(call.get("name") or event.get("tool") or "tool"))
-            exe.send("approval", f"approval-{approvals}",
-                     approval_id=event["approval_id"], decision="once")
-        if event["type"] == "done" and event["id"] == "exec-1":
-            done = event
+    for attempt in range(2):
+        exe = Harness(_agent(config, workspace), config, session)
+        try:
+            await exe.until("ready")
+            request_id = f"exec-{attempt + 1}"
+            exe.send("run", request_id, text="按计划执行 s1、s2，全部完成后结束。", task={
+                "kind": "run", "mode": "act", "objective": "执行真实 P1 计划",
+                "plan_id": plan["plan_id"], "plan_version": plan["version"],
+            })
+            while True:
+                event = await asyncio.wait_for(exe.outgoing.get(), 300)
+                if event["type"] == "approval_request":
+                    approvals += 1
+                    call = event.get("call") if isinstance(event.get("call"), dict) else {}
+                    approval_tools.append(str(call.get("name") or event.get("tool") or "tool"))
+                    exe.send("approval", f"approval-{approvals}",
+                             approval_id=event["approval_id"], decision="once")
+                if event["type"] == "done" and event["id"] == request_id:
+                    done = event
+                    break
+        finally:
+            await exe.close()
+        if done is not None and done["result"].get("status") != "error":
             break
-    await exe.close()
     ledger_file = session.root / "tasks" / plan_task_id / "plan" / "execution.v1.json"
     ledger = json.loads(ledger_file.read_text(encoding="utf-8")) if ledger_file.is_file() else {}
     acc_file = session.root / "tasks" / plan_task_id / "acceptance.v1.json"
@@ -161,8 +168,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workspace", default=None, help="工作区；默认新建临时 git 仓库")
     parser.add_argument("--keep", action="store_true", help="保留临时工作区")
-    parser.add_argument("--keep-on-failure", action="store_true",
-                        help="失败时保留临时工作区（默认删除）")
+    parser.add_argument("--discard-on-failure", action="store_true",
+                        help="失败时也删除临时工作区（默认保留便于诊断）")
     args = parser.parse_args(argv)
     config = Config.from_env()
     if not config.api_key:
@@ -183,7 +190,7 @@ def main(argv: list[str] | None = None) -> int:
     out_file = out_dir / f"{stamp}.json"
     out_file.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({**result, "report": str(out_file)}, ensure_ascii=False, indent=2))
-    if temporary and not args.keep and (result.get("ok") or not args.keep_on_failure):
+    if temporary and not args.keep and (result.get("ok") or args.discard_on_failure):
         shutil.rmtree(workspace, ignore_errors=True)
     return 0 if result.get("ok") else 1
 

@@ -234,6 +234,12 @@ TUI 真实键路仍需人工在支持 pty 的终端执行。
 - 审批次数均为 1（仅验收 bash 命令）。
 说明 read 步骤越界工具被拦截后，审批/探索噪声显著下降。
 
+诊断增强：
+
+- `start_plan_step` 也接受模型额外 evidence 参数（忽略），避免 TypeError；
+- 脚本对 `run_status=error`（如 ConnectTimeout）自动重试一次；
+- 修复后再跑 3 次：3/3 ok，s1/s2 done，acceptance=true，审批均 1 次。
+
 ## 4. 结论与限制
 
 - 已证明：真实模型可以走 `--task` 只读链路、可以生成结构化 proposed plan；

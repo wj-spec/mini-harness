@@ -803,7 +803,7 @@ class _Connection:
                     except Exception:
                         pass
 
-                    def start_plan_step(step_id: str) -> str:
+                    def start_plan_step(step_id: str, **_ignored) -> str:
                         if not ledger.can_execute_step(bound_plan, step_id):
                             return f"ERROR step_blocked: {step_id} dependencies not done"
                         try:

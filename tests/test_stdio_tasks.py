@@ -869,7 +869,8 @@ def test_complete_plan_step_accepts_model_evidence_args(tmp_path, monkeypatch):
     approve_plan(plan_dir, plan, approved_by="user")
     from core.contracts import Response, ToolCall
     agent = Agent(FakeProvider([
-        Response(tool_calls=[ToolCall("start_plan_step", {"step_id": "s1"}, id="t1")]),
+        Response(tool_calls=[ToolCall("start_plan_step", {
+            "step_id": "s1", "evidence_refs": ["README.md"]}, id="t1")]),
         Response(tool_calls=[ToolCall("read_file", {"path": "README.md"}, id="t2")]),
         Response(tool_calls=[ToolCall("complete_plan_step", {
             "step_id": "s1", "evidence": [{"type": "file_read"}]}, id="t3")]),
