@@ -430,7 +430,8 @@ def main() -> int:
     parser.add_argument("--scenario", action="append", default=[])
     parser.add_argument("--runs", type=int, default=1)
     parser.add_argument("--run-root", type=Path, default=None)
-    parser.add_argument("--real", action="store_true", help="use real provider instead of --fake")
+    parser.add_argument("--real", action="store_true",
+                        help="use real provider instead of --fake（场景预期仍按 fake 行为设计，真实结果可能不符；预算见 docs/specs/open-decisions.md）")
     args = parser.parse_args()
     scenarios = load_scenarios()
     if args.list:
