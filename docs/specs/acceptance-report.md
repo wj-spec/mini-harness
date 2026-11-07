@@ -48,7 +48,7 @@
 4. **非 git 工作区只做了默认拒绝**：没有任务写/读分类；`VIBE_ALLOW_NON_GIT=1` 是人工逃生口，不是只读保证。
 5. **合并后验证未接审批/计划**：`--merge-verify` 是显式命令，尚未从 Plan/verification_plan 自动生成；失败不回滚合并。
 6. **预算**：预留、per-child 归并、摘要/审计成本强制计入仍未做；`check_start` 只在硬模式生效。
-7. **TODO**：worktree stale 清理 CLI、合并审批的 TUI 完整流程、长任务评测（08）、无人值守安全默认值（09）、模式/Plan 实现（10–16）仍未开始或未完成。
+7. **后续**：本页记录 2026-11-05 时的验收范围；其后 worktree stale 清理 CLI（`--prune-worktrees`）、合并审批完整流程、长任务评测（08）、无人值守安全默认值（09）、模式/Plan（10–16）均已实现并有测试/真实模型证据，当前状态见 [P0 收束报告](p0-closure-report.md)。
 8. **flaky**：browser smoke 在负载下偶发时序失败。
 
 ## 4. 复现
