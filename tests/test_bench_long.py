@@ -114,3 +114,17 @@ def test_bench_long_validates_notification_kind():
     assert any("notification missing goal_stopped" in error for error in errors)
     result["notifications"] = ["goal_stopped"]
     assert bench.validate(scenario, result) == []
+
+
+def test_build_worker_command_switches_fake_and_args():
+    bench = _load()
+    from pathlib import Path
+
+    fake_command = bench.build_worker_command(
+        Path("/ws"), "s-1", "t-1", real=False, worker_args=["--max-steps", "1"])
+    assert "--fake" in fake_command
+    assert fake_command[-2:] == ["--max-steps", "1"]
+    real_command = bench.build_worker_command(
+        Path("/ws"), "s-1", "t-1", real=True, worker_args=["--max-steps", "1"])
+    assert "--fake" not in real_command
+    assert real_command[-2:] == ["--max-steps", "1"]

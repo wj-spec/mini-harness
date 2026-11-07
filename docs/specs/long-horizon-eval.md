@@ -14,6 +14,7 @@
   - 同场景多次运行报告 `repeated_scenarios`（terminal/worker/segments/changed_files 一致）；
   - `summary.scenario_stats`：每场景 runs/passed/failed/pass_rate/avg_duration/max_duration，
     `report.md` 同步生成 scenario stats 表（重复运行稳定性对照）；
+  - `--real` 复用同一 worker 命令（仅去掉 `--fake`），场景预期适配真实模型仍待（预算见 open-decisions）；
   - 报告含 `agent_version`（`VIBE_BENCH_AGENT_VERSION` 或 git short HEAD），便于跨提交对比；
   - `--bench-history` 查看历史并标记最近 regression、`--cleanup-bench --bench-keep N` 显式清理旧运行目录；
     `--doctor` 也会对最近两次 benchmark 做回归提示。

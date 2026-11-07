@@ -154,6 +154,19 @@ def summary(workspace: Path, session_id: str, task_id: str, before: dict[str, st
     }
 
 
+def build_worker_command(
+    workspace: Path, session_id: str, task_id: str, *,
+    real: bool = False, worker_args: list[str] | tuple[str, ...] = (),
+) -> list[str]:
+    """构造 worker 启动命令：fake 模式显式 --fake，real 模式交给 provider 配置。"""
+    command = [sys.executable, "-m", "app", "--worker",
+               "--workspace", str(workspace), "--session", session_id, "--task-id", task_id]
+    if not real:
+        command.append("--fake")
+    command.extend(str(item) for item in worker_args)
+    return command
+
+
 def run_scenario(scenario: dict, run_dir: Path, run_index: int, *, real: bool = False) -> dict:
     scenario_dir = run_dir / f"{scenario['id']}-{run_index}"
     workspace = scenario_dir / "workspace"
@@ -181,11 +194,10 @@ def run_scenario(scenario: dict, run_dir: Path, run_index: int, *, real: bool = 
     })
     env.update({str(k): str(v) for k, v in scenario.get("worker_env", {}).items()})
     log = (scenario_dir / "worker.log").open("w", encoding="utf-8")
-    worker_command = [sys.executable, "-m", "app", "--worker",
-                      "--workspace", str(workspace), "--session", session_id, "--task-id", task_id]
-    if not real:
-        worker_command.append("--fake")
-    worker_command.extend(scenario.get("worker_args", []))
+    worker_command = build_worker_command(
+        workspace, session_id, task_id, real=real,
+        worker_args=scenario.get("worker_args", []),
+    )
     proc = subprocess.Popen(
         worker_command,
         cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT,
@@ -213,8 +225,7 @@ def run_scenario(scenario: dict, run_dir: Path, run_index: int, *, real: bool = 
             second_env = dict(env)
             second_env.update({str(k): str(v) for k, v in scenario.get("secondary_env", {}).items()})
             second = subprocess.run(
-                [sys.executable, "-m", "app", "--worker", "--fake",
-                 "--workspace", str(workspace), "--session", second_session, "--task-id", second_task],
+                build_worker_command(workspace, second_session, second_task, real=real),
                 cwd=ROOT, env=second_env, capture_output=True, text=True,
                 timeout=scenario.get("timeout_seconds", 90),
             )
