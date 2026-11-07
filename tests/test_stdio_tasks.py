@@ -1888,3 +1888,35 @@ def test_explore_command_uses_env_budgets(tmp_path, monkeypatch):
     assert captured["max_steps"] == 9
     assert captured["max_run_tokens"] == 12345
     assert captured["max_run_seconds"] == 30.0
+
+
+def test_tools_command_lists_delegate_when_enabled(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    monkeypatch.setenv("VIBE_SUBAGENT_DELEGATE", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+
+    async def scenario():
+        harness = Harness(_agent(tmp_path), Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("command", "c-tools-delegate", command="tools")
+        result = await harness.until("command_result", "c-tools-delegate")
+        assert "delegate" in result["text"]
+        await harness.close()
+
+    asyncio.run(scenario())
+
+
+def test_tools_command_hides_delegate_by_default(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    monkeypatch.delenv("VIBE_SUBAGENT_DELEGATE", raising=False)
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+
+    async def scenario():
+        harness = Harness(_agent(tmp_path), Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("command", "c-tools-default", command="tools")
+        result = await harness.until("command_result", "c-tools-default")
+        assert "delegate" not in result["text"]
+        await harness.close()
+
+    asyncio.run(scenario())
