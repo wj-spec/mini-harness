@@ -724,6 +724,8 @@ VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --keep
 - 自动回送 `approval` 帧模拟 TUI 审批；
 - 校验 s1/s2 done、`acceptance.v1.json=true`；
 - `--verify-command` 可替换验收命令（默认 true，需可信 source=plan_approval）；
+- 验收重试/超时：`VIBE_ACCEPTANCE_RETRIES`、`VIBE_ACCEPTANCE_TIMEOUT_SECONDS`、
+  `VIBE_ACCEPTANCE_TOTAL_TIMEOUT_SECONDS`（见 `.env.example`）；
 - 再跑一次真实 `/explore` 只读子 Agent，校验 `subagent_event.status=ok`；
 - 执行遇到 error/stopped 时自动重试一次（验收失败/计划未完成不重试）；失败默认保留临时工作区（`--discard-on-failure` 可关闭）；
 - 输出 JSON 并写 `.vibe/real-p1-acceptance/<timestamp>.json`；
