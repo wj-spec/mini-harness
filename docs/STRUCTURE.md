@@ -70,6 +70,7 @@ mini-harness/
       audit.py          # 只读环境审计：git 基线、文件 hash、完整性结论
       auditor.py        # 可选 LLM 只读审计：全新上下文 + 只读工具子集
       evidence.py       # 最近一轮 RoundRecord 的中文证据摘要（/evidence）
+      observability.py  # trace.jsonl 只读聚合（--trace-summary/--trace-all-sessions/TUI /trace）
       context_display.py # 上下文快照展示
     profiles/           # 项目背景与个人偏好
       instructions.py   # AGENTS.md 加载与注入

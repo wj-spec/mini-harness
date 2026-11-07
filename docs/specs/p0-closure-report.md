@@ -78,4 +78,13 @@ TUI /goal /chat /act /plan
 
 ## 5. 结论
 
-01–16 均已有可运行、可测试的 P0 基础，任务运行时到 Plan/SubAgent 的主链路已打通，并有自动化与人工验收证据。**这不是生产完成**；下一步优先真模型长任务 P1、Plan TUI 体验、09 剩余安全项，再做整体生产化收束。
+01–16 均已有可运行、可测试的 P0 基础，任务运行时到 Plan/SubAgent 的主链路已打通，并有自动化与人工验收证据。2026-11-07 的生产化加固把以下项目推进到可验收状态：
+
+- 真实验收：`--suite` 六模式（foreground/background/queue/goal/repair/merge）deepseek-flash/chat 各 **6/6**；
+- 长任务评测：fake worker 场景 **14/14**（含 5xx/时钟注入、2 个多段）；
+- 计划闭环：失败自动修复、合并后按计划重验、任务排队（跨会话/跨工作区/并行/priority/continue-on-failure/dry-run）；
+- 无人值守：profile 放宽审计 + opt-in 审批门、events 软上限告警、外部 webhook、doctor 运行时自检；
+- 观测：`--evidence`、`--trace-summary`（可跨会话）、TUI `/trace`、agent_version 进评测报告。
+
+**这不是生产完成**；剩余为：真实 TUI 终端渲染/键盘人工验收（沙箱无 pty，已给 [10 分钟清单](manual-acceptance-tui-quick.md)）、
+模型自发委派（设计列为 P2，需用户拍板）、attach 回放子 Agent（当前无使用路径）、文件集级并行写、跨机器/跨提交趋势对比。
