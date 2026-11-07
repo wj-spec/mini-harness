@@ -38,7 +38,7 @@
 - backend `plan list` / TUI `/plan list` 列出最近计划版本；
 - backend `plan step` / TUI `/plan step <id>` / 覆盖层 `s` 展示单步定义与 execution evidence；
 - backend `plan diff` / TUI `/plan diff <a> <b>` 比较版本差异；
-- backend `plan edit-step` / TUI `/plan edit-step <id> <title>` 生成步骤标题修订版本。
+- backend `plan edit-step` / TUI `/plan edit-step <id> <title>` 生成步骤标题修订版本；协议也支持仅改 `kind`（read/edit/run/verify）。
 - 通过 `plan.review` capability 语义（当前 stdio 本地用户命令视为 user 决定）。
 
 ## 执行门禁

@@ -536,13 +536,17 @@ class _Connection:
             elif action == "edit-step":
                 from app.runtime.plan import revise_plan
                 step_id = str((args or {}).get("step_id", "")).strip()
-                title = str((args or {}).get("title", "")).strip()
+                title = (args or {}).get("title")
+                kind = (args or {}).get("kind")
                 steps = plan.to_dict().get("steps", [])
                 if not any(str(item.get("step_id")) == step_id for item in steps):
                     return f"计划中没有步骤 {step_id}"
                 for item in steps:
                     if str(item.get("step_id")) == step_id:
-                        item["title"] = title
+                        if isinstance(title, str) and title.strip():
+                            item["title"] = title.strip()
+                        if isinstance(kind, str) and kind:
+                            item["kind"] = kind
                 try:
                     plan = revise_plan(path.parent.parent, plan, steps=steps, requester="user")
                 except (PlanError, ValueError) as exc:
@@ -1591,7 +1595,7 @@ class _Connection:
                     if not isinstance(args, dict):
                         raise ValueError("command args must be an object")
                     if request["command"] == "plan":
-                        if set(args) - {"action", "objective", "step_id", "title", "version_a", "version_b"} or args.get("action", "show") not in {"show", "list", "step", "edit-step", "diff", "acceptance", "approve", "reject", "revise", "prepare-background"}:
+                        if set(args) - {"action", "objective", "step_id", "title", "kind", "version_a", "version_b"} or args.get("action", "show") not in {"show", "list", "step", "edit-step", "diff", "acceptance", "approve", "reject", "revise", "prepare-background"}:
                             raise ValueError("plan args allowed: action=show|list|step|edit-step|diff|acceptance|approve|reject|revise|prepare-background")
                         if args.get("action") == "revise" and (not isinstance(args.get("objective"), str) or not args["objective"].strip()):
                             raise ValueError("plan revise requires a nonempty objective")
@@ -1600,8 +1604,14 @@ class _Connection:
                         if args.get("action") == "edit-step":
                             if not isinstance(args.get("step_id"), str) or not args["step_id"].strip():
                                 raise ValueError("plan edit-step requires a nonempty step_id")
-                            if not isinstance(args.get("title"), str) or not args["title"].strip():
-                                raise ValueError("plan edit-step requires a nonempty title")
+                            has_title = args.get("title") is not None
+                            has_kind = args.get("kind") is not None
+                            if has_title and (not isinstance(args.get("title"), str) or not args["title"].strip()):
+                                raise ValueError("plan edit-step title must be a nonempty string")
+                            if has_kind and args.get("kind") not in {"read", "edit", "run", "verify"}:
+                                raise ValueError("plan edit-step kind must be read|edit|run|verify")
+                            if not has_title and not has_kind:
+                                raise ValueError("plan edit-step requires title and/or kind")
                         if args.get("action") == "diff":
                             for key in ("version_a", "version_b"):
                                 if not isinstance(args.get(key), int) or isinstance(args.get(key), bool) or args[key] < 1:
