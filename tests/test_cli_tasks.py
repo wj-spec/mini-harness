@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import socket
 from datetime import datetime, timezone
 
@@ -75,9 +76,26 @@ def test_tasks_json_output(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr("sys.argv", ["vibe", "--tasks", "--tasks-json"])
     entrypoint.main()
     payload = json.loads(capsys.readouterr().out)
+    assert payload["skipped_task_dirs"] == 0
     rows = {item["task_id"]: item for item in payload["tasks"]}
     assert rows[plan_task.task_id]["plan_id"] == "pl-cli"
     assert rows[plan_task.task_id]["mode"] == "act"
     assert rows[plan_task.task_id]["pending_approvals"] == 1
     assert rows[plan_task.task_id]["priority"] == 4
     assert rows[_task.task_id]["pending_approvals"] == 0
+
+
+def test_tasks_reports_corrupt_task_dirs(tmp_path, monkeypatch, capsys):
+    _seed(tmp_path)
+    session_root = max((tmp_path / ".vibe" / "sessions").iterdir(),
+                       key=lambda path: path.stat().st_mtime)
+    corrupt = session_root / "tasks" / "t-20261107-000000-badbad"
+    corrupt.mkdir(parents=True)
+    (corrupt / "meta.json").write_text("{bad json", encoding="utf-8")
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path))
+    monkeypatch.setattr("sys.argv", ["vibe", "--tasks", "--tasks-json", "--workspace", str(tmp_path)])
+    entrypoint.main()
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["skipped_task_dirs"] == 1
+    assert "skipped 1 corrupt task directories" in captured.err

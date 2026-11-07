@@ -7,14 +7,14 @@
 
 | 检查 | 结果 |
 |---|---|
-| Python 全量 | **1541 passed / 13 skipped** |
+| Python 全量 | **1542 passed / 13 skipped** |
 | TUI | **396 passed / 1 failed**（397 收集）；失败为环境 pty smoke（`out of pty devices`）；含 9 个真实 Python 后端跨层集成用例；计划覆盖层新增 `d` 版本比较、`t` 步骤标题编辑 |
 | 长任务 fake 场景 | **14/14 PASS**（`scripts/bench_long.py --runs 1`；含 2 个 5xx 注入、1 个 fake 时钟、2 个多段场景；另有 `--real` 真 provider 入口） |
 | 07 attach 人工验收 | TC-01–09 通过（[记录](manual-acceptance-07-results.md)） |
 | Plan/SubAgent 人工验收清单 | TC-16-01–08 已编写；自动化/真实模型部分已记录（[清单](manual-acceptance-16-plan-subagent.md)、[结果](manual-acceptance-16-results.md)），真实 TUI 键路待；新增 [TUI 终端快速验收清单](manual-acceptance-tui-quick.md) 便于终端一次走完 |
 | 真实模型 Plan P1 冒烟 | deepseek-flash：只读任务 done、单步+验收 acceptance=true、两步计划+验收 acceptance=true、deepseek-flash/chat 多步+验收与审批帧样本通过；脚本步骤门禁/重试修复后连续 5/5 ok（审批均 1 次）；/explore ok；真实后台 goal worker、后台 Plan worker、edit 步骤（文件范围+审批+验收）通过；验收失败自动修复（--repair）连续 2/2；真实 TUI 人工键路待（[记录](real-p1-plan-smoke-2026-11-07.md)） |
 | 文档链接 | 78 个 specs/long-horizon 文档，**0 失效** |
-| 本地自检（2026-11-07） | `--doctor` exit 0（含 key）；`--bench-history` 11 次无回归；`--cleanup-bench --log-dry-run` 11 candidates；`--trace-summary --trace-all-sessions` 28 会话/457 LLM calls |
+| 本地自检（2026-11-07） | `--doctor` exit 0（含 key）；`--bench-history` 11 次无回归；`--cleanup-bench --log-dry-run` 11 candidates；`--trace-summary --trace-all-sessions` 28 会话/457 LLM calls/失败工具分布 |
 
 ## 2. 16 块 P0 状态
 

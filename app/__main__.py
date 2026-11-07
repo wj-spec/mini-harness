@@ -1197,7 +1197,12 @@ def main() -> None:
             print(f"no tasks under {config.workspace}")
             return
         session_root = max(candidates, key=lambda path: (path.stat().st_mtime, path.name))
-        snapshots = WorkerSupervisor(session_root).snapshot()
+        supervisor = WorkerSupervisor(session_root)
+        snapshots = supervisor.snapshot()
+        skipped = int(getattr(supervisor.store, "last_list_skipped", 0) or 0)
+        if skipped:
+            print(f"warning: skipped {skipped} corrupt task directories under {session_root}",
+                  file=sys.stderr)
         if not snapshots:
             print(f"no tasks under {session_root}")
             return
@@ -1228,7 +1233,8 @@ def main() -> None:
                     "pending_approvals": pending_counts.get(task.task_id, 0),
                     "objective": task.objective,
                 })
-            print(json.dumps({"session": session_root.name, "tasks": rows}, ensure_ascii=False, indent=2))
+            print(json.dumps({"session": session_root.name, "tasks": rows,
+                              "skipped_task_dirs": skipped}, ensure_ascii=False, indent=2))
             return
         print("TASK_ID\tKIND\tMODE\tSTATUS\tSEGMENTS\tWORKER\tPID\tHEARTBEAT\tSTALE\tAPPROVALS\tPRIORITY\tPLAN\tPARENT\tOBJECTIVE")
         for snapshot in snapshots:
