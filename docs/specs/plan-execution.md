@@ -95,4 +95,5 @@ read/file_change 证据的步骤；缺少证据的错误提示也会提示传 `e
 - 执行前用 `find_plan` + `can_execute` 复核计划仍可执行（plan 被删/修订/过期时标记 `skipped_plan_unavailable` 并停止）；
 - `--queue-dry-run` 只读输出队列与 `plan_executable`，便于预演；
 - `--queue-all-sessions` 跨工作区内所有会话收集 created 计划 task（同一 workspace 锁自然串行），
-  排序 `(created_at, session, task_id)`，输出含 `sessions` 列表。
+  排序 `(created_at, workspace, session, task_id)`，输出含 `workspaces/sessions` 列表；
+- `--queue-workspace PATH`（可重复）跨多个工作区串行调度，worker 在各自工作区执行；与 `--session` 互斥。

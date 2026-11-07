@@ -122,6 +122,7 @@ def main() -> None:
     parser.add_argument("--queue-task-timeout", type=float, default=None, help="--run-plan-queue 单个 worker 超时秒数（默认 1800）")
     parser.add_argument("--queue-dry-run", action="store_true", help="与 --run-plan-queue 搭配：只报告队列与计划可执行性，不启动 worker")
     parser.add_argument("--queue-all-sessions", action="store_true", help="与 --run-plan-queue 搭配：跨会话收集 created 计划 task 并串行执行")
+    parser.add_argument("--queue-workspace", action="append", default=None, metavar="PATH", help="与 --run-plan-queue 搭配：指定工作区（可重复；默认当前 --workspace）")
     parser.add_argument("--prune-worktrees", action="store_true", help="只读报告 stale/孤立的 worktree")
     parser.add_argument("--prune-apply", action="store_true", help="与 --prune-worktrees 搭配：把目录缺失的 worktree 标记 removed 并删分支")
     parser.add_argument("--worker", action="store_true", help="后台 worker：执行一个 task segment 并暴露 attach socket")
@@ -292,6 +293,8 @@ def main() -> None:
         parser.error("--queue-dry-run requires --run-plan-queue")
     if args.queue_all_sessions and not args.run_plan_queue:
         parser.error("--queue-all-sessions requires --run-plan-queue")
+    if args.queue_workspace and not args.run_plan_queue:
+        parser.error("--queue-workspace requires --run-plan-queue")
     if args.prepare_plan_task or args.run_plan_queue:
         if args.continue_session:
             parser.error("--prepare-plan-task/--run-plan-queue cannot use --continue")
@@ -305,6 +308,8 @@ def main() -> None:
                 parser.error("--run-plan-queue requires --session or --queue-all-sessions")
             if args.session is not None and args.queue_all_sessions:
                 parser.error("--run-plan-queue cannot combine --session with --queue-all-sessions")
+            if args.session is not None and args.queue_workspace:
+                parser.error("--run-plan-queue cannot combine --session with --queue-workspace")
         if (
             args.stdio or args.eval or args.eval_limit is not None or args.eval_tasks is not None
             or args.list_sessions or args.task is not None or args.bench or args.tasks
@@ -315,7 +320,7 @@ def main() -> None:
             or (args.prepare_plan_task and args.run_plan_queue)
         ):
             parser.error("--prepare-plan-task/--run-plan-queue cannot be combined with other modes")
-        if args.workspace is None:
+        if args.workspace is None and not args.queue_workspace:
             parser.error("--prepare-plan-task/--run-plan-queue require --workspace")
     if args.prune_apply and not args.prune_worktrees:
         parser.error("--prune-apply requires --prune-worktrees")
@@ -745,9 +750,9 @@ def main() -> None:
 
         purpose = "test" if args.test_session or args.fake or config.provider == "fake" else "user"
 
-        def open_sessions():
+        def open_sessions(workspace: Path) -> list[SessionStore]:
             if args.queue_all_sessions:
-                root = Path(config.workspace) / ".vibe" / "sessions"
+                root = workspace / ".vibe" / "sessions"
                 sessions = []
                 if root.is_dir():
                     for candidate in sorted(root.iterdir()):
@@ -757,14 +762,15 @@ def main() -> None:
                         if session.purpose == purpose and (candidate / "tasks").is_dir():
                             sessions.append(session)
                 return sessions
-            session = SessionStore.open_existing(config.workspace, args.session, purpose=purpose)
+            session = SessionStore.open_existing(workspace, args.session, purpose=purpose)
             if session is None:
-                print(f"no session {args.session} under {config.workspace}", file=sys.stderr)
+                print(f"no session {args.session} under {workspace}", file=sys.stderr)
                 raise SystemExit(2)
             return [session]
 
         if args.prepare_plan_task:
-            sessions = open_sessions()
+            workspace = Path(args.workspace or config.workspace).expanduser().resolve()
+            sessions = open_sessions(workspace)
             session = sessions[0]
             store = TaskStore(session.root)
             plans = executable_plans(session.root)
@@ -774,7 +780,7 @@ def main() -> None:
             plan_path, plan = plans[0]
             try:
                 task = store.create(
-                    kind="run", objective=plan.objective, workspace=str(config.workspace),
+                    kind="run", objective=plan.objective, workspace=str(workspace),
                     mode="act", plan_id=plan.plan_id, plan_version=plan.version,
                     session_id=session.id,
                 )
@@ -782,20 +788,25 @@ def main() -> None:
                 print(f"prepare plan task failed: {exc}", file=sys.stderr)
                 raise SystemExit(2)
             print(json.dumps({
-                "session": session.id, "task_id": task.task_id,
+                "workspace": str(workspace), "session": session.id, "task_id": task.task_id,
                 "plan_id": plan.plan_id, "plan_version": plan.version,
                 "objective": plan.objective, "plan_path": str(plan_path),
             }, ensure_ascii=False, indent=2))
             return
 
-        sessions = open_sessions()
+        workspaces = [Path(item).expanduser().resolve() for item in (args.queue_workspace or [])]
+        if not workspaces:
+            workspaces = [Path(config.workspace).expanduser().resolve()]
         entries = []
-        for session in sessions:
-            store = TaskStore(session.root)
-            for task in store.list():
-                if task.status == "created" and task.plan_id:
-                    entries.append((session, store, task))
-        entries.sort(key=lambda item: (item[2].created_at, item[0].id, item[2].task_id))
+        session_ids: list[str] = []
+        for workspace in workspaces:
+            for session in open_sessions(workspace):
+                session_ids.append(session.id)
+                store = TaskStore(session.root)
+                for task in store.list():
+                    if task.status == "created" and task.plan_id:
+                        entries.append((workspace, session, store, task))
+        entries.sort(key=lambda item: (item[3].created_at, item[0].as_posix(), item[1].id, item[3].task_id))
 
         def plan_executable(session, task) -> bool:
             if not task.plan_id:
@@ -806,18 +817,22 @@ def main() -> None:
                 return False
             return bool(found) and can_execute(found[1])
 
-        session_ids = [session.id for session in sessions]
+        workspace_names = [str(workspace) for workspace in workspaces]
         if args.queue_dry_run:
             rows = [
-                {"session": session.id, "task_id": task.task_id, "plan_id": task.plan_id,
+                {"workspace": str(workspace), "session": session.id,
+                 "task_id": task.task_id, "plan_id": task.plan_id,
                  "plan_version": task.plan_version,
                  "plan_executable": plan_executable(session, task),
                  "objective": task.objective[:200]}
-                for session, _store, task in entries
+                for workspace, session, _store, task in entries
             ]
-            payload = {"dry_run": True, "queue": rows, "count": len(rows), "sessions": session_ids}
-            if len(sessions) == 1:
-                payload["session"] = sessions[0].id
+            payload = {"dry_run": True, "queue": rows, "count": len(rows),
+                       "workspaces": workspace_names, "sessions": session_ids}
+            if len(workspaces) == 1:
+                payload["workspace"] = workspace_names[0]
+            if len(session_ids) == 1:
+                payload["session"] = session_ids[0]
             print(json.dumps(payload, ensure_ascii=False, indent=2))
             return
         try:
@@ -828,15 +843,16 @@ def main() -> None:
         repo_root = str(Path(__file__).resolve().parents[1])
         ran: list[dict] = []
         stopped_early: str | None = None
-        for session, store, task in entries:
+        for workspace, session, store, task in entries:
             if not plan_executable(session, task):
-                ran.append({"session": session.id, "task_id": task.task_id,
-                            "plan_id": task.plan_id, "plan_version": task.plan_version,
-                            "exit_code": None, "status": "skipped_plan_unavailable", "stderr": ""})
+                ran.append({"workspace": str(workspace), "session": session.id,
+                            "task_id": task.task_id, "plan_id": task.plan_id,
+                            "plan_version": task.plan_version, "exit_code": None,
+                            "status": "skipped_plan_unavailable", "stderr": ""})
                 stopped_early = "plan_unavailable"
                 break
             command = [sys.executable, "-m", "app", "--worker",
-                       "--workspace", str(config.workspace), "--session", session.id,
+                       "--workspace", str(workspace), "--session", session.id,
                        "--task-id", task.task_id]
             if args.fake or config.provider == "fake":
                 command.append("--fake")
@@ -852,17 +868,21 @@ def main() -> None:
                 status = store.get(task.task_id).status
             except Exception:
                 status = "unknown"
-            ran.append({"session": session.id, "task_id": task.task_id,
-                        "plan_id": task.plan_id, "plan_version": task.plan_version,
+            ran.append({"workspace": str(workspace), "session": session.id,
+                        "task_id": task.task_id, "plan_id": task.plan_id,
+                        "plan_version": task.plan_version,
                         "exit_code": exit_code, "status": status, "stderr": stderr})
             if status != "completed":
                 stopped_early = status
                 break
         payload = {"ran": ran,
                    "completed": sum(1 for item in ran if item["status"] == "completed"),
-                   "stopped_early": stopped_early, "sessions": session_ids}
-        if len(sessions) == 1:
-            payload["session"] = sessions[0].id
+                   "stopped_early": stopped_early,
+                   "workspaces": workspace_names, "sessions": session_ids}
+        if len(workspaces) == 1:
+            payload["workspace"] = workspace_names[0]
+        if len(session_ids) == 1:
+            payload["session"] = session_ids[0]
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         if stopped_early is not None:
             raise SystemExit(1)
