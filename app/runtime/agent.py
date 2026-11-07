@@ -192,6 +192,7 @@ class _RunContext:
     artifact_progress: ArtifactProgress | None = None
     task_kind: str = ""
     progress_stop: str = ""
+    gate_hits: int = 0
     correction_instruction: str = ""
     pending_steering: deque[str] = field(default_factory=deque)
     denied_requests: set[tuple[str, str]] = field(default_factory=set)
@@ -1296,6 +1297,7 @@ class Agent:
             before_metadata = None
             gate_reason = self.tool_gate(call) if self.tool_gate is not None else None
             if gate_reason:
+                run.gate_hits += 1
                 ok, output = False, f"ERROR tool_gate: {gate_reason}"
             elif duplicate:
                 ok, output = False, (
@@ -1402,6 +1404,8 @@ class Agent:
                 "tool", str(output), name=call.name, tool_call_id=call.id, execution=execution,
             )
             self._record_message(run, tool_message)
+            if run.gate_hits >= 2:
+                return self._finish(run, "done", step, "done")
             if run.cancel is not None and run.cancel.is_set():
                 return self._cancel_pending(run, step, calls[call_index + 1:])
             progress_decision = run.progress.observe(call, ok, output)

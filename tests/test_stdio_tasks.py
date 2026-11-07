@@ -928,3 +928,42 @@ def test_plan_completion_blocks_later_tools(tmp_path, monkeypatch):
         await harness.close()
 
     asyncio.run(scenario())
+
+
+def test_plan_completion_force_finishes_after_repeated_gate(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    monkeypatch.setenv("VIBE_AUTONOMY", "full")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    (tmp_path / "README.md").write_text("hello\n", encoding="utf-8")
+    plan_task = "t-20261106-000000-abcdef"
+    plan_dir = session.root / "tasks" / plan_task
+    from app.runtime.plan import Plan, approve_plan, propose_plan
+    plan = Plan.from_dict({"schema_version": 1, "plan_id": "pl-force", "task_id": plan_task,
+                           "objective": "force", "steps": [{"step_id": "s1", "title": "读"}]})
+    propose_plan(plan_dir, plan)
+    approve_plan(plan_dir, plan, approved_by="user")
+    from core.contracts import Response, ToolCall
+    agent = Agent(FakeProvider([
+        Response(tool_calls=[ToolCall("start_plan_step", {"step_id": "s1"}, id="t1")]),
+        Response(tool_calls=[ToolCall("read_file", {"path": "README.md"}, id="t2")]),
+        Response(tool_calls=[ToolCall("complete_plan_step", {"step_id": "s1"}, id="t3")]),
+        Response(tool_calls=[ToolCall("read_file", {"path": "README.md"}, id="t4")]),
+        Response(tool_calls=[ToolCall("read_file", {"path": "README.md"}, id="t5")]),
+        "不应到达",
+    ]), ToolRegistry(tmp_path), approval=ApprovalGate())
+
+    async def scenario():
+        harness = Harness(agent, Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("run", "r-force", text="执行", task={
+            "kind": "run", "mode": "act", "objective": "执行",
+            "plan_id": "pl-force", "plan_version": 1,
+        })
+        done = await harness.until("done", "r-force")
+        assert done["result"]["status"] == "done"
+        outputs = [event.get("output", "") for event in harness.events if event["type"] == "tool_result"]
+        gate_errors = [output for output in outputs if "tool_gate" in output]
+        assert len(gate_errors) == 2
+        await harness.close()
+
+    asyncio.run(scenario())

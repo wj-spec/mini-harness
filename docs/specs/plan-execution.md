@@ -30,6 +30,7 @@
 - 步骤工具：`complete_plan_step` 接受模型额外 evidence/evidence_refs 参数（忽略），
   证据不足返回带操作提示的错误；
 - 全部步骤完成后 harness 设置 tool_gate，拒绝后续非计划工具并提示停止；
+  连续 2 次 gate 命中后 Agent 直接以 done 收尾，避免模型无限探索；
 - 计划级完成门：绑定 plan 的 run 返回 done 时，若 required 步骤仍有未 done，
   改写为 `stopped/plan_incomplete`，任务转 paused，等待继续执行/重规划；
   步骤完成后若 Plan 有 confirmed criteria，再执行可信验收命令，未通过则
