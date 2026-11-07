@@ -323,6 +323,7 @@ def test_doctor_json_output(tmp_path):
     payload = json.loads(out.getvalue())
     assert code == 2 and payload["ok"] is False
     assert payload["workspace"] == str(workspace)
+    assert payload["version"] and payload["agent_version"]
     assert any("API Key" in item for item in payload["failures"])
     statuses = {item["label"]: item["status"] for item in payload["checks"]}
     assert statuses["没有待审批动作"] == "ok"

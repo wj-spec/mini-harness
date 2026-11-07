@@ -631,6 +631,29 @@ def render_report(workspace: Path, checks: Sequence[Check]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def build_info(repo_root: Path) -> dict:
+    """构建信息（version / git short SHA）；读取失败时降级为 unknown。"""
+    version = "unknown"
+    try:
+        import tomllib
+
+        with (repo_root / "pyproject.toml").open("rb") as handle:
+            version = str(tomllib.load(handle).get("project", {}).get("version") or version)
+    except Exception:
+        pass
+    agent_version = "unknown"
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(repo_root), "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if out.returncode == 0 and out.stdout.strip():
+            agent_version = out.stdout.strip()
+    except Exception:
+        pass
+    return {"version": version, "agent_version": agent_version}
+
+
 def main(argv: Sequence[str] | None = None, **probe_kwargs) -> int:
     """解析参数、打印清单、返回退出码；probe_kwargs 透传给 collect_checks（供测试注入）。"""
     parser = argparse.ArgumentParser(prog="doctor.py", description="检查启动 Ink 工作台所需的环境。")
@@ -645,6 +668,7 @@ def main(argv: Sequence[str] | None = None, **probe_kwargs) -> int:
     if args.json:
         payload = {
             "workspace": str(workspace),
+            **build_info(root),
             "ok": exit_code(checks) == 0,
             "failures": [check.label for check in checks if check.status == FAIL],
             "warnings": [check.label for check in checks if check.status == WARN],
