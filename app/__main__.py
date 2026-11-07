@@ -89,6 +89,7 @@ def build_provider(config: Config, fake: bool, debug_path=None):
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="vibe")
+    parser.add_argument("--version", action="store_true", help="输出版本与构建信息（JSON）")
     parser.add_argument("--fake", action="store_true", help="不联网，用脚本 provider")
     parser.add_argument("--test-session", action="store_true", help="使用隔离的测试会话范围；fake 模式自动启用")
     parser.add_argument("--stdio", action="store_true", help="供 Ink 使用的 JSONL 后端")
@@ -486,6 +487,18 @@ def main() -> None:
             or args.set_task_priority is not None or args.explore is not None
         ):
             parser.error("--plan-card cannot be combined with other modes")
+    if args.version and (
+        args.stdio or args.eval or args.eval_limit is not None or args.eval_tasks is not None
+        or args.list_sessions or args.task is not None or args.bench or args.tasks
+        or args.notifications or args.plans or args.acceptance or args.approvals
+        or args.redteam or args.prune_worktrees or args.worker or args.attach
+        or args.stop or args.stop_task is not None or args.pause_task is not None
+        or args.merge_task is not None or args.cleanup_logs or args.decide_approval is not None
+        or args.evidence or args.trace_summary or args.prepare_plan_task or args.run_plan_queue
+        or args.bench_history or args.approve_unattended_profile or args.cleanup_bench
+        or args.set_task_priority is not None or args.explore is not None or args.plan_card
+    ):
+        parser.error("--version cannot be combined with other modes")
     if args.prune_apply and not args.prune_worktrees:
         parser.error("--prune-apply requires --prune-worktrees")
     if args.prune_worktrees:
@@ -512,13 +525,41 @@ def main() -> None:
         parser.error("--bench requires --task")
     if args.telemetry_out and args.task is None:
         parser.error("--telemetry-out requires --task")
-    if not args.stdio and not args.eval and not args.list_sessions and not args.tasks and not args.notifications and not args.plans and not args.acceptance and not args.approvals and not args.redteam and not args.approve_unattended_profile and not args.prune_worktrees and not args.evidence and not args.trace_summary and not args.bench_history and not args.prepare_plan_task and not args.run_plan_queue and not args.worker and not args.attach and args.merge_task is None and not args.stop and args.pause_task is None and not args.cleanup_logs and not args.cleanup_bench and args.task is None and args.decide_approval is None and args.set_task_priority is None and args.explore is None and not args.plan_card:
+    if not args.stdio and not args.eval and not args.list_sessions and not args.tasks and not args.notifications and not args.plans and not args.acceptance and not args.approvals and not args.redteam and not args.approve_unattended_profile and not args.prune_worktrees and not args.evidence and not args.trace_summary and not args.bench_history and not args.prepare_plan_task and not args.run_plan_queue and not args.worker and not args.attach and args.merge_task is None and not args.stop and args.pause_task is None and not args.cleanup_logs and not args.cleanup_bench and args.task is None and args.decide_approval is None and args.set_task_priority is None and args.explore is None and not args.plan_card and not args.version:
         print(
             "Textual 入口已退役。交互界面请运行 ./run_ink.sh（例如 ./run_ink.sh --fake）；"
             "后端与 eval 分别使用 --stdio / --eval。",
             file=sys.stderr,
         )
         raise SystemExit(2)
+    if args.version:
+        import platform
+        import subprocess
+
+        version = "0.1.0"
+        try:
+            import tomllib
+            with (Path(__file__).resolve().parents[1] / "pyproject.toml").open("rb") as handle:
+                version = str(tomllib.load(handle).get("project", {}).get("version") or version)
+        except Exception:
+            pass
+        agent_version = "unknown"
+        try:
+            out = subprocess.run(["git", "-C", str(Path(__file__).resolve().parents[1]),
+                                  "rev-parse", "--short", "HEAD"],
+                                 capture_output=True, text=True, timeout=5)
+            if out.returncode == 0 and out.stdout.strip():
+                agent_version = out.stdout.strip()
+        except Exception:
+            pass
+        print(json.dumps({
+            "version": version,
+            "python": platform.python_version(),
+            "agent_version": agent_version,
+            "platform": platform.system().lower(),
+        }, ensure_ascii=False, indent=2))
+        return
+
     config = Config.from_env()
     if args.provider:
         config.provider = args.provider
