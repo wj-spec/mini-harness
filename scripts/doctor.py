@@ -577,6 +577,38 @@ def check_bench_storage(workspace: Path) -> Check:
     return Check(OK, f"benchmark 运行目录 {len(run_dirs)} 个（{size_mb:.1f} MiB）")
 
 
+def _project_version(path: Path) -> str | None:
+    try:
+        import tomllib
+
+        with path.open("rb") as handle:
+            return str(tomllib.load(handle).get("project", {}).get("version") or "") or None
+    except Exception:
+        return None
+
+
+def _package_version(path: Path) -> str | None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    version = payload.get("version")
+    return str(version) if version else None
+
+
+def check_version_consistency(repo_root: Path) -> Check:
+    pyproject = repo_root / "pyproject.toml"
+    package = repo_root / "tui" / "package.json"
+    python_version = _project_version(pyproject) if pyproject.is_file() else None
+    tui_version = _package_version(package) if package.is_file() else None
+    if python_version is None or tui_version is None:
+        return Check(OK, "版本文件不完整，跳过 Python/TUI 版本一致性检查")
+    if python_version != tui_version:
+        return Check(FAIL, f"Python 版本 {python_version} 与 TUI 版本 {tui_version} 不一致",
+                     "同步 pyproject.toml 与 tui/package.json 的 version")
+    return Check(OK, f"Python/TUI 版本一致：{python_version}")
+
+
 def collect_checks(
     *,
     repo_root: Path | None = None,
@@ -624,6 +656,7 @@ def collect_checks(
         check_bench_history(target),
         check_bench_storage(target),
         check_real_suite(target),
+        check_version_consistency(root),
     ]
 
 

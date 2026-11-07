@@ -467,3 +467,16 @@ def test_doctor_warns_when_bench_runs_accumulate(tmp_path):
     assert code == 0, output
     assert "! benchmark 运行目录 55 个" in output
     assert "--cleanup-bench" in output
+
+
+def test_version_consistency_check(tmp_path):
+    doctor = _doctor_module()
+    repo_root = Path(__file__).resolve().parents[1]
+    assert doctor.check_version_consistency(repo_root).status == "ok"
+    (tmp_path / "tui").mkdir()
+    (tmp_path / "pyproject.toml").write_text('[project]\nversion = "0.2.0"\n', encoding="utf-8")
+    (tmp_path / "tui" / "package.json").write_text('{"version": "0.1.0"}', encoding="utf-8")
+    mismatch = doctor.check_version_consistency(tmp_path)
+    assert mismatch.status == "fail"
+    (tmp_path / "tui" / "package.json").write_text('{"version": "0.2.0"}', encoding="utf-8")
+    assert doctor.check_version_consistency(tmp_path).status == "ok"
