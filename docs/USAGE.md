@@ -739,9 +739,12 @@ VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --repair
 VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --merge
 # 一次跑完 foreground/background/queue/goal/repair/merge 六种真实链路
 VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --suite
+# 稳定性样本：连续跑两轮 suite（每轮独立 git 工作区），汇总 passed_runs
+VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --suite --suite-runs 2
 ```
 
-- 自动创建一次性 git 工作区（`--workspace` 可指定）；
+- 自动创建一次性 git 工作区（`--workspace` 可指定）；`--suite-runs 1-5` 重复跑 suite 并汇总每轮结果；
+- 计划生成若某次模型未调用 `submit_plan` 会自动重试一次；
 - 真实模型生成两步只读计划 → 批准 → 执行；
 - 自动回送 `approval` 帧模拟 TUI 审批；
 - 校验 s1/s2 done、`acceptance.v1.json=true`；

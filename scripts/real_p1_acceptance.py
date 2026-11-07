@@ -600,12 +600,21 @@ def main(argv: list[str] | None = None) -> int:
                         help="--merge 模式的验收命令（同时用于合并后重验）")
     parser.add_argument("--suite", action="store_true",
                         help="依次跑 foreground/background/queue/goal/repair/merge 六种真实模型验收")
+    parser.add_argument("--suite-runs", type=int, default=1, metavar="N",
+                        help="与 --suite 搭配：重复次数（1-5，默认 1；用于稳定性样本）")
     parser.add_argument("--verify-command", default="true",
                         help="计划验收命令（默认 true；需为可信 source=plan_approval）")
     parser.add_argument("--keep", action="store_true", help="保留临时工作区")
     parser.add_argument("--discard-on-failure", action="store_true",
                         help="失败时也删除临时工作区（默认保留便于诊断）")
     args = parser.parse_args(argv)
+    if args.suite_runs != 1 and not args.suite:
+        print(json.dumps({"ok": False, "error": "--suite-runs requires --suite"}, ensure_ascii=False))
+        return 2
+    if args.suite_runs < 1 or args.suite_runs > 5:
+        print(json.dumps({"ok": False, "error": "--suite-runs must be between 1 and 5"},
+                         ensure_ascii=False))
+        return 2
     config = Config.from_env()
     if not config.api_key:
         print(json.dumps({"ok": False, "error": "missing API key"}, ensure_ascii=False))
@@ -620,6 +629,24 @@ def main(argv: list[str] | None = None) -> int:
             result = asyncio.run(_run_repair(config, workspace, args.repair_verify_command))
         elif args.merge:
             result = asyncio.run(_run_merge(config, workspace, args.merge_verify_command))
+        elif args.suite and args.suite_runs > 1:
+            runs = []
+            for index in range(args.suite_runs):
+                run_workspace = workspace / f"run-{index + 1}"
+                _init_repo(run_workspace)
+                config.workspace = run_workspace
+                run_result = asyncio.run(_run_suite(config, run_workspace, args.verify_command))
+                modes = {name: bool(mode.get("ok")) for name, mode in (run_result.get("modes") or {}).items()}
+                runs.append({"run": index + 1, "ok": bool(run_result.get("ok")),
+                             "modes": modes,
+                             "workspace": str(run_workspace)})
+            result = {
+                "ok": all(item["ok"] for item in runs),
+                "suite_runs": len(runs),
+                "passed_runs": sum(1 for item in runs if item["ok"]),
+                "runs": runs,
+            }
+            config.workspace = workspace
         elif args.suite:
             result = asyncio.run(_run_suite(config, workspace, args.verify_command))
         else:

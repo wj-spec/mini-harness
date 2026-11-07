@@ -360,6 +360,12 @@ deepseek-flash 一次 suite 结果（2026-11-07）：
 
 聚合 `ok=true`。单模式异常不阻断后续；任一失败最终 exit 1。
 
+稳定性样本：`--suite-runs N`（1-5）可连续跑 N 轮 suite（每轮独立 git 工作区），
+输出 `runs`/`passed_runs`/`ok`，用于扩大真实模型样本。
+
+稳定性实测（2026-11-07，deepseek-flash）：`--suite --suite-runs 2` → **passed_runs=2**、
+两轮各 6/6（合计 12/12 阶段），未出现跨轮状态污染。
+
 跨模型重复（2026-11-07）：suite 扩展为六种模式后，deepseek-flash 与 deepseek-chat 各跑一次，**均 6/6 通过**（新增 `goal` 完成验收模式）。
 
 复跑（2026-11-07，queue/priority/trace/profile 审批门等改动合入后）：deepseek-flash 与 deepseek-chat 再次各跑一次，**均 6/6 通过**；同轮 Python 1526/13、TUI 396/397、长任务 fake 14/14。

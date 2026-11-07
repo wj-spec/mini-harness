@@ -96,3 +96,30 @@ def test_generate_plan_retries_when_first_run_writes_no_plan(tmp_path, monkeypat
     assert task_id == "t-fake-2"
     assert plan is not None and plan["plan_id"] == "pl-fake"
     assert len(sent) == 2
+
+
+def test_real_p1_script_supports_repeated_suite_runs(tmp_path, monkeypatch, capsys):
+    calls = []
+
+    async def fake_suite(config, workspace, verify_command="true"):
+        calls.append(str(workspace))
+        return {"ok": True, "modes": {"foreground": {"ok": True}, "repair": {"ok": True}}}
+
+    monkeypatch.setattr(real_p1_acceptance, "_run_suite", fake_suite)
+    monkeypatch.setattr(real_p1_acceptance, "_init_repo", lambda workspace: workspace.mkdir(parents=True))
+    monkeypatch.setattr(real_p1_acceptance.Config, "from_env",
+                        lambda: Config(workspace=tmp_path, api_key="sk-test"))
+    code = real_p1_acceptance.main(["--suite", "--suite-runs", "2", "--keep",
+                                    "--workspace", str(tmp_path / "ws")])
+    assert code == 0
+    assert len(calls) == 2 and calls[0] != calls[1]
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["suite_runs"] == 2 and payload["passed_runs"] == 2 and payload["ok"] is True
+
+
+def test_real_p1_script_rejects_suite_runs_bounds(monkeypatch, capsys):
+    monkeypatch.setattr(real_p1_acceptance.Config, "from_env", lambda: Config(workspace=None))
+    assert real_p1_acceptance.main(["--suite-runs", "2"]) == 2
+    assert "--suite-runs requires --suite" in capsys.readouterr().out
+    assert real_p1_acceptance.main(["--suite", "--suite-runs", "9"]) == 2
+    assert "--suite-runs must be between 1 and 5" in capsys.readouterr().out
