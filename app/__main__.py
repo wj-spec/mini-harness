@@ -118,6 +118,7 @@ def main() -> None:
     parser.add_argument("--evidence-json", action="store_true", help="--evidence 的 JSON 输出")
     parser.add_argument("--trace-summary", action="store_true", help="只读聚合指定会话 trace（LLM/tool/审批/停止原因）")
     parser.add_argument("--trace-json", action="store_true", help="--trace-summary 的 JSON 输出")
+    parser.add_argument("--trace-all-sessions", action="store_true", help="与 --trace-summary 搭配：汇总本工作区所有会话")
     parser.add_argument("--redteam", action="store_true", help="只读检查无人值守 profile 默认拒绝矩阵")
     parser.add_argument("--prepare-plan-task", action="store_true", help="把会话中最新可执行计划准备成待运行 task（不启动 worker）")
     parser.add_argument("--run-plan-queue", action="store_true", help="按创建顺序依次运行会话中已准备的计划 task")
@@ -278,8 +279,13 @@ def main() -> None:
             parser.error("--decide-approval cannot be combined with other modes")
     if args.trace_json and not args.trace_summary:
         parser.error("--trace-json requires --trace-summary")
+    if args.trace_all_sessions and not args.trace_summary:
+        parser.error("--trace-all-sessions requires --trace-summary")
     if args.trace_summary:
-        if args.session is None or args.continue_session:
+        if args.trace_all_sessions:
+            if args.session is not None or args.continue_session:
+                parser.error("--trace-all-sessions cannot combine with --session")
+        elif args.session is None or args.continue_session:
             parser.error("--trace-summary requires a concrete --session")
         if args.workspace is None:
             parser.error("--trace-summary requires --workspace")
@@ -983,9 +989,34 @@ def main() -> None:
         return
 
     if args.trace_summary:
-        from app.session.observability import render_trace_summary, summarize_trace
+        from app.session.observability import (
+            aggregate_trace_summaries, render_trace_summary,
+            render_trace_totals, summarize_trace,
+        )
 
         purpose = "test" if args.test_session or args.fake or config.provider == "fake" else "user"
+        if args.trace_all_sessions:
+            root = Path(config.workspace) / ".vibe" / "sessions"
+            candidates = []
+            if root.is_dir():
+                for candidate in sorted(root.iterdir()):
+                    if not candidate.is_dir() or candidate.is_symlink():
+                        continue
+                    session = SessionStore(candidate)
+                    if session.purpose == purpose:
+                        candidates.append(candidate)
+            candidates.sort(key=lambda path: path.stat().st_mtime, reverse=True)
+            summaries = []
+            for candidate in candidates:
+                summary = summarize_trace(candidate)
+                summaries.append({"session": candidate.name, **summary})
+            totals = aggregate_trace_summaries(summaries)
+            if args.trace_json:
+                print(json.dumps({"mode": "all_sessions", "sessions": summaries,
+                                  "totals": totals}, ensure_ascii=False, indent=2))
+                return
+            print(render_trace_totals(totals, summaries))
+            return
         session = SessionStore.open_existing(config.workspace, args.session, purpose=purpose)
         if session is None:
             print(f"no session {args.session} under {config.workspace}", file=sys.stderr)

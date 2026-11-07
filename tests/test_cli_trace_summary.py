@@ -81,3 +81,48 @@ def test_trace_summary_rejects_other_modes(monkeypatch, capsys):
         entrypoint.main()
     assert error.value.code == 2
     assert "--trace-summary cannot be combined" in capsys.readouterr().err
+
+
+def _seed_second(tmp_path):
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    session.append_trace({"type": "run_start", "ts": 1.0})
+    session.append_trace({"type": "llm_end", "ts": 2.0, "prompt_tokens": 4,
+                          "completion_tokens": 2, "cost_usd": 0.0005})
+    session.append_trace({"type": "run_end", "ts": 3.0, "status": "done", "stop_reason": ""})
+    return session
+
+
+def test_trace_all_sessions_cli_text(tmp_path, monkeypatch, capsys):
+    _seed(tmp_path)
+    _seed_second(tmp_path)
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path))
+    monkeypatch.setattr("sys.argv", ["vibe", "--trace-summary", "--trace-all-sessions",
+                                     "--workspace", str(tmp_path)])
+    entrypoint.main()
+    out = capsys.readouterr().out
+    assert "工作区 trace 汇总（2 个会话）" in out
+    assert "LLM：calls 2" in out
+    assert "最近会话" in out
+
+
+def test_trace_all_sessions_cli_json(tmp_path, monkeypatch, capsys):
+    _seed(tmp_path)
+    _seed_second(tmp_path)
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path))
+    monkeypatch.setattr("sys.argv", ["vibe", "--trace-summary", "--trace-all-sessions",
+                                     "--trace-json", "--workspace", str(tmp_path)])
+    entrypoint.main()
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["mode"] == "all_sessions"
+    assert len(payload["sessions"]) == 2
+    assert payload["totals"]["llm_calls"] == 2
+    assert payload["totals"]["total_tokens"] == 21
+
+
+def test_trace_all_sessions_rejects_session(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr("sys.argv", ["vibe", "--trace-summary", "--trace-all-sessions",
+                                     "--session", "s-1", "--workspace", str(tmp_path)])
+    with pytest.raises(SystemExit) as error:
+        entrypoint.main()
+    assert error.value.code == 2
+    assert "--trace-all-sessions cannot combine with --session" in capsys.readouterr().err

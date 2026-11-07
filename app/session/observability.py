@@ -134,3 +134,54 @@ def render_trace_summary(summary: dict[str, Any]) -> str:
     if window:
         lines.append(window)
     return "\n".join(lines)
+
+
+def aggregate_trace_summaries(summaries: list[dict[str, Any]]) -> dict[str, Any]:
+    """跨会话汇总：计数相加，保留最近会话列表（按传入顺序）。"""
+    totals = {
+        "sessions": len(summaries),
+        "events": 0, "malformed": 0, "runs": 0,
+        "llm_calls": 0, "llm_retries": 0, "llm_errors": 0,
+        "tool_calls": 0, "tool_failures": 0,
+        "approvals": 0, "denials": 0,
+        "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0,
+        "cost_usd": 0.0,
+    }
+    stop_reasons: dict[str, int] = {}
+    for summary in summaries:
+        for key in ("events", "malformed", "runs", "llm_calls", "llm_retries",
+                    "llm_errors", "tool_calls", "tool_failures", "approvals",
+                    "denials", "prompt_tokens", "completion_tokens", "total_tokens"):
+            totals[key] += int(summary.get(key) or 0)
+        totals["cost_usd"] += float(summary.get("cost_usd") or 0.0)
+        for reason, count in (summary.get("stop_reasons") or {}).items():
+            stop_reasons[str(reason)] = stop_reasons.get(str(reason), 0) + int(count)
+    totals["cost_usd"] = round(totals["cost_usd"], 6)
+    totals["stop_reasons"] = stop_reasons
+    return totals
+
+
+def render_trace_totals(totals: dict[str, Any], sessions: list[dict[str, Any]]) -> str:
+    lines = [
+        f"工作区 trace 汇总（{totals.get('sessions', 0)} 个会话）：",
+        f"- 事件：{totals.get('events', 0)}（损坏 {totals.get('malformed', 0)} 行）· runs {totals.get('runs', 0)}",
+        f"- LLM：calls {totals.get('llm_calls', 0)} · retries {totals.get('llm_retries', 0)} · "
+        f"errors {totals.get('llm_errors', 0)} · tokens {totals.get('total_tokens', 0):,} · "
+        f"cost ${float(totals.get('cost_usd') or 0.0):.6f}",
+        f"- tools：calls {totals.get('tool_calls', 0)} · failures {totals.get('tool_failures', 0)} · "
+        f"approvals {totals.get('approvals', 0)} · denied {totals.get('denials', 0)}",
+    ]
+    reasons = totals.get("stop_reasons") or {}
+    if reasons:
+        rendered = "、".join(f"{reason or '(none)'}={count}" for reason, count in sorted(reasons.items()))
+        lines.append(f"- 停止原因：{rendered}")
+    recent = sessions[-10:]
+    if recent:
+        lines.append("- 最近会话：")
+        for summary in recent:
+            lines.append(
+                f"  - {summary.get('session')}：events {summary.get('events', 0)} · "
+                f"runs {summary.get('runs', 0)} · tokens {summary.get('total_tokens', 0):,} · "
+                f"last {summary.get('last_status') or '未运行'}"
+            )
+    return "\n".join(lines)
