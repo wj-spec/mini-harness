@@ -21,7 +21,7 @@
 ./scripts/verify_all.sh --with-real-bench    # 追加真实长任务 5 场景（消耗 token）
 ```
 
-最近实测（第 136–140 轮）：Python **1613 passed / 13 skipped**；TUI **414 passed / 1 failed**（无 pty 环境）；
+最近实测（第 136–142 轮）：Python **1613 passed / 13 skipped**；TUI **414 passed / 1 failed**（无 pty 环境）；
 fake bench **15/15**；真实 bench **5/5**（双模型）；真实 suite **6/6 ×2**；doctor/redteam 通过。
 
 ## 3. 只剩这些（需要你）
