@@ -603,12 +603,12 @@ test('slash opens a scrollable command menu without overflowing the frame', asyn
   let frame = lastFrame() ?? '';
   assert.match(frame, /› \/help/);
   assert.match(frame, /查看操作帮助/);
-  assert.match(frame, /↑↓ 选择 · Tab 填充 · 1\/37/);
+  assert.match(frame, /↑↓ 选择 · Tab 填充 · 1\/38/);
   assert.ok(frame.split('\n').length <= 24);
   for (const line of frame.split('\n')) assert.ok(stringWidth(line) <= 80, line);
   stdin.write('\u001b[B');
   await pause(15);
-  assert.match(lastFrame() ?? '', /2\/37/);
+  assert.match(lastFrame() ?? '', /2\/38/);
   stdin.write('\t');
   await pause(15);
   frame = lastFrame() ?? '';
@@ -2287,4 +2287,17 @@ test('/priority rejects invalid arguments without sending a command', async () =
   await enter(stdin, '/priority t-123 900');
   assert.match(String(view.lastFrame() ?? ''), /用法：\/priority/);
   assert.equal(client.commands.includes('priority'), false);
+});
+
+
+test('/queue sends the queue command to the backend', async () => {
+  const client = new MockClient();
+  const view = render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}/>);
+  const {stdin} = view;
+  await pause(20);
+  client.emit({type: 'ready', workspace: '/tmp/repo', model: 'fake', session_id: 'test', capabilities: []});
+  client.emit({type: 'status', phase: 'idle'});
+  await pause(20);
+  await enter(stdin, '/queue');
+  assert.equal(client.commands.at(-1), 'queue');
 });

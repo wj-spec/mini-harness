@@ -715,6 +715,7 @@ VIBE_DEBUG=1 ./run_ink.sh --workspace /path/to/repo
 - `/plan background`：准备后台 task 并启动 detached worker，适用于长计划；
 - `/explore <任务>`：只读子 Agent 探索，创建 `kind=subagent` 任务；结果附 token/费用，`/cost` 的 totals 与 `subagent_runs/subagent_tokens/subagent_cost_usd` 一并可见；
 - `/notifications [kind]`：查看后台 worker 本地通知，可按 kind 过滤；
+- `/queue`：查看待运行的 created 计划任务队列（按 priority/created_at 排序，显示 plan 绑定）。
 - `/priority TID N`：把本会话中 created 的待运行任务优先级调为 N（0-100），用于计划队列排序。
 - `/trace [H]`：查看当前会话 trace 观测摘要（LLM/tool/审批计数、tokens/cost、停止原因）；可选 H 只看最近 H 小时。
 

@@ -36,7 +36,7 @@ _OVERSIZED = object()
 COMMANDS = frozenset({
     "resume", "permissions", "permissions_reset", "cost", "tools", "diff", "mcp",
     "skills", "evidence", "autonomy", "tasks", "approvals", "plan", "explore", "notifications",
-    "trace", "priority",
+    "trace", "priority", "queue",
 })
 COMPLETION_CODE_LABELS = {
     "no_verification": "有文件改动但没有验证命令",
@@ -735,6 +735,22 @@ class _Connection:
                     pass
                 if sub.error:
                     text += f"\n错误：{sub.error}"
+            elif command == "queue":
+                from app.runtime.tasks import TaskStore
+                tasks = [task for task in TaskStore(self.session.root).list(status="created")
+                         if task.plan_id]
+                tasks.sort(key=lambda task: (-task.priority, task.created_at, task.task_id))
+                if not tasks:
+                    text = "当前没有待运行的 created 计划任务。"
+                else:
+                    lines = [f"计划队列（{len(tasks)}）："]
+                    for index, task in enumerate(tasks, start=1):
+                        bind = f"{task.plan_id}v{task.plan_version}" if task.plan_id else "-"
+                        lines.append(
+                            f"{index}. {task.task_id} · priority {task.priority} · {bind} · "
+                            f"{task.mode} · {task.objective[:80]}"
+                        )
+                    text = "\n".join(lines)
             elif command == "priority":
                 from app.runtime.tasks import TaskError, TaskStore
                 task_id = str((args or {}).get("task_id") or "")

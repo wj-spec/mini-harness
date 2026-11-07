@@ -36,7 +36,7 @@ import type {SetupResult} from './sidebar/launch.js';
 type Scroll = {follow: boolean; top: number};
 const backendCommands: Record<string, BackendCommand> = {
   '/resume': 'resume', '/continue': 'resume', '/permissions': 'permissions', '/permissions reset': 'permissions_reset',
-  '/cost': 'cost', '/costs': 'cost', '/tools': 'tools', '/diff': 'diff', '/mcp': 'mcp', '/evidence': 'evidence', '/trace': 'trace',
+  '/cost': 'cost', '/costs': 'cost', '/tools': 'tools', '/diff': 'diff', '/mcp': 'mcp', '/evidence': 'evidence', '/trace': 'trace', '/queue': 'queue',
   '/task': 'tasks', '/tasks': 'tasks', '/approvals': 'approvals',
 };
 const approvalKeys: Record<string, ApprovalDecision> = {y: 'once', s: 'session', p: 'workspace', n: 'deny'};

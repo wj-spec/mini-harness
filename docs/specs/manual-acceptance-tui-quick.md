@@ -66,7 +66,7 @@ set -a; . ./.env; set +a          # 需要真实 provider；也可用 --fake 走
 ```bash
 ./run_vibe.sh --prepare-plan-task --plan-task-priority 5 --session <sid> --workspace <ws>
 ./run_vibe.sh --run-plan-queue --queue-dry-run --session <sid> --workspace <ws>
-# TUI 内可用 /priority <task_id> 9 调整待运行任务优先级
+# TUI 内可用 /queue 查看队列、/priority <task_id> 9 调整待运行任务优先级
 ./run_vibe.sh --run-plan-queue --session <sid> --workspace <ws>
 ```
 

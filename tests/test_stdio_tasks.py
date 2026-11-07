@@ -1685,3 +1685,38 @@ def test_priority_command_updates_created_task(tmp_path, monkeypatch):
 
     asyncio.run(scenario())
     assert store.get(task.task_id).priority == 9
+
+
+def test_queue_command_lists_created_plan_tasks(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    store = TaskStore(session.root)
+    task = store.create(kind="run", objective="排队任务", workspace=str(tmp_path),
+                        mode="act", plan_id="pl-q", plan_version=1, priority=3)
+
+    async def scenario():
+        harness = Harness(_agent(tmp_path), Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("command", "c-queue", command="queue")
+        result = await harness.until("command_result", "c-queue")
+        assert "计划队列（1）" in result["text"]
+        assert task.task_id in result["text"] and "priority 3" in result["text"]
+        assert "pl-qv1" in result["text"]
+        await harness.close()
+
+    asyncio.run(scenario())
+
+
+def test_queue_command_empty(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+
+    async def scenario():
+        harness = Harness(_agent(tmp_path), Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("command", "c-queue-empty", command="queue")
+        result = await harness.until("command_result", "c-queue-empty")
+        assert "当前没有待运行的 created 计划任务" in result["text"]
+        await harness.close()
+
+    asyncio.run(scenario())
