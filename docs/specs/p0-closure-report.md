@@ -7,7 +7,7 @@
 
 | 检查 | 结果 |
 |---|---|
-| Python 全量 | **1622 passed / 13 skipped** |
+| Python 全量 | **1623 passed / 13 skipped** |
 | TUI | **414 passed / 1 failed**（415 收集）；失败为环境 pty smoke（`out of pty devices`）；含 14 个真实 Python 后端跨层集成用例 + TUI/Python 命令集合一致性检查；计划覆盖层新增 `d` 版本比较、`t` 步骤标题编辑、`k` 步骤类型编辑 |
 | 长任务 fake 场景 | **15/15 PASS**（默认 `modes=fake`）；真实模式 5 场景（read/deadline/kill-switch/restart-attach/two-slot）deepseek-flash/chat 各 **5/5 PASS**；flash `--real --runs 2` **10/10** |
 | 07 attach 人工验收 | TC-01–09 通过（[记录](manual-acceptance-07-results.md)） |
@@ -70,7 +70,7 @@ TUI /goal /chat /act /plan
    08 长任务 benchmark 仍为 fake worker 场景（含 5xx/时钟注入），真实模型长任务样本仍有限。
 2. **Plan TUI**：覆盖层 + 侧栏步骤面板、审批/修订/执行、审批时限、审批卡（约束/验收/验证命令/门禁/hash）已接；步骤标题/类型/文件范围/依赖均可在 draft 阶段编辑（依赖有环检测）；更丰富的可视化仍可继续。
 3. **子 Agent**：已有子 TaskRecord/subagent_event/取消/depth/批量扇出/可配置预算、CLI `--explore`（真实 flash/chat 各一次 ok）、
-   opt-in 只读 `delegate`（P2 方案 B：不嵌套、父预算上限、untrusted provenance；真实 flash/chat 各一次 2 步完成、恰好 1 次委派；初版 A/B 见 [delegation-ab](delegation-ab.md)，小任务无收益、默认关闭）；attach 回放、按 mode 委派开关、父预算硬上限联动仍待。
+   opt-in 只读 `delegate`（P2 方案 B：不嵌套、父预算上限、untrusted provenance；真实 flash/chat 各一次 2 步完成、恰好 1 次委派；A/B 见 [delegation-ab](delegation-ab.md)：小任务无收益；digest 任务 chat 主上下文 −21%、总 token +38%，默认关闭）；attach 回放、按 mode 委派开关、父预算硬上限联动仍待。
 4. **09 剩余**：events 软上限告警、红队清单自动化、只读任务并发、外部 webhook 告警、profile 放宽审计已实现；
    文件集级并行写仍待；profile 放宽审批门已实现（`--approve-unattended-profile` + `VIBE_UNATTENDED_REQUIRE_APPROVAL`）。
 5. **08 剩余**：5xx 注入、fake 时钟偏移注入、goal 成本 cap、重复运行统计、`agent_version`、
@@ -101,7 +101,7 @@ TUI /goal /chat /act /plan
 
 ### 当前基线（第 151 轮，2026-11-07）
 
-- Python **1622 passed / 13 skipped**；TUI **414 passed / 1 failed**（无 pty）。
+- Python **1623 passed / 13 skipped**；TUI **414 passed / 1 failed**（无 pty）。
 - 长任务：fake **15/15**；真实模式 5 场景 flash/chat 各 **5/5**。
 - 真实模型：deepseek-flash/chat 各 **6/6**；`--with-real --real-runs 2` 通过；第 151 轮 `verify_all.sh` 复跑全通过（第 146 轮含真实 suite/bench 全量终验）。
 - 只读视图 12 个、真实后端跨层用例 14 个、文档链接 0 失效（有测试守护）。

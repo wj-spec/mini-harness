@@ -27,7 +27,7 @@ fake bench **15/15**；real-bench **5/5**；真实 suite **六模式 ×2**；doc
 ## 3. 只剩这些（需要你）
 
 1. **真实 TUI 终端人工验收**：按 [10 分钟清单](manual-acceptance-tui-quick.md) 在本机终端跑一遍并记录。
-2. **模型自发委派（P2）**：opt-in 只读 `delegate` 已实现并真实验证（`VIBE_SUBAGENT_DELEGATE=1`，默认关闭）；是否默认开启与更大任务 A/B 需你定，见 [open-decisions](open-decisions.md) 第 1 项；初版 A/B 见 [delegation-ab](delegation-ab.md)。
+2. **模型自发委派（P2）**：opt-in 只读 `delegate` 已实现并真实验证（`VIBE_SUBAGENT_DELEGATE=1`，默认关闭）；是否默认开启与更大任务 A/B 需你定，见 [open-decisions](open-decisions.md) 第 1 项；A/B 见 [delegation-ab](delegation-ab.md)（小任务无收益；digest 任务主上下文 −21% 但总 token +38%）。
 3. **文件集级并行写**：是否有真实需求（默认建议继续串行），见第 2 项。
 4. **真实长任务评测预算**：是否继续改造更多场景（已有 5 个真实场景），见第 4 项。
 5. **跨机器集中观测**：是否需要 OTLP/Prometheus/日志平台，见第 5 项。

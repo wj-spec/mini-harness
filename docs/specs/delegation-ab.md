@@ -19,9 +19,22 @@
 | chat | single | ✅ | 3 | 7279 | 3.7s | 0 |
 | chat | delegate | ✅ | 4 | 11120（+53%） | 8.2s（+122%） | 1 |
 
+## 更大任务（digest，12 个模块文件 × ~28 行）
+
+`--task digest`：`mods/module_00..11.md`，要求输出 12 项摘要 + `RESULT=4|9`（alice 模块数、最大 PRIORITY）。
+
+| 模型 | 条件 | 正确 | steps | 主 Agent tokens | 含子 Agent 有效 tokens | 耗时 |
+|---|---|---|---|---|---|---|
+| flash | single | ✅ | 6 | 35699 | 35699 | 12.9s |
+| flash | delegate | ✅ | 6 | 37926（+6%） | 57998（+62%） | 23.7s |
+| chat | single | ✅ | 6 | 26562 | 26562 | — |
+| chat | delegate | ✅ | 5 | 21091（−21%） | 36770（+38%） | — |
+
 ## 结论与建议
 
-- 该任务规模下，两种方式都正确；delegate 额外增加 token 与延迟，未体现收益。
-- 因此维持**默认关闭**（`VIBE_SUBAGENT_DELEGATE=0`），仅在更大/更脏的仓库调研场景试用。
-- 下一步若要证明收益，应换更大任务（多文件、需要并行探索或上下文分区），并记录「主 Agent 上下文占用/正确性」而不只是 token；这属于需要预算与设计的评估，见 [open-decisions](open-decisions.md) 第 1 项。
-- 复用：`VIBE_MODEL=deepseek-flash .venv/bin/python3 scripts/delegate_ab.py --runs 1`。
+- 小任务（survey）：两种都正确，delegate 总 token 更高（+18%/+53%），无收益。
+- 较大任务（digest）：两种都正确；delegate 在 chat 上把**主 Agent 上下文减少 21%**、少用 1 步，
+  但**总 token 仍高 38%**；flash 上主 Agent token 还略增。即「上下文隔离」可能降低主 loop 负担，但整体成本上升。
+- 结论：维持**默认关闭**（`VIBE_SUBAGENT_DELEGATE=0`）；delegate 更适合「超大仓库/上下文吃紧」而非一般任务。
+- 是否投入更多预算扩大样本（更多轮、更多仓库形态），见 [open-decisions](open-decisions.md) 第 1 项。
+- 复用：`VIBE_MODEL=deepseek-flash .venv/bin/python3 scripts/delegate_ab.py --task digest --runs 1`。
