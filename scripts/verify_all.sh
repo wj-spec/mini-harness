@@ -72,6 +72,13 @@ else
   report "doctor" FAIL "$(tail -1 /tmp/verify-doctor.log)"
 fi
 
+echo "== 无人值守红队检查 =="
+if "$PYTHON" -m app --redteam --workspace "$ROOT" > /tmp/verify-redteam.log 2>&1; then
+  report "redteam" PASS "默认拒绝矩阵通过"
+else
+  report "redteam" FAIL "见 /tmp/verify-redteam.log"
+fi
+
 if [ "$WITH_REAL" = "1" ]; then
   echo "== 真实模型 suite（六模式） =="
   if VIBE_TASK_RUNTIME=1 "$PYTHON" scripts/real_p1_acceptance.py --suite --keep > /tmp/verify-real.log 2>&1; then

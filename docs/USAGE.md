@@ -5,7 +5,7 @@
 ## 一键验收
 
 ```bash
-./scripts/verify_all.sh              # Python 全量 + TUI + 长任务 fake 14 场景 + doctor
+./scripts/verify_all.sh              # Python 全量 + TUI + 长任务 fake 14 场景 + doctor + 红队
 ./scripts/verify_all.sh --with-real  # 额外跑真实模型六模式 suite（需要 key）
 ```
 
