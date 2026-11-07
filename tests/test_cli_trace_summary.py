@@ -21,6 +21,8 @@ def _seed(tmp_path):
     session.append_trace({"type": "llm_retry", "ts": 3.5, "attempt": 1})
     session.append_trace({"type": "tool_end", "ts": 4.0, "tool": "read_file", "ok": True})
     session.append_trace({"type": "tool_end", "ts": 4.5, "tool": "bash", "ok": False})
+    session.append_trace({"type": "tool_end", "ts": 4.6, "tool": "bash", "ok": False})
+    session.append_trace({"type": "llm_error", "ts": 4.7, "error": "ConnectTimeout"})
     session.append_trace({"type": "approval", "ts": 5.0, "tool": "bash", "allowed": False})
     session.append_trace({"type": "run_end", "ts": 6.0, "status": "stopped",
                           "stop_reason": "max_run_seconds"})
@@ -34,7 +36,9 @@ def test_summarize_trace_aggregates(tmp_path):
     summary = summarize_trace(session.root)
     assert summary["runs"] == 1
     assert summary["llm_calls"] == 1 and summary["llm_retries"] == 1
-    assert summary["tool_calls"] == 2 and summary["tool_failures"] == 1
+    assert summary["tool_calls"] == 3 and summary["tool_failures"] == 2
+    assert summary["failure_tools"] == {"bash": 2}
+    assert summary["llm_error_messages"] == {"ConnectTimeout": 1}
     assert summary["approvals"] == 1 and summary["denials"] == 1
     assert summary["total_tokens"] == 15
     assert summary["cost_usd"] == 0.001
@@ -43,6 +47,8 @@ def test_summarize_trace_aggregates(tmp_path):
     assert summary["malformed"] == 1
     text = render_trace_summary(summary)
     assert "trace 摘要" in text and "max_run_seconds=1" in text
+    assert "工具失败分布：bash=2" in text
+    assert "LLM 错误：ConnectTimeout×1" in text
 
 
 def test_trace_summary_cli_text(tmp_path, monkeypatch, capsys):
@@ -63,6 +69,7 @@ def test_trace_summary_cli_json(tmp_path, monkeypatch, capsys):
     entrypoint.main()
     payload = json.loads(capsys.readouterr().out)
     assert payload["llm_calls"] == 1 and payload["denials"] == 1
+    assert payload["failure_tools"] == {"bash": 2}
 
 
 def test_trace_summary_empty_session(tmp_path, monkeypatch, capsys):
@@ -126,6 +133,8 @@ def test_trace_all_sessions_cli_json(tmp_path, monkeypatch, capsys):
     assert len(payload["sessions"]) == 2
     assert payload["totals"]["llm_calls"] == 2
     assert payload["totals"]["total_tokens"] == 21
+    assert payload["totals"]["failure_tools"] == {"bash": 2}
+    assert payload["totals"]["llm_error_messages"] == {"ConnectTimeout": 1}
 
 
 def test_trace_all_sessions_rejects_session(tmp_path, monkeypatch, capsys):

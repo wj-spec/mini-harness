@@ -811,7 +811,7 @@ worker 启动会审计 profile：任务事件 `unattended_profile` 记 `profile/
 `--bench-history [--bench-history-json] [--bench-history-limit N]` 只读扫描 `.vibe/bench-long/*/report.json`，列出每次运行的 mode/agent_version/passed/total 与最近一次场景通过率，并标出最近一次相对上一次的回归（`regression` 字段）；用于跨提交对比。
 `--trace-summary --trace-last-hours H` 只统计最近 H 小时的事件（适合事故窗口/夜间巡检），可与 `--trace-all-sessions` 组合。
 `--trace-summary --trace-all-sessions` 汇总本工作区所有会话（按最近更新排序，输出 totals + 最近 10 个会话），适合巡检整个工作区的 retries/errors/denials。
-`--trace-summary` 只读聚合指定会话 trace.jsonl：事件数/损坏行、runs 与最近状态、LLM calls/retries/errors/tokens/cost、tool calls/failures、approvals/denials、停止原因与时间窗（`--trace-json` 输出原始摘要）。
+`--trace-summary` 只读聚合指定会话 trace.jsonl：事件数/损坏行、runs 与最近状态、LLM calls/retries/errors/tokens/cost、tool calls/failures 与**失败工具分布**、LLM 错误摘要、approvals/denials、停止原因与时间窗（`--trace-json` 输出原始摘要）。
 `--evidence` 只读输出指定会话最近一轮证据（完成判定/验收三态/审计/hash/验证记录），`--evidence-json` 输出原始 round JSON；无轮次时提示先完成任务。
 `--prune-worktrees` 只读报告 `.vibe/worktrees/*.meta.json`（含目录缺失的 stale）；加 `--prune-apply` 才把 stale worktree 标记 removed 并删分支（先 `git worktree prune`）。
 `--approvals` 只读列出跨会话待审批项（session/task/approval_id/tool/tier/requester/created_at/expires_at，最多 100 条）；已解决/过期项不显示。

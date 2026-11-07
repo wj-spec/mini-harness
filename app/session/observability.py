@@ -30,6 +30,8 @@ def summarize_trace(
     estimated = False
     malformed = 0
     stop_reasons: dict[str, int] = {}
+    failure_tools: dict[str, int] = {}
+    llm_error_messages: dict[str, int] = {}
     last_status: str | None = None
     first_ts: Any = None
     last_ts: Any = None
@@ -71,10 +73,15 @@ def summarize_trace(
             llm_retries += 1
         elif kind == "llm_error":
             llm_errors += 1
+            message = str(event.get("error") or "").strip()
+            if message:
+                llm_error_messages[message[:200]] = llm_error_messages.get(message[:200], 0) + 1
         elif kind == "tool_end":
             tool_calls += 1
             if event.get("ok") is False:
                 tool_failures += 1
+                tool = str(event.get("tool") or "unknown")[:100]
+                failure_tools[tool] = failure_tools.get(tool, 0) + 1
         elif kind == "approval":
             approvals += 1
             if event.get("allowed") is False:
@@ -106,6 +113,8 @@ def summarize_trace(
         "usage_estimated": estimated,
         "last_status": last_status,
         "stop_reasons": stop_reasons,
+        "failure_tools": failure_tools,
+        "llm_error_messages": llm_error_messages,
         "first_ts": first_ts,
         "last_ts": last_ts,
         "since_ts": since_ts,
@@ -127,6 +136,18 @@ def render_trace_summary(summary: dict[str, Any]) -> str:
         f"- tools：calls {summary.get('tool_calls', 0)} · failures {summary.get('tool_failures', 0)} · "
         f"approvals {summary.get('approvals', 0)} · denied {summary.get('denials', 0)}"
     )
+    failure_tools = summary.get("failure_tools") or {}
+    if failure_tools:
+        rendered = "、".join(
+            f"{tool}={count}" for tool, count in sorted(failure_tools.items(), key=lambda item: -item[1])
+        )
+        lines.append(f"  - 工具失败分布：{rendered}")
+    error_messages = summary.get("llm_error_messages") or {}
+    if error_messages:
+        rendered = "、".join(
+            f"{message}×{count}" for message, count in sorted(error_messages.items(), key=lambda item: -item[1])[:3]
+        )
+        lines.append(f"  - LLM 错误：{rendered}")
     reasons = summary.get("stop_reasons") or {}
     if reasons:
         rendered = "、".join(
@@ -153,6 +174,8 @@ def aggregate_trace_summaries(summaries: list[dict[str, Any]]) -> dict[str, Any]
         "cost_usd": 0.0,
     }
     stop_reasons: dict[str, int] = {}
+    failure_tools: dict[str, int] = {}
+    llm_error_messages: dict[str, int] = {}
     for summary in summaries:
         for key in ("events", "malformed", "runs", "llm_calls", "llm_retries",
                     "llm_errors", "tool_calls", "tool_failures", "approvals",
@@ -161,8 +184,14 @@ def aggregate_trace_summaries(summaries: list[dict[str, Any]]) -> dict[str, Any]
         totals["cost_usd"] += float(summary.get("cost_usd") or 0.0)
         for reason, count in (summary.get("stop_reasons") or {}).items():
             stop_reasons[str(reason)] = stop_reasons.get(str(reason), 0) + int(count)
+        for tool, count in (summary.get("failure_tools") or {}).items():
+            failure_tools[str(tool)] = failure_tools.get(str(tool), 0) + int(count)
+        for message, count in (summary.get("llm_error_messages") or {}).items():
+            llm_error_messages[str(message)] = llm_error_messages.get(str(message), 0) + int(count)
     totals["cost_usd"] = round(totals["cost_usd"], 6)
     totals["stop_reasons"] = stop_reasons
+    totals["failure_tools"] = failure_tools
+    totals["llm_error_messages"] = llm_error_messages
     return totals
 
 
@@ -176,6 +205,18 @@ def render_trace_totals(totals: dict[str, Any], sessions: list[dict[str, Any]]) 
         f"- tools：calls {totals.get('tool_calls', 0)} · failures {totals.get('tool_failures', 0)} · "
         f"approvals {totals.get('approvals', 0)} · denied {totals.get('denials', 0)}",
     ]
+    failure_tools = totals.get("failure_tools") or {}
+    if failure_tools:
+        rendered = "、".join(
+            f"{tool}={count}" for tool, count in sorted(failure_tools.items(), key=lambda item: -item[1])
+        )
+        lines.append(f"- 工具失败分布：{rendered}")
+    error_messages = totals.get("llm_error_messages") or {}
+    if error_messages:
+        rendered = "、".join(
+            f"{message}×{count}" for message, count in sorted(error_messages.items(), key=lambda item: -item[1])[:3]
+        )
+        lines.append(f"- LLM 错误：{rendered}")
     reasons = totals.get("stop_reasons") or {}
     if reasons:
         rendered = "、".join(f"{reason or '(none)'}={count}" for reason, count in sorted(reasons.items()))
