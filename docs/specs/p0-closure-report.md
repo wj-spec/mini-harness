@@ -7,7 +7,7 @@
 
 | 检查 | 结果 |
 |---|---|
-| Python 全量 | **1467 passed / 13 skipped** |
+| Python 全量 | **1468 passed / 13 skipped** |
 | TUI | **383 passed / 1 failed**（384 收集）；失败为环境 pty smoke（`out of pty devices`） |
 | 长任务 fake 场景 | **12/12 PASS**（`scripts/bench_long.py --runs 1`；含 2 个 5xx 注入场景；另有 `--real` 真 provider 入口） |
 | 07 attach 人工验收 | TC-01–09 通过（[记录](manual-acceptance-07-results.md)） |
@@ -62,14 +62,18 @@ TUI /goal /chat /act /plan
 
 ## 4. 已知限制（P0 之后仍需）
 
-1. **真模型 P1**：2026-11-07 已跑通 Plan 多步+验收+审批帧及 `/explore`（deepseek-flash/chat），
-   仍有真实 TUI 人工键路与更大样本；08 长任务 benchmark 仍为 fake worker 场景。
+1. **真模型 P1**：2026-11-07 已跑通 Plan 多步+验收+审批帧、`/explore`、后台 Plan/goal、edit 步骤，
+   以及验收失败自动修复（`--repair` 修复后连续 2/2）；仍有真实 TUI 人工键路、真实 merge 链路与更大样本；
+   08 长任务 benchmark 仍为 fake worker 场景（含 5xx 注入）。
 2. **Plan TUI**：覆盖层 + 侧栏步骤面板、审批/修订/执行、审批时限已接；完整审批卡片与更细粒度编辑仍待。
 3. **子 Agent**：已有子 TaskRecord/subagent_event/取消/depth/批量扇出；attach 回放、按 mode 委派开关、父预算硬上限联动仍待。
-4. **09 剩余**：events.jsonl 软上限/告警、红队清单自动化、只读任务并发与文件集并行、profile 变更审批入口。
-5. **08 剩余**：真实 seed/时钟/5xx 故障注入、成本 cap、`agent_version`、重复运行统计报告。
+4. **09 剩余**：events 软上限告警、红队清单自动化、只读任务并发、外部 webhook 告警、profile 放宽审计已实现；
+   文件集级并行写、profile 变更的审批入口仍待。
+5. **08 剩余**：5xx 注入、goal 成本 cap、重复运行统计已实现；时钟/seed 注入、`agent_version`、
+   真实 5xx 服务端注入仍待。
 6. **环境**：真实 TUI 验收受 pty 限制；browser smoke 在负载下偶发 flake。
-7. **生产级**：合并后重验已接入（计划可信命令在合并后主工作区重跑，失败 exit 1 + 通知）；跨任务队列调度、告警/观测仍非生产完成。
+7. **生产级**：合并后重验、外部 webhook 告警、doctor 运行时自检已接入；真实 merge 链路、跨任务队列调度、
+   完整观测/追踪仍非生产完成。
 
 ## 5. 结论
 

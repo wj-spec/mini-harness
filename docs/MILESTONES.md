@@ -449,7 +449,7 @@ W1–W5 已完成真实验收；W6 v2 三组对照完成，主假设未获支持
 - Plan 覆盖层：折叠/展开、方向键选择、`s` 步骤详情、`e` 修订、`y/n` 审批、Enter 执行、`/plan list|step|diff|acceptance|revise`；stale/审批时限保护，侧栏 `p` 可看步骤进度。
 
 **验证证据**：
-- Python 全量 **1467 passed / 13 skipped**；TUI **383/384**（唯一失败为环境 pty smoke）；
+- Python 全量 **1468 passed / 13 skipped**；TUI **383/384**（唯一失败为环境 pty smoke）；
 - 长任务 fake 场景 12/12 PASS（`scripts/bench_long.py`，含 2 个 5xx 注入）；新增 `--real` 真 provider 入口；
 - CLI 只读视图 `--plans/--acceptance/--notifications/--approvals`；`--decide-approval` 可在无 TUI 时经 worker attach 响应审批；Plan/SubAgent 人工验收清单 TC-16-01–08 已编写；
 - `/plan background` 计划绑定 task + detached worker 端到端 fake 验收通过；`plan_binding` 事件与验收产物可核对。
@@ -465,3 +465,23 @@ W1–W5 已完成真实验收；W6 v2 三组对照完成，主假设未获支持
 - 对外只陈述“P0 基础闭环 + 确定性/人工验收证据”，不宣称生产完成。
 
 **下一步**：配置 provider 后跑真实长任务与 Plan/SubAgent 对照；补 sidebar/审批 deadline；再评估生产化收束。
+
+## 生产化加固与真实验收补强（2026-11-07 续）
+
+**用户获得什么**：
+- 计划验收失败自动修复（`VIBE_ACCEPTANCE_REPAIR_ATTEMPTS`，有界回灌）；真实模型 `--repair` 连续 **2/2** 通过；
+- `--merge-task` 合并后按绑定计划的可信验收命令自动重验，失败 `exit 1` + `merge_verification_failed` 通知；
+- 无 TUI 时 `--approvals` / `--decide-approval`；`--tasks`/`/task` 显示每任务待审批数；
+- 后台 goal 循环执行 token/费用上限（`VIBE_GOAL_MAX_TOKENS` / `VIBE_GOAL_MAX_COST_USD`）；`/cost` 计入子 Agent usage；
+- 外部 webhook 告警（`VIBE_NOTIFY_WEBHOOK`）、events.jsonl 软上限告警、`--doctor` 运行时自检（待审批/events/stale worktree/放宽 profile/JSON 输出）；
+- 08 长任务 fake 场景扩到 **12/12**（新增 2 个 5xx 注入），bench 报告含每场景 pass rate/耗时统计。
+
+**验证证据**：
+- Python 全量 **1468 passed / 13 skipped**；TUI **383/384**（唯一失败为环境 pty smoke）；
+- 长任务 fake 场景 **12/12**；真实模型 `--repair` 修复后 **2/2**；
+- 工作树 clean，`.vibe/` 运行产物未提交。
+
+**未验收 / 未做**：
+- 真实 TUI 人工键路（本沙箱无 pty，需本地终端按 TC-16 清单执行）；
+- 模型自发委派（设计列为 P2，需用户拍板）；attach 回放子 Agent；
+- 时钟/seed 注入、`agent_version`、真实 5xx 服务端注入；跨任务队列调度。
