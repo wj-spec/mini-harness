@@ -297,3 +297,31 @@ def test_doctor_warns_about_stale_worktree(tmp_path):
     assert code == 0, output
     assert "! 1 个 worktree 目录缺失" in output
     assert "t-1" in output
+
+
+def test_doctor_json_output(tmp_path):
+    repo, workspace = _green_repo(tmp_path)
+    doctor = _doctor_module()
+    which, run = _fake_commands()
+    out = io.StringIO()
+    code = doctor.main(
+        ["--doctor", "--json", "--workspace", str(workspace)],
+        repo_root=repo,
+        env={},
+        stdin_tty=True,
+        stdout_tty=True,
+        which=which,
+        run=run,
+        python_path=Path("/fake/bin/python3"),
+        python_source="项目 .venv",
+        python_version=lambda path: (3, 12, 0),
+        missing_modules=lambda path, modules: [],
+        out=out,
+    )
+    payload = json.loads(out.getvalue())
+    assert code == 2 and payload["ok"] is False
+    assert payload["workspace"] == str(workspace)
+    assert any("API Key" in item for item in payload["failures"])
+    statuses = {item["label"]: item["status"] for item in payload["checks"]}
+    assert statuses["没有待审批动作"] == "ok"
+    assert all(item["status"] in {"ok", "warn", "fail"} for item in payload["checks"])

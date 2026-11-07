@@ -501,12 +501,26 @@ def main(argv: Sequence[str] | None = None, **probe_kwargs) -> int:
     parser = argparse.ArgumentParser(prog="doctor.py", description="检查启动 Ink 工作台所需的环境。")
     parser.add_argument("--workspace", default=None, help="要自检的工作区，默认仓库根目录")
     parser.add_argument("--doctor", action="store_true", help="兼容 ./run_ink.sh --doctor 转发的标记")
+    parser.add_argument("--json", action="store_true", help="机器可读输出（脚本 / CI 用）")
     args, _unknown = parser.parse_known_args(list(argv) if argv is not None else None)
     stream = probe_kwargs.pop("out", sys.stdout)
     root = Path(probe_kwargs.pop("repo_root", REPO_ROOT)).absolute()
     workspace = Path(args.workspace).expanduser().absolute() if args.workspace else root
     checks = collect_checks(repo_root=root, workspace=workspace, **probe_kwargs)
-    stream.write(render_report(workspace, checks))
+    if args.json:
+        payload = {
+            "workspace": str(workspace),
+            "ok": exit_code(checks) == 0,
+            "failures": [check.label for check in checks if check.status == FAIL],
+            "warnings": [check.label for check in checks if check.status == WARN],
+            "checks": [
+                {"status": check.status, "label": check.label, "hint": check.hint}
+                for check in checks
+            ],
+        }
+        stream.write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+    else:
+        stream.write(render_report(workspace, checks))
     return exit_code(checks)
 
 
