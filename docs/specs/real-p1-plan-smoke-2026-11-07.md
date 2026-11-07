@@ -64,6 +64,18 @@ VIBE_MAX_STEPS=4 VIBE_MAX_RUN_TOKENS=8000 \
 - 但模型在完成步骤后的下一次 provider 调用超过 240s 未返回，测试取消；
 - acceptance.v1.json 未生成，因此**验收命令真实端到端仍未通过**。
 
+## 3c. 真实模型子 Agent（/explore）成功
+
+在同一真实 provider 下发 `explore` command（prompt：读取 README，一句话说明用途，只读）：
+
+- 子 Agent status=ok；
+- 返回结构化摘要（README 两行内容 + 一句话说明用途）；
+- `subagent_event` task_id=t-20261107-035103-c28ef8；
+- 子 Agent 使用只读工具，不写工作区；
+- 子 TaskRecord 创建成功。
+
+这是真实模型 **只读子 Agent runner** 的端到端成功样本。
+
 ## 4. 结论与限制
 
 - 已证明：真实模型可以走 `--task` 只读链路、可以生成结构化 proposed plan；
