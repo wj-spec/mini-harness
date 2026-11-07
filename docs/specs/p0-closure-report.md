@@ -99,11 +99,11 @@ TUI /goal /chat /act /plan
 
 ## 7. 55–100 轮加固摘要（2026-11-07 快照）
 
-### 当前基线（第 151 轮，2026-11-07）
+### 当前基线（第 158 轮，2026-11-07）
 
-- Python **1627 passed / 13 skipped**；TUI **414 passed / 1 failed**（无 pty）。
+- Python **1627 passed / 13 skipped**；TUI **414 passed / 1 failed**（无 pty）；第 158 轮全量终验通过。
 - 长任务：fake **15/15**；真实模式 5 场景 flash/chat 各 **5/5**。
-- 真实模型：deepseek-flash/chat 各 **6/6**；`--with-real --real-runs 2` 通过；第 151 轮 `verify_all.sh` 复跑全通过（第 146 轮含真实 suite/bench 全量终验）。
+- 真实模型：deepseek-flash/chat 各 **6/6**；第 158 轮 `--with-real --real-runs 2 --with-real-bench` 全通过。
 - 只读视图 12 个、真实后端跨层用例 14 个、文档链接 0 失效（有测试守护）。
 
 

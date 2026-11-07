@@ -392,6 +392,9 @@ Python 1607/13、TUI 414/415、fake bench 15/15、doctor/redteam、**real-bench 
 全量终验（2026-11-07 第 146 轮）：`./scripts/verify_all.sh --with-real --real-runs 2 --with-real-bench` →
 Python 1613/13、TUI 414/415、fake bench 15/15、doctor/redteam、real-bench 5/5、**真实 suite 六模式 ×2 通过**。
 
+全量复验（2026-11-07 第 158 轮，委派/B 与 A/B 落地后）：同一命令 →
+Python 1627/13、TUI 414/415、fake bench 15/15、doctor/redteam、real-bench 5/5、**真实 suite 六模式 ×2 通过**。
+
 真实模型 `--explore` CLI（2026-11-07）：deepseek-flash tokens 2153、deepseek-chat tokens 2434，
 均 `ok/status=ok`，单次 read_file 后给出正确摘要，无写操作（任务以 subagent TaskRecord 落盘）。
 
