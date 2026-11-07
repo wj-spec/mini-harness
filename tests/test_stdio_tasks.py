@@ -1620,3 +1620,45 @@ def test_stdio_rejects_malformed_frames_and_stays_responsive(tmp_path, monkeypat
         await harness.close()
 
     asyncio.run(scenario())
+
+
+def test_stdio_rejects_duplicate_request_ids(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+
+    async def scenario():
+        harness = Harness(_agent(tmp_path), Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("command", "dup-id", command="tasks")
+        await harness.until("command_result", "dup-id")
+        harness.send("command", "dup-id", command="tasks")
+        duplicate = await harness.until("error", "dup-id")
+        assert duplicate["code"] == "duplicate_id"
+        harness.send("command", "after-dup", command="tasks")
+        after = await harness.until("command_result", "after-dup")
+        assert after["command"] == "tasks"
+        await harness.close()
+
+    asyncio.run(scenario())
+
+
+def test_stdio_rejects_second_command_while_busy(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    monkeypatch.setenv("VIBE_FAKE_DELAY_SECONDS", "0.3")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+
+    async def scenario():
+        harness = Harness(_agent(tmp_path), Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("run", "r-busy", text="你好")
+        harness.send("command", "c-while-busy", command="tasks")
+        busy = await harness.until("error", "c-while-busy")
+        assert busy["code"] == "busy"
+        done = await harness.until("done", "r-busy")
+        assert done["result"]["status"] == "done"
+        harness.send("command", "c-after-busy", command="tasks")
+        after = await harness.until("command_result", "c-after-busy")
+        assert after["command"] == "tasks"
+        await harness.close()
+
+    asyncio.run(scenario())
