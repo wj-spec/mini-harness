@@ -800,8 +800,13 @@ def test_plan_prepare_background_creates_task(tmp_path, monkeypatch):
         harness.send("command", "c-bg", command="plan", args={"action": "prepare-background"})
         result = await harness.until("command_result", "c-bg")
         assert "task_id=" in result["text"]
-        bg = TaskStore(session.root).list(kind="run")
-        assert bg and bg[-1].plan_id == "pl-bg" and bg[-1].mode == "act"
+        harness.send("command", "c-bg-again", command="plan", args={"action": "prepare-background"})
+        again = await harness.until("command_result", "c-bg-again")
+        import re
+        first_id = re.search(r"task_id=(t-[0-9a-zA-Z-]+)", result["text"]).group(1)
+        assert first_id in again["text"]
+        bg = [task for task in TaskStore(session.root).list(status="created") if task.plan_id == "pl-bg"]
+        assert len(bg) == 1 and bg[0].task_id == first_id and bg[0].mode == "act"
         await harness.close()
 
     asyncio.run(scenario())

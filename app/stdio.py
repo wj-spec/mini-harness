@@ -446,6 +446,14 @@ class _Connection:
             if action == "prepare-background":
                 if self.task_runtime is None or not getattr(self.task_runtime, "enabled", False):
                     return "任务运行时未启用，无法准备后台计划。"
+                existing = next(
+                    (item for item in self.task_runtime.store.list(status="created")
+                     if item.plan_id == plan.plan_id and item.plan_version == plan.version),
+                    None,
+                )
+                if existing is not None:
+                    return (f"background task already prepared: task_id={existing.task_id} "
+                            f"plan_id={plan.plan_id} version={plan.version}")
                 try:
                     task = self.task_runtime.store.create(
                         kind="run", objective=plan.objective,

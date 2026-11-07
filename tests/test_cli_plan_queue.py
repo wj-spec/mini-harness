@@ -454,3 +454,20 @@ def test_run_plan_queue_dedupes_workspaces(repo, monkeypatch, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload["completed"] == 1
     assert TaskStore(session.root).get(task.task_id).status == "completed"
+
+
+@pytest.mark.skipif(GIT is None, reason="git required")
+def test_prepare_plan_task_is_idempotent(repo, monkeypatch, capsys):
+    session, _plan = _approve_empty_plan(repo)
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=repo))
+    argv = ["vibe", "--prepare-plan-task", "--session", session.id,
+            "--workspace", str(repo), "--fake"]
+    monkeypatch.setattr(sys, "argv", argv)
+    entrypoint.main()
+    first = json.loads(capsys.readouterr().out)
+    entrypoint.main()
+    second = json.loads(capsys.readouterr().out)
+    assert first["task_id"] == second["task_id"]
+    assert first["reused"] is False and second["reused"] is True
+    created = [task for task in TaskStore(session.root).list(status="created") if task.plan_id]
+    assert len(created) == 1

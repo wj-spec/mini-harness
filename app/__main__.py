@@ -980,6 +980,20 @@ def main() -> None:
                 print("no executable approved plan in this session", file=sys.stderr)
                 raise SystemExit(2)
             plan_path, plan = plans[0]
+            existing = next(
+                (item for item in store.list(status="created")
+                 if item.plan_id == plan.plan_id and item.plan_version == plan.version),
+                None,
+            )
+            if existing is not None:
+                print(json.dumps({
+                    "workspace": str(workspace), "session": session.id,
+                    "task_id": existing.task_id, "plan_id": plan.plan_id,
+                    "plan_version": plan.version, "objective": plan.objective,
+                    "plan_path": str(plan_path), "priority": existing.priority,
+                    "reused": True,
+                }, ensure_ascii=False, indent=2))
+                return
             try:
                 task = store.create(
                     kind="run", objective=plan.objective, workspace=str(workspace),
@@ -994,7 +1008,7 @@ def main() -> None:
                 "workspace": str(workspace), "session": session.id, "task_id": task.task_id,
                 "plan_id": plan.plan_id, "plan_version": plan.version,
                 "objective": plan.objective, "plan_path": str(plan_path),
-                "priority": task.priority,
+                "priority": task.priority, "reused": False,
             }, ensure_ascii=False, indent=2))
             return
 
