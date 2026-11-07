@@ -787,6 +787,8 @@ VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --suite
 
 通知记录在 `.vibe/notifications.jsonl`，可用 `/notifications`、`--notifications` 查看（JSON 含 count，最多 50 条）。
 worker 启动会审计 profile：任务事件 `unattended_profile` 记 `profile/hash/relaxed`；放宽了默认策略时另写 `unattended_profile_relaxed` 通知。
+可选审批门：设置 `VIBE_UNATTENDED_REQUIRE_APPROVAL=1` 后，放宽 profile 需先
+`./run_vibe.sh --approve-unattended-profile --workspace <ws>`（记录 hash；profile 改动需重新批准），否则 worker 拒绝启动。
 `--doctor` 也会提示 `.vibe/unattended.json` 被放宽的项；非法 profile 会阻塞自检。
 可选的**外部告警 webhook**：设置 `VIBE_NOTIFY_WEBHOOK=https://...` 后，通知会异步 POST JSON（最大 64 KiB，超出只发 kind/ts/truncated）；
 `VIBE_NOTIFY_WEBHOOK_KINDS` 过滤 kind（逗号分隔，`*`=全部，默认全部）；只允许 http/https，请求失败静默，不影响任务与本地通知。

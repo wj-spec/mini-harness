@@ -14,6 +14,8 @@ from typing import Any
 
 PROFILE_VERSION = 1
 PROFILE_PATH = Path(".vibe") / "unattended.json"
+APPROVAL_VERSION = 1
+APPROVAL_PATH = Path(".vibe") / "unattended.approval.json"
 
 READ_TOOLS = frozenset({
     "read_file", "list_files", "list_dir", "grep", "glob", "read", "ls",
@@ -100,6 +102,59 @@ def relaxed_settings(profile: UnattendedProfile) -> list[str]:
 
 def profile_hash(profile: UnattendedProfile) -> str:
     return hashlib.sha256(profile.hash_payload().encode("utf-8")).hexdigest()
+
+
+def profile_approval_required() -> bool:
+    value = (os.getenv("VIBE_UNATTENDED_REQUIRE_APPROVAL") or "").strip().lower()
+    return value in {"1", "true", "yes"}
+
+
+def write_profile_approval(
+    workspace: str | Path, profile: UnattendedProfile,
+    *, approved_by: str = "user", note: str = "",
+) -> Path:
+    """把当前 profile（放宽项）的批准记录写入 .vibe/unattended.approval.json。"""
+    from datetime import datetime, timezone
+
+    if not approved_by.strip():
+        raise UnattendedProfileError("approved_by must be nonempty")
+    path = Path(workspace) / APPROVAL_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema_version": APPROVAL_VERSION,
+        "profile_id": profile.profile_id,
+        "profile_hash": profile_hash(profile),
+        "relaxed": relaxed_settings(profile),
+        "approved_by": approved_by.strip(),
+        "approved_at": datetime.now(timezone.utc).isoformat(),
+        "note": note[:500],
+    }
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.replace(temporary, path)
+    return path
+
+
+def check_profile_approval(
+    workspace: str | Path, profile: UnattendedProfile,
+) -> tuple[bool, str]:
+    """检查 profile 是否已被批准：hash 必须匹配当前 profile。"""
+    path = Path(workspace) / APPROVAL_PATH
+    if not path.is_file() or path.is_symlink():
+        return False, "approval file missing"
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return False, f"approval file invalid: {exc}"
+    if not isinstance(raw, dict):
+        return False, "approval file must be an object"
+    if raw.get("schema_version") != APPROVAL_VERSION:
+        return False, "unsupported approval schema_version"
+    if raw.get("profile_hash") != profile_hash(profile):
+        return False, "profile changed since approval"
+    if not isinstance(raw.get("approved_by"), str) or not raw["approved_by"].strip():
+        return False, "approval missing approved_by"
+    return True, "approved"
 
 
 def _known_fields() -> set[str]:

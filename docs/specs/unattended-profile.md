@@ -22,6 +22,11 @@
   - worker 启动任务事件 `unattended_profile` 记 `profile/hash/relaxed`；
   - 非空 relaxed 时写本地通知 `unattended_profile_relaxed`（可经 `/notifications`、`--notifications`、webhook 查看）；
   - `--doctor` 读取 profile：宽松项 → WARN；非法 JSON/未知键/符号链接 → FAIL 并提示 worker 会拒绝启动。
+- profile 审批门（可选，`VIBE_UNATTENDED_REQUIRE_APPROVAL=1`）：
+  - 放宽了默认策略的 profile 必须先执行 `--approve-unattended-profile --workspace <ws>`，
+    写入 `.vibe/unattended.approval.json`（profile_id/hash/relaxed/approved_by/approved_at）；
+  - worker 启动时校验 hash 与当前 profile 一致，未批准或 profile 改动后未重批 → `WorkerError` 拒绝启动（fail closed）；
+  - 保守默认 profile 不需要批准；批准动作写 `unattended_profile_approved` 通知。
 - worker 接线：
   - 启动时加载 profile，并在任务事件写 `unattended_profile`（profile id + hash）；
   - 收到 child 的 `approval_request` 时先做能力检查；

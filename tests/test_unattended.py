@@ -78,3 +78,60 @@ def test_relaxed_settings_reports_only_loosened_fields():
     ]
     assert profile_hash(UnattendedProfile()) == profile_hash(UnattendedProfile())
     assert len(profile_hash(relaxed)) == 64
+
+
+def test_profile_approval_roundtrip_and_change_detection(tmp_path, monkeypatch):
+    from app.safety.unattended import (
+        check_profile_approval, profile_approval_required, write_profile_approval,
+    )
+
+    path = tmp_path / ".vibe" / "unattended.json"
+    path.parent.mkdir()
+    path.write_text(json.dumps({"allow_exec": True}), encoding="utf-8")
+    profile = load_profile(tmp_path)
+    monkeypatch.delenv("VIBE_UNATTENDED_REQUIRE_APPROVAL", raising=False)
+    assert profile_approval_required() is False
+    approved, reason = check_profile_approval(tmp_path, profile)
+    assert approved is False and "missing" in reason
+    write_profile_approval(tmp_path, profile, note="test")
+    approved, reason = check_profile_approval(tmp_path, profile)
+    assert approved is True
+    path.write_text(json.dumps({"allow_exec": True, "allow_network": True}), encoding="utf-8")
+    changed = load_profile(tmp_path)
+    approved, reason = check_profile_approval(tmp_path, changed)
+    assert approved is False and "changed" in reason
+    monkeypatch.setenv("VIBE_UNATTENDED_REQUIRE_APPROVAL", "1")
+    assert profile_approval_required() is True
+
+
+def test_approve_unattended_profile_cli(tmp_path, monkeypatch, capsys):
+    from app import __main__ as entrypoint
+    from app.config import Config
+    import sys
+
+    (tmp_path / ".vibe").mkdir()
+    (tmp_path / ".vibe" / "unattended.json").write_text(
+        json.dumps({"allow_exec": True}), encoding="utf-8",
+    )
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path))
+    monkeypatch.setattr(sys, "argv", ["vibe", "--approve-unattended-profile",
+                                      "--workspace", str(tmp_path)])
+    entrypoint.main()
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["relaxed"] == ["allow_exec"]
+    assert (tmp_path / ".vibe" / "unattended.approval.json").is_file()
+    from app.runtime.notifications import read_notifications
+    assert any(item["kind"] == "unattended_profile_approved"
+               for item in read_notifications(tmp_path))
+
+
+def test_approve_unattended_profile_rejects_other_modes(tmp_path, monkeypatch, capsys):
+    from app import __main__ as entrypoint
+    import sys
+
+    monkeypatch.setattr(sys, "argv", ["vibe", "--approve-unattended-profile",
+                                      "--workspace", str(tmp_path), "--stdio"])
+    with pytest.raises(SystemExit) as error:
+        entrypoint.main()
+    assert error.value.code == 2
+    assert "--approve-unattended-profile cannot be combined" in capsys.readouterr().err

@@ -126,6 +126,7 @@ def main() -> None:
     parser.add_argument("--queue-continue-on-failure", action="store_true", help="与 --run-plan-queue 搭配：某个任务失败/计划不可执行时继续后续任务")
     parser.add_argument("--queue-concurrency", type=int, default=None, metavar="N", help="与 --run-plan-queue 搭配：并行 worker 数（1-8，默认 1）")
     parser.add_argument("--plan-task-priority", type=int, default=None, metavar="N", help="与 --prepare-plan-task 搭配：待运行 task 优先级（0-100，默认 0）")
+    parser.add_argument("--approve-unattended-profile", action="store_true", help="批准当前无人值守 profile（记录 hash，可含放宽项）")
     parser.add_argument("--prune-worktrees", action="store_true", help="只读报告 stale/孤立的 worktree")
     parser.add_argument("--prune-apply", action="store_true", help="与 --prune-worktrees 搭配：把目录缺失的 worktree 标记 removed 并删分支")
     parser.add_argument("--worker", action="store_true", help="后台 worker：执行一个 task segment 并暴露 attach socket")
@@ -337,6 +338,20 @@ def main() -> None:
             parser.error("--prepare-plan-task/--run-plan-queue cannot be combined with other modes")
         if args.workspace is None and not args.queue_workspace:
             parser.error("--prepare-plan-task/--run-plan-queue require --workspace")
+    if args.approve_unattended_profile:
+        if args.workspace is None:
+            parser.error("--approve-unattended-profile requires --workspace")
+        if (
+            args.stdio or args.eval or args.eval_limit is not None or args.eval_tasks is not None
+            or args.list_sessions or args.task is not None or args.continue_session
+            or args.session is not None or args.bench or args.tasks or args.notifications
+            or args.plans or args.acceptance or args.approvals or args.redteam
+            or args.prune_worktrees or args.prune_apply or args.worker or args.attach
+            or args.stop or args.stop_task is not None or args.pause_task is not None
+            or args.merge_task is not None or args.cleanup_logs or args.decide_approval is not None
+            or args.evidence or args.prepare_plan_task or args.run_plan_queue
+        ):
+            parser.error("--approve-unattended-profile cannot be combined with other modes")
     if args.prune_apply and not args.prune_worktrees:
         parser.error("--prune-apply requires --prune-worktrees")
     if args.prune_worktrees:
@@ -363,7 +378,7 @@ def main() -> None:
         parser.error("--bench requires --task")
     if args.telemetry_out and args.task is None:
         parser.error("--telemetry-out requires --task")
-    if not args.stdio and not args.eval and not args.list_sessions and not args.tasks and not args.notifications and not args.plans and not args.acceptance and not args.approvals and not args.redteam and not args.prune_worktrees and not args.evidence and not args.prepare_plan_task and not args.run_plan_queue and not args.worker and not args.attach and args.merge_task is None and not args.stop and args.pause_task is None and not args.cleanup_logs and args.task is None and args.decide_approval is None:
+    if not args.stdio and not args.eval and not args.list_sessions and not args.tasks and not args.notifications and not args.plans and not args.acceptance and not args.approvals and not args.redteam and not args.approve_unattended_profile and not args.prune_worktrees and not args.evidence and not args.prepare_plan_task and not args.run_plan_queue and not args.worker and not args.attach and args.merge_task is None and not args.stop and args.pause_task is None and not args.cleanup_logs and args.task is None and args.decide_approval is None:
         print(
             "Textual 入口已退役。交互界面请运行 ./run_ink.sh（例如 ./run_ink.sh --fake）；"
             "后端与 eval 分别使用 --stdio / --eval。",
@@ -962,6 +977,36 @@ def main() -> None:
                              ensure_ascii=False, indent=2))
             return
         print(format_round_evidence(record))
+        return
+
+    if args.approve_unattended_profile:
+        from app.runtime.notifications import notify
+        from app.safety.unattended import (
+            UnattendedProfileError, load_profile, profile_hash,
+            relaxed_settings, write_profile_approval,
+        )
+
+        try:
+            profile = load_profile(config.workspace)
+        except UnattendedProfileError as exc:
+            print(f"cannot load unattended profile: {exc}", file=sys.stderr)
+            raise SystemExit(2)
+        try:
+            path = write_profile_approval(config.workspace, profile, approved_by="user")
+        except OSError as exc:
+            print(f"cannot write approval: {exc}", file=sys.stderr)
+            raise SystemExit(2)
+        digest = profile_hash(profile)
+        relaxed = relaxed_settings(profile)
+        try:
+            notify(config.workspace, "unattended_profile_approved",
+                   profile=profile.profile_id, hash=digest, relaxed=relaxed)
+        except Exception:
+            pass
+        print(json.dumps({
+            "workspace": str(config.workspace), "profile_id": profile.profile_id,
+            "profile_hash": digest, "relaxed": relaxed, "approval_file": str(path),
+        }, ensure_ascii=False, indent=2))
         return
 
     if args.prune_worktrees:

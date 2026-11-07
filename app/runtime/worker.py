@@ -23,7 +23,8 @@ from app.runtime.approvals import ApprovalError, ApprovalInbox
 from app.runtime.goals import GoalStore, continue_decision, goal_prompt
 from app.runtime.notifications import notify
 from app.safety.unattended import (
-    UnattendedProfileError, load_profile, profile_hash, relaxed_settings,
+    UnattendedProfileError, check_profile_approval, load_profile,
+    profile_approval_required, profile_hash, relaxed_settings,
 )
 from app.runtime.supervise import (
     WORKER_HEARTBEAT_TTL_SECONDS,
@@ -257,6 +258,13 @@ class Worker:
             raise WorkerError(f"invalid unattended profile: {exc}") from exc
         relaxed = relaxed_settings(self.profile)
         digest = profile_hash(self.profile)
+        if relaxed and profile_approval_required():
+            approved, approval_reason = check_profile_approval(self.workspace, self.profile)
+            if not approved:
+                raise WorkerError(
+                    f"unattended profile requires approval ({approval_reason}); run "
+                    "`./run_vibe.sh --approve-unattended-profile --workspace <ws>` first"
+                )
         try:
             store.append_event(
                 self.task_id, "unattended_profile",

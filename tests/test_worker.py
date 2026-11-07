@@ -580,3 +580,55 @@ def test_worker_logs_relaxed_unattended_profile(tmp_path, monkeypatch):
               if item["kind"] == "unattended_profile_relaxed"]
     assert alerts and alerts[-1]["relaxed"] == ["allow_exec"]
     assert alerts[-1]["task_id"] == task.task_id
+
+
+def test_worker_refuses_relaxed_profile_without_approval(tmp_path, monkeypatch):
+    import asyncio
+
+    from app.runtime.worker import Worker, WorkerError
+
+    monkeypatch.setenv("VIBE_ALLOW_NON_GIT", "1")
+    monkeypatch.setenv("VIBE_UNATTENDED_REQUIRE_APPROVAL", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="test")
+    store = TaskStore(session.root)
+    task = store.create(kind="goal", objective="profile gate", workspace=str(tmp_path), mode="goal")
+    (tmp_path / ".vibe" / "unattended.json").write_text(
+        '{"schema_version": 1, "allow_exec": true}', encoding="utf-8",
+    )
+    worker = Worker(session_root=session.root, task_id=task.task_id, workspace=tmp_path,
+                    child_args=[], child_env={})
+    with pytest.raises(WorkerError, match="requires approval"):
+        asyncio.run(worker.run())
+
+
+def test_worker_accepts_relaxed_profile_after_approval(tmp_path, monkeypatch):
+    import asyncio
+
+    from app.runtime.worker import Worker
+    from app.safety.unattended import load_profile, write_profile_approval
+
+    monkeypatch.setenv("VIBE_ALLOW_NON_GIT", "1")
+    monkeypatch.setenv("VIBE_UNATTENDED_REQUIRE_APPROVAL", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="test")
+    store = TaskStore(session.root)
+    task = store.create(kind="goal", objective="profile gate ok", workspace=str(tmp_path), mode="goal")
+    (tmp_path / ".vibe" / "unattended.json").write_text(
+        '{"schema_version": 1, "allow_exec": true}', encoding="utf-8",
+    )
+    write_profile_approval(tmp_path, load_profile(tmp_path))
+    script = tmp_path / "child_ok.py"
+    script.write_text(
+        "import json, sys\n"
+        "for line in sys.stdin:\n"
+        "    req = json.loads(line)\n"
+        "    if req.get('type') == 'run':\n"
+        "        result = {'text': 'ok', 'steps': 1, 'status': 'done', 'stop_reason': '',\n"
+        "                  'usage': {}, 'cost_usd': 0, 'run_id': req['id']}\n"
+        "        print(json.dumps({'v': 1, 'type': 'done', 'id': req['id'], 'result': result}), flush=True)\n"
+        "    elif req.get('type') == 'shutdown':\n"
+        "        break\n",
+        encoding="utf-8",
+    )
+    worker = Worker(session_root=session.root, task_id=task.task_id, workspace=tmp_path,
+                    child_args=[sys.executable, str(script)], child_env={"VIBE_TASK_RUNTIME": "1"})
+    assert asyncio.run(worker.run()) == 0
