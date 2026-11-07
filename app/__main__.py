@@ -625,6 +625,18 @@ def main() -> None:
                                 acceptance = saved.get("status")
                         except Exception:
                             pass
+                        done_steps = 0
+                        executed_steps = 0
+                        try:
+                            from app.runtime.plan_execution import load_ledger
+                            ledger = load_ledger(task_path, plan.version)
+                            executed_steps = len(ledger.steps)
+                            done_steps = sum(
+                                1 for record in ledger.steps.values()
+                                if getattr(record, "status", None) == "done"
+                            )
+                        except Exception:
+                            pass
                         rows.append({
                             "workspace": str(config.workspace),
                             "session": session_path.name,
@@ -634,6 +646,9 @@ def main() -> None:
                             "status": plan.status,
                             "stale": bool(plan.approval.get("stale")),
                             "acceptance": acceptance,
+                            "total_steps": len(plan.steps),
+                            "done_steps": done_steps,
+                            "executed_steps": executed_steps,
                             "objective": plan.objective,
                         })
         print(json.dumps({"plans": rows[-100:]}, ensure_ascii=False, indent=2))

@@ -770,7 +770,7 @@ worker 启动会审计 profile：任务事件 `unattended_profile` 记 `profile/
 `--doctor` 也会提示 `.vibe/unattended.json` 被放宽的项；非法 profile 会阻塞自检。
 可选的**外部告警 webhook**：设置 `VIBE_NOTIFY_WEBHOOK=https://...` 后，通知会异步 POST JSON（最大 64 KiB，超出只发 kind/ts/truncated）；
 `VIBE_NOTIFY_WEBHOOK_KINDS` 过滤 kind（逗号分隔，`*`=全部，默认全部）；只允许 http/https，请求失败静默，不影响任务与本地通知。
-`--plans` 只读列出本工作区会话的计划版本（session/task/plan_id/version/status/stale/acceptance/objective）。
+`--plans` 只读列出本工作区会话的计划版本（session/task/plan_id/version/status/stale/acceptance/total_steps/done_steps/executed_steps/objective），便于外部监控计划进度。
 `--acceptance` 只读列出计划验收结果（plan_id/objective/plan_version/status/codes/命令数，最多 100 条）。
 `--tasks` / `--tasks-json` 的 `pending_approvals` 显示每个任务待审批数量（`/task` 同时显示「待审批 N」），便于无人值守时定位卡在审批上的任务。
 `--approvals` 只读列出跨会话待审批项（session/task/approval_id/tool/tier/requester/created_at/expires_at，最多 100 条）；已解决/过期项不显示。
