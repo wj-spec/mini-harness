@@ -184,3 +184,18 @@ def test_max_output_tokens_sent_when_configured():
     import asyncio
     run()
     assert bodies and bodies[0].get("max_tokens") == 128
+
+
+def test_fake_provider_stream_error_item_is_retryable():
+    from app.events import StreamError
+    from app.providers.fake import FakeProvider
+
+    provider = FakeProvider([
+        {"stream_error": "HTTP 503: injected", "retryable": True},
+        "重试后完成",
+    ])
+    first = _collect(provider)
+    assert len(first) == 1 and isinstance(first[0], StreamError)
+    assert first[0].retryable is True and "503" in first[0].message
+    second = _collect(provider)
+    assert any(isinstance(event, TextDelta) for event in second)

@@ -21,7 +21,10 @@ def _load():
 def test_bench_long_scenarios_are_well_formed():
     bench = _load()
     scenarios = bench.load_scenarios()
-    assert {"detach-continue", "approval-timeout", "kill-switch", "restart-attach"} <= set(scenarios)
+    assert {"detach-continue", "approval-timeout", "kill-switch", "restart-attach",
+            "provider-retry-recovers", "provider-error-gives-up"} <= set(scenarios)
+    assert scenarios["provider-retry-recovers"]["worker_env"]["VIBE_FAKE_STREAM_ERRORS"] == "1"
+    assert scenarios["provider-error-gives-up"]["expected"]["task_status"] == ["paused"]
     for scenario in scenarios.values():
         assert scenario["id"] == Path(scenario["_path"]).stem
         assert scenario["action"] in {"wait", "attach", "stop", "approval_timeout", "crash", "two_slot", "criteria"}

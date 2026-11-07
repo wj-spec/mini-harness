@@ -41,19 +41,31 @@ def _fake_demo_script() -> list:
     ]
 
 
+def _fake_stream_faults() -> list[dict]:
+    """VIBE_FAKE_STREAM_ERRORS=N：在 fake 脚本前注入 N 次可重试流错误。"""
+    try:
+        count = int(os.getenv("VIBE_FAKE_STREAM_ERRORS", "0") or 0)
+    except ValueError:
+        count = 0
+    return [
+        {"stream_error": "HTTP 503: injected fake stream error", "retryable": True}
+        for _ in range(max(0, min(count, 5)))
+    ]
+
+
 def build_provider(config: Config, fake: bool, debug_path=None):
     debug_path = debug_path or os.getenv("VIBE_LLM_DEBUG_PATH") or None
     if fake or config.provider == "fake":
         if os.getenv("VIBE_FAKE_DEMO", "").strip().lower() in {"1", "true", "yes"}:
-            return FakeProvider(_fake_demo_script())
+            return FakeProvider(_fake_stream_faults() + _fake_demo_script())
         if os.getenv("VIBE_FAKE_READ", "").strip().lower() in {"1", "true", "yes"}:
             from core.contracts import ToolCall
-            return FakeProvider([
+            return FakeProvider(_fake_stream_faults() + [
                 Response(tool_calls=[ToolCall("read_file", {"path": "README.md"}, id="fake-read-1")]),
                 "fake read 完成",
             ])
         return FakeProvider(
-            [
+            _fake_stream_faults() + [
                 "这是 fake provider。设 VIBE_API_KEY 后，用 --provider openai 接真模型。",
             ]
         )

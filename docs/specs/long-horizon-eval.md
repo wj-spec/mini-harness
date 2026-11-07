@@ -25,7 +25,9 @@
   7. `goal-criteria-pending`：未确认 `acceptance_criteria` → worker 启动前退出，task 保持 created；
   8. `no-duplicate-effects`：崩溃恢复后 changed files 为空；
   9. `goal-multisegment`：max_steps 资源停止后续段，2 段完成；
-  10. `task-deadline`：`VIBE_TASK_DEADLINE_SECONDS` 到期 → task failed、worker failed、事件 `task_deadline_exceeded`。
+  10. `task-deadline`：`VIBE_TASK_DEADLINE_SECONDS` 到期 → task failed、worker failed、事件 `task_deadline_exceeded`；
+  11. `provider-retry-recovers`：`VIBE_FAKE_STREAM_ERRORS=1` 注入一次 503 → 重试后 task completed（08 故障注入）；
+  12. `provider-error-gives-up`：注入 3 次 503、`VIBE_LLM_RETRIES=1` → 重试耗尽 task paused，不记成完成。
 - 测试：`tests/test_bench_long.py`（场景 schema、校验、列表、报告可重复标记、scenario_stats）。
 
 ## 用法
@@ -39,7 +41,7 @@
 
 - `two-slot-write-serial` 已覆盖写任务排队串行；只读任务并发与文件集并行仍待后续；
 - 多段场景目前 1 个（goal-multisegment），其余场景为单段；
-- 故障注入器仍是脚本内直连（kill -9/stop/attach），无 5xx/时钟/seed/trace 摘要；
+- 已覆盖 5xx 类流错误的确定性注入（fake provider）；时钟/seed/trace 摘要与真实 5xx 服务端注入仍待；
 - 重复运行统计已有 pass rate/耗时聚合，但还没有跨机器/跨提交的历史趋势对比。
 - 成本 cap、token/成本指标、`agent_version`、真实模型 P1；
 - fake 通过只表示接线/生命周期语义，不代表模型能力。

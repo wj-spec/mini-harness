@@ -1,0 +1,13 @@
+{
+  "id": "provider-error-gives-up",
+  "description": "伪造 provider 503 超过重试次数；任务应停止而不是记成完成（08 故障注入）",
+  "objective": "长任务评测：provider 5xx 重试耗尽",
+  "action": "wait",
+  "worker_env": {
+    "VIBE_FAKE_STREAM_ERRORS": "3",
+    "VIBE_LLM_RETRIES": "1",
+    "VIBE_LLM_RETRY_BACKOFF": "0.01"
+  },
+  "expected": {"task_status": ["paused"], "worker_status": ["exited"], "min_segments": 1},
+  "timeout_seconds": 60
+}

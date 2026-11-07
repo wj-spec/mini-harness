@@ -1,0 +1,13 @@
+{
+  "id": "provider-retry-recovers",
+  "description": "伪造 provider 503 一次；重试后任务应正常完成（08 故障注入）",
+  "objective": "长任务评测：provider 5xx 可重试",
+  "action": "wait",
+  "worker_env": {
+    "VIBE_FAKE_STREAM_ERRORS": "1",
+    "VIBE_LLM_RETRIES": "1",
+    "VIBE_LLM_RETRY_BACKOFF": "0.01"
+  },
+  "expected": {"task_status": ["completed"], "worker_status": ["exited"], "min_segments": 1},
+  "timeout_seconds": 60
+}
