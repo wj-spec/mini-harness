@@ -717,12 +717,15 @@ VIBE_DEBUG=1 ./run_ink.sh --workspace /path/to/repo
 ```bash
 set -a; . ./.env; set +a
 VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --keep
+# 后台 worker 模式（等价 /plan background）
+VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --background
 ```
 
 - 自动创建一次性 git 工作区（`--workspace` 可指定）；
 - 真实模型生成两步只读计划 → 批准 → 执行；
 - 自动回送 `approval` 帧模拟 TUI 审批；
 - 校验 s1/s2 done、`acceptance.v1.json=true`；
+- `--background` 使用 prepare-background + detached worker（真实后台 Plan 路径）；
 - `--verify-command` 可替换验收命令（默认 true，需可信 source=plan_approval）；
 - 验收重试/超时：`VIBE_ACCEPTANCE_RETRIES`、`VIBE_ACCEPTANCE_TIMEOUT_SECONDS`、
   `VIBE_ACCEPTANCE_TOTAL_TIMEOUT_SECONDS`（见 `.env.example`）；

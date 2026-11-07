@@ -271,6 +271,15 @@ TUI 真实键路仍需人工在支持 pty 的终端执行。
 
 这是真实模型下 **后台 Plan 执行 + 验收** 的端到端成功样本。
 
+该路径已固化到脚本：
+
+```bash
+VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --background
+```
+
+连续 2 次：ok=true、worker exit 0、task completed、s1/s2 done、acceptance=true、
+`/explore` ok。
+
 ## 4. 结论与限制
 
 - 已证明：真实模型可以走 `--task` 只读链路、可以生成结构化 proposed plan；

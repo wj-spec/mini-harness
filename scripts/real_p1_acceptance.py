@@ -9,6 +9,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
+import re
 import shutil
 import subprocess
 import sys
@@ -79,7 +81,8 @@ def _init_repo(workspace: Path) -> None:
     subprocess.run(["git", "commit", "-qm", "init"], cwd=workspace, check=True)
 
 
-async def _run(config: Config, workspace: Path, verify_command: str = "true") -> dict:
+async def _run(config: Config, workspace: Path, verify_command: str = "true",
+               background: bool = False) -> dict:
     session = SessionStore.new(workspace, "openai", purpose="user")
     # 1) generate plan
     gen = Harness(_agent(config, workspace), config, session)
@@ -105,10 +108,52 @@ async def _run(config: Config, workspace: Path, verify_command: str = "true") ->
     save_plan(session.root / "tasks" / plan_task_id, loaded)
     approve_plan(session.root / "tasks" / plan_task_id, load_plan(plan_file), approved_by="smoke")
     plan = json.loads(plan_file.read_text(encoding="utf-8"))
-    # 2) execute with approval frames；ConnectTimeout/error 重试一次
-    done = None
+    # 2) execute；--background 走 prepare-background + detached worker
     approvals = 0
     approval_tools: list[str] = []
+    if background:
+        prep = Harness(_agent(config, workspace), config, session)
+        try:
+            await prep.until("ready")
+            prep.send("command", "bg-1", command="plan", args={"action": "prepare-background"})
+            prepared = await prep.until("command_result", "bg-1")
+        finally:
+            await prep.close()
+        match = re.search(r"task_id=(t-[0-9a-zA-Z-]+)", str(prepared.get("text") or ""))
+        if not match:
+            return {"ok": False, "stage": "prepare-background",
+                    "error": str(prepared.get("text") or "")[:500]}
+        bg_task_id = match.group(1)
+        (workspace / ".vibe").mkdir(exist_ok=True)
+        (workspace / ".vibe" / "unattended.json").write_text(
+            '{"schema_version":1,"allow_exec":true}', encoding="utf-8")
+        env = dict(os.environ, VIBE_TASK_RUNTIME="1", VIBE_AUTONOMY="full",
+                   VIBE_LLM_TIMEOUT=str(config.llm_timeout),
+                   VIBE_MAX_STEPS="20", VIBE_MAX_RUN_TOKENS="150000")
+        proc = subprocess.run(
+            [sys.executable, "-m", "app", "--worker", "--workspace", str(workspace),
+             "--session", session.id, "--task-id", bg_task_id],
+            cwd=str(Path(__file__).resolve().parents[1]), env=env,
+            capture_output=True, text=True, timeout=300,
+        )
+        from app.runtime.tasks import TaskStore
+        final_task = TaskStore(session.root).get(bg_task_id)
+        ledger_file = session.root / "tasks" / plan_task_id / "plan" / "execution.v1.json"
+        ledger = json.loads(ledger_file.read_text(encoding="utf-8")) if ledger_file.is_file() else {}
+        acc_file = session.root / "tasks" / plan_task_id / "acceptance.v1.json"
+        acceptance = json.loads(acc_file.read_text(encoding="utf-8")).get("status") if acc_file.is_file() else None
+        steps = {item["step_id"]: item["status"] for item in ledger.get("steps", [])}
+        plan_ok = final_task.status == "completed" and steps == {"s1": "done", "s2": "done"} and acceptance is True
+        sub = await _run_subagent(config, workspace, session)
+        return {
+            "ok": plan_ok and sub.get("status") == "ok", "stage": "background",
+            "background": True, "worker_exit": proc.returncode,
+            "verify_command": verify_command, "task_id": bg_task_id,
+            "run_status": final_task.status, "steps": steps, "acceptance": acceptance,
+            "approvals": 0, "approval_tools": [], "stop_reason": None, "subagent": sub,
+        }
+
+    done = None
     for attempt in range(2):
         exe = Harness(_agent(config, workspace), config, session)
         try:
@@ -171,6 +216,8 @@ async def _run_subagent(config: Config, workspace: Path, session: SessionStore) 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workspace", default=None, help="工作区；默认新建临时 git 仓库")
+    parser.add_argument("--background", action="store_true",
+                        help="使用后台 worker 执行计划（等价 /plan background）")
     parser.add_argument("--verify-command", default="true",
                         help="计划验收命令（默认 true；需为可信 source=plan_approval）")
     parser.add_argument("--keep", action="store_true", help="保留临时工作区")
@@ -187,7 +234,7 @@ def main(argv: list[str] | None = None) -> int:
         _init_repo(workspace)
     config.workspace = workspace
     try:
-        result = asyncio.run(_run(config, workspace, args.verify_command))
+        result = asyncio.run(_run(config, workspace, args.verify_command, args.background))
     except Exception as exc:
         result = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
