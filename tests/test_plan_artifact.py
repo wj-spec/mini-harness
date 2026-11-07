@@ -262,3 +262,25 @@ def test_plan_verification_plan_validation():
     with pytest.raises(PlanError, match="command too long"):
         bad = dict(base); bad["verification_plan"] = [{"id": "v1", "covers": ["ac1"], "command": "x" * 4001, "source": "plan_approval"}]
         Plan.from_dict(bad)
+
+
+def test_submit_plan_normalizes_model_friendly_steps(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    from app.tools.registry import ToolRegistry
+    from app.session.store import SessionStore
+    from app.runtime.plan import load_plan
+
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    task_dir = session.root / "tasks" / "t-20261106-000000-abcdef"
+    task_dir.mkdir(parents=True)
+    registry = ToolRegistry(tmp_path)
+    registry.register_plan_tool(task_dir)
+    fn = registry._tools["submit_plan"].fn
+    result = fn(objective="目标", steps=["读 README", {"title": "分析", "kind": "read"}],
+                acceptance_criteria=["说明用途"])
+    assert "plan proposed" in result
+    plan = load_plan(task_dir / "plan" / "plan.v1.json")
+    assert [step.step_id for step in plan.steps] == ["s1", "s2"]
+    assert plan.steps[0].title == "读 README"
+    assert plan.steps[1].title == "分析"
+    assert plan.acceptance_criteria[0]["confirmed"] is False

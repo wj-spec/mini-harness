@@ -913,8 +913,40 @@ class ToolRegistry:
         directory = Path(task_dir)
         task_id = directory.name
 
+        def _normalize_steps(raw_steps) -> list[dict]:
+            if not isinstance(raw_steps, list):
+                return raw_steps
+            steps = []
+            for index, item in enumerate(raw_steps, start=1):
+                if isinstance(item, str):
+                    steps.append({"step_id": f"s{index}", "title": item, "kind": "read"})
+                    continue
+                if not isinstance(item, dict):
+                    steps.append(item)
+                    continue
+                normalized = dict(item)
+                normalized.setdefault("step_id", f"s{index}")
+                if not normalized.get("title"):
+                    normalized["title"] = str(normalized.get("description") or normalized["step_id"])
+                normalized.setdefault("kind", "read")
+                steps.append(normalized)
+            return steps
+
+        def _normalize_criteria(raw_criteria) -> list[dict]:
+            if not isinstance(raw_criteria, list):
+                return raw_criteria
+            criteria = []
+            for index, item in enumerate(raw_criteria, start=1):
+                if isinstance(item, str):
+                    criteria.append({"id": f"ac{index}", "text": item, "confirmed": False})
+                else:
+                    criteria.append(item)
+            return criteria
+
         def submit_plan(**payload) -> str:
             import uuid
+            steps = _normalize_steps(payload.get("steps"))
+            criteria = _normalize_criteria(payload.get("acceptance_criteria", []))
             plan = Plan.from_dict({
                 "schema_version": 1,
                 "plan_id": payload.pop("plan_id", f"pl-{uuid.uuid4().hex[:12]}"),
@@ -922,8 +954,8 @@ class ToolRegistry:
                 "version": 1,
                 "status": "draft",
                 "objective": payload.get("objective"),
-                "steps": payload.get("steps"),
-                "acceptance_criteria": payload.get("acceptance_criteria", []),
+                "steps": steps,
+                "acceptance_criteria": criteria,
                 "verification_plan": payload.get("verification_plan", []),
                 "source": {"mode": "plan"},
                 "constraints": payload.get("constraints", []),
@@ -949,9 +981,49 @@ class ToolRegistry:
                 "type": "object",
                 "properties": {
                     "objective": {"type": "string", "minLength": 1, "maxLength": 4000},
-                    "steps": {"type": "array", "minItems": 1},
-                    "acceptance_criteria": {"type": "array"},
-                    "verification_plan": {"type": "array"},
+                    "steps": {
+                        "type": "array", "minItems": 1,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "step_id": {"type": "string", "minLength": 1},
+                                "title": {"type": "string", "minLength": 1},
+                                "kind": {"type": "string", "enum": ["read", "edit", "run", "verify"]},
+                                "depends_on": {"type": "array", "items": {"type": "string"}},
+                                "files": {"type": "array", "items": {"type": "string"}},
+                            },
+                            "required": ["step_id", "title"],
+                            "additionalProperties": False,
+                        },
+                    },
+                    "acceptance_criteria": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string", "minLength": 1},
+                                "text": {"type": "string", "minLength": 1},
+                                "confirmed": {"type": "boolean"},
+                                "required": {"type": "boolean"},
+                            },
+                            "required": ["id", "text"],
+                            "additionalProperties": False,
+                        },
+                    },
+                    "verification_plan": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string", "minLength": 1},
+                                "covers": {"type": "array", "items": {"type": "string"}},
+                                "command": {"type": "string", "minLength": 1},
+                                "source": {"type": "string", "enum": ["plan_approval", "project_profile"]},
+                            },
+                            "required": ["id", "command"],
+                            "additionalProperties": False,
+                        },
+                    },
                     "constraints": {"type": "array", "items": {"type": "string"}},
                     "out_of_scope": {"type": "array", "items": {"type": "string"}},
                     "open_questions": {"type": "array", "items": {"type": "string"}},
