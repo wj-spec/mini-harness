@@ -126,4 +126,4 @@ TUI /goal /chat /act /plan
   真实 suite 双模型 **6/6**。
 
 剩余均依赖用户/环境：真实 TUI 终端键路人工验收、模型自发委派（P2）、文件集级并行写、跨机器集中观测
-（见 [待用户拍板事项](open-decisions.md)）。
+（见 [待用户拍板事项](open-decisions.md)）；一页交接见 [交接摘要](final-handoff-2026-11-07.md)。
