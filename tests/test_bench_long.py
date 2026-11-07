@@ -83,3 +83,17 @@ def test_bench_long_report_includes_scenario_stats(tmp_path):
     md = (tmp_path / "report.md").read_text(encoding="utf-8")
     assert "## scenario stats" in md
     assert "| a | 2 | 1 | 1 | 50% | 3.0s | 4.0s |" in md
+
+
+def test_bench_long_report_includes_agent_version(tmp_path, monkeypatch):
+    bench = _load()
+    monkeypatch.setenv("VIBE_BENCH_AGENT_VERSION", "test-sha")
+    results = [
+        {"scenario": "a", "run_index": 1, "ok": True, "task_status": "completed",
+         "worker_status": "exited", "segments": 1, "changed_files": [], "duration_seconds": 1},
+    ]
+    path = bench.write_report(tmp_path, results, ["a"])
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["agent_version"] == "test-sha"
+    md = (tmp_path / "report.md").read_text(encoding="utf-8")
+    assert "- agent_version: test-sha" in md

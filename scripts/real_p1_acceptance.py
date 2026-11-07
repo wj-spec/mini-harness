@@ -392,6 +392,21 @@ async def _run_merge(config: Config, workspace: Path,
     }
 
 
+def _agent_version() -> str:
+    override = os.getenv("VIBE_BENCH_AGENT_VERSION", "").strip()
+    if override:
+        return override
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(Path(__file__).resolve().parents[1]), "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=10,
+        )
+        value = out.stdout.strip()
+        return value if out.returncode == 0 and value else "unknown"
+    except Exception:
+        return "unknown"
+
+
 async def _run_suite(config: Config, workspace: Path, verify_command: str = "true") -> dict:
     """一次跑完前台/后台/修复回灌/合并重验四种真实链路，返回聚合结果。"""
     modes = [
@@ -600,6 +615,8 @@ def main(argv: list[str] | None = None) -> int:
             result = asyncio.run(_run(config, workspace, args.verify_command, args.background))
     except Exception as exc:
         result = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    if isinstance(result, dict):
+        result.setdefault("agent_version", _agent_version())
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
     out_dir = workspace / ".vibe" / "real-p1-acceptance"
     out_dir.mkdir(parents=True, exist_ok=True)

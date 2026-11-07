@@ -331,10 +331,28 @@ def _scenario_stats(results: list[dict]) -> dict[str, dict]:
     return stats
 
 
+def agent_version(root: Path | None = None) -> str:
+    """评测版本标识：VIBE_BENCH_AGENT_VERSION 优先，其次 git short HEAD。"""
+    override = os.getenv("VIBE_BENCH_AGENT_VERSION", "").strip()
+    if override:
+        return override
+    base = Path(root) if root is not None else ROOT
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(base), "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=10,
+        )
+        value = out.stdout.strip()
+        return value if out.returncode == 0 and value else "unknown"
+    except Exception:
+        return "unknown"
+
+
 def write_report(root: Path, results: list[dict], scenario_ids: list[str], *, real: bool = False) -> Path:
     report = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "mode": "real-worker-p0" if real else "fake-worker-p0",
+        "agent_version": agent_version(),
         "scenarios": scenario_ids,
         "runs": results,
         "summary": {
@@ -348,7 +366,9 @@ def write_report(root: Path, results: list[dict], scenario_ids: list[str], *, re
     root.mkdir(parents=True, exist_ok=True)
     json_path = root / "report.json"
     json_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    lines = ["# long-horizon P0 report", "", f"- mode: {report['mode']}", f"- scenarios: {', '.join(scenario_ids)}", ""]
+    lines = ["# long-horizon P0 report", "", f"- mode: {report['mode']}",
+             f"- agent_version: {report['agent_version']}",
+             f"- scenarios: {', '.join(scenario_ids)}", ""]
     lines += ["| scenario | run | ok | task | worker | segments | duration |", "|---|---|---|---|---|---|---|"]
     for item in results:
         lines.append(

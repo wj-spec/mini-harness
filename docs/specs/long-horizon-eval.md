@@ -13,7 +13,8 @@
   - 写 `.vibe/bench-long/<ts>/report.json` 与 `report.md`；
   - 同场景多次运行报告 `repeated_scenarios`（terminal/worker/segments/changed_files 一致）；
   - `summary.scenario_stats`：每场景 runs/passed/failed/pass_rate/avg_duration/max_duration，
-    `report.md` 同步生成 scenario stats 表（重复运行稳定性对照）。
+    `report.md` 同步生成 scenario stats 表（重复运行稳定性对照）；
+  - 报告含 `agent_version`（`VIBE_BENCH_AGENT_VERSION` 或 git short HEAD），便于跨提交对比。
 - 场景目录 `benchmarks/long/*.json`，schema 包含 `id/description/objective/action/worker_env/expected/timeout_seconds`。
 - 当前场景（`benchmarks/long/`）：
   1. `detach-continue`：后台自然完成；
@@ -42,6 +43,6 @@
 - `two-slot-write-serial` 已覆盖写任务排队串行；只读任务并发与文件集并行仍待后续；
 - 多段场景目前 1 个（goal-multisegment），其余场景为单段；
 - 已覆盖 5xx 类流错误的确定性注入（fake provider）；时钟/seed/trace 摘要与真实 5xx 服务端注入仍待；
-- 重复运行统计已有 pass rate/耗时聚合，但还没有跨机器/跨提交的历史趋势对比。
+- 重复运行统计已有 pass rate/耗时聚合与 agent_version，但还没有跨机器/跨提交的历史趋势对比。
 - 成本 cap、token/成本指标、`agent_version`、真实模型 P1；
 - fake 通过只表示接线/生命周期语义，不代表模型能力。
