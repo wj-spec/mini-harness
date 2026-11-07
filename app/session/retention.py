@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -14,6 +15,7 @@ DEFAULT_BACKUPS = 3
 # events.jsonl 是会话恢复的权威来源，不自动轮转；只做软上限告警。
 DEFAULT_EVENTS_MAX_BYTES = 32 * 1024 * 1024
 DEFAULT_BENCH_KEEP = 20
+BENCH_RUN_DIR_RE = re.compile(r"^\d{8}T\d{6}Z$")
 
 
 @dataclass(frozen=True)
@@ -90,7 +92,9 @@ def cleanup_bench_reports(
     directories = []
     if root.is_dir():
         directories = sorted(
-            (path for path in root.iterdir() if path.is_dir() and not path.is_symlink()),
+            (path for path in root.iterdir()
+             if path.is_dir() and not path.is_symlink()
+             and BENCH_RUN_DIR_RE.fullmatch(path.name)),
             key=lambda path: path.name,
         )
     stale = directories[:-keep] if keep else directories

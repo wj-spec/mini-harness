@@ -22,6 +22,7 @@ def _seed(tmp_path, count=3):
 def test_cleanup_bench_keeps_latest(tmp_path, monkeypatch, capsys):
     root = _seed(tmp_path, count=3)
     monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path))
+    (root / "keep-me").mkdir()
     monkeypatch.setattr("sys.argv", ["vibe", "--cleanup-bench", "--bench-keep", "2",
                                      "--workspace", str(tmp_path)])
     entrypoint.main()
@@ -29,7 +30,7 @@ def test_cleanup_bench_keeps_latest(tmp_path, monkeypatch, capsys):
     assert payload["candidates"] == 3 and payload["keep"] == 2
     assert len(payload["removed"]) == 1 and payload["removed"][0]["removed"] is True
     remaining = sorted(path.name for path in root.iterdir())
-    assert remaining == ["20261102T000000Z", "20261103T000000Z"]
+    assert remaining == ["20261102T000000Z", "20261103T000000Z", "keep-me"]
 
 
 def test_cleanup_bench_dry_run_does_not_remove(tmp_path, monkeypatch, capsys):
