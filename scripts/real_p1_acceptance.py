@@ -84,25 +84,36 @@ def _init_repo(workspace: Path) -> None:
 async def _generate_plan(config: Config, workspace: Path, session: SessionStore,
                         verify_command: str = "true", *, prompt: str | None = None,
                         adjust=None) -> tuple[str | None, dict | None]:
-    gen = Harness(_agent(config, workspace), config, session)
-    try:
-        await gen.until("ready")
-        prompt = prompt or (
-            "必须调用 submit_plan 一次，提交恰好两个步骤的只读计划："
-            '{"step_id":"s1","title":"读取 README.md","kind":"read"} 和 '
-            '{"step_id":"s2","title":"总结项目用途","kind":"read"}，s2 depends_on ["s1"]。'
-            "提交后立即结束。"
-        )
-        gen.send("run", "gen-1", text=prompt,
-                 task={"kind": "run", "mode": "plan", "objective": "真实 P1 计划"})
-        state = await gen.until("task_state", "gen-1")
-        plan_task_id = state["task"]["task_id"]
-        await gen.until("done", "gen-1")
-    finally:
-        await gen.close()
-    plan_file = session.root / "tasks" / plan_task_id / "plan" / "plan.v1.json"
-    if not plan_file.is_file():
+    base_prompt = prompt or (
+        "必须调用 submit_plan 一次，提交恰好两个步骤的只读计划："
+        '{"step_id":"s1","title":"读取 README.md","kind":"read"} 和 '
+        '{"step_id":"s2","title":"总结项目用途","kind":"read"}，s2 depends_on ["s1"]。'
+        "提交后立即结束。"
+    )
+    plan_task_id: str | None = None
+    for attempt in range(2):
+        gen = Harness(_agent(config, workspace), config, session)
+        try:
+            await gen.until("ready")
+            request_id = f"gen-{attempt + 1}"
+            text = base_prompt
+            if attempt:
+                text = ("上一次运行没有产生计划文件。这次必须调用 submit_plan 工具一次，"
+                        + base_prompt)
+            gen.send("run", request_id, text=text,
+                     task={"kind": "run", "mode": "plan", "objective": "真实 P1 计划"})
+            state = await gen.until("task_state", request_id)
+            candidate_id = state["task"]["task_id"]
+            await gen.until("done", request_id)
+        finally:
+            await gen.close()
+        candidate = session.root / "tasks" / candidate_id / "plan" / "plan.v1.json"
+        if candidate.is_file():
+            plan_task_id = candidate_id
+            break
+    if plan_task_id is None:
         return None, None
+    plan_file = session.root / "tasks" / plan_task_id / "plan" / "plan.v1.json"
     loaded = load_plan(plan_file)
     loaded.acceptance_criteria = [{"id": "ac1", "text": "验收命令成功", "confirmed": True}]
     loaded.verification_plan = [{"id": "v1", "covers": ["ac1"], "command": verify_command,

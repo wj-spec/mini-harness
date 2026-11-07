@@ -52,3 +52,47 @@ def test_real_p1_script_parses_suite_mode(monkeypatch, capsys):
     assert callable(real_p1_acceptance._run_suite)
     assert callable(real_p1_acceptance._run_queue)
     assert callable(real_p1_acceptance._run_goal_stage)
+
+
+def test_generate_plan_retries_when_first_run_writes_no_plan(tmp_path, monkeypatch):
+    import asyncio
+
+    from app.runtime.plan import Plan, propose_plan
+    from app.session.store import SessionStore
+
+    script = real_p1_acceptance
+    sent: list[int] = []
+
+    class FakeHarness:
+        def __init__(self, agent, config, session):
+            self.session = session
+
+        async def until(self, kind, request_id=None):
+            if kind == "task_state":
+                return {"task": {"task_id": f"t-fake-{len(sent)}"}}
+            return {}
+
+        def send(self, kind, request_id, text=None, task=None):
+            sent.append(len(sent) + 1)
+            if len(sent) == 2:
+                task_id = f"t-fake-{len(sent)}"
+                task_dir = self.session.root / "tasks" / task_id
+                task_dir.mkdir(parents=True)
+                plan = Plan.from_dict({
+                    "schema_version": 1, "plan_id": "pl-fake", "task_id": task_id,
+                    "objective": "假计划", "steps": [{"step_id": "s1", "title": "读"}],
+                })
+                propose_plan(task_dir, plan)
+
+        async def close(self):
+            return None
+
+    monkeypatch.setattr(script, "Harness", FakeHarness)
+    monkeypatch.setattr(script, "_agent", lambda *args, **kwargs: None)
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    task_id, plan = asyncio.run(
+        script._generate_plan(Config(workspace=tmp_path, provider="fake"), tmp_path, session, "true")
+    )
+    assert task_id == "t-fake-2"
+    assert plan is not None and plan["plan_id"] == "pl-fake"
+    assert len(sent) == 2
