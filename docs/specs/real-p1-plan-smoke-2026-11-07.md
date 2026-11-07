@@ -395,6 +395,9 @@ Python 1613/13、TUI 414/415、fake bench 15/15、doctor/redteam、real-bench 5/
 真实模型 `--explore` CLI（2026-11-07）：deepseek-flash tokens 2153、deepseek-chat tokens 2434，
 均 `ok/status=ok`，单次 read_file 后给出正确摘要，无写操作（任务以 subagent TaskRecord 落盘）。
 
+opt-in 只读 `delegate`（2026-11-07，`VIBE_SUBAGENT_DELEGATE=1`）：强制模型调用一次 delegate；
+flash 4791 tokens / chat 4666 tokens，均 2 步完成，恰好 1 次子 Agent 调用，主 Agent 把返回标为未核实声明后转述。
+
 **计划生成重试（2026-11-07）**：deepseek-chat 偶发一次运行只输出文字、不调用 `submit_plan`，
 导致 repair 模式在 `generate` 阶段失败（`no plan.v1.json`）。脚本现对计划生成自动重试一次
 （同一会话、第二段提示明确要求调用 `submit_plan`）；复跑 chat `--repair` 通过、suite 六模式 6/6。
