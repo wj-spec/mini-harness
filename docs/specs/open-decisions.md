@@ -11,13 +11,14 @@
 
 **选项**：
 - A. 保持不开放（默认，当前）。主 loop 仍是单 Agent，成本与可预期性最好；
-- B. **推荐**：开放只读 `delegate` 工具（opt-in `VIBE_SUBAGENT_DELEGATE=1`）：
+- B. **推荐（已实现）**：开放只读 `delegate` 工具（opt-in `VIBE_SUBAGENT_DELEGATE=1`）：
   - 仅 read-only 子集、不嵌套（depth=1）、受 parent 预算硬上限约束；
   - 工具结果标 provenance，子报告视为 untrusted claim；
   - 配套 A/B：单 Agent vs 委派 在长任务/大仓库问题上的 token、时延、正确率。
 - C. 开放写子 Agent：需要 worktree + 审批归属 + merge 门禁完整串联，风险最高，不建议先做。
 
-**需要你确认**：是否选 B、允许的模式（plan 只读探索 / act / goal）与成本上限。
+**状态**：B 已实现并通过单测/agent loop 测试（只读子集、不嵌套、父预算上限、untrusted provenance）；
+默认关闭。**仍需你确认**：是否默认开启/允许哪些模式，以及是否投入预算做 A/B 收益评估。
 
 ## 2. 文件集级并行写（04 实验项）
 

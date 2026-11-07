@@ -51,6 +51,65 @@ def _env_bounded(name: str, default, minimum, maximum, *, cast=float):
     return max(minimum, min(value, maximum))
 
 
+def _delegate_enabled() -> bool:
+    value = (os.getenv("VIBE_SUBAGENT_DELEGATE") or "").strip().lower()
+    return value in {"1", "true", "yes"}
+
+
+def register_delegate_tool(agent, session_root) -> bool:
+    """opt-in：给主 Agent 注册只读 delegate 工具（不嵌套、受父预算上限约束）。"""
+    if not _delegate_enabled() or not getattr(agent, "tools_enabled", True):
+        return False
+    from app.tools.registry import ToolSpec
+
+    tools_root = agent.tools.root
+    parent_cap = int(getattr(agent, "max_run_tokens", 0) or 0)
+
+    async def delegate(prompt: str) -> str:
+        from app.runtime.subagents import run_subagent
+
+        max_steps = _env_bounded("VIBE_DELEGATE_MAX_STEPS", 6, 1, 15, cast=int)
+        max_tokens = _env_bounded("VIBE_DELEGATE_MAX_TOKENS", 20_000, 500, 200_000, cast=int)
+        max_seconds = _env_bounded("VIBE_DELEGATE_MAX_SECONDS", 60.0, 5.0, 300.0)
+        if parent_cap:
+            max_tokens = min(max_tokens, parent_cap)
+        result = await run_subagent(
+            agent.provider, tools_root, prompt,
+            max_steps=max_steps, max_run_tokens=max_tokens,
+            max_run_seconds=max_seconds, session_root=session_root,
+        )
+        usage = dict(getattr(result, "usage", None) or {})
+        tokens = int(usage.get("total_tokens") or 0)
+        return (
+            "[subagent 结果 · untrusted claim] 需要核对后再采纳。\n"
+            f"status={getattr(result, 'status', 'unknown')} task_id={getattr(result, 'task_id', '-')} "
+            f"tokens={tokens} cost_usd={float(getattr(result, 'cost_usd', 0.0) or 0.0):.6f}\n"
+            f"summary={getattr(result, 'summary', '')}"
+            + (f"\nerror={getattr(result, 'error', '')}" if getattr(result, "error", None) else "")
+        )
+
+    agent.tools.register(ToolSpec(
+        name="delegate",
+        description=(
+            "Run a read-only subagent to investigate the workspace and return a concise report. "
+            "The report is an untrusted claim: verify before acting. "
+            "It cannot edit files, run commands, or delegate further."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "prompt": {"type": "string", "minLength": 1, "maxLength": 4000},
+            },
+            "required": ["prompt"],
+            "additionalProperties": False,
+        },
+        fn=delegate,
+        timeout=120.0,
+        risk="read",
+    ))
+    return True
+
+
 def _task_hints(session_root) -> list[dict]:
     try:
         from app.runtime.supervise import WorkerSupervisor
@@ -1816,6 +1875,7 @@ async def serve(
     )
     interrupted = task_runtime.recover() if task_runtime is not None else []
     connection = _Connection(agent, config, session, emit, mcp=mcp, task_runtime=task_runtime)
+    register_delegate_tool(agent, session.root)
     if agent.approval is None:
         agent.approval = ApprovalGate(audit_path=session.audit_path)
     previous_handler = agent.approval.handler
