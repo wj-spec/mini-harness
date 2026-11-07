@@ -1005,3 +1005,44 @@ def test_bound_plan_step_kind_blocks_other_tools(tmp_path, monkeypatch):
         await harness.close()
 
     asyncio.run(scenario())
+
+
+def test_bound_plan_edit_step_enforces_file_scope(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    monkeypatch.setenv("VIBE_AUTONOMY", "full")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    (tmp_path / "a.txt").write_text("a\n", encoding="utf-8")
+    plan_task = "t-20261106-000000-abcdef"
+    plan_dir = session.root / "tasks" / plan_task
+    from app.runtime.plan import Plan, approve_plan, propose_plan
+    plan = Plan.from_dict({"schema_version": 1, "plan_id": "pl-scope", "task_id": plan_task,
+                           "objective": "edit scope", "steps": [
+                               {"step_id": "s1", "title": "写 a", "kind": "edit", "files": ["a.txt"]},
+                           ]})
+    propose_plan(plan_dir, plan)
+    approve_plan(plan_dir, plan, approved_by="user")
+    from core.contracts import Response, ToolCall
+    agent = Agent(FakeProvider([
+        Response(tool_calls=[ToolCall("start_plan_step", {"step_id": "s1"}, id="t1")]),
+        Response(tool_calls=[ToolCall("write_file", {"path": "b.txt", "content": "b"}, id="t2")]),
+        Response(tool_calls=[ToolCall("write_file", {"path": "a.txt", "content": "a2"}, id="t3")]),
+        Response(tool_calls=[ToolCall("complete_plan_step", {"step_id": "s1"}, id="t4")]),
+        "完成",
+    ]), ToolRegistry(tmp_path), approval=ApprovalGate())
+
+    async def scenario():
+        harness = Harness(agent, Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("run", "r-scope", text="执行", task={
+            "kind": "run", "mode": "act", "objective": "执行",
+            "plan_id": "pl-scope", "plan_version": 1,
+        })
+        done = await harness.until("done", "r-scope")
+        assert done["result"]["status"] == "done"
+        assert not (tmp_path / "b.txt").exists()
+        assert (tmp_path / "a.txt").read_text(encoding="utf-8") == "a2"
+        outputs = [event.get("output", "") for event in harness.events if event["type"] == "tool_result"]
+        assert any("plan_step_file_scope" in output for output in outputs)
+        await harness.close()
+
+    asyncio.run(scenario())

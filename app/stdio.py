@@ -785,6 +785,12 @@ class _Connection:
                         step = next((item for item in bound_plan.steps if item.step_id == current), None)
                         kind = step.kind if step is not None else "read"
                         if kind == "edit" and call.name in edit_tools:
+                            if step is not None and step.files and call.name in {"write_file", "edit_file"}:
+                                path = str(call.args.get("path") or "").replace("\\", "/").lstrip("./")
+                                allowed = {str(item).replace("\\", "/").lstrip("./") for item in step.files}
+                                if path not in allowed:
+                                    return (f"plan_step_file_scope: step {current} only allows "
+                                            f"{sorted(allowed)}; blocked {path!r}")
                             return None
                         if kind in {"run", "verify"} and call.name in exec_tools:
                             return None
