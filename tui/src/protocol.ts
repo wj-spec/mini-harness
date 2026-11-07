@@ -24,7 +24,7 @@ export const COMMAND_DESCRIPTIONS: Record<string, string> = {
   '/cost': '查看本轮与会话成本', '/tools': '查看工具调用统计', '/diff': '查看工作区改动', '/permissions': '查看审批规则',
   '/permissions reset': '恢复默认审批规则', '/mcp': '查看 MCP 服务', '/skills': '技能菜单（↑↓ 选择，Tab 补全）', '/goal': '目标模式：长任务自动续段', '/session': '查看会话路径',
   '/theme': '切换主题', '/followup': '排队后续任务', '/task': '查看当前会话任务与 worker', '/tasks': '查看当前会话任务与 worker', '/approvals': '查看待审批收件箱', '/copy': '复制最近回复', '/project': '管理项目背景',
-  '/about': '管理个人偏好', '/sidebar': '打开右侧变更侧栏', '/sidebar split': '窗口内右侧分屏（跟随窗口）', '/sidebar quick': '屏幕右侧 quick terminal（不挤占）', '/sidebar window': '独立窗口模式（手动摆位）', '/sidebar setup': '写入 Ghostty 右侧配置', '/evidence': '查看最近一轮验收证据', '/trace': '查看会话 trace 观测摘要', '/autonomy': '查看或切换授权档位', '/chat': 'chat 模式：只对话不调用工具', '/act': 'act 模式：正常工具执行', '/plan': 'plan 模式：只读规划；无参数查看最近计划', '/explore': '只读子 Agent 探索', '/notifications': '查看后台任务通知', '/quit': '退出', '/exit': '退出',
+  '/about': '管理个人偏好', '/sidebar': '打开右侧变更侧栏', '/sidebar split': '窗口内右侧分屏（跟随窗口）', '/sidebar quick': '屏幕右侧 quick terminal（不挤占）', '/sidebar window': '独立窗口模式（手动摆位）', '/sidebar setup': '写入 Ghostty 右侧配置', '/evidence': '查看最近一轮验收证据', '/trace': '查看会话 trace 观测摘要（可 /trace 24）', '/autonomy': '查看或切换授权档位', '/chat': 'chat 模式：只对话不调用工具', '/act': 'act 模式：正常工具执行', '/plan': 'plan 模式：只读规划；无参数查看最近计划', '/explore': '只读子 Agent 探索', '/notifications': '查看后台任务通知', '/quit': '退出', '/exit': '退出',
 };
 export function commandMatches(value: string): string[] {
   return value.startsWith('/') && !value.includes('\n') ? COMMAND_COMPLETIONS.filter(command => command.startsWith(value)) : [];

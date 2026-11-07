@@ -2247,3 +2247,17 @@ test('/trace with hours forwards bounded hours argument', async () => {
   assert.equal(client.commands.at(-1), 'trace');
   assert.deepEqual(client.commandArgs.at(-1), {hours: 24});
 });
+
+
+test('/trace rejects invalid hours without sending a command', async () => {
+  const client = new MockClient();
+  const view = render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}/>);
+  const {stdin} = view;
+  await pause(20);
+  client.emit({type: 'ready', workspace: '/tmp/repo', model: 'fake', session_id: 'test', capabilities: []});
+  client.emit({type: 'status', phase: 'idle'});
+  await pause(20);
+  await enter(stdin, '/trace abc');
+  assert.match(String(view.lastFrame() ?? ''), /用法：\/trace/);
+  assert.equal(client.commands.includes('trace'), false);
+});

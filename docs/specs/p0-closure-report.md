@@ -8,7 +8,7 @@
 | 检查 | 结果 |
 |---|---|
 | Python 全量 | **1565 passed / 13 skipped** |
-| TUI | **399 passed / 1 failed**（400 收集）；失败为环境 pty smoke（`out of pty devices`）；含 10 个真实 Python 后端跨层集成用例；计划覆盖层新增 `d` 版本比较、`t` 步骤标题编辑 |
+| TUI | **400 passed / 1 failed**（401 收集）；失败为环境 pty smoke（`out of pty devices`）；含 10 个真实 Python 后端跨层集成用例；计划覆盖层新增 `d` 版本比较、`t` 步骤标题编辑 |
 | 长任务 fake 场景 | **14/14 PASS**（`scripts/bench_long.py --runs 1`；含 2 个 5xx 注入、1 个 fake 时钟、2 个多段场景；另有 `--real` 真 provider 入口） |
 | 07 attach 人工验收 | TC-01–09 通过（[记录](manual-acceptance-07-results.md)） |
 | Plan/SubAgent 人工验收清单 | TC-16-01–08 已编写；自动化/真实模型部分已记录（[清单](manual-acceptance-16-plan-subagent.md)、[结果](manual-acceptance-16-results.md)），真实 TUI 键路待；新增 [TUI 终端快速验收清单](manual-acceptance-tui-quick.md) 便于终端一次走完 |
@@ -74,7 +74,7 @@ TUI /goal /chat /act /plan
    文件集级并行写仍待；profile 放宽审批门已实现（`--approve-unattended-profile` + `VIBE_UNATTENDED_REQUIRE_APPROVAL`）。
 5. **08 剩余**：5xx 注入（含本地 mock 服务端 503→200）、fake 时钟偏移注入、goal 成本 cap、
    重复运行统计、`agent_version`（bench 报告）已实现；seed 注入当前不适用（无随机采样）。
-6. **环境**：真实 TUI 验收受 pty 限制；browser smoke 在负载下偶发 flake。
+6. **环境**：真实 TUI 验收受 pty 限制；browser smoke 与 TUI 侧栏渲染在负载下偶发 flake（复跑即过）。
 7. **生产级**：合并后重验（真实链路 2/2 已跑通）、外部 webhook 告警、doctor 运行时自检、
    计划任务 prepare+drain（含跨会话/跨工作区、continue-on-failure、1-8 并行、priority 排序）排队入口已接入；
    trace 观测摘要（`--trace-summary`）已提供，跨机器集中观测/追踪仍非生产完成。
