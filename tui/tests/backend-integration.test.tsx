@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {execFileSync} from 'node:child_process';
 import {existsSync} from 'node:fs';
 import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -454,6 +455,51 @@ test('/trace with hours filters through the real backend', async t => {
       Extract<ServerEvent, {type: 'command_result'}>;
     assert.match(result.text, /tokens 15/);
     assert.doesNotMatch(result.text, /tokens 150/);
+  } finally {
+    await client.shutdown();
+    cleanup();
+    await rm(workspace, {recursive: true, force: true});
+  }
+});
+
+
+test('/priority reprioritizes a created task through the real backend', async t => {
+  const python = path.join(repoRoot, '.venv', 'bin', 'python3');
+  if (!existsSync(python) || !existsSync(path.join(repoRoot, 'run_vibe.sh'))) {
+    t.skip('python backend unavailable');
+    return;
+  }
+  const workspace = await mkdtemp(path.join(tmpdir(), 'vibe-tui-priority-'));
+  const events: ServerEvent[] = [];
+  const client = createBackendClient({repoRoot, args: ['--fake', '--workspace', workspace]});
+  client.subscribe(event => events.push(event));
+  const view = render(<App client={client}/>);
+  try {
+    client.start();
+    await waitFor(() => events.some(event => event.type === 'ready'));
+    const ready = events.find(event => event.type === 'ready') as Extract<ServerEvent, {type: 'ready'}>;
+    const sessionPath = ready.session_path ?? '';
+    assert.ok(sessionPath, 'ready should include session_path');
+    const script = [
+      'import sys',
+      'from app.runtime.tasks import TaskStore',
+      'task = TaskStore(sys.argv[1]).create(kind="run", objective="队列任务", workspace=sys.argv[2], mode="act")',
+      'print(task.task_id)',
+    ].join('\n');
+    const taskId = execFileSync(python, ['-c', script, sessionPath, workspace],
+      {cwd: repoRoot, encoding: 'utf8'}).trim();
+    assert.ok(taskId.startsWith('t-'), taskId);
+    const stdin = view.stdin as unknown as {write(value: string): void};
+    stdin.write(`/priority ${taskId} 7`);
+    await pause(80);
+    stdin.write('\r');
+    await waitFor(() => events.some(event => event.type === 'command_result' && event.command === 'priority'));
+    const result = events.find(event => event.type === 'command_result' && event.command === 'priority') as
+      Extract<ServerEvent, {type: 'command_result'}>;
+    assert.match(result.text, /优先级为 7/);
+    const meta = JSON.parse(await readFile(path.join(sessionPath, 'tasks', taskId, 'meta.json'), 'utf8')) as
+      {priority: number};
+    assert.equal(meta.priority, 7);
   } finally {
     await client.shutdown();
     cleanup();
