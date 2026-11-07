@@ -204,7 +204,7 @@ npm --prefix tui test       # TypeScript / Ink 测试
 | [计划审批门 P0](docs/specs/plan-approval.md) | plan propose/approve/reject、content hash、plan.review capability、审计事件 |
 | [计划执行绑定 P0](docs/specs/plan-execution.md) | step ledger、状态机、证据推进、原子 execution 文件 |
 | [计划验收映射 P0](docs/specs/plan-acceptance.md) | criteria→verification plan、三态结论与失败原因码 |
-| [P0 收束报告](docs/specs/p0-closure-report.md) | 16 块 P0 状态、当前测试基线、17 个长任务场景（3 个真实适配、双模型 3/3）、已知限制与 100 轮加固摘要 |
+| [P0 收束报告](docs/specs/p0-closure-report.md) | 16 块 P0 状态、当前测试基线、18 个长任务场景（4 个真实适配、双模型 4/4）、已知限制与 100 轮加固摘要 |
 | [Plan/SubAgent 人工验收](docs/specs/manual-acceptance-16-plan-subagent.md) | TC-16-01–08：计划审批/执行/验收、stale/修订、/explore、CLI 只读视图、侧栏摘要 |
 | [Plan/SubAgent 验收结果](docs/specs/manual-acceptance-16-results.md) | 2026-11-07：真实模型 Plan/SubAgent 自动化结果、TC-16 映射、剩余 TUI 键路 |
 | [TUI 终端快速验收](docs/specs/manual-acceptance-tui-quick.md) | 真实终端 10 分钟走完启动/审批/Plan 覆盖层/explore/后台/队列/attach/侧栏的可见效果与手感 |
