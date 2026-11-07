@@ -1847,3 +1847,39 @@ def test_plan_card_shows_approval_details(tmp_path, monkeypatch):
         await harness.close()
 
     asyncio.run(scenario())
+
+
+def test_explore_command_uses_env_budgets(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    monkeypatch.setenv("VIBE_EXPLORE_MAX_STEPS", "9")
+    monkeypatch.setenv("VIBE_EXPLORE_MAX_TOKENS", "12345")
+    monkeypatch.setenv("VIBE_EXPLORE_MAX_SECONDS", "30")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    captured = {}
+
+    async def fake_run_subagent(provider, tools_root, prompt, **kwargs):
+        captured.update(kwargs)
+
+        class Result:
+            status = "ok"
+            summary = "摘要"
+            task_id = "t-sub"
+            usage = {"total_tokens": 10}
+            cost_usd = 0.0
+            error = None
+
+        return Result()
+
+    monkeypatch.setattr("app.runtime.subagents.run_subagent", fake_run_subagent)
+
+    async def scenario():
+        harness = Harness(_agent(tmp_path), Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("command", "c-explore-budget", command="explore", args={"prompt": "读"})
+        await harness.until("command_result", "c-explore-budget")
+        await harness.close()
+
+    asyncio.run(scenario())
+    assert captured["max_steps"] == 9
+    assert captured["max_run_tokens"] == 12345
+    assert captured["max_run_seconds"] == 30.0

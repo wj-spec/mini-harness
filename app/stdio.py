@@ -43,6 +43,14 @@ COMPLETION_CODE_LABELS = {
     "mutation_after_verification": "最后一次改动发生在验证之后",
     "last_verification_failed": "最后一次验证命令失败",
 }
+def _env_bounded(name: str, default, minimum, maximum, *, cast=float):
+    try:
+        value = cast(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, min(value, maximum))
+
+
 def _task_hints(session_root) -> list[dict]:
     try:
         from app.runtime.supervise import WorkerSupervisor
@@ -755,7 +763,9 @@ class _Connection:
                 sub = await run_subagent(
                     self.agent.provider, self.agent.tools.root,
                     prompt,
-                    max_steps=6, max_run_tokens=20_000, max_run_seconds=60.0,
+                    max_steps=_env_bounded("VIBE_EXPLORE_MAX_STEPS", 6, 1, 20, cast=int),
+                    max_run_tokens=_env_bounded("VIBE_EXPLORE_MAX_TOKENS", 20_000, 500, 200_000, cast=int),
+                    max_run_seconds=_env_bounded("VIBE_EXPLORE_MAX_SECONDS", 60.0, 5.0, 600.0),
                     session_root=self.session.root,
                 )
                 try:
