@@ -158,3 +158,29 @@ def test_empty_arguments_only_completes_with_tool_calls_finish():
     ready2 = [e for e in _collect(provider2) if isinstance(e, ToolCallsReady)][0]
     assert ready2.calls == []
     assert [c.id for c in ready2.incomplete] == ["c1"]
+
+
+def test_max_output_tokens_sent_when_configured():
+    import json
+
+    bodies = []
+
+    def handler(request):
+        bodies.append(json.loads(request.content))
+        return httpx.Response(200, content=b'data: [DONE]\n\n')
+
+    def run():
+        provider = OpenAICompatProvider(
+            "m", "k", "http://example/v1", transport=httpx.MockTransport(handler),
+            max_output_tokens=128,
+        )
+
+        async def scenario():
+            async for _ in provider.stream([], []):
+                pass
+
+        asyncio.run(scenario())
+
+    import asyncio
+    run()
+    assert bodies and bodies[0].get("max_tokens") == 128

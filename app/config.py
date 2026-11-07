@@ -23,6 +23,7 @@ class Config:
     max_steps: int = 0
     max_run_seconds: float = 1800.0
     llm_timeout: float = 120.0
+    llm_max_output_tokens: int = 0
     llm_retries: int = 1
     llm_retry_backoff: float = 0.5
     max_continuations: int = 2

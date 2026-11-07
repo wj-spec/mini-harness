@@ -239,6 +239,7 @@ history 实际额度 = 窗口 − 输出预留 − 安全余量 − 实际 syste
 
 ## 单次任务预算与暂停
 
+`VIBE_LLM_MAX_OUTPUT_TOKENS` 默认 0（不额外限制）；显式设置时作为每次请求的 `max_tokens` 发送，用于限制单次输出/异常长尾。
 `VIBE_MAX_RUN_TOKENS` 默认 **0（不限）**，表示累计一次 run 中各轮请求的输入和输出不设硬上限；显式设置后按值暂停。重复发送的历史也再次计入。一次 run 从输入指令开始，直到任务完成、停止或时间上限。它与单请求上下文容量完全独立：上下文默认 1M，任务累计默认不限。评测/基准入口在未设置 `VIBE_MAX_RUN_TOKENS` 时仍固定 1M，保证分数可比。
 
 - 状态栏分行显示任务累计用量、上限和剩余、上下文容量及项目；`/cost` 查看输入和输出，估算值标“约”。
@@ -550,7 +551,7 @@ Agent 先用 `list_skills` 检索相关技能，再调用 `load_skill(name)` 将
 - vibe prompt：先读后改、优先 `edit_file`、改完跑测试、不谎报测试通过。
 - 工作台 `/diff`：看当前 git diff，不发给模型。
 
-可调：`VIBE_LLM_TIMEOUT`、`VIBE_LLM_RETRIES`、`VIBE_LLM_RETRY_BACKOFF`、`VIBE_MAX_CONTINUATIONS`、`VIBE_MAX_NO_PROGRESS`、`VIBE_MAX_CALLS_WITHOUT_PROGRESS`、`VIBE_MAX_READS_PER_FILE`、`VIBE_MAX_REPEATED_CALLS`、`VIBE_MAX_PROGRESS_WARNINGS`、`VIBE_MAX_RUN_TOKENS`、`VIBE_COMPACT_INTERVAL_TOKENS`、`VIBE_MAX_RUN_COST_USD`、`VIBE_TOOL_RETRIES`。
+可调：`VIBE_LLM_TIMEOUT`、`VIBE_LLM_RETRIES`、`VIBE_LLM_RETRY_BACKOFF`、`VIBE_LLM_MAX_OUTPUT_TOKENS`、`VIBE_MAX_CONTINUATIONS`、`VIBE_MAX_NO_PROGRESS`、`VIBE_MAX_CALLS_WITHOUT_PROGRESS`、`VIBE_MAX_READS_PER_FILE`、`VIBE_MAX_REPEATED_CALLS`、`VIBE_MAX_PROGRESS_WARNINGS`、`VIBE_MAX_RUN_TOKENS`、`VIBE_COMPACT_INTERVAL_TOKENS`、`VIBE_MAX_RUN_COST_USD`、`VIBE_TOOL_RETRIES`。
 
 ## 右侧 Git 变更侧栏（Ghostty / macOS Terminal）
 

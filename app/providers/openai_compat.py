@@ -61,6 +61,7 @@ class OpenAICompatProvider:
         trust_env: bool = False,
         debug_path: str | Path | None = None,
         stream_usage: bool = True,
+        max_output_tokens: int = 0,
     ):
         self.model = model
         self.api_key = api_key
@@ -70,6 +71,7 @@ class OpenAICompatProvider:
         self.trust_env = trust_env
         self.debug_path = Path(debug_path) if debug_path else None
         self.stream_usage = stream_usage
+        self.max_output_tokens = max_output_tokens if max_output_tokens > 0 else 0
         self._call_seq = 0
         self._reasoning_required = (
             model.lower().startswith("deepseek-")
@@ -96,6 +98,8 @@ class OpenAICompatProvider:
             payload["stream_options"] = {"include_usage": True}
         if tools:
             payload["tools"] = tools
+        if self.max_output_tokens:
+            payload["max_tokens"] = self.max_output_tokens
 
         headers = {"Content-Type": "application/json"}
         if self.api_key:
