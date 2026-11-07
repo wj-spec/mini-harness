@@ -77,3 +77,18 @@ def test_evidence_cli_rejects_other_modes(monkeypatch, capsys):
         entrypoint.main()
     assert error.value.code == 2
     assert "--evidence cannot be combined" in capsys.readouterr().err
+
+
+def test_evidence_reports_corrupt_rounds(tmp_path, monkeypatch, capsys):
+    session = _seed(tmp_path)
+    corrupt = session.rounds_dir / "round_9999.json"
+    corrupt.write_text("{bad json", encoding="utf-8")
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path))
+    monkeypatch.setattr("sys.argv", ["vibe", "--evidence", "--evidence-json",
+                                     "--session", session.id, "--workspace", str(tmp_path)])
+    entrypoint.main()
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["skipped_rounds"] == 1
+    assert payload["round"]["run_id"] == "r-1"
+    assert "skipped 1 corrupt round records" in captured.err

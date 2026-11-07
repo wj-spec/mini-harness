@@ -790,6 +790,7 @@ def main() -> None:
 
         sessions_root = Path(config.workspace) / ".vibe" / "sessions"
         rows = []
+        skipped_plan_files = 0
         if sessions_root.is_dir() and sessions_root.resolve().is_relative_to(Path(config.workspace).resolve()):
             for session_path in sorted(p for p in sessions_root.iterdir() if p.is_dir() and not p.is_symlink()):
                 tasks_root = session_path / "tasks"
@@ -803,6 +804,7 @@ def main() -> None:
                         try:
                             plan = load_plan(file)
                         except (PlanError, OSError):
+                            skipped_plan_files += 1
                             continue
                         acceptance = None
                         try:
@@ -838,7 +840,11 @@ def main() -> None:
                             "executed_steps": executed_steps,
                             "objective": plan.objective,
                         })
-        print(json.dumps({"plans": rows[-100:]}, ensure_ascii=False, indent=2))
+        if skipped_plan_files:
+            print(f"warning: skipped {skipped_plan_files} corrupt plan files",
+                  file=sys.stderr)
+        print(json.dumps({"plans": rows[-100:], "skipped_plan_files": skipped_plan_files},
+                         ensure_ascii=False, indent=2))
         return
 
     if args.notifications:
@@ -1109,8 +1115,13 @@ def main() -> None:
             print(f"no session {args.session} under {config.workspace}", file=sys.stderr)
             raise SystemExit(2)
         record = session.latest_round()
+        skipped_rounds = int(getattr(session, "last_rounds_skipped", 0) or 0)
+        if skipped_rounds:
+            print(f"warning: skipped {skipped_rounds} corrupt round records",
+                  file=sys.stderr)
         if args.evidence_json:
-            print(json.dumps({"session": session.id, "round": record},
+            print(json.dumps({"session": session.id, "round": record,
+                              "skipped_rounds": skipped_rounds},
                              ensure_ascii=False, indent=2))
             return
         print(format_round_evidence(record))

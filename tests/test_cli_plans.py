@@ -73,3 +73,18 @@ def test_plans_lists_step_progress(tmp_path, monkeypatch, capsys):
     assert row["executed_steps"] == 1
     row2 = next(item for item in payload["plans"] if item["version"] == 2)
     assert row2["done_steps"] == 0 and row2["total_steps"] == 1
+
+
+def test_plans_reports_corrupt_plan_files(tmp_path, monkeypatch, capsys):
+    session = _seed(tmp_path)
+    task = TaskStore(session.root).list(kind="run")[0]
+    plan_dir = TaskStore(session.root).task_dir(task.task_id) / "plan"
+    (plan_dir / "plan.v99.json").write_text("{bad json", encoding="utf-8")
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path))
+    monkeypatch.setattr("sys.argv", ["vibe", "--plans", "--workspace", str(tmp_path)])
+    entrypoint.main()
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["skipped_plan_files"] == 1
+    assert [item["version"] for item in payload["plans"]] == [1, 2]
+    assert "skipped 1 corrupt plan files" in captured.err

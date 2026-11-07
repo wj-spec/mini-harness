@@ -801,7 +801,7 @@ worker 启动会审计 profile：任务事件 `unattended_profile` 记 `profile/
 `--doctor` 也会提示 `.vibe/unattended.json` 被放宽的项；非法 profile 会阻塞自检。
 可选的**外部告警 webhook**：设置 `VIBE_NOTIFY_WEBHOOK=https://...` 后，通知会异步 POST JSON（最大 64 KiB，超出只发 kind/ts/truncated）；
 `VIBE_NOTIFY_WEBHOOK_KINDS` 过滤 kind（逗号分隔，`*`=全部，默认全部）；只允许 http/https，请求失败静默，不影响任务与本地通知。
-`--plans` 只读列出本工作区会话的计划版本（session/task/plan_id/version/status/stale/acceptance/total_steps/done_steps/executed_steps/objective），便于外部监控计划进度。
+`--plans` 只读列出本工作区会话的计划版本（损坏计划文件跳过并 stderr 告警，JSON 含 `skipped_plan_files`）（session/task/plan_id/version/status/stale/acceptance/total_steps/done_steps/executed_steps/objective），便于外部监控计划进度。
 `--acceptance` 只读列出计划验收结果（plan_id/objective/plan_version/status/codes/命令数，最多 100 条）。
 `--tasks` 会跳过并 stderr 提示损坏的 task 目录（`--tasks-json` 输出 `skipped_task_dirs`）；`--tasks` / `--tasks-json` 的 `pending_approvals` 显示每个任务待审批数量、`priority` 显示队列优先级（`/task` 同时显示「待审批 N」与 `priority=N`），便于无人值守时定位卡在审批上的任务。
 `--prepare-plan-task --plan-task-priority N`（0-100）给待运行 task 设优先级，队列按 `(-priority, created_at)` 排序；`--tasks-json` 输出 `priority`。
@@ -812,7 +812,7 @@ worker 启动会审计 profile：任务事件 `unattended_profile` 记 `profile/
 `--trace-summary --trace-last-hours H` 只统计最近 H 小时的事件（适合事故窗口/夜间巡检），可与 `--trace-all-sessions` 组合。
 `--trace-summary --trace-all-sessions` 汇总本工作区所有会话（按最近更新排序，输出 totals + 最近 10 个会话），适合巡检整个工作区的 retries/errors/denials。
 `--trace-summary` 只读聚合指定会话 trace.jsonl：事件数/损坏行、runs 与最近状态、LLM calls/retries/errors/tokens/cost、tool calls/failures 与**失败工具分布**、LLM 错误摘要、approvals/denials、停止原因与时间窗（`--trace-json` 输出原始摘要）。
-`--evidence` 只读输出指定会话最近一轮证据（完成判定/验收三态/审计/hash/验证记录），`--evidence-json` 输出原始 round JSON；无轮次时提示先完成任务。
+`--evidence` 只读输出指定会话最近一轮证据（损坏 round 文件跳过并 stderr 告警，JSON 含 `skipped_rounds`）（完成判定/验收三态/审计/hash/验证记录），`--evidence-json` 输出原始 round JSON；无轮次时提示先完成任务。
 `--prune-worktrees` 只读报告 `.vibe/worktrees/*.meta.json`（含目录缺失的 stale）；加 `--prune-apply` 才把 stale worktree 标记 removed 并删分支（先 `git worktree prune`）。
 `--approvals` 只读列出跨会话待审批项（session/task/approval_id/tool/tier/requester/created_at/expires_at，最多 100 条）；已解决/过期项不显示。
 `--decide-approval` 在无 TUI 时通过 worker 的 attach control 通道响应审批（默认 once，可 `deny`/`session`/`workspace`）：

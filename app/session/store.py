@@ -394,7 +394,8 @@ class SessionStore:
         return target
 
     def load_rounds(self) -> list[dict]:
-        """按轮次编号读取；损坏或非 dict 的记录跳过，不阻断会话。"""
+        """按轮次编号读取；损坏或非 dict 的记录跳过并计数，不阻断会话。"""
+        self.last_rounds_skipped = 0
         if not self.rounds_dir.is_dir():
             return []
         rounds: list[dict] = []
@@ -402,9 +403,12 @@ class SessionStore:
             try:
                 value = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
+                self.last_rounds_skipped += 1
                 continue
             if isinstance(value, dict):
                 rounds.append(value)
+            else:
+                self.last_rounds_skipped += 1
         return rounds
 
     def latest_round(self) -> dict | None:
