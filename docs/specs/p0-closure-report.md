@@ -54,7 +54,8 @@ TUI /goal /chat /act /plan
   → 通知：plan_proposed/approved/rejected/acceptance、goal_segment/stopped、
     subagent_finished、workspace_queued、merge_*
 ```
-  → CLI 只读：--tasks/--plans/--acceptance/--notifications
+  → CLI 只读：--tasks/--plans/--acceptance/--notifications/--approvals
+  → CLI 响应：--decide-approval（无 TUI 时经 worker attach 通道）
   → /plan background：创建计划绑定 task + detached worker；TUI 退出后继续
 ```
 

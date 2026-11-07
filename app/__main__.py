@@ -101,6 +101,7 @@ def main() -> None:
     parser.add_argument("--notification-kind", default=None, metavar="KIND", help="与 --notifications 搭配，只显示指定 kind")
     parser.add_argument("--plans", action="store_true", help="只读列出本工作区会话的计划版本")
     parser.add_argument("--acceptance", action="store_true", help="只读列出本工作区会话的计划验收结果")
+    parser.add_argument("--approvals", action="store_true", help="只读列出本工作区会话的待审批项")
     parser.add_argument("--redteam", action="store_true", help="只读检查无人值守 profile 默认拒绝矩阵")
     parser.add_argument("--worker", action="store_true", help="后台 worker：执行一个 task segment 并暴露 attach socket")
     parser.add_argument("--attach", action="store_true", help="attach 到运行中的 worker（JSONL 回放 + live）")
@@ -113,6 +114,8 @@ def main() -> None:
     parser.add_argument("--stop", action="store_true", help="workspace kill switch：停止所有本机 worker")
     parser.add_argument("--stop-task", default=None, metavar="TASK_ID", help="只停止指定 worker")
     parser.add_argument("--pause-task", default=None, metavar="TASK_ID", help="暂停指定 worker（保留 worktree，不写 .vibe/stop）")
+    parser.add_argument("--decide-approval", default=None, metavar="APPROVAL_ID", help="通过 worker attach 通道处理一个待审批项")
+    parser.add_argument("--approval-decision", choices=["once", "session", "workspace", "deny"], default=None, help="与 --decide-approval 搭配，默认 once")
     parser.add_argument("--cleanup-logs", action="store_true", help="显式轮转会话 trace（记录到 .vibe/retention.jsonl）")
     parser.add_argument("--log-max-bytes", type=int, default=None, metavar="N")
     parser.add_argument("--log-dry-run", action="store_true", help="只报告 --cleanup-logs 会轮转什么")
@@ -179,6 +182,15 @@ def main() -> None:
         or args.plans
     ):
         parser.error("--acceptance cannot be combined with other modes")
+    if args.approvals and (
+        args.stdio or args.eval or args.eval_limit is not None or args.eval_tasks is not None
+        or args.list_sessions or args.task is not None or args.continue_session
+        or args.session is not None or args.bench or args.tasks or args.notifications
+        or args.worker or args.attach or args.stop or args.stop_task is not None
+        or args.pause_task is not None or args.merge_task is not None or args.cleanup_logs
+        or args.plans or args.acceptance or args.redteam
+    ):
+        parser.error("--approvals cannot be combined with other modes")
     if args.worker or args.attach:
         if not args.task_id or args.session is None:
             parser.error("--worker/--attach require --task-id and --session")
@@ -222,6 +234,20 @@ def main() -> None:
             parser.error("--pause-task requires --workspace")
         if args.stdio or args.eval or args.task is not None or args.list_sessions or args.tasks or args.worker or args.attach or args.merge_task is not None or args.bench or args.stop or args.stop_task is not None:
             parser.error("--pause-task cannot be combined with other modes")
+    if args.approval_decision is not None and args.decide_approval is None:
+        parser.error("--approval-decision requires --decide-approval")
+    if args.decide_approval is not None:
+        if args.workspace is None:
+            parser.error("--decide-approval requires --workspace")
+        if (
+            args.stdio or args.eval or args.eval_limit is not None or args.eval_tasks is not None
+            or args.list_sessions or args.task is not None or args.continue_session
+            or args.session is not None or args.bench or args.tasks or args.notifications
+            or args.plans or args.acceptance or args.approvals or args.redteam
+            or args.worker or args.attach or args.stop or args.stop_task is not None
+            or args.pause_task is not None or args.merge_task is not None or args.cleanup_logs
+        ):
+            parser.error("--decide-approval cannot be combined with other modes")
     if args.eval_limit is not None and args.eval_limit < 1:
         parser.error("--eval-limit must be positive")
     if args.task is not None:
@@ -233,7 +259,7 @@ def main() -> None:
         parser.error("--bench requires --task")
     if args.telemetry_out and args.task is None:
         parser.error("--telemetry-out requires --task")
-    if not args.stdio and not args.eval and not args.list_sessions and not args.tasks and not args.notifications and not args.plans and not args.acceptance and not args.redteam and not args.worker and not args.attach and args.merge_task is None and not args.stop and args.pause_task is None and not args.cleanup_logs and args.task is None:
+    if not args.stdio and not args.eval and not args.list_sessions and not args.tasks and not args.notifications and not args.plans and not args.acceptance and not args.approvals and not args.redteam and not args.worker and not args.attach and args.merge_task is None and not args.stop and args.pause_task is None and not args.cleanup_logs and args.task is None and args.decide_approval is None:
         print(
             "Textual 入口已退役。交互界面请运行 ./run_ink.sh（例如 ./run_ink.sh --fake）；"
             "后端与 eval 分别使用 --stdio / --eval。",
@@ -333,6 +359,41 @@ def main() -> None:
             notify(config.workspace, "merge_failed", task_id=task.task_id, reason=str(exc)[:500])
             print(f"merge failed: {exc}", file=sys.stderr)
             raise SystemExit(2)
+
+    if args.decide_approval is not None:
+        from app.runtime.approvals import ApprovalInbox
+        from app.runtime.worker import WorkerError, decide_approval_cli
+
+        sessions_root = Path(config.workspace) / ".vibe" / "sessions"
+        matches = []
+        if sessions_root.is_dir() and sessions_root.resolve().is_relative_to(Path(config.workspace).resolve()):
+            for session_path in sorted(p for p in sessions_root.iterdir() if p.is_dir() and not p.is_symlink()):
+                if not (session_path / "tasks").is_dir():
+                    continue
+                try:
+                    pending = ApprovalInbox(session_path).pending()
+                except Exception:
+                    continue
+                for item in pending:
+                    if item.get("approval_id") == args.decide_approval:
+                        matches.append((session_path, item))
+        if not matches:
+            print(f"pending approval not found: {args.decide_approval}", file=sys.stderr)
+            raise SystemExit(2)
+        if len(matches) > 1:
+            print(f"ambiguous approval id: {args.decide_approval}", file=sys.stderr)
+            raise SystemExit(2)
+        session_path, item = matches[0]
+        decision = args.approval_decision or "once"
+        try:
+            result = decide_approval_cli(
+                session_path, str(item.get("task_id") or ""), args.decide_approval, decision,
+            )
+        except WorkerError as exc:
+            print(f"approval decision failed: {exc}", file=sys.stderr)
+            raise SystemExit(1)
+        print(json.dumps({"session": session_path.name, **result}, ensure_ascii=False, indent=2))
+        return
 
     if args.stop:
         from app.runtime.killswitch import stop_workers
@@ -494,6 +555,35 @@ def main() -> None:
                             "commands": len((saved.get("results") or {})),
                         })
         print(json.dumps({"acceptance": rows[-100:]}, ensure_ascii=False, indent=2))
+        return
+
+    if args.approvals:
+        from app.runtime.approvals import ApprovalInbox
+
+        sessions_root = Path(config.workspace) / ".vibe" / "sessions"
+        rows = []
+        if sessions_root.is_dir() and sessions_root.resolve().is_relative_to(Path(config.workspace).resolve()):
+            for session_path in sorted(p for p in sessions_root.iterdir() if p.is_dir() and not p.is_symlink()):
+                if not (session_path / "tasks").is_dir():
+                    continue
+                try:
+                    pending = ApprovalInbox(session_path).pending()
+                except Exception:
+                    continue
+                for item in pending:
+                    rows.append({
+                        "session": session_path.name,
+                        "task_id": item.get("task_id"),
+                        "approval_id": item.get("approval_id"),
+                        "tool": item.get("tool"),
+                        "tier": item.get("tier"),
+                        "requester": item.get("requester"),
+                        "created_at": item.get("created_at"),
+                        "expires_at": item.get("expires_at"),
+                        "preview_ref": item.get("preview_ref"),
+                    })
+        rows.sort(key=lambda row: str(row.get("created_at") or ""))
+        print(json.dumps({"approvals": rows[-100:], "count": len(rows)}, ensure_ascii=False, indent=2))
         return
 
     if args.plans:

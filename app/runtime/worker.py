@@ -1142,3 +1142,90 @@ def attach_worker(session_root: Path, task_id: str, *, mode: str = "observe", ta
         return asyncio.run(_attach_async(session_root, task_id, mode=mode, take_control=take_control))
     except KeyboardInterrupt:
         return 130
+
+
+async def decide_remote_approval(
+    session_root: str | Path,
+    task_id: str,
+    approval_id: str,
+    decision: str,
+    *,
+    timeout: float = 5.0,
+) -> dict[str, Any]:
+    """通过 worker attach 通道批准/拒绝待审批项（无 TUI 时使用）。"""
+    session_root = Path(session_root)
+    store = TaskStore(session_root)
+    task_dir = store.task_dir(task_id)
+    path = socket_path(task_dir, task_id)
+    if not path.exists():
+        raise WorkerError(f"worker socket not found: {path}; the worker is not running")
+    try:
+        reader, writer = await asyncio.open_unix_connection(str(path))
+    except OSError as exc:
+        raise WorkerError(f"cannot attach worker: {exc}") from exc
+    try:
+        writer.write((json.dumps({
+            "v": 1, "type": "attach", "id": f"decide-{uuid.uuid4().hex[:8]}",
+            "mode": "control", "take_control": False, "capabilities": [],
+        }) + "\n").encode("utf-8"))
+        await writer.drain()
+        handshake = await asyncio.wait_for(reader.readline(), timeout)
+        try:
+            reply = json.loads(handshake.decode("utf-8", errors="replace"))
+        except json.JSONDecodeError:
+            raise WorkerError("attach handshake returned invalid JSON")
+        if reply.get("type") != "attach_ok":
+            raise WorkerError(
+                f"attach denied: {reply.get('message') or reply.get('code') or 'unknown'}"
+            )
+        writer.write((json.dumps({
+            "v": 1, "type": "approval_decide", "id": f"decide-{uuid.uuid4().hex[:8]}",
+            "approval_id": approval_id, "decision": decision,
+        }) + "\n").encode("utf-8"))
+        await writer.drain()
+        inbox = ApprovalInbox(session_root)
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        while loop.time() < deadline:
+            item = next(
+                (entry for entry in inbox.items(task_id)
+                 if entry.get("approval_id") == approval_id),
+                None,
+            )
+            if item is None:
+                raise WorkerError(f"approval not found: {approval_id}")
+            if item.get("status") != "pending":
+                return {
+                    "approval_id": approval_id, "task_id": task_id,
+                    "decision": decision, "status": item.get("status"),
+                }
+            try:
+                line = await asyncio.wait_for(reader.readline(), 0.1)
+            except asyncio.TimeoutError:
+                continue
+            if not line:
+                raise WorkerError("worker attach closed before the approval was resolved")
+            try:
+                frame = json.loads(line.decode("utf-8", errors="replace"))
+            except json.JSONDecodeError:
+                continue
+            if frame.get("type") == "error":
+                raise WorkerError(
+                    f"approval decision rejected: {frame.get('message') or frame.get('code')}"
+                )
+        raise WorkerError(f"timed out waiting for worker to resolve approval {approval_id}")
+    finally:
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except (ConnectionError, OSError):
+            pass
+
+
+def decide_approval_cli(
+    session_root: str | Path, task_id: str, approval_id: str, decision: str,
+) -> dict[str, Any]:
+    try:
+        return asyncio.run(decide_remote_approval(session_root, task_id, approval_id, decision))
+    except KeyboardInterrupt:
+        raise WorkerError("approval decision interrupted")

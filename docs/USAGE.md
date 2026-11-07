@@ -263,7 +263,7 @@ history 实际额度 = 窗口 − 输出预留 − 安全余量 − 实际 syste
 - 启动后第 1 段使用目标说明作为任务；如果该段因 **`max_run_seconds` / token budget / cost budget / max_steps`** 停止，自动开启第 2 段，并注入“先核对工作区，再继续未完成部分”的续段提示；
 - 因 `no_progress`、`context_window`、`error`、`cancelled` 停止时**不自动续段**，保留证据并要求人工判断；
 - 模型 done 且 `verified` 不为 false 时目标完成；`done` 但 `verified=false` 时目标暂停（`unverified_completion`），核对 `/evidence` 后输入 `/goal resume` 继续；`done` 之前的资源暂停不会丢历史，后续段继续读取同一会话；
-- 默认最多 **8 段**、总时长 **4 小时**：`VIBE_GOAL_MAX_SEGMENTS`、`VIBE_GOAL_SECONDS`；可选总 token/费用上限 `VIBE_GOAL_MAX_TOKENS`、`VIBE_GOAL_MAX_COST_USD`（0=不限）；
+- 默认最多 **8 段**、总时长 **4 小时**：`VIBE_GOAL_MAX_SEGMENTS`、`VIBE_GOAL_SECONDS`；可选总 token/费用上限 `VIBE_GOAL_MAX_TOKENS`、`VIBE_GOAL_MAX_COST_USD`（0=不限）；后台 goal worker 同样执行这些上限（按 `budget.jsonl` 累计），命中时写 `goal_stopped` 通知并暂停；
 - 目标完成/暂停后可以用 `/goal resume` 继续，或输入新 `/goal` 开始新目标；
 - 目标状态以 `goal.json` 保存在当前会话目录（`.vibe/sessions/<id>/goal.json`）；重启 Ink 或 `--continue` 后会恢复目标并标记为 paused，输入 `/goal resume` 显式续段，不会在重启后自动继续花费。
 
@@ -743,6 +743,8 @@ VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --backgrou
 ./run_vibe.sh --notifications --notification-kind plan_acceptance --workspace /path/to/repo
 ./run_vibe.sh --plans --workspace /path/to/repo
 ./run_vibe.sh --acceptance --workspace /path/to/repo
+./run_vibe.sh --approvals --workspace /path/to/repo
+./run_vibe.sh --decide-approval APPROVAL_ID --approval-decision once --workspace /path/to/repo
 ./run_vibe.sh --redteam --workspace /path/to/repo
 ./run_vibe.sh --worker --fake --workspace /path/to/repo --session SID --task-id TID
 ./run_vibe.sh --attach --mode observe --workspace /path/to/repo --session SID --task-id TID
@@ -759,6 +761,10 @@ VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --backgrou
 通知记录在 `.vibe/notifications.jsonl`，可用 `/notifications`、`--notifications` 查看（JSON 含 count，最多 50 条）。
 `--plans` 只读列出本工作区会话的计划版本（session/task/plan_id/version/status/stale/acceptance/objective）。
 `--acceptance` 只读列出计划验收结果（plan_id/objective/plan_version/status/codes/命令数，最多 100 条）。
+`--approvals` 只读列出跨会话待审批项（session/task/approval_id/tool/tier/requester/created_at/expires_at，最多 100 条）；已解决/过期项不显示。
+`--decide-approval` 在无 TUI 时通过 worker 的 attach control 通道响应审批（默认 once，可 `deny`/`session`/`workspace`）：
+先 `--approvals` 找到 id，再执行；需要 worker 正在运行且当前没有其他 controller，否则明确报错并 exit 1。
+审批记录 `decided_by=attach`，结果 JSON 输出 session/task/approval_id/decision/status。
 
 ## worktree 合并
 
