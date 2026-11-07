@@ -36,6 +36,7 @@ _OVERSIZED = object()
 COMMANDS = frozenset({
     "resume", "permissions", "permissions_reset", "cost", "tools", "diff", "mcp",
     "skills", "evidence", "autonomy", "tasks", "approvals", "plan", "explore", "notifications",
+    "trace",
 })
 COMPLETION_CODE_LABELS = {
     "no_verification": "有文件改动但没有验证命令",
@@ -734,6 +735,9 @@ class _Connection:
                     pass
                 if sub.error:
                     text += f"\n错误：{sub.error}"
+            elif command == "trace":
+                from app.session.observability import render_trace_summary, summarize_trace
+                text = render_trace_summary(summarize_trace(self.session.root))
             elif command == "tasks":
                 text = _format_task_hints(_task_hints(self.session.root))
             elif command == "approvals":

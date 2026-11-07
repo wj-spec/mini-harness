@@ -603,12 +603,12 @@ test('slash opens a scrollable command menu without overflowing the frame', asyn
   let frame = lastFrame() ?? '';
   assert.match(frame, /› \/help/);
   assert.match(frame, /查看操作帮助/);
-  assert.match(frame, /↑↓ 选择 · Tab 填充 · 1\/35/);
+  assert.match(frame, /↑↓ 选择 · Tab 填充 · 1\/36/);
   assert.ok(frame.split('\n').length <= 24);
   for (const line of frame.split('\n')) assert.ok(stringWidth(line) <= 80, line);
   stdin.write('\u001b[B');
   await pause(15);
-  assert.match(lastFrame() ?? '', /2\/35/);
+  assert.match(lastFrame() ?? '', /2\/36/);
   stdin.write('\t');
   await pause(15);
   frame = lastFrame() ?? '';
@@ -2221,4 +2221,16 @@ test('plan overlay t prefills selected step title edit', async () => {
   } finally {
     await rm(dir, {recursive: true, force: true});
   }
+});
+
+
+test('/trace sends the trace command to the backend', async () => {
+  const client = new MockClient();
+  const {stdin} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}/>);
+  await pause(20);
+  client.emit({type: 'ready', workspace: '/tmp/repo', model: 'fake', session_id: 'test', capabilities: []});
+  client.emit({type: 'status', phase: 'idle'});
+  await pause(20);
+  await enter(stdin, '/trace');
+  assert.equal(client.commands.at(-1), 'trace');
 });

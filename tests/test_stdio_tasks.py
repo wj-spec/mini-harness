@@ -1498,3 +1498,26 @@ def test_goal_acceptance_failure_pauses_task(tmp_path, monkeypatch):
         await harness.close()
 
     asyncio.run(scenario())
+
+
+def test_trace_command_renders_session_summary(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    session.append_trace({"type": "run_start", "ts": 1.0})
+    session.append_trace({"type": "llm_end", "ts": 2.0, "prompt_tokens": 10,
+                          "completion_tokens": 5, "cost_usd": 0.001})
+    session.append_trace({"type": "tool_end", "ts": 3.0, "tool": "bash", "ok": False})
+    session.append_trace({"type": "run_end", "ts": 4.0, "status": "stopped",
+                          "stop_reason": "max_run_seconds"})
+
+    async def scenario():
+        harness = Harness(_agent(tmp_path), Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("command", "c-trace", command="trace")
+        result = await harness.until("command_result", "c-trace")
+        assert "trace 摘要" in result["text"]
+        assert "max_run_seconds=1" in result["text"]
+        assert "tokens 15" in result["text"]
+        await harness.close()
+
+    asyncio.run(scenario())
