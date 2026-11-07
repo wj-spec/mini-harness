@@ -20,7 +20,7 @@ def _seed(tmp_path):
     store = TaskStore(session.root)
     task = store.create(kind="goal", objective="长任务目标", workspace=str(tmp_path), mode="goal")
     plan_task = store.create(kind="run", objective="计划任务", workspace=str(tmp_path),
-                             mode="act", plan_id="pl-cli", plan_version=2)
+                             mode="act", plan_id="pl-cli", plan_version=2, priority=4)
     ApprovalInbox(session.root).submit(
         plan_task.task_id, tool="bash", tier="exec",
         decisions=["once", "deny"], preview="ls",
@@ -78,4 +78,5 @@ def test_tasks_json_output(tmp_path, monkeypatch, capsys):
     assert rows[plan_task.task_id]["plan_id"] == "pl-cli"
     assert rows[plan_task.task_id]["mode"] == "act"
     assert rows[plan_task.task_id]["pending_approvals"] == 1
+    assert rows[plan_task.task_id]["priority"] == 4
     assert rows[_task.task_id]["pending_approvals"] == 0

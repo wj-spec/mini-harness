@@ -125,6 +125,7 @@ def main() -> None:
     parser.add_argument("--queue-workspace", action="append", default=None, metavar="PATH", help="与 --run-plan-queue 搭配：指定工作区（可重复；默认当前 --workspace）")
     parser.add_argument("--queue-continue-on-failure", action="store_true", help="与 --run-plan-queue 搭配：某个任务失败/计划不可执行时继续后续任务")
     parser.add_argument("--queue-concurrency", type=int, default=None, metavar="N", help="与 --run-plan-queue 搭配：并行 worker 数（1-8，默认 1）")
+    parser.add_argument("--plan-task-priority", type=int, default=None, metavar="N", help="与 --prepare-plan-task 搭配：待运行 task 优先级（0-100，默认 0）")
     parser.add_argument("--prune-worktrees", action="store_true", help="只读报告 stale/孤立的 worktree")
     parser.add_argument("--prune-apply", action="store_true", help="与 --prune-worktrees 搭配：把目录缺失的 worktree 标记 removed 并删分支")
     parser.add_argument("--worker", action="store_true", help="后台 worker：执行一个 task segment 并暴露 attach socket")
@@ -304,6 +305,11 @@ def main() -> None:
             parser.error("--queue-concurrency requires --run-plan-queue")
         if args.queue_concurrency < 1 or args.queue_concurrency > 8:
             parser.error("--queue-concurrency must be between 1 and 8")
+    if args.plan_task_priority is not None:
+        if not args.prepare_plan_task:
+            parser.error("--plan-task-priority requires --prepare-plan-task")
+        if args.plan_task_priority < 0 or args.plan_task_priority > 100:
+            parser.error("--plan-task-priority must be between 0 and 100")
     if args.prepare_plan_task or args.run_plan_queue:
         if args.continue_session:
             parser.error("--prepare-plan-task/--run-plan-queue cannot use --continue")
@@ -791,6 +797,7 @@ def main() -> None:
                 task = store.create(
                     kind="run", objective=plan.objective, workspace=str(workspace),
                     mode="act", plan_id=plan.plan_id, plan_version=plan.version,
+                    priority=max(0, min(args.plan_task_priority or 0, 100)),
                     session_id=session.id,
                 )
             except Exception as exc:
@@ -800,6 +807,7 @@ def main() -> None:
                 "workspace": str(workspace), "session": session.id, "task_id": task.task_id,
                 "plan_id": plan.plan_id, "plan_version": plan.version,
                 "objective": plan.objective, "plan_path": str(plan_path),
+                "priority": task.priority,
             }, ensure_ascii=False, indent=2))
             return
 
@@ -815,7 +823,8 @@ def main() -> None:
                 for task in store.list():
                     if task.status == "created" and task.plan_id:
                         entries.append((workspace, session, store, task))
-        entries.sort(key=lambda item: (item[3].created_at, item[0].as_posix(), item[1].id, item[3].task_id))
+        entries.sort(key=lambda item: (-item[3].priority, item[3].created_at,
+                                       item[0].as_posix(), item[1].id, item[3].task_id))
 
         def plan_executable(session, task) -> bool:
             if not task.plan_id:
@@ -831,7 +840,7 @@ def main() -> None:
             rows = [
                 {"workspace": str(workspace), "session": session.id,
                  "task_id": task.task_id, "plan_id": task.plan_id,
-                 "plan_version": task.plan_version,
+                 "plan_version": task.plan_version, "priority": task.priority,
                  "plan_executable": plan_executable(session, task),
                  "objective": task.objective[:200]}
                 for workspace, session, _store, task in entries
@@ -878,7 +887,7 @@ def main() -> None:
                 status = "unknown"
             return {"workspace": str(workspace), "session": session.id,
                     "task_id": task.task_id, "plan_id": task.plan_id,
-                    "plan_version": task.plan_version,
+                    "plan_version": task.plan_version, "priority": task.priority,
                     "exit_code": exit_code, "status": status, "stderr": stderr}
 
         failed = 0
@@ -889,8 +898,8 @@ def main() -> None:
                 if not plan_executable(session, task):
                     ran.append({"workspace": str(workspace), "session": session.id,
                                 "task_id": task.task_id, "plan_id": task.plan_id,
-                                "plan_version": task.plan_version, "exit_code": None,
-                                "status": "skipped_plan_unavailable", "stderr": ""})
+                                "plan_version": task.plan_version, "priority": task.priority,
+                                "exit_code": None, "status": "skipped_plan_unavailable", "stderr": ""})
                     failed += 1
                     if stopped_early is None:
                         stopped_early = "plan_unavailable"
@@ -915,8 +924,8 @@ def main() -> None:
                 if not plan_executable(session, task):
                     ran.append({"workspace": str(workspace), "session": session.id,
                                 "task_id": task.task_id, "plan_id": task.plan_id,
-                                "plan_version": task.plan_version, "exit_code": None,
-                                "status": "skipped_plan_unavailable", "stderr": ""})
+                                "plan_version": task.plan_version, "priority": task.priority,
+                                "exit_code": None, "status": "skipped_plan_unavailable", "stderr": ""})
                     continue
                 runnable.append(entry)
             with ThreadPoolExecutor(max_workers=concurrency) as pool:
@@ -1033,6 +1042,7 @@ def main() -> None:
                     "heartbeat": worker.heartbeat_at if worker is not None else None,
                     "stale": snapshot.stale, "plan_id": task.plan_id,
                     "plan_version": task.plan_version, "parent_id": task.parent_id,
+                    "priority": task.priority,
                     "pending_approvals": pending_counts.get(task.task_id, 0),
                     "objective": task.objective,
                 })

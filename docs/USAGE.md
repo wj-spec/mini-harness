@@ -770,6 +770,7 @@ VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --suite
 ./run_vibe.sh --run-plan-queue --queue-all-sessions --workspace /path/to/repo          # 跨会话串行 drain
 ./run_vibe.sh --run-plan-queue --queue-all-sessions --queue-workspace /ws/a --queue-workspace /ws/b  # 跨工作区
 ./run_vibe.sh --run-plan-queue --queue-all-sessions --queue-concurrency 2 --workspace /path/to/repo  # 并行 2
+./run_vibe.sh --prepare-plan-task --plan-task-priority 8 --session SID --workspace /path/to/repo  # 高优先级
 ./run_vibe.sh --prune-worktrees --workspace /path/to/repo  # 只读报告 stale worktree
 ./run_vibe.sh --prune-worktrees --prune-apply --workspace /path/to/repo  # 显式清理
 ./run_vibe.sh --worker --fake --workspace /path/to/repo --session SID --task-id TID
@@ -792,6 +793,7 @@ worker 启动会审计 profile：任务事件 `unattended_profile` 记 `profile/
 `--plans` 只读列出本工作区会话的计划版本（session/task/plan_id/version/status/stale/acceptance/total_steps/done_steps/executed_steps/objective），便于外部监控计划进度。
 `--acceptance` 只读列出计划验收结果（plan_id/objective/plan_version/status/codes/命令数，最多 100 条）。
 `--tasks` / `--tasks-json` 的 `pending_approvals` 显示每个任务待审批数量（`/task` 同时显示「待审批 N」），便于无人值守时定位卡在审批上的任务。
+`--prepare-plan-task --plan-task-priority N`（0-100）给待运行 task 设优先级，队列按 `(-priority, created_at)` 排序；`--tasks-json` 输出 `priority`。
 `--run-plan-queue --queue-all-sessions` 会跨本工作区所有会话收集 created 计划 task（按 created_at 排序），逐会话串行执行；dry-run 同样支持；默认任一失败即停，`--queue-continue-on-failure` 可继续后续任务（失败的仍计入 `failed`，最终 exit 1）；`--queue-concurrency 2..8` 可并行多个 worker（同一工作区靠 `VIBE_WORKSPACE_LOCK_WAIT` 自动排队）。
 `--queue-workspace PATH`（可重复）让队列跨多个工作区串行执行，输出含 `workspaces/sessions`；与 `--session` 互斥。
 `--prepare-plan-task` 选取会话中最新可执行（approved、非 stale）计划并创建 `kind=run/mode=act` 的待运行 task（JSON 输出 task_id/plan）；`--run-plan-queue` 按创建顺序串行启动这些 created 计划 task 的 worker，任一未 completed 即停止（exit 1），`--queue-task-timeout` 控制单任务超时（默认 1800s）；执行前会核对计划仍可执行（approved/未 stale），不可执行时标记 `skipped_plan_unavailable` 并停止；`--queue-dry-run` 只输出队列与 `plan_executable`，不启动 worker。

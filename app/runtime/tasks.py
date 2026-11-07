@@ -220,6 +220,7 @@ class TaskRecord:
     goal_id: str | None = None
     plan_id: str | None = None
     plan_version: int | None = None
+    priority: int = 0
     budget: dict[str, int] = field(default_factory=lambda: dict(BUDGET_DEFAULTS))
     approval_policy: dict[str, Any] = field(
         default_factory=lambda: {**APPROVAL_DEFAULTS, "capabilities": []}
@@ -243,6 +244,7 @@ class TaskRecord:
             "goal_id": self.goal_id,
             "plan_id": self.plan_id,
             "plan_version": self.plan_version,
+            "priority": self.priority,
             "workspace": self.workspace,
             "budget": dict(self.budget),
             "approval_policy": {
@@ -267,7 +269,8 @@ class TaskRecord:
             raise ValueError("unsupported task schema_version")
         known = {
             "schema_version", "task_id", "session_id", "kind", "status", "objective",
-            "mode", "parent_id", "goal_id", "plan_id", "plan_version", "workspace", "budget", "approval_policy",
+            "mode", "parent_id", "goal_id", "plan_id", "plan_version", "priority",
+            "workspace", "budget", "approval_policy",
             "segments", "result_ref", "created_at", "updated_at",
         }
         task_id = _validate_task_id(data.get("task_id"))
@@ -295,6 +298,9 @@ class TaskRecord:
         plan_version = data.get("plan_version")
         if plan_version is not None and (not isinstance(plan_version, int) or isinstance(plan_version, bool) or plan_version < 1):
             raise ValueError("invalid plan_version")
+        priority = data.get("priority", 0)
+        if not isinstance(priority, int) or isinstance(priority, bool) or priority < 0 or priority > 100:
+            raise ValueError("invalid priority")
         segments_raw = data.get("segments", [])
         if not isinstance(segments_raw, list):
             raise ValueError("segments must be a list")
@@ -317,6 +323,7 @@ class TaskRecord:
             goal_id=goal_id,
             plan_id=plan_id,
             plan_version=plan_version,
+            priority=priority,
             budget=_validate_budget(data.get("budget")),
             approval_policy=_validate_approval_policy(data.get("approval_policy")),
             segments=segments,
@@ -355,6 +362,7 @@ class TaskStore:
         goal_id: str | None = None,
         plan_id: str | None = None,
         plan_version: int | None = None,
+        priority: int = 0,
         session_id: str | None = None,
     ) -> TaskRecord:
         if kind not in TASK_KINDS:
@@ -372,6 +380,8 @@ class TaskStore:
         plan_id = None if plan_id is None else _require_text(plan_id, "plan_id", max_length=128)
         if plan_version is not None and (not isinstance(plan_version, int) or isinstance(plan_version, bool) or plan_version < 1):
             raise ValueError("invalid plan_version")
+        if not isinstance(priority, int) or isinstance(priority, bool) or priority < 0 or priority > 100:
+            raise ValueError("priority must be an integer between 0 and 100")
 
         self.tasks_root.mkdir(parents=True, exist_ok=True)
         for _ in range(8):
@@ -399,6 +409,7 @@ class TaskStore:
             goal_id=goal_id,
             plan_id=plan_id,
             plan_version=plan_version,
+            priority=priority,
             budget=budget,
             approval_policy=approval_policy,
             created_at=now,

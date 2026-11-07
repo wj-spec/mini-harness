@@ -280,3 +280,43 @@ def test_queue_concurrency_bounds(monkeypatch, capsys):
             entrypoint.main()
         assert error.value.code == 2
         assert "--queue-concurrency must be between 1 and 8" in capsys.readouterr().err
+
+
+@pytest.mark.skipif(GIT is None, reason="git required")
+def test_prepare_plan_task_sets_priority(repo, monkeypatch, capsys):
+    session, plan = _approve_empty_plan(repo)
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=repo))
+    monkeypatch.setattr(sys, "argv", ["vibe", "--prepare-plan-task", "--plan-task-priority", "7",
+                                      "--session", session.id, "--workspace", str(repo), "--fake"])
+    entrypoint.main()
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["priority"] == 7
+    assert TaskStore(session.root).get(payload["task_id"]).priority == 7
+
+
+@pytest.mark.skipif(GIT is None, reason="git required")
+def test_plan_queue_orders_by_priority_then_created(repo, monkeypatch, capsys):
+    first_session, first_task = _prepared_task(repo)
+    second_session, second_task = _prepared_task(repo)
+    store = TaskStore(second_session.root)
+    low = store.create(kind="run", objective="低优先级", workspace=str(repo), mode="act",
+                       plan_id="pl-low", plan_version=1, priority=1, session_id=second_session.id)
+    high = store.create(kind="run", objective="高优先级", workspace=str(repo), mode="act",
+                        plan_id="pl-high", plan_version=1, priority=9, session_id=second_session.id)
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=repo))
+    monkeypatch.setattr(sys, "argv", ["vibe", "--run-plan-queue", "--queue-all-sessions",
+                                      "--queue-dry-run", "--workspace", str(repo), "--fake"])
+    entrypoint.main()
+    payload = json.loads(capsys.readouterr().out)
+    priorities = [item["priority"] for item in payload["queue"]]
+    assert priorities == sorted(priorities, reverse=True)
+    assert payload["queue"][0]["task_id"] == high.task_id
+
+
+def test_plan_task_priority_bounds(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["vibe", "--prepare-plan-task", "--plan-task-priority", "101",
+                                      "--session", "s-1", "--workspace", "/tmp"])
+    with pytest.raises(SystemExit) as error:
+        entrypoint.main()
+    assert error.value.code == 2
+    assert "--plan-task-priority must be between 0 and 100" in capsys.readouterr().err
