@@ -467,7 +467,20 @@ def check_unattended_profile(workspace: Path, env: Mapping[str, str] | None = No
         relaxed.append("require_worktree=false")
     if raw.get("approval_mode") not in (None, "queue"):
         relaxed.append(f"approval_mode={raw.get('approval_mode')}")
+    approval_required = (environ.get("VIBE_UNATTENDED_REQUIRE_APPROVAL") or "").strip().lower() in {
+        "1", "true", "yes",
+    }
     if relaxed:
+        if approval_required:
+            approval_path = workspace / ".vibe" / "unattended.approval.json"
+            if not approval_path.is_file():
+                return Check(
+                    WARN,
+                    f"无人值守 profile 放宽了：{', '.join(relaxed)}（要求审批但缺少批准记录）",
+                    "运行 ./run_vibe.sh --approve-unattended-profile --workspace <ws>；"
+                    "否则 worker 会拒绝启动",
+                )
+            return Check(OK, f"无人值守 profile 已批准（放宽：{', '.join(relaxed)}）")
         return Check(WARN, f"无人值守 profile 放宽了：{', '.join(relaxed)}",
                      "确认 .vibe/unattended.json 的放宽范围；worker 启动会写 unattended_profile_relaxed 通知")
     return Check(OK, "无人值守 profile 使用默认保守策略")

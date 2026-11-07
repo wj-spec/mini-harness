@@ -26,7 +26,8 @@
   - 放宽了默认策略的 profile 必须先执行 `--approve-unattended-profile --workspace <ws>`，
     写入 `.vibe/unattended.approval.json`（profile_id/hash/relaxed/approved_by/approved_at）；
   - worker 启动时校验 hash 与当前 profile 一致，未批准或 profile 改动后未重批 → `WorkerError` 拒绝启动（fail closed）；
-  - 保守默认 profile 不需要批准；批准动作写 `unattended_profile_approved` 通知。
+  - 保守默认 profile 不需要批准；批准动作写 `unattended_profile_approved` 通知；
+  - `--doctor` 在开启审批门时会提前提示「放宽但缺少批准记录」（worker 会拒绝启动）。
 - worker 接线：
   - 启动时加载 profile，并在任务事件写 `unattended_profile`（profile id + hash）；
   - 收到 child 的 `approval_request` 时先做能力检查；

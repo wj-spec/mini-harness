@@ -376,3 +376,33 @@ def test_doctor_reports_bench_without_regression(tmp_path):
     code, output = _run_doctor(repo, workspace, env={"VIBE_API_KEY": "sk-test"})
     assert code == 0, output
     assert "✓ 最近长任务 benchmark 无回归（2/2）" in output
+
+
+def test_doctor_warns_when_relaxed_profile_needs_approval(tmp_path):
+    repo, workspace = _green_repo(tmp_path)
+    (workspace / ".vibe").mkdir(exist_ok=True)
+    (workspace / ".vibe" / "unattended.json").write_text(
+        '{"schema_version": 1, "allow_exec": true}', encoding="utf-8",
+    )
+    code, output = _run_doctor(repo, workspace, env={
+        "VIBE_API_KEY": "sk-test", "VIBE_UNATTENDED_REQUIRE_APPROVAL": "1",
+    })
+    assert code == 0, output
+    assert "! 无人值守 profile 放宽了：allow_exec（要求审批但缺少批准记录）" in output
+    assert "--approve-unattended-profile" in output
+
+
+def test_doctor_accepts_approved_relaxed_profile(tmp_path):
+    repo, workspace = _green_repo(tmp_path)
+    (workspace / ".vibe").mkdir(exist_ok=True)
+    (workspace / ".vibe" / "unattended.json").write_text(
+        '{"schema_version": 1, "allow_exec": true}', encoding="utf-8",
+    )
+    (workspace / ".vibe" / "unattended.approval.json").write_text(
+        '{"schema_version": 1, "profile_hash": "x", "approved_by": "user"}', encoding="utf-8",
+    )
+    code, output = _run_doctor(repo, workspace, env={
+        "VIBE_API_KEY": "sk-test", "VIBE_UNATTENDED_REQUIRE_APPROVAL": "1",
+    })
+    assert code == 0, output
+    assert "✓ 无人值守 profile 已批准（放宽：allow_exec）" in output
