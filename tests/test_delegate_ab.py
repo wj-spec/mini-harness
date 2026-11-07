@@ -39,3 +39,17 @@ def test_digest_workspace_and_check(tmp_path):
     assert delegate_ab.check_digest("SUMMARY=a\nRESULT=4|9")[0] is True
     assert delegate_ab.check_digest("RESULT=3|9")[0] is False
     assert delegate_ab.check_digest("没有结果")[0] is False
+
+
+def test_render_summary_markdown():
+    summary = {
+        "single": {"runs": 1, "ok": 1, "correct": 1, "avg_tokens": 100,
+                   "avg_effective_tokens": 100, "avg_steps": 3,
+                   "avg_duration_seconds": 4.2, "delegate_calls": 0},
+        "delegate": {"runs": 1, "ok": 1, "correct": 1, "avg_tokens": 120,
+                     "avg_effective_tokens": 200, "avg_steps": 3,
+                     "avg_duration_seconds": 8.1, "delegate_calls": 1},
+    }
+    text = delegate_ab.render_summary_markdown(summary)
+    assert "| single | 1 | 1 | 1 | 100 | 100 | 3 | 4.2s | 0 |" in text
+    assert "| delegate | 1 | 1 | 1 | 120 | 200 | 3 | 8.1s | 1 |" in text

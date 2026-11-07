@@ -37,4 +37,5 @@
   但**总 token 仍高 38%**；flash 上主 Agent token 还略增。即「上下文隔离」可能降低主 loop 负担，但整体成本上升。
 - 结论：维持**默认关闭**（`VIBE_SUBAGENT_DELEGATE=0`）；delegate 更适合「超大仓库/上下文吃紧」而非一般任务。
 - 是否投入更多预算扩大样本（更多轮、更多仓库形态），见 [open-decisions](open-decisions.md) 第 1 项。
-- 复用：`VIBE_MODEL=deepseek-flash .venv/bin/python3 scripts/delegate_ab.py --task digest --runs 1`。
+- 复用：`VIBE_MODEL=deepseek-flash .venv/bin/python3 scripts/delegate_ab.py --task digest --runs 1`；
+  加 `--markdown-out report.md` 可另存 summary 表格。

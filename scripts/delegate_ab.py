@@ -184,6 +184,23 @@ def summarize(runs: list[dict]) -> dict:
     return summary
 
 
+def render_summary_markdown(summary: dict) -> str:
+    lines = [
+        "| 条件 | runs | 成功 | 正确 | 主 tokens | 有效 tokens | steps | 耗时 | 委派次数 |",
+        "|---|---|---|---|---|---|---|---|---|",
+    ]
+    for condition in ("single", "delegate"):
+        item = summary.get(condition)
+        if not item:
+            continue
+        lines.append(
+            f"| {condition} | {item['runs']} | {item['ok']} | {item['correct']} | "
+            f"{item['avg_tokens']} | {item['avg_effective_tokens']} | {item['avg_steps']} | "
+            f"{item['avg_duration_seconds']}s | {item['delegate_calls']} |"
+        )
+    return "\n".join(lines)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--runs", type=int, default=1, help="每个条件的轮数（默认 1）")
@@ -191,6 +208,7 @@ def main(argv: list[str] | None = None) -> int:
                         help="survey=3 文件标记题；digest=12 模块文件汇总题")
     parser.add_argument("--keep", action="store_true", help="保留临时工作区")
     parser.add_argument("--out", default=None, help="报告路径；默认 .vibe/delegate-ab/<stamp>.json")
+    parser.add_argument("--markdown-out", default=None, help="可选：把 summary 写成 Markdown 表格")
     args = parser.parse_args(argv)
     if args.runs < 1 or args.runs > 5:
         print("--runs must be between 1 and 5", file=sys.stderr)
@@ -228,6 +246,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    if args.markdown_out:
+        Path(args.markdown_out).write_text(
+            render_summary_markdown(summary) + "\n", encoding="utf-8",
+        )
     print(json.dumps({"model": config.model, "summary": summary, "report": str(out_path)},
                      ensure_ascii=False, indent=2))
     return 0
