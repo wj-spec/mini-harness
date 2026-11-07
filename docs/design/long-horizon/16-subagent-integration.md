@@ -213,3 +213,12 @@ P0 的修改点（草案）：新增 `app/runtime/subagents.py`（`SubagentRunne
 - 你提出的“父 Agent 分配任务时给难度/置信度，由 Provider 层做多模型优先级配置”属于 LLM Provider 接入层能力，当前不展开；首版仍用同一 provider，成本对照后再评估路由。
 
 **仍未决**：无（§8 五个开放问题均已回答；后续子 Agent 可写阶段的验收契约另开切片）。
+
+## 12 实现进展（2026-11-07）
+
+- P2 模型自发委派以 **opt-in** 形式实现：`VIBE_SUBAGENT_DELEGATE=1` 时主 Agent 获得只读 `delegate` 工具
+  （只读子集、不嵌套、父预算上限、结果标 untrusted claim、子 TaskRecord + `subagent_finished` 通知）；
+  默认关闭，符合 Q1「A/B 证明收益前只读」与 Q2「P1 前非模型触发」的阶段性约束。
+- A/B 初版（`scripts/delegate_ab.py`）：小任务 delegate 增加 token（+18%/+53%）且无收益；
+  12 文件 digest 任务 chat 上主 Agent 上下文 −21% 但总 token +38%。见 [delegation-ab](../../specs/delegation-ab.md)。
+- 结论：**尚无收益证据，保持默认关闭**；是否默认开启/扩大 A/B 样本待用户拍板（open-decisions 第 1 项）。

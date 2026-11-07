@@ -13,6 +13,7 @@
 > 进度：01–05 已确认（§9）；06–16 已完成对 01–05 的决策对齐（§9）；06–10 用户回答与 Lead 建议已确认（§10）；11–16 用户已回答（§11）。实现：01–16 均已有 P0 基础；07 人工验收 TC-01–09 通过；08 P0 有 **14 个 fake worker 场景**（含 5xx/时钟注入与 2 个多段）；
 2026-11-07 真实模型 P1 已通过：前后台 Plan、审批帧、验收、失败自动修复、worktree→merge→重验、`/explore`，`--suite` 六模式 deepseek-flash/chat 各 6/6，见 [真实 P1 记录](../../specs/real-p1-plan-smoke-2026-11-07.md)；
 总览见 [P0 收束报告](../../specs/p0-closure-report.md)。
+2026-11-07：P2 模型自发委派已 opt-in 落地（默认关闭），A/B 初版见 [delegation-ab](../../specs/delegation-ab.md)。
 
 ## 1 结论地图
 
