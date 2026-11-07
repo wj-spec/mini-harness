@@ -42,6 +42,7 @@ def _fake_demo_script() -> list:
 
 
 def build_provider(config: Config, fake: bool, debug_path=None):
+    debug_path = debug_path or os.getenv("VIBE_LLM_DEBUG_PATH") or None
     if fake or config.provider == "fake":
         if os.getenv("VIBE_FAKE_DEMO", "").strip().lower() in {"1", "true", "yes"}:
             return FakeProvider(_fake_demo_script())

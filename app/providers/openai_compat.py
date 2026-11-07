@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import AsyncIterator
 from pathlib import Path
 from urllib.parse import urlparse
@@ -105,7 +106,9 @@ class OpenAICompatProvider:
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
-        self._debug({"type": "request", "model": self.model, "tools": len(tools), "messages": len(messages)})
+        started = time.monotonic()
+        self._debug({"type": "request", "model": self.model, "tools": len(tools),
+                     "messages": len(messages), "at": started})
         calls: dict[int, dict] = {}
         finish_reason: str | None = None
         done_seen = False
@@ -121,6 +124,8 @@ class OpenAICompatProvider:
                 async with client.stream(
                     "POST", chat_completions_url(self.base_url), headers=headers, json=payload,
                 ) as response:
+                    self._debug({"type": "response", "status": response.status_code,
+                                 "elapsed_ms": round((time.monotonic() - started) * 1000, 1)})
                     if response.status_code >= 400:
                         body = (await response.aread()).decode("utf-8", "replace")
                         retryable = response.status_code in {408, 409, 429, 500, 502, 503, 504}
@@ -130,9 +135,14 @@ class OpenAICompatProvider:
                         )
                         return
 
+                    first_data = True
                     async for line in response.aiter_lines():
                         if not line or not line.startswith("data:"):
                             continue
+                        if first_data:
+                            first_data = False
+                            self._debug({"type": "first_data",
+                                         "elapsed_ms": round((time.monotonic() - started) * 1000, 1)})
                         data = line[5:].strip()
                         if data == "[DONE]":
                             done_seen = True
@@ -171,6 +181,8 @@ class OpenAICompatProvider:
                             if fn.get("arguments"):
                                 slot["arguments"] += fn["arguments"]
         except httpx.HTTPError as exc:
+            self._debug({"type": "error", "error": f"{type(exc).__name__}: {exc}",
+                         "elapsed_ms": round((time.monotonic() - started) * 1000, 1)})
             yield StreamError(f"{type(exc).__name__}: {exc}", retryable=True)
             return
 
@@ -201,8 +213,9 @@ class OpenAICompatProvider:
         if complete or incomplete:
             yield ToolCallsReady(complete, incomplete=incomplete)
 
-        self._debug({"type": "calls", "count": len(complete), "incomplete": len(incomplete),
-                     "finish_reason": finish_reason, "stream_complete": stream_complete})
+        self._debug({"type": "stream_end", "count": len(complete), "incomplete": len(incomplete),
+                     "finish_reason": finish_reason, "stream_complete": stream_complete,
+                     "elapsed_ms": round((time.monotonic() - started) * 1000, 1)})
         self._call_seq += 1
         yield StreamDone(
             finish_reason=finish_reason if stream_complete else "truncated", usage=usage,
