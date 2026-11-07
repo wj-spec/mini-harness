@@ -506,3 +506,48 @@ test('/priority reprioritizes a created task through the real backend', async t 
     await rm(workspace, {recursive: true, force: true});
   }
 });
+
+
+test('/plan kind edits a step through the real backend', async t => {
+  const python = path.join(repoRoot, '.venv', 'bin', 'python3');
+  if (!existsSync(python) || !existsSync(path.join(repoRoot, 'run_vibe.sh'))) {
+    t.skip('python backend unavailable');
+    return;
+  }
+  const workspace = await mkdtemp(path.join(tmpdir(), 'vibe-tui-plan-kind-'));
+  const events: ServerEvent[] = [];
+  const client = createBackendClient({repoRoot, args: ['--fake', '--workspace', workspace]});
+  client.subscribe(event => events.push(event));
+  const view = render(<App client={client}/>);
+  try {
+    client.start();
+    await waitFor(() => events.some(event => event.type === 'ready'));
+    const ready = events.find(event => event.type === 'ready') as Extract<ServerEvent, {type: 'ready'}>;
+    const sessionPath = ready.session_path ?? '';
+    assert.ok(sessionPath, 'ready should include session_path');
+    const taskId = 't-20261103-120000-abcdef';
+    const planDir = path.join(sessionPath, 'tasks', taskId, 'plan');
+    await mkdir(planDir, {recursive: true});
+    await writeFile(path.join(planDir, 'plan.v1.json'), JSON.stringify({
+      schema_version: 1, plan_id: 'pl-kind-it', task_id: taskId, version: 1,
+      status: 'proposed', objective: '类型编辑', acceptance_criteria: [],
+      steps: [{step_id: 's1', title: '读', kind: 'read'}],
+    }));
+    const stdin = view.stdin as unknown as {write(value: string): void};
+    stdin.write('/plan kind s1 verify');
+    await pause(80);
+    stdin.write('\r');
+    await waitFor(() => events.some(event => event.type === 'command_result' && event.command === 'plan'));
+    const result = events.find(event => event.type === 'command_result' && event.command === 'plan') as
+      Extract<ServerEvent, {type: 'command_result'}>;
+    assert.match(result.text, /\[verify\/read\]/);
+    const revised = JSON.parse(await readFile(path.join(planDir, 'plan.v2.json'), 'utf8')) as
+      {steps: {kind: string; title: string}[]};
+    assert.equal(revised.steps[0]?.kind, 'verify');
+    assert.equal(revised.steps[0]?.title, '读');
+  } finally {
+    await client.shutdown();
+    cleanup();
+    await rm(workspace, {recursive: true, force: true});
+  }
+});
