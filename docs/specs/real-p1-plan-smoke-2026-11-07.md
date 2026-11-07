@@ -174,6 +174,21 @@ VIBE_MAX_STEPS=4 VIBE_MAX_RUN_TOKENS=8000 \
 这验证了真实模型 + 真实审批帧（非自动放行）下的 Plan 全链路。
 真实 TUI 本机仍受 pty 环境限制，人工验收按 TC-16 清单执行。
 
+## 3i. 重复样本
+
+同一自动化脚本（干净工作区、2 步计划 + `true` 验收）重复运行：
+
+| 样本 | 模式 | 结果 | 审批 |
+|---|---|---|---|
+| 1 | autonomy full | done，s1/s2 done，acceptance=true | - |
+| 2 | autonomy full | done，s1/s2 done，acceptance=true | - |
+| 3 | autonomy full | done，s1/s2 done，acceptance=true | - |
+| 4 | stdio approval 帧 | done，s1/s2 done，acceptance=true | 5 |
+| 5 | stdio approval 帧 | done，s1/s2 done，acceptance=true | 3 |
+
+即：干净会话下 3/3 多步+验收通过；审批帧路径 2/2 通过。
+TUI 真实键路仍需人工在支持 pty 的终端执行。
+
 ## 4. 结论与限制
 
 - 已证明：真实模型可以走 `--task` 只读链路、可以生成结构化 proposed plan；
@@ -181,7 +196,8 @@ VIBE_MAX_STEPS=4 VIBE_MAX_RUN_TOKENS=8000 \
 - 已证明（单步）：真实模型能完成全部步骤并通过可信验收命令（acceptance=true）；
 - 已证明（干净会话）：真实模型两步计划全部完成，并通过可信验收命令（acceptance=true）；
 - 已证明：stdio approval 帧模拟审批下的多步+验收全链路（5 次审批）；
-- 仍待：真实 TUI 人工键路（pty 环境）、更多 provider/样本；
+- 已证明：干净会话 3/3、多步+验收 acceptance=true，审批帧路径 2/2；
+- 仍待：真实 TUI 人工键路（pty 环境）、更多 provider；
 - 本次仅 deepseek-flash、一次样本，成本显示 $0；
 - 观察到一次真实 provider 长时间无返回（>300s），需要重跑/检查超时与重试；
 - 下一步：重跑第 3 步（更强提示/更多步数/不同 provider），再按
