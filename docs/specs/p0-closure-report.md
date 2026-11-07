@@ -95,3 +95,26 @@ TUI /goal /chat /act /plan
 
 **这不是生产完成**；剩余为：真实 TUI 终端渲染/键盘人工验收（沙箱无 pty，已给 [10 分钟清单](manual-acceptance-tui-quick.md)）、
 模型自发委派（设计列为 P2，需用户拍板）、attach 回放子 Agent（当前无使用路径）、文件集级并行写、跨机器/跨提交趋势对比。
+
+## 7. 100 轮加固摘要（2026-11-07）
+
+第 55–100 轮在 P0/P1 基础上做生产化加固，所有改动均有测试与真实模型证据：
+
+- **协议与前端一致性**：TUI/Python 命令集合一致性测试、命令参数校验补齐（notifications/explore/trace/plan）、
+  计划参数 `kind/files/depends_on` 白名单、畸形帧/重复 id/busy 拒绝；真实后端跨层用例 **14 个**。
+- **计划编辑与审批**：目标/步骤标题/类型/文件范围/依赖（环检测）可在 draft 阶段编辑；
+  审批卡（目标/约束/验收/验证命令/步骤/门禁/不可执行原因/hash）在 TUI 覆盖层、`/plan card`、CLI `--plan-card` 三处可用。
+- **队列**：`--prepare-plan-task`/`--run-plan-queue` 支持跨会话/跨工作区、并行、priority、continue-on-failure、dry-run；
+  `--set-task-priority` 与 TUI `/queue`、`/priority` 让队列可查看/可调整。
+- **观测与运维**：`--trace-summary`（单会话/跨会话/时间窗/TUI `/trace [H]`、失败工具与 LLM 错误分布）、
+  `--bench-history`（回归标记）、`--cleanup-bench`（只清时间戳运行目录）、`--evidence`、`--doctor`
+  （待审批/events/worktree/profile 审批门/benchmark 回归/真实模型报告）、`./scripts/verify_all.sh` 一键验收。
+- **无人值守/告警**：profile 放宽 opt-in 审批门（hash 失效即拒绝启动）、webhook 仅 2xx 成功且重试一次。
+- **子 Agent**：`/explore` 预算可配置（`VIBE_EXPLORE_*`）并新增 `--explore PROMPT` CLI（JSON 输出）。
+- **真实模型**：`--suite-runs 2` 稳定性样本，deepseek-flash/chat 各 **2×6/6**；计划生成缺失自动重试一次。
+- **损坏状态容错**：只读视图统一「跳过 + 计数 + stderr 告警」，并有全损坏工作区集成测试。
+- **基线**：Python **1591 passed / 13 skipped**；TUI **414 passed / 1 failed**（无 pty 环境）；长任务 fake **14/14**；
+  真实 suite 双模型 **6/6**。
+
+剩余均依赖用户/环境：真实 TUI 终端键路人工验收、模型自发委派（P2）、文件集级并行写、跨机器集中观测
+（见 [待用户拍板事项](open-decisions.md)）。
