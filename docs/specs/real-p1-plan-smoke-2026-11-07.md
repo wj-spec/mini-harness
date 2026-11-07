@@ -257,6 +257,20 @@ TUI 真实键路仍需人工在支持 pty 的终端执行。
 
 这验证了真实模型下的后台 worker + GoalRecord 链路；attach/审批键路仍待 TUI 人工验收。
 
+## 3n. 真实后台 Plan worker 成功
+
+真实 provider 下走 TUI `/plan background` 等价路径：
+
+- 真实模型生成 2 步计划 → 批准 → `plan prepare-background` 创建 task；
+- 启动 detached worker（真实 provider，`VIBE_AUTONOMY=full`+unattended allow_exec）；
+- worker 完成计划步骤与验收命令；
+- 结果：
+  - worker exit 0；
+  - TaskRecord status=completed，plan 绑定正确；
+  - acceptance.v1.json status=**true**。
+
+这是真实模型下 **后台 Plan 执行 + 验收** 的端到端成功样本。
+
 ## 4. 结论与限制
 
 - 已证明：真实模型可以走 `--task` 只读链路、可以生成结构化 proposed plan；
@@ -267,7 +281,7 @@ TUI 真实键路仍需人工在支持 pty 的终端执行。
 - 已证明：干净会话 3/3、多步+验收 acceptance=true，审批帧路径 2/2；
 - 已证明：deepseek-flash 3/3 多步验收、2/2 审批；deepseek-chat 1/1 多步验收、1/1 审批；
 - 脚本稳定性：6 次中 5 次通过；失败样本表现为 s1 阶段多次审批后停止；
-- 已证明：真实后台 goal worker 完成一个 segment（TaskRecord/goal-record completed）；
+- 已证明：真实后台 goal worker 完成；真实后台 Plan worker 完成计划+验收；
 - 仍待：真实 TUI 人工键路（pty 环境）、更多 provider/更大样本；
 - 本次仅 deepseek-flash、一次样本，成本显示 $0；
 - 观察到一次真实 provider 长时间无返回（>300s），需要重跑/检查超时与重试；
