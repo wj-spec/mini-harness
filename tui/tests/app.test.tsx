@@ -2191,3 +2191,34 @@ test('plan overlay d on the first version only shows a notice', async () => {
     await rm(dir, {recursive: true, force: true});
   }
 });
+
+test('plan overlay t prefills selected step title edit', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'mini-harness-plan-step-edit-'));
+  try {
+    const taskDir = path.join(dir, 'tasks', 't-20261103-120000-abcdef', 'plan');
+    await mkdir(taskDir, {recursive: true});
+    await writeFile(path.join(taskDir, 'plan.v1.json'), JSON.stringify({
+      schema_version: 1, plan_id: 'pl-step-edit', task_id: 't-20261103-120000-abcdef',
+      version: 1, status: 'proposed', objective: '步骤编辑计划', acceptance_criteria: [],
+      steps: [{step_id: 's1', title: '旧标题', kind: 'read'}],
+    }));
+    const client = new MockClient();
+    client.capabilityList = ['tasks'];
+    const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}/>);
+    await pause(20);
+    client.emit({type: 'ready', workspace: '/tmp/repo', model: 'fake', session_id: 'test',
+      session_path: dir, capabilities: ['tasks']});
+    client.emit({type: 'status', phase: 'idle'});
+    await pause(20);
+    await enter(stdin, '/plan');
+    for (let i = 0; i < 5; i += 1) {stdin.write('\u001b[B'); await pause(10);}
+    assert.match(lastFrame() ?? '', /›\s+- s1/);
+    stdin.write('t');
+    await pause(30);
+    assert.match(lastFrame() ?? '', /\/plan edit-step s1/);
+    await enter(stdin, '新标题');
+    assert.deepEqual(client.commandArgs.at(-1), {action: 'edit-step', step_id: 's1', title: '新标题'});
+  } finally {
+    await rm(dir, {recursive: true, force: true});
+  }
+});

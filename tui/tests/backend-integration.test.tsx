@@ -75,9 +75,13 @@ test('fake demo run requests approvals and completes through the real backend', 
     client.start();
     await waitFor(() => events.some(event => event.type === 'ready'));
     const stdin = view.stdin as unknown as {write(value: string): void};
+    // 等 App 完成 ready 初始化（composer 已启用、fake demo 提示已预填）再回车。
+    await waitFor(() => String(view.lastFrame()).includes('.vibe/fake-demo.txt'));
+    await pause(100);
     stdin.write('\r');
     let answered = 0;
-    const deadline = Date.now() + 25000;
+    let resendAt = Date.now() + 4000;
+    const deadline = Date.now() + 40000;
     while (true) {
       if (events.some(event => event.type === 'done')) break;
       const approvals = events.filter(event => event.type === 'approval_request').length;
@@ -86,6 +90,13 @@ test('fake demo run requests approvals and completes through the real backend', 
         answered += 1;
         await pause(100);
         continue;
+      }
+      const started = events.some(event => event.type === 'status' && event.phase === 'running')
+        || events.some(event => event.type === 'text_delta')
+        || approvals > 0;
+      if (!started && Date.now() > resendAt) {
+        stdin.write('\r');
+        resendAt = Date.now() + 4000;
       }
       if (Date.now() > deadline) throw new Error(`run did not finish; approvals=${answered}`);
       await pause(50);

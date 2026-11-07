@@ -65,7 +65,7 @@ cd /path/to/mini-harness
 ## TC-16-05 stale / 修订 / 版本
 
 1. 已批准计划执行中发送纠偏（steer）；
-2. `/plan list`、`/plan diff 1 2`、覆盖层按 `d`（当前版本 vs 上一版本）、`/plan revise 新目标`；
+2. `/plan list`、`/plan diff 1 2`、覆盖层按 `d`（当前版本 vs 上一版本）、选中步骤按 `t` 改标题、`/plan revise 新目标`；
 3. 批准新版本后 `/plan execute`。
 
 **期望**

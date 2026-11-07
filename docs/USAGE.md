@@ -697,7 +697,7 @@ VIBE_DEBUG=1 ./run_ink.sh --workspace /path/to/repo
 - `/chat <任务>`：chat 模式，provider 不收到 tools；
 - `/act <任务>`：act 模式，正常工具执行；
 - `/plan <任务>`：只读规划 run，允许 `submit_plan`；
-- `/plan`：打开最近计划覆盖层（↑↓ 选择，PgUp/PgDn 翻阅，Esc 返回）；覆盖层内 `s` 步骤详情、`v` 版本列表、`d` 与上一版本比较、`a` 验收、`e` 修订、`b` 后台执行、`y/n` 审批、Enter 执行；
+- `/plan`：打开最近计划覆盖层（↑↓ 选择，PgUp/PgDn 翻阅，Esc 返回）；覆盖层内 `s` 步骤详情、选中步骤行 `t` 改标题、`v` 版本列表、`d` 与上一版本比较、`a` 验收、`e` 修订、`b` 后台执行、`y/n` 审批、Enter 执行；
 - `/plan all`：展开全部步骤；
 - `/plan approve` / `/plan reject`：批准/拒绝 proposed 计划；
 - `/plan revise <新目标>`：生成 version+1 draft；
