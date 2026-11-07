@@ -75,3 +75,10 @@ VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py
 - 覆盖：foreground / background / repair / merge 四种模式；
 - 结果：deepseek-flash **4/4**、deepseek-chat **4/4** 全通过；
 - 期间修复：后台 plan 步骤提示注入、修复轮与只读约束冲突、纯分析步骤 manual 证据。
+
+## TC-16-11 TUI 审批链路跨层集成（无需 pty，2026-11-07）
+
+- `tui/tests/backend-integration.test.tsx` 启动真实 `run_vibe.sh --stdio --fake`，用 Ink `App` 驱动：
+  - `/plan list`、`/cost` 的真实返回（捕获命令参数转发回归）；
+  - `VIBE_FAKE_DEMO=1` 运行：两次审批（写文件 / 执行命令）→ done，校验 `.vibe/fake-demo.txt` 内容；
+- 结果：TUI **385/386**（唯一失败为环境 pty smoke）。真实键盘/渲染路径仍需人工终端验收。

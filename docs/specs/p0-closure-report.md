@@ -8,7 +8,7 @@
 | 检查 | 结果 |
 |---|---|
 | Python 全量 | **1476 passed / 13 skipped** |
-| TUI | **384 passed / 1 failed**（385 收集）；失败为环境 pty smoke（`out of pty devices`）；含 1 个真实 Python 后端跨层集成用例 |
+| TUI | **385 passed / 1 failed**（386 收集）；失败为环境 pty smoke（`out of pty devices`）；含 2 个真实 Python 后端跨层集成用例（命令参数转发、审批→执行→完成） |
 | 长任务 fake 场景 | **12/12 PASS**（`scripts/bench_long.py --runs 1`；含 2 个 5xx 注入场景；另有 `--real` 真 provider 入口） |
 | 07 attach 人工验收 | TC-01–09 通过（[记录](manual-acceptance-07-results.md)） |
 | Plan/SubAgent 人工验收清单 | TC-16-01–08 已编写；自动化/真实模型部分已记录（[清单](manual-acceptance-16-plan-subagent.md)、[结果](manual-acceptance-16-results.md)），真实 TUI 键路待 |
