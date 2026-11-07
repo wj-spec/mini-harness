@@ -372,6 +372,8 @@ deepseek-flash 一次 suite 结果（2026-11-07）：
 
 复跑（2026-11-07，queue/priority/trace/profile 审批门等改动合入后）：deepseek-flash 与 deepseek-chat 再次各跑一次，**均 6/6 通过**；同轮 Python 1526/13、TUI 396/397、长任务 fake 14/14。
 
+复跑（2026-11-07，TUI /queue、/priority、webhook 重试等改动后）：deepseek-flash `--suite` 六模式 **6/6**；同轮一键验收 Python 1573/13、TUI 405/406、bench 14/14、doctor/redteam 通过。
+
 **计划生成重试（2026-11-07）**：deepseek-chat 偶发一次运行只输出文字、不调用 `submit_plan`，
 导致 repair 模式在 `generate` 阶段失败（`no plan.v1.json`）。脚本现对计划生成自动重试一次
 （同一会话、第二段提示明确要求调用 `submit_plan`）；复跑 chat `--repair` 通过、suite 六模式 6/6。
