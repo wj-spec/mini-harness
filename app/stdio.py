@@ -539,9 +539,11 @@ class _Connection:
                 title = (args or {}).get("title")
                 kind = (args or {}).get("kind")
                 files = (args or {}).get("files")
+                depends_on = (args or {}).get("depends_on")
                 steps = plan.to_dict().get("steps", [])
                 if not any(str(item.get("step_id")) == step_id for item in steps):
                     return f"计划中没有步骤 {step_id}"
+                from app.runtime.plan import find_dependency_cycle
                 for item in steps:
                     if str(item.get("step_id")) == step_id:
                         if isinstance(title, str) and title.strip():
@@ -550,6 +552,19 @@ class _Connection:
                             item["kind"] = kind
                         if isinstance(files, list) and files:
                             item["files"] = [str(path) for path in files]
+                        if isinstance(depends_on, list):
+                            item["depends_on"] = [str(step) for step in depends_on]
+                step_ids = {str(item.get("step_id")) for item in steps}
+                for item in steps:
+                    if item.get("depends_on"):
+                        for dependency in item["depends_on"]:
+                            if dependency == item.get("step_id"):
+                                return f"步骤 {item.get('step_id')} 不能依赖自身"
+                            if dependency not in step_ids:
+                                return f"步骤 {item.get('step_id')} 依赖不存在的步骤 {dependency}"
+                cycle = find_dependency_cycle(steps)
+                if cycle is not None:
+                    return f"计划依赖存在循环：{' → '.join(cycle)}"
                 try:
                     plan = revise_plan(path.parent.parent, plan, steps=steps, requester="user")
                 except (PlanError, ValueError) as exc:
@@ -1598,7 +1613,7 @@ class _Connection:
                     if not isinstance(args, dict):
                         raise ValueError("command args must be an object")
                     if request["command"] == "plan":
-                        if set(args) - {"action", "objective", "step_id", "title", "kind", "files", "version_a", "version_b"} or args.get("action", "show") not in {"show", "list", "step", "edit-step", "diff", "acceptance", "approve", "reject", "revise", "prepare-background"}:
+                        if set(args) - {"action", "objective", "step_id", "title", "kind", "files", "depends_on", "version_a", "version_b"} or args.get("action", "show") not in {"show", "list", "step", "edit-step", "diff", "acceptance", "approve", "reject", "revise", "prepare-background"}:
                             raise ValueError("plan args allowed: action=show|list|step|edit-step|diff|acceptance|approve|reject|revise|prepare-background")
                         if args.get("action") == "revise" and (not isinstance(args.get("objective"), str) or not args["objective"].strip()):
                             raise ValueError("plan revise requires a nonempty objective")
@@ -1610,18 +1625,24 @@ class _Connection:
                             has_title = args.get("title") is not None
                             has_kind = args.get("kind") is not None
                             has_files = args.get("files") is not None
+                            has_depends = args.get("depends_on") is not None
                             if has_title and (not isinstance(args.get("title"), str) or not args["title"].strip()):
                                 raise ValueError("plan edit-step title must be a nonempty string")
                             if has_kind and args.get("kind") not in {"read", "edit", "run", "verify"}:
                                 raise ValueError("plan edit-step kind must be read|edit|run|verify")
+                            if has_depends:
+                                depends_value = args.get("depends_on")
+                                if (not isinstance(depends_value, list) or len(depends_value) > 20
+                                        or any(not isinstance(item, str) or not item.strip() for item in depends_value)):
+                                    raise ValueError("plan edit-step depends_on must be a list of step ids")
                             if has_files:
                                 files_value = args.get("files")
                                 if (not isinstance(files_value, list) or not files_value
                                         or len(files_value) > 20
                                         or any(not isinstance(item, str) or not item.strip() for item in files_value)):
                                     raise ValueError("plan edit-step files must be a nonempty list of paths")
-                            if not has_title and not has_kind and not has_files:
-                                raise ValueError("plan edit-step requires title, kind and/or files")
+                            if not has_title and not has_kind and not has_files and not has_depends:
+                                raise ValueError("plan edit-step requires title, kind, files and/or depends_on")
                         if args.get("action") == "diff":
                             for key in ("version_a", "version_b"):
                                 if not isinstance(args.get(key), int) or isinstance(args.get(key), bool) or args[key] < 1:

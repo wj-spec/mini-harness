@@ -21,6 +21,45 @@ class PlanError(ValueError):
     pass
 
 
+def find_dependency_cycle(steps: list[dict[str, Any]]) -> list[str] | None:
+    """返回依赖环路径（如 ["s1","s2","s1"]）；无环返回 None。"""
+    graph: dict[str, list[str]] = {}
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        step_id = step.get("step_id")
+        if not isinstance(step_id, str):
+            continue
+        depends = step.get("depends_on") or []
+        graph[step_id] = [item for item in depends if isinstance(item, str)] if isinstance(depends, list) else []
+    state: dict[str, int] = {}
+    stack: list[str] = []
+
+    def visit(node: str) -> list[str] | None:
+        state[node] = 1
+        stack.append(node)
+        for neighbor in graph.get(node, []):
+            if neighbor not in graph:
+                continue
+            if state.get(neighbor) == 1:
+                index = stack.index(neighbor)
+                return stack[index:] + [neighbor]
+            if state.get(neighbor) is None:
+                found = visit(neighbor)
+                if found is not None:
+                    return found
+        state[node] = 2
+        stack.pop()
+        return None
+
+    for node in graph:
+        if state.get(node) is None:
+            found = visit(node)
+            if found is not None:
+                return found
+    return None
+
+
 @dataclass
 class PlanStep:
     step_id: str

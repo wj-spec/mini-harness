@@ -2340,3 +2340,16 @@ test('/plan files forwards step file scope', async () => {
   await enter(stdin, '/plan files s1 a.ts,b.ts');
   assert.deepEqual(client.commandArgs.at(-1), {action: 'edit-step', step_id: 's1', files: ['a.ts', 'b.ts']});
 });
+
+
+test('/plan depends forwards step dependencies', async () => {
+  const client = new MockClient();
+  const view = render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}/>);
+  const {stdin} = view;
+  await pause(20);
+  client.emit({type: 'ready', workspace: '/tmp/repo', model: 'fake', session_id: 'test', capabilities: []});
+  client.emit({type: 'status', phase: 'idle'});
+  await pause(20);
+  await enter(stdin, '/plan depends s2 s1');
+  assert.deepEqual(client.commandArgs.at(-1), {action: 'edit-step', step_id: 's2', depends_on: ['s1']});
+});

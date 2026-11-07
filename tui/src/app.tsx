@@ -1422,6 +1422,20 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       } catch (error) {notice(`计划差异未送达：${String(error)}`);}
       return;
     }
+    const planDepends = /^\/plan\s+depends\s+(\S+)\s+(\S+)$/.exec(text);
+    if (planDepends) {
+      if (state.phase !== 'idle' || activeRun.current) {notice('当前有运行中任务；结束后再编辑步骤。'); return;}
+      const dependsOn = planDepends[2]!.split(',').map(item => item.trim()).filter(Boolean);
+      if (dependsOn.length > 20) {notice('用法：/plan depends <step_id> <s1,s2>（最多 20 个）'); return;}
+      try {
+        const id = client.command('plan', {action: 'edit-step', step_id: planDepends[1]!, depends_on: dependsOn});
+        activeRun.current = id;
+        dispatch({type: 'begin_command', id, command: 'plan'});
+        setPlanOpen(false);
+        setInput('');
+      } catch (error) {notice(`步骤依赖编辑未送达：${String(error)}`);}
+      return;
+    }
     const planFiles = /^\/plan\s+files\s+(\S+)\s+(\S+)$/.exec(text);
     if (planFiles) {
       if (state.phase !== 'idle' || activeRun.current) {notice('当前有运行中任务；结束后再编辑步骤。'); return;}

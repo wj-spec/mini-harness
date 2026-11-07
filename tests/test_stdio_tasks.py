@@ -1777,3 +1777,40 @@ def test_plan_edit_step_can_change_files(tmp_path, monkeypatch):
     asyncio.run(scenario())
     revised = load_plan(task_dir / "plan" / "plan.v2.json")
     assert revised.steps[0].files == ["a.py", "b.py"]
+
+
+def test_plan_edit_step_can_change_dependencies(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    task_id = "t-20261106-000000-abcdef"
+    task_dir = session.root / "tasks" / task_id
+    from app.runtime.plan import Plan, load_plan, propose_plan
+    plan = Plan.from_dict({"schema_version": 1, "plan_id": "pl-deps", "task_id": task_id,
+                           "objective": "依赖编辑", "steps": [
+                               {"step_id": "s1", "title": "读"},
+                               {"step_id": "s2", "title": "写", "kind": "edit"},
+                           ]})
+    propose_plan(task_dir, plan)
+
+    async def scenario():
+        harness = Harness(_agent(tmp_path), Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("command", "c-dep", command="plan",
+                     args={"action": "edit-step", "step_id": "s2", "depends_on": ["s1"]})
+        ok = await harness.until("command_result", "c-dep")
+        assert "draft" in ok["text"]
+        harness.send("command", "c-dep-cycle", command="plan",
+                     args={"action": "edit-step", "step_id": "s1", "depends_on": ["s2"]})
+        cycle = await harness.until("command_result", "c-dep-cycle")
+        assert "循环" in cycle["text"]
+        harness.send("command", "c-dep-missing", command="plan",
+                     args={"action": "edit-step", "step_id": "s2", "depends_on": ["s9"]})
+        missing = await harness.until("command_result", "c-dep-missing")
+        assert "不存在" in missing["text"]
+        await harness.close()
+
+    asyncio.run(scenario())
+    plan_dir = task_dir / "plan"
+    revised = load_plan(plan_dir / "plan.v2.json")
+    assert revised.steps[1].depends_on == ["s1"]
+    assert not (plan_dir / "plan.v3.json").exists()

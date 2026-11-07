@@ -7,8 +7,8 @@
 
 | 检查 | 结果 |
 |---|---|
-| Python 全量 | **1577 passed / 13 skipped** |
-| TUI | **409 passed / 1 failed**（410 收集）；失败为环境 pty smoke（`out of pty devices`）；含 12 个真实 Python 后端跨层集成用例 + TUI/Python 命令集合一致性检查；计划覆盖层新增 `d` 版本比较、`t` 步骤标题编辑、`k` 步骤类型编辑 |
+| Python 全量 | **1578 passed / 13 skipped** |
+| TUI | **410 passed / 1 failed**（411 收集）；失败为环境 pty smoke（`out of pty devices`）；含 12 个真实 Python 后端跨层集成用例 + TUI/Python 命令集合一致性检查；计划覆盖层新增 `d` 版本比较、`t` 步骤标题编辑、`k` 步骤类型编辑 |
 | 长任务 fake 场景 | **14/14 PASS**（`scripts/bench_long.py --runs 1`；含 2 个 5xx 注入、1 个 fake 时钟、2 个多段场景；另有 `--real` 真 provider 入口） |
 | 07 attach 人工验收 | TC-01–09 通过（[记录](manual-acceptance-07-results.md)） |
 | Plan/SubAgent 人工验收清单 | TC-16-01–08 已编写；自动化/真实模型部分已记录（[清单](manual-acceptance-16-plan-subagent.md)、[结果](manual-acceptance-16-results.md)），真实 TUI 键路待；新增 [TUI 终端快速验收清单](manual-acceptance-tui-quick.md) 便于终端一次走完 |
@@ -68,7 +68,7 @@ TUI /goal /chat /act /plan
    以及验收失败自动修复（`--repair` 修复后连续 2/2）、worktree→merge→合并后重验（`--merge` 连续 2/2）、`--suite` 六种模式（含 queue/goal）跨模型 **6/6 ×2**，
    `--suite-runs 2` 扩样本后 flash/chat 各 **2×6/6**；剩余为真实 TUI 人工键路。
    08 长任务 benchmark 仍为 fake worker 场景（含 5xx/时钟注入），真实模型长任务样本仍有限。
-2. **Plan TUI**：覆盖层 + 侧栏步骤面板、审批/修订/执行、审批时限已接；步骤标题/类型/文件范围可在 draft 阶段编辑，`depends_on` 编辑与完整审批卡片仍待。
+2. **Plan TUI**：覆盖层 + 侧栏步骤面板、审批/修订/执行、审批时限已接；步骤标题/类型/文件范围/依赖均可在 draft 阶段编辑（依赖有环检测），完整审批卡片仍待。
 3. **子 Agent**：已有子 TaskRecord/subagent_event/取消/depth/批量扇出；attach 回放、按 mode 委派开关、父预算硬上限联动仍待。
 4. **09 剩余**：events 软上限告警、红队清单自动化、只读任务并发、外部 webhook 告警、profile 放宽审计已实现；
    文件集级并行写仍待；profile 放宽审批门已实现（`--approve-unattended-profile` + `VIBE_UNATTENDED_REQUIRE_APPROVAL`）。
