@@ -1,0 +1,24 @@
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+
+from app.config import Config
+from scripts import real_p1_acceptance
+
+
+def test_real_p1_script_requires_key(monkeypatch, capsys):
+    monkeypatch.setattr(real_p1_acceptance.Config, "from_env", lambda: Config(workspace=None))
+    assert real_p1_acceptance.main([]) == 2
+    assert "missing API key" in capsys.readouterr().out
+
+
+def test_real_p1_script_help_exits_zero(tmp_path):
+    proc = subprocess.run(
+        [sys.executable, "scripts/real_p1_acceptance.py", "--help"],
+        capture_output=True, text=True,
+        cwd=__import__("pathlib").Path(__file__).resolve().parents[1],
+    )
+    assert proc.returncode == 0
+    assert "真实模型 Plan P1 验收脚本" in proc.stdout

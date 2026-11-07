@@ -199,6 +199,17 @@ TUI 真实键路仍需人工在支持 pty 的终端执行。
 即 deepseek-chat 在同样脚本下 1/1 多步验收 + 1/1 审批路径通过。
 目前仅验证 deepseek-flash/chat 两个模型、单机单 key；更多 provider 仍待。
 
+## 3k. 可复用验收脚本
+
+已把上述流程固化为 `scripts/real_p1_acceptance.py`：
+
+- 自动创建临时 git 工作区；
+- 真实模型生成两步计划、批准、执行；
+- 自动回送 approval 帧；
+- 校验 steps/acceptance；
+- 输出 JSON 报告并写 `.vibe/real-p1-acceptance/`；
+- 2026-11-07 实跑一次：ok=true，s1/s2 done，acceptance=true，审批 3 次。
+
 ## 4. 结论与限制
 
 - 已证明：真实模型可以走 `--task` 只读链路、可以生成结构化 proposed plan；

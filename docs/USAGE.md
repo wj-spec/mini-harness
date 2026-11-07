@@ -712,6 +712,20 @@ VIBE_DEBUG=1 ./run_ink.sh --workspace /path/to/repo
 - 通过 `start_plan_step` / `complete_plan_step` 推进 step ledger，并自动记录 read/file_change/command_ok 证据；
 - 完成前要求 required 步骤全 done；有已确认验收标准时执行可信验收命令（失败可重试，`VIBE_ACCEPTANCE_RETRIES`）。
 
+## 真实模型 Plan P1 验收
+
+```bash
+set -a; . ./.env; set +a
+VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --keep
+```
+
+- 自动创建一次性 git 工作区（`--workspace` 可指定）；
+- 真实模型生成两步只读计划 → 批准 → 执行；
+- 自动回送 `approval` 帧模拟 TUI 审批；
+- 校验 s1/s2 done 与 `acceptance.v1.json=true`；
+- 输出 JSON 并写 `.vibe/real-p1-acceptance/<timestamp>.json`；
+- 需要 API key；失败 exit 1。
+
 ## 后台 worker
 
 ```bash

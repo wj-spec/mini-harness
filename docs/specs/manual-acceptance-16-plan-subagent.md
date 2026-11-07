@@ -13,6 +13,7 @@ cd /path/to/mini-harness
 ```
 
 真模型验收需要已配置 `VIBE_API_KEY`（以及可选 `VIBE_BASE_URL/VIBE_MODEL`）。
+自动化部分可先跑 `scripts/real_p1_acceptance.py`（见 USAGE）；本清单仍用于 TUI 人工键路。
 建议使用一次性 git 仓库作为 `--workspace`，不要在含未提交改动的主工作区做。
 
 ## TC-16-01 模式与只读规划
