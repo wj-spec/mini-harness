@@ -100,3 +100,41 @@ def test_plan_queue_requires_session(monkeypatch, capsys):
         entrypoint.main()
     assert error.value.code == 2
     assert "require a concrete --session" in capsys.readouterr().err
+
+
+@pytest.mark.skipif(GIT is None, reason="git required")
+def test_run_plan_queue_dry_run_reports_without_worker(repo, monkeypatch, capsys):
+    session, plan = _approve_empty_plan(repo)
+    store = TaskStore(session.root)
+    task = store.create(kind="run", objective=plan.objective, workspace=str(repo),
+                        mode="act", plan_id=plan.plan_id, plan_version=plan.version,
+                        session_id=session.id)
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=repo))
+    monkeypatch.setattr(sys, "argv", ["vibe", "--run-plan-queue", "--queue-dry-run",
+                                      "--session", session.id, "--workspace", str(repo), "--fake"])
+    entrypoint.main()
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["dry_run"] is True and payload["count"] == 1
+    assert payload["queue"][0]["task_id"] == task.task_id
+    assert payload["queue"][0]["plan_executable"] is True
+    assert store.get(task.task_id).status == "created"  # 未启动 worker
+
+
+@pytest.mark.skipif(GIT is None, reason="git required")
+def test_run_plan_queue_skips_when_plan_missing(repo, monkeypatch, capsys):
+    session, plan = _approve_empty_plan(repo)
+    store = TaskStore(session.root)
+    task = store.create(kind="run", objective=plan.objective, workspace=str(repo),
+                        mode="act", plan_id=plan.plan_id, plan_version=plan.version,
+                        session_id=session.id)
+    (session.root / "tasks" / plan.task_id / "plan" / "plan.v1.json").unlink()
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=repo))
+    monkeypatch.setattr(sys, "argv", ["vibe", "--run-plan-queue", "--session", session.id,
+                                      "--workspace", str(repo), "--fake"])
+    with pytest.raises(SystemExit) as error:
+        entrypoint.main()
+    assert error.value.code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["stopped_early"] == "plan_unavailable"
+    assert payload["ran"][0]["status"] == "skipped_plan_unavailable"
+    assert store.get(task.task_id).status == "created"

@@ -118,6 +118,7 @@ def main() -> None:
     parser.add_argument("--prepare-plan-task", action="store_true", help="把会话中最新可执行计划准备成待运行 task（不启动 worker）")
     parser.add_argument("--run-plan-queue", action="store_true", help="按创建顺序依次运行会话中已准备的计划 task")
     parser.add_argument("--queue-task-timeout", type=float, default=None, help="--run-plan-queue 单个 worker 超时秒数（默认 1800）")
+    parser.add_argument("--queue-dry-run", action="store_true", help="与 --run-plan-queue 搭配：只报告队列与计划可执行性，不启动 worker")
     parser.add_argument("--prune-worktrees", action="store_true", help="只读报告 stale/孤立的 worktree")
     parser.add_argument("--prune-apply", action="store_true", help="与 --prune-worktrees 搭配：把目录缺失的 worktree 标记 removed 并删分支")
     parser.add_argument("--worker", action="store_true", help="后台 worker：执行一个 task segment 并暴露 attach socket")
@@ -267,6 +268,8 @@ def main() -> None:
             parser.error("--decide-approval cannot be combined with other modes")
     if args.queue_task_timeout is not None and not args.run_plan_queue:
         parser.error("--queue-task-timeout requires --run-plan-queue")
+    if args.queue_dry_run and not args.run_plan_queue:
+        parser.error("--queue-dry-run requires --run-plan-queue")
     if args.prepare_plan_task or args.run_plan_queue:
         if args.session is None or args.continue_session:
             parser.error("--prepare-plan-task/--run-plan-queue require a concrete --session")
@@ -741,6 +744,27 @@ def main() -> None:
             print(json.dumps({"session": session.id, "ran": [], "completed": 0,
                               "stopped_early": None}, ensure_ascii=False, indent=2))
             return
+        from app.runtime.plan import can_execute, find_plan
+
+        def plan_executable(task) -> bool:
+            if not task.plan_id:
+                return False
+            try:
+                found = find_plan(session.root, task.plan_id, task.plan_version)
+            except Exception:
+                return False
+            return bool(found) and can_execute(found[1])
+
+        if args.queue_dry_run:
+            rows = [
+                {"task_id": task.task_id, "plan_id": task.plan_id,
+                 "plan_version": task.plan_version, "plan_executable": plan_executable(task),
+                 "objective": task.objective[:200]}
+                for task in queue
+            ]
+            print(json.dumps({"session": session.id, "dry_run": True, "queue": rows,
+                              "count": len(rows)}, ensure_ascii=False, indent=2))
+            return
         try:
             timeout = float(args.queue_task_timeout or 1800)
         except ValueError:
@@ -750,6 +774,12 @@ def main() -> None:
         ran: list[dict] = []
         stopped_early: str | None = None
         for task in queue:
+            if not plan_executable(task):
+                ran.append({"task_id": task.task_id, "plan_id": task.plan_id,
+                            "plan_version": task.plan_version, "exit_code": None,
+                            "status": "skipped_plan_unavailable", "stderr": ""})
+                stopped_early = "plan_unavailable"
+                break
             command = [sys.executable, "-m", "app", "--worker",
                        "--workspace", str(config.workspace), "--session", session.id,
                        "--task-id", task.task_id]
