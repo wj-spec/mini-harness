@@ -296,6 +296,7 @@ class Agent:
         workspace_audit: bool = False,
         on_round: Callable[[dict], None] | None = None,
         llm_auditor: Callable[[AuditRequest], Awaitable[dict]] | None = None,
+        tool_gate: Callable[[Any], str | None] | None = None,
     ):
         if require_tool_use and not tools_enabled:
             raise ValueError("require_tool_use requires tools_enabled=True")
@@ -307,6 +308,7 @@ class Agent:
         self.tools_enabled = tools_enabled
         self.state = state
         self.approval = approval
+        self.tool_gate = tool_gate
         if approval is not None and hasattr(approval, "tier_resolver"):
             approval.tier_resolver = self._tool_tier
         self.permission_policy = PermissionPolicy()
@@ -1292,7 +1294,10 @@ class Agent:
             run.recorder.tool_start(call, step=step)
             approval_scope = "auto"
             before_metadata = None
-            if duplicate:
+            gate_reason = self.tool_gate(call) if self.tool_gate is not None else None
+            if gate_reason:
+                ok, output = False, f"ERROR tool_gate: {gate_reason}"
+            elif duplicate:
                 ok, output = False, (
                     "ERROR duplicate_call: an identical tool call (same name and arguments) "
                     "was already executed in this batch; this duplicate was not executed"

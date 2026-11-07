@@ -729,6 +729,7 @@ class _Connection:
             elif isinstance(profile.tools, tuple):
                 self.agent.tools = previous_tools.subset(profile.tools)
         previous_gate = getattr(self.agent.approval, "execution_gate", None) if self.agent.approval is not None else None
+        previous_tool_gate = getattr(self.agent, "tool_gate", None)
         if run_task is not None and run_task.record.plan_id and self.agent.approval is not None:
             from app.runtime.plan import can_execute, find_plan
             found = find_plan(self.session.root, run_task.record.plan_id, run_task.record.plan_version)
@@ -791,13 +792,20 @@ class _Connection:
                         save_ledger(bound_task_dir, ledger)
                         return f"started {step_id}"
 
-                    def complete_plan_step(step_id: str) -> str:
+                    def complete_plan_step(step_id: str, **_ignored) -> str:
                         try:
                             record = ledger.complete_step(bound_plan, step_id)
                         except ExecutionError as exc:
-                            return f"ERROR {exc}"
+                            hint = ""
+                            if "step_evidence_missing" in str(exc):
+                                hint = ("; do the step work first (read_file/edit/command), "
+                                        "then call complete_plan_step again")
+                            return f"ERROR {exc}{hint}"
                         save_ledger(bound_task_dir, ledger)
                         if ledger.plan_complete(bound_plan):
+                            self.agent.tool_gate = lambda _call: (
+                                "all plan steps complete; stop calling tools and summarize"
+                            )
                             return (f"step {step_id}: {record.status}; "
                                     "all plan steps complete — stop calling tools and summarize now")
                         return f"step {step_id}: {record.status}"
@@ -806,15 +814,21 @@ class _Connection:
                     self.agent.tools.register(ToolSpec(
                         name="start_plan_step",
                         description="Start a step from the approved plan before doing its work.",
-                        parameters={"type": "object", "properties": {"step_id": {"type": "string"}},
-                                    "required": ["step_id"], "additionalProperties": False},
+                        parameters={"type": "object", "properties": {
+                            "step_id": {"type": "string"},
+                            "evidence": {"type": "array"},
+                            "evidence_refs": {"type": "array"},
+                        }, "required": ["step_id"], "additionalProperties": False},
                         fn=start_plan_step,
                     ))
                     self.agent.tools.register(ToolSpec(
                         name="complete_plan_step",
                         description="Complete a plan step only after its required evidence exists.",
-                        parameters={"type": "object", "properties": {"step_id": {"type": "string"}},
-                                    "required": ["step_id"], "additionalProperties": False},
+                        parameters={"type": "object", "properties": {
+                            "step_id": {"type": "string"},
+                            "evidence": {"type": "array"},
+                            "evidence_refs": {"type": "array"},
+                        }, "required": ["step_id"], "additionalProperties": False},
                         fn=complete_plan_step,
                     ))
                     plan_step_tools_registered = True
@@ -1104,6 +1118,7 @@ class _Connection:
             self.active_id = None
             self.agent.tools_enabled = previous_tools_enabled
             self.agent.tools = previous_tools
+            self.agent.tool_gate = previous_tool_gate
             self.plan_context = None
             if self.agent.approval is not None:
                 self.agent.approval.execution_gate = previous_gate

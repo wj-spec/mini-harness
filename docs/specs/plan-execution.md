@@ -27,6 +27,9 @@
   - 之后的 read/write/bash 工具结果自动写 evidence（read/file_change/command_ok，ok 标记）；
   - complete 只在该步证据满足时成功；
   - run 结束注销工具并持久化 execution.vN.json；
+- 步骤工具：`complete_plan_step` 接受模型额外 evidence/evidence_refs 参数（忽略），
+  证据不足返回带操作提示的错误；
+- 全部步骤完成后 harness 设置 tool_gate，拒绝后续非计划工具并提示停止；
 - 计划级完成门：绑定 plan 的 run 返回 done 时，若 required 步骤仍有未 done，
   改写为 `stopped/plan_incomplete`，任务转 paused，等待继续执行/重规划；
   步骤完成后若 Plan 有 confirmed criteria，再执行可信验收命令，未通过则
