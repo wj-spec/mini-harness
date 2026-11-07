@@ -3,11 +3,74 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 NOTIFY_FILE = "notifications.jsonl"
+WEBHOOK_ENV = "VIBE_NOTIFY_WEBHOOK"
+WEBHOOK_KINDS_ENV = "VIBE_NOTIFY_WEBHOOK_KINDS"
+WEBHOOK_TIMEOUT_ENV = "VIBE_NOTIFY_WEBHOOK_TIMEOUT_SECONDS"
+DEFAULT_WEBHOOK_TIMEOUT = 3.0
+MAX_WEBHOOK_BYTES = 64 * 1024
+
+
+def webhook_url_for(kind: str) -> str | None:
+    """外部告警 webhook 配置：只在显式 URL + kind 匹配时返回。"""
+    url = (os.getenv(WEBHOOK_ENV) or "").strip()
+    if not url:
+        return None
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return None
+    if parts.scheme not in {"http", "https"} or not parts.hostname:
+        return None
+    raw_kinds = (os.getenv(WEBHOOK_KINDS_ENV) or "").strip()
+    if raw_kinds:
+        allowed = {item.strip() for item in raw_kinds.split(",") if item.strip()}
+        if "*" not in allowed and kind not in allowed:
+            return None
+    return url
+
+
+def _webhook_timeout() -> float:
+    try:
+        value = float(os.getenv(WEBHOOK_TIMEOUT_ENV, str(DEFAULT_WEBHOOK_TIMEOUT)))
+    except ValueError:
+        value = DEFAULT_WEBHOOK_TIMEOUT
+    return max(0.1, min(value, 30.0))
+
+
+def post_webhook(url: str, payload: dict[str, Any]) -> bool:
+    """POST 一条通知到外部 webhook；失败静默（不能影响主流程）。测试可替换。"""
+    try:
+        import httpx
+        httpx.post(url, json=payload, timeout=_webhook_timeout())
+    except Exception:
+        return False
+    return True
+
+
+def _dispatch_webhook(record: dict[str, Any]) -> None:
+    kind = str(record.get("kind") or "")
+    url = webhook_url_for(kind)
+    if url is None:
+        return
+    payload = dict(record)
+    try:
+        encoded = json.dumps(payload, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return
+    if len(encoded.encode("utf-8")) > MAX_WEBHOOK_BYTES:
+        payload = {
+            "schema_version": record.get("schema_version", 1),
+            "kind": kind, "ts": record.get("ts"), "truncated": True,
+        }
+    thread = threading.Thread(target=post_webhook, args=(url, payload), daemon=True)
+    thread.start()
 
 
 def notify_path(workspace: str | Path) -> Path:
@@ -33,6 +96,7 @@ def notify(workspace: str | Path, kind: str, **data: Any) -> bool:
             path.replace(backup)
         with path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+        _dispatch_webhook(record)
         return True
     except OSError:
         return False

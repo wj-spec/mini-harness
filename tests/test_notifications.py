@@ -24,3 +24,73 @@ def test_notifications_rotate_when_large(monkeypatch, tmp_path):
     assert (tmp_path / ".vibe" / "notifications.jsonl.1").exists()
     # 第一次写入时旧文件已超限，轮转到 .1
     assert path.read_text(encoding="utf-8").count("\n") == 1
+
+
+def test_webhook_url_requires_valid_config(monkeypatch):
+    from app.runtime.notifications import webhook_url_for
+
+    monkeypatch.delenv("VIBE_NOTIFY_WEBHOOK", raising=False)
+    assert webhook_url_for("worker_started") is None
+    monkeypatch.setenv("VIBE_NOTIFY_WEBHOOK", "file:///tmp/hook")
+    assert webhook_url_for("worker_started") is None
+    monkeypatch.setenv("VIBE_NOTIFY_WEBHOOK", "http://127.0.0.1:1/hook")
+    assert webhook_url_for("worker_started") == "http://127.0.0.1:1/hook"
+    monkeypatch.setenv("VIBE_NOTIFY_WEBHOOK_KINDS", "approval_timeout,goal_stopped")
+    assert webhook_url_for("worker_started") is None
+    assert webhook_url_for("approval_timeout") == "http://127.0.0.1:1/hook"
+    monkeypatch.setenv("VIBE_NOTIFY_WEBHOOK_KINDS", "*")
+    assert webhook_url_for("anything") == "http://127.0.0.1:1/hook"
+
+
+def test_notify_dispatches_webhook_for_matching_kind(tmp_path, monkeypatch):
+    import threading
+
+    from app.runtime import notifications as module
+
+    calls: list[tuple[str, dict]] = []
+    done = threading.Event()
+
+    def fake_post(url, payload):
+        calls.append((url, payload))
+        done.set()
+        return True
+
+    monkeypatch.setattr(module, "post_webhook", fake_post)
+    monkeypatch.setenv("VIBE_NOTIFY_WEBHOOK", "http://127.0.0.1:9/hook")
+    monkeypatch.setenv("VIBE_NOTIFY_WEBHOOK_KINDS", "approval_timeout")
+    assert notify(tmp_path, "worker_started", task_id="t") is True
+    assert calls == []  # kind 不匹配：不调度 webhook
+    assert notify(tmp_path, "approval_timeout", task_id="t", approval_id="a-1") is True
+    assert done.wait(3), "webhook was not dispatched"
+    url, payload = calls[0]
+    assert url == "http://127.0.0.1:9/hook"
+    assert payload["kind"] == "approval_timeout"
+    assert payload["task_id"] == "t" and payload["approval_id"] == "a-1"
+
+
+def test_notify_webhook_payload_truncates_oversized(tmp_path, monkeypatch):
+    import threading
+
+    from app.runtime import notifications as module
+
+    calls: list[dict] = []
+    done = threading.Event()
+
+    def fake_post(url, payload):
+        calls.append(payload)
+        done.set()
+        return True
+
+    monkeypatch.setattr(module, "post_webhook", fake_post)
+    monkeypatch.setenv("VIBE_NOTIFY_WEBHOOK", "http://127.0.0.1:9/hook")
+    assert notify(tmp_path, "worker_exited", task_id="t", data="x" * (70 * 1024)) is True
+    assert done.wait(3)
+    assert calls[0]["truncated"] is True and calls[0]["kind"] == "worker_exited"
+
+
+def test_notify_webhook_failure_does_not_break_local_log(tmp_path, monkeypatch):
+    from app.runtime.notifications import notify_path
+
+    monkeypatch.setenv("VIBE_NOTIFY_WEBHOOK", "http://127.0.0.1:1/hook")
+    assert notify(tmp_path, "worker_started", task_id="t") is True
+    assert notify_path(tmp_path).is_file()

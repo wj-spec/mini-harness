@@ -7,7 +7,7 @@
 
 | 检查 | 结果 |
 |---|---|
-| Python 全量 | **1455 passed / 13 skipped** |
+| Python 全量 | **1459 passed / 13 skipped** |
 | TUI | **383 passed / 1 failed**；失败为环境 pty smoke（`out of pty devices`） |
 | 长任务 fake 场景 | **10/10 PASS**（`scripts/bench_long.py --runs 1`；新增 `--real` 真 provider 入口） |
 | 07 attach 人工验收 | TC-01–09 通过（[记录](manual-acceptance-07-results.md)） |
@@ -27,7 +27,7 @@
 | 06 | 预算账本 | 已实现 | `budget.py`、`budget-ledger.md` |
 | 07 | 控制面 attach | 已实现 | controller/observer、心跳、v2 帧、TC-01–09 |
 | 08 | 长任务评测 | P0 fake 场景 10/10 | `bench_long.py`、`benchmarks/long/` |
-| 09 | 无人值守默认 | P0 部分 | conservative profile、env scrub、pause、两槽串行、deadline、retention、events 软上限告警、doctor 运行时提示 |
+| 09 | 无人值守默认 | P0 部分 | conservative profile、env scrub、pause、两槽串行、deadline、retention、events 软上限告警、doctor 运行时提示、外部 webhook 告警通道 |
 | 10 | 模式状态机 | P0 chat/act/plan | `modes.py`、TUI `/chat` `/act` `/plan` |
 | 11 | 模式契约 | P0 profile | mode profile、plan 只读子集 |
 | 12 | Plan 产物 | P0 已实现 | `plan.py` schema/原子存储/渲染 |
@@ -52,7 +52,7 @@ TUI /goal /chat /act /plan
   → /plan 覆盖层：折叠/展开、↑↓选择、s步骤详情、e修订、y/n审批、Enter执行
   → 侧栏：p 打开计划步骤面板（↑↓ 选择、done/total、✓/✗）
   → 通知：plan_proposed/approved/rejected/acceptance、goal_segment/stopped、
-    subagent_finished、workspace_queued、merge_*
+    subagent_finished、workspace_queued、merge_*；可选 webhook 外发
   → CLI 只读：--tasks/--plans/--acceptance/--notifications/--approvals
   → CLI 响应：--decide-approval（无 TUI 时经 worker attach 通道）
   → /plan background：创建计划绑定 task + detached worker；TUI 退出后继续

@@ -762,6 +762,8 @@ VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --backgrou
 ```
 
 通知记录在 `.vibe/notifications.jsonl`，可用 `/notifications`、`--notifications` 查看（JSON 含 count，最多 50 条）。
+可选的**外部告警 webhook**：设置 `VIBE_NOTIFY_WEBHOOK=https://...` 后，通知会异步 POST JSON（最大 64 KiB，超出只发 kind/ts/truncated）；
+`VIBE_NOTIFY_WEBHOOK_KINDS` 过滤 kind（逗号分隔，`*`=全部，默认全部）；只允许 http/https，请求失败静默，不影响任务与本地通知。
 `--plans` 只读列出本工作区会话的计划版本（session/task/plan_id/version/status/stale/acceptance/objective）。
 `--acceptance` 只读列出计划验收结果（plan_id/objective/plan_version/status/codes/命令数，最多 100 条）。
 `--approvals` 只读列出跨会话待审批项（session/task/approval_id/tool/tier/requester/created_at/expires_at，最多 100 条）；已解决/过期项不显示。
