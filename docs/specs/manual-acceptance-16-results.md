@@ -68,3 +68,10 @@ VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py
 - 结果：edit 计划在后台 worktree 执行 s1/s2 done、acceptance=true → task completed；
   merge 审批后 `merged=true`、`post_merge_verified=true`、`merge_completed.verified=true`；
 - 稳定性：连续 2/2 通过。
+
+## TC-16-10 一条命令四种真实链路（suite，2026-11-07）
+
+- 命令：`VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --suite`
+- 覆盖：foreground / background / repair / merge 四种模式；
+- 结果：deepseek-flash **4/4**、deepseek-chat **4/4** 全通过；
+- 期间修复：后台 plan 步骤提示注入、修复轮与只读约束冲突、纯分析步骤 manual 证据。

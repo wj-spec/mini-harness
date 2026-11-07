@@ -215,10 +215,20 @@ async def _run(config: Config, workspace: Path, verify_command: str = "true",
 
 
 async def _run_repair(config: Config, workspace: Path,
-                      verify_command: str = "test -f real-p1-repair-marker.txt") -> dict:
+                      verify_command: str = "test -f .vibe/real-p1-repair-marker.txt") -> dict:
     """真实验收失败 → 修复回灌 → 重新验收（VIBE_ACCEPTANCE_REPAIR_ATTEMPTS=1）。"""
     session = SessionStore.new(workspace, "openai", purpose="user")
-    plan_task_id, plan = await _generate_plan(config, workspace, session, verify_command)
+
+    def adjust_repair_plan(loaded) -> None:
+        # 修复场景需要写 marker；清掉模型可能生成的“只读/不改文件”约束，保持计划自洽。
+        loaded.constraints = [item for item in loaded.constraints
+                              if "只读" not in item and "不修改" not in item]
+        loaded.out_of_scope = [item for item in loaded.out_of_scope
+                               if "修改" not in item and "创建" not in item]
+
+    plan_task_id, plan = await _generate_plan(
+        config, workspace, session, verify_command, adjust=adjust_repair_plan,
+    )
     if plan is None:
         return {"ok": False, "stage": "generate", "error": "no plan.v1.json"}
     approvals = 0
@@ -264,7 +274,7 @@ async def _run_repair(config: Config, workspace: Path,
     steps = {item["step_id"]: item["status"] for item in ledger.get("steps", [])}
     from app.runtime.notifications import read_notifications
     repairs = [item for item in read_notifications(workspace) if item["kind"] == "plan_repair"]
-    marker = (workspace / "real-p1-repair-marker.txt").is_file()
+    marker = (workspace / ".vibe" / "real-p1-repair-marker.txt").is_file()
     status = done["result"].get("status") if done else None
     ok = status == "done" and acceptance is True and bool(repairs) and marker
     return {
@@ -381,6 +391,34 @@ async def _run_merge(config: Config, workspace: Path,
                           "merge_completed_verified": bool(completed and completed[-1].get("verified"))},
     }
 
+
+async def _run_suite(config: Config, workspace: Path, verify_command: str = "true") -> dict:
+    """一次跑完前台/后台/修复回灌/合并重验四种真实链路，返回聚合结果。"""
+    modes = [
+        ("foreground", lambda: _run(config, workspace, verify_command)),
+        ("background", lambda: _run(config, workspace, verify_command, background=True)),
+        ("repair", lambda: _run_repair(config, workspace)),
+        ("merge", lambda: _run_merge(config, workspace)),
+    ]
+    results: dict[str, dict] = {}
+    for name, runner in modes:
+        try:
+            results[name] = await runner()
+        except Exception as exc:  # 单模式异常不阻断后续模式
+            results[name] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    return {
+        "ok": all(bool(item.get("ok")) for item in results.values()),
+        "stage": "suite",
+        "modes": {
+            name: {key: item.get(key) for key in (
+                "ok", "stage", "run_status", "task_status", "steps", "acceptance",
+                "repair_attempts", "merged", "post_merge_verified", "error",
+            ) if key in item}
+            for name, item in results.items()
+        },
+        "detail": results,
+    }
+
 async def _run_subagent(config: Config, workspace: Path, session: SessionStore) -> dict:
     harness = Harness(_agent(config, workspace), config, session)
     await harness.until("ready")
@@ -401,12 +439,14 @@ def main(argv: list[str] | None = None) -> int:
                         help="使用后台 worker 执行计划（等价 /plan background）")
     parser.add_argument("--repair", action="store_true",
                         help="验收命令先失败，验证自动修复回灌后重新验收通过")
-    parser.add_argument("--repair-verify-command", default="test -f real-p1-repair-marker.txt",
+    parser.add_argument("--repair-verify-command", default="test -f .vibe/real-p1-repair-marker.txt",
                         help="--repair 模式的验收命令（默认要求创建 marker 文件）")
     parser.add_argument("--merge", action="store_true",
                         help="真实 edit 计划 → 后台 worktree 执行 → 合并审批 → 合并后重验")
     parser.add_argument("--merge-verify-command", default="grep -q merge-ok merge-marker.txt",
                         help="--merge 模式的验收命令（同时用于合并后重验）")
+    parser.add_argument("--suite", action="store_true",
+                        help="依次跑 foreground/background/repair/merge 四种真实模型验收")
     parser.add_argument("--verify-command", default="true",
                         help="计划验收命令（默认 true；需为可信 source=plan_approval）")
     parser.add_argument("--keep", action="store_true", help="保留临时工作区")
@@ -427,6 +467,8 @@ def main(argv: list[str] | None = None) -> int:
             result = asyncio.run(_run_repair(config, workspace, args.repair_verify_command))
         elif args.merge:
             result = asyncio.run(_run_merge(config, workspace, args.merge_verify_command))
+        elif args.suite:
+            result = asyncio.run(_run_suite(config, workspace, args.verify_command))
         else:
             result = asyncio.run(_run(config, workspace, args.verify_command, args.background))
     except Exception as exc:

@@ -214,6 +214,7 @@ def _acceptance_repair_prompt(plan_context, result) -> str:
         lines.append(result.text[result.text.index(marker):])
     lines.append(
         "要求：只修复实际失败点；不要修改测试或验收命令来规避失败；"
+        "本轮允许创建/修改文件以达到验收条件（若计划里有只读类约束，修复轮以验收命令为准，并在总结里说明）；"
         "不要重复执行验收命令，harness 会在你结束后重新验收。"
     )
     return "\n".join(lines)
@@ -914,7 +915,25 @@ class _Connection:
                         save_ledger(bound_task_dir, ledger)
                         return f"started {step_id}"
 
-                    def complete_plan_step(step_id: str, **_ignored) -> str:
+                    def complete_plan_step(step_id: str, evidence=None, evidence_refs=None,
+                                            **_ignored) -> str:
+                        refs: list[str] = []
+                        for item in (evidence_refs if isinstance(evidence_refs, list) else []):
+                            if isinstance(item, str) and item.strip():
+                                refs.append(item.strip())
+                        for item in (evidence if isinstance(evidence, list) else []):
+                            if isinstance(item, str) and item.strip():
+                                refs.append(item.strip())
+                            elif isinstance(item, dict):
+                                ref = (item.get("ref") or item.get("path") or item.get("command")
+                                       or item.get("detail") or item.get("summary"))
+                                if isinstance(ref, str) and ref.strip():
+                                    refs.append(ref.strip())
+                        for ref in refs[:10]:
+                            try:
+                                ledger.add_evidence(step_id, kind="manual", ref=ref[:500], ok=True)
+                            except ExecutionError:
+                                break
                         try:
                             record = ledger.complete_step(bound_plan, step_id)
                             if active_plan_step["step_id"] == step_id:
@@ -922,8 +941,9 @@ class _Connection:
                         except ExecutionError as exc:
                             hint = ""
                             if "step_evidence_missing" in str(exc):
-                                hint = ("; do the step work first (read_file/edit/command), "
-                                        "then call complete_plan_step again")
+                                hint = ("; pass evidence_refs (files/commands you used) or do the step "
+                                        "work first (read_file/edit/command), then call "
+                                        "complete_plan_step again")
                             return f"ERROR {exc}{hint}"
                         save_ledger(bound_task_dir, ledger)
                         if ledger.plan_complete(bound_plan):
@@ -961,6 +981,22 @@ class _Connection:
                         fn=complete_plan_step,
                     ))
                     plan_step_tools_registered = True
+        if plan_context is not None:
+            # 绑定计划时把步骤与协议显式注入本轮输入，避免只给 objective 时模型跳过 step 工具。
+            plan = plan_context["plan"]
+            step_lines = []
+            for step in plan.steps:
+                detail = f"kind={step.kind}"
+                if step.files:
+                    detail += f", files={','.join(step.files)}"
+                step_lines.append(f"- {step.step_id}: {step.title} ({detail})")
+            text = text + (
+                "\n\n[已批准计划]\n"
+                f"目标：{plan.objective}\n"
+                "步骤：\n" + "\n".join(step_lines) + "\n"
+                "执行要求：每一步先用 start_plan_step(step_id) 开始；完成该步工作后调用 "
+                "complete_plan_step(step_id)；不要跳过步骤；全部步骤完成后停止调用工具并总结。"
+            )
         result = AgentResult("cancelled", 0, "cancelled")
         completed = False
         metrics = {

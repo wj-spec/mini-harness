@@ -66,3 +66,18 @@ deviation、原子写。
   `apply_patch` 无法校验范围，修复模式直接拒绝；
 - 若计划存在 `run`/`verify` 步骤，允许 `bash`/`run_command`；
 - 其余工具返回 `plan_repair_tool_blocked`，不会触发完成门的强制收敛计数。
+
+## 计划上下文注入（2026-11-07 补充）
+
+绑定 plan 的 run 在用户输入后追加 `[已批准计划]` 段：目标、全部步骤（`step_id: title (kind, files)`）
+以及执行协议（先 `start_plan_step`、完成后 `complete_plan_step`、不要跳步、全部完成后停止工具并总结）。
+
+原因：后台 worker 只把 task objective 作为 run 文本发给后端；若不给步骤与协议，模型可能只输出文字、
+不调用 step 工具，导致 `stopped/plan_incomplete`（deepseek-chat 实测一次）。注入后后台 plan 任务
+与前台 `/plan execute` 行为一致；修复后 deepseek-flash/chat suite 均通过。
+
+## 纯分析步骤的 manual 证据（2026-11-07 补充）
+
+`complete_plan_step` 现在接受模型传入的 `evidence` / `evidence_refs`（字符串或含 `ref/path/command/detail`
+的对象），记为 `kind=manual` 的证据后再尝试完成步骤。用于“总结/分析”这类没有工具副作用、无法自动记录
+read/file_change 证据的步骤；缺少证据的错误提示也会提示传 `evidence_refs`。最多取 10 条、每条截断 500 字符。

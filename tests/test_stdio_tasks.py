@@ -1331,3 +1331,85 @@ def test_bound_plan_acceptance_marks_task_verified(tmp_path, monkeypatch):
         await harness.close()
 
     asyncio.run(scenario())
+
+
+def test_bound_plan_injects_steps_into_prompt(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    plan_task = "t-20261106-000000-abcdef"
+    plan_dir = session.root / "tasks" / plan_task
+    from app.runtime.plan import Plan, approve_plan, propose_plan
+    plan = Plan.from_dict({
+        "schema_version": 1, "plan_id": "pl-prompt", "task_id": plan_task,
+        "objective": "注入步骤提示", "steps": [
+            {"step_id": "s1", "title": "读 README", "kind": "read"},
+            {"step_id": "s2", "title": "总结", "kind": "read", "depends_on": ["s1"]},
+        ],
+    })
+    propose_plan(plan_dir, plan)
+    approve_plan(plan_dir, plan, approved_by="user")
+    provider = FakeProvider(["完成"])
+    agent = Agent(provider, ToolRegistry(tmp_path), approval=ApprovalGate())
+
+    async def scenario():
+        harness = Harness(agent, Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("run", "r-prompt", text="执行", task={
+            "kind": "run", "mode": "act", "objective": "执行",
+            "plan_id": "pl-prompt", "plan_version": 1,
+        })
+        await harness.until("done", "r-prompt")
+        user_messages = [m for m in provider.seen[0] if m.role == "user"]
+        prompt = user_messages[-1].content
+        assert "[已批准计划]" in prompt
+        assert "- s1: 读 README (kind=read)" in prompt
+        assert "- s2: 总结 (kind=read)" in prompt
+        assert "start_plan_step" in prompt and "complete_plan_step" in prompt
+        await harness.close()
+
+    asyncio.run(scenario())
+
+
+def test_complete_plan_step_accepts_manual_evidence_refs_without_tool(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    (tmp_path / "README.md").write_text("hello\n", encoding="utf-8")
+    plan_task = "t-20261106-000000-abcdef"
+    plan_dir = session.root / "tasks" / plan_task
+    from app.runtime.plan import Plan, approve_plan, propose_plan
+    plan = Plan.from_dict({
+        "schema_version": 1, "plan_id": "pl-manual-evidence", "task_id": plan_task,
+        "objective": "纯分析步骤", "steps": [
+            {"step_id": "s1", "title": "读并总结", "kind": "read"},
+        ],
+    })
+    propose_plan(plan_dir, plan)
+    approve_plan(plan_dir, plan, approved_by="user")
+    from app.runtime.plan_execution import load_ledger
+    from core.contracts import Response, ToolCall
+    agent = Agent(FakeProvider([
+        Response(tool_calls=[ToolCall("start_plan_step", {"step_id": "s1"}, id="t1")]),
+        Response(tool_calls=[ToolCall("complete_plan_step", {
+            "step_id": "s1",
+            "evidence_refs": ["README.md: hello", "summary: README 说明用途"],
+        }, id="t2")]),
+        "完成",
+    ]), ToolRegistry(tmp_path), approval=ApprovalGate())
+
+    async def scenario():
+        harness = Harness(agent, Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("run", "r-manual", text="执行", task={
+            "kind": "run", "mode": "act", "objective": "执行",
+            "plan_id": "pl-manual-evidence", "plan_version": 1,
+        })
+        done = await harness.until("done", "r-manual")
+        assert done["result"]["status"] == "done"
+        ledger = load_ledger(plan_dir, 1)
+        assert ledger.steps["s1"].status == "done"
+        manual = [item for item in ledger.steps["s1"].evidence
+                  if isinstance(item, dict) and item.get("kind") == "manual"]
+        assert len(manual) == 2 and "README.md" in manual[0]["ref"]
+        await harness.close()
+
+    asyncio.run(scenario())

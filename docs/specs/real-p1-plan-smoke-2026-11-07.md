@@ -336,6 +336,37 @@ Agent 完成守卫只看到“文件改动未被模型自己的验证覆盖”�
 修复：绑定计划验收通过时把 run 标为 `verified=True`（`app/stdio.py`），任务按 completed 收口；
 新增回归测试（edit 计划 + 可信验收 → task completed）。
 
+## 3r. 一条命令跑完四种真实链路（`--suite`）
+
+`scripts/real_p1_acceptance.py --suite` 依次执行：
+
+1. `foreground`：真实两步计划 + 验收（stdio 审批帧）；
+2. `background`：`plan prepare-background` + detached worker（worktree）；
+3. `repair`：验收失败 → 自动修复回灌 → 重新验收（marker 写 `.vibe/`，避免弄脏 suite 后续合并）；
+4. `merge`：edit 计划在 worktree 执行 → 合并审批 → 合并后计划重验。
+
+deepseek-flash 一次 suite 结果（2026-11-07）：
+
+| 模式 | 结果 |
+|---|---|
+| foreground | run done、s1/s2 done、acceptance=true |
+| background | task completed、s1/s2 done、acceptance=true |
+| repair | run done、repair 1 次、acceptance=true |
+| merge | task completed、merged=true、post_merge_verified=true |
+
+聚合 `ok=true`。单模式异常不阻断后续；任一失败最终 exit 1。
+
+跨模型重复（2026-11-07）：deepseek-flash 与 deepseek-chat 各跑一次 suite，**均 4/4 通过**。
+
+**chat 首跑暴露并修复的三个问题**：
+
+1. **后台 plan 只发 objective**：deepseek-chat 后台任务只输出文字、不调用 step 工具 → `stopped/plan_incomplete`。
+   修复：绑定 plan 的 run 在输入后追加 `[已批准计划]`（目标/步骤/start-complete 协议），后台与前台一致；
+2. **修复轮与只读约束冲突**：chat 认为创建 marker 违反计划 `只读` 约束而拒绝修复。
+   修复：repair prompt 明确修复轮以验收命令为准、允许创建/修改文件；脚本在 repair 模式清理冲突约束；
+3. **纯分析步骤无法完成**：chat 在 s2（总结）找不到可自动记录的工具证据，两次 `complete_plan_step` 被拒后
+   `no_progress` 停止。修复：`complete_plan_step` 接受模型提供的 `evidence`/`evidence_refs` 并记为 manual 证据。
+
 ## 4. 结论与限制
 
 - 已证明：真实模型可以走 `--task` 只读链路、可以生成结构化 proposed plan；
@@ -350,6 +381,7 @@ Agent 完成守卫只看到“文件改动未被模型自己的验证覆盖”�
 - 已证明：真实后台 goal worker 完成；真实后台 Plan worker 完成计划+验收；
 - 已证明（2026-11-07）：真实验收失败 → 自动修复回灌 → 重新验收通过（`--repair`，修复后连续 2/2）；
 - 已证明（2026-11-07）：后台 worktree 执行 → 合并审批 → 合并后按计划重验（`--merge`，连续 2/2）；
+- 已证明（2026-11-07）：`--suite` 一条命令跑通 foreground/background/repair/merge 四种真实链路；
 - 仍待：真实 TUI 人工键路（pty 环境）、更多 provider/更大样本；
 - 本次仅 deepseek-flash、一次样本，成本显示 $0；
 - 观察到一次真实 provider 长时间无返回（>300s），需要重跑/检查超时与重试；
