@@ -81,4 +81,6 @@ VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py
 - `tui/tests/backend-integration.test.tsx` 启动真实 `run_vibe.sh --stdio --fake`，用 Ink `App` 驱动：
   - `/plan list`、`/cost` 的真实返回（捕获命令参数转发回归）；
   - `VIBE_FAKE_DEMO=1` 运行：两次审批（写文件 / 执行命令）→ done，校验 `.vibe/fake-demo.txt` 内容；
-- 结果：TUI **385/386**（唯一失败为环境 pty smoke）。真实键盘/渲染路径仍需人工终端验收。
+  - 计划覆盖层：写入 proposed 计划 → `/plan` 打开 → 按 `y` → 真实后端把计划置为 approved；
+  - `/explore`：prompt 转发成功，返回「子 Agent ok」并收到 `subagent_event`；
+- 结果：TUI **387/388**（唯一失败为环境 pty smoke）。真实键盘/渲染路径仍需人工终端验收。

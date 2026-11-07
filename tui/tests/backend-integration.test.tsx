@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {existsSync} from 'node:fs';
-import {mkdir, mkdtemp, readFile, rm} from 'node:fs/promises';
+import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -98,6 +98,86 @@ test('fake demo run requests approvals and completes through the real backend', 
   } finally {
     if (previous === undefined) delete process.env.VIBE_FAKE_DEMO;
     else process.env.VIBE_FAKE_DEMO = previous;
+    await client.shutdown();
+    cleanup();
+    await rm(workspace, {recursive: true, force: true});
+  }
+});
+
+test('plan overlay approves a proposed plan through the real backend', async t => {
+  const python = path.join(repoRoot, '.venv', 'bin', 'python3');
+  if (!existsSync(python) || !existsSync(path.join(repoRoot, 'run_vibe.sh'))) {
+    t.skip('python backend unavailable');
+    return;
+  }
+  const workspace = await mkdtemp(path.join(tmpdir(), 'vibe-tui-plan-'));
+  const events: ServerEvent[] = [];
+  const client = createBackendClient({repoRoot, args: ['--fake', '--workspace', workspace]});
+  client.subscribe(event => events.push(event));
+  const view = render(<App client={client}/>);
+  try {
+    client.start();
+    await waitFor(() => events.some(event => event.type === 'ready'));
+    const ready = events.find(event => event.type === 'ready') as Extract<ServerEvent, {type: 'ready'}>;
+    const sessionPath = ready.session_path ?? '';
+    assert.ok(sessionPath, 'ready should include session_path');
+    const taskId = 't-20261001-000000-abcdef';
+    const planDir = path.join(sessionPath, 'tasks', taskId, 'plan');
+    await mkdir(planDir, {recursive: true});
+    const planFile = path.join(planDir, 'plan.v1.json');
+    await writeFile(planFile, JSON.stringify({
+      schema_version: 1, plan_id: 'pl-tui-1', task_id: taskId, version: 1,
+      status: 'proposed', objective: 'TUI 审批计划',
+      steps: [{step_id: 's1', title: '读 README', kind: 'read'}],
+    }, null, 2));
+    const stdin = view.stdin as unknown as {write(value: string): void};
+    stdin.write('/plan');
+    await pause(80);
+    stdin.write('\r');
+    await waitFor(() => String(view.lastFrame()).includes('TUI 审批计划'));
+    stdin.write('y');
+    const deadline = Date.now() + 15000;
+    let status = '';
+    while (Date.now() < deadline) {
+      try {
+        status = String(JSON.parse(await readFile(planFile, 'utf8')).status ?? '');
+      } catch {status = '';}
+      if (status === 'approved') break;
+      await pause(50);
+    }
+    assert.equal(status, 'approved');
+    assert.ok(events.some(event => event.type === 'command_result' && event.command === 'plan'));
+  } finally {
+    await client.shutdown();
+    cleanup();
+    await rm(workspace, {recursive: true, force: true});
+  }
+});
+
+test('explore command forwards its prompt through the real backend', async t => {
+  const python = path.join(repoRoot, '.venv', 'bin', 'python3');
+  if (!existsSync(python) || !existsSync(path.join(repoRoot, 'run_vibe.sh'))) {
+    t.skip('python backend unavailable');
+    return;
+  }
+  const workspace = await mkdtemp(path.join(tmpdir(), 'vibe-tui-explore-'));
+  const events: ServerEvent[] = [];
+  const client = createBackendClient({repoRoot, args: ['--fake', '--workspace', workspace]});
+  client.subscribe(event => events.push(event));
+  const view = render(<App client={client}/>);
+  try {
+    client.start();
+    await waitFor(() => events.some(event => event.type === 'ready'));
+    const stdin = view.stdin as unknown as {write(value: string): void};
+    stdin.write('/explore 读取 README 并总结');
+    await pause(80);
+    stdin.write('\r');
+    await waitFor(() => events.some(event => event.type === 'command_result' && event.command === 'explore'));
+    const result = events.find(event => event.type === 'command_result' && event.command === 'explore') as
+      Extract<ServerEvent, {type: 'command_result'}>;
+    assert.match(result.text, /子 Agent ok/);
+    assert.ok(events.some(event => event.type === 'subagent_event'));
+  } finally {
     await client.shutdown();
     cleanup();
     await rm(workspace, {recursive: true, force: true});
