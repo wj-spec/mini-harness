@@ -462,6 +462,13 @@ def test_explore_command_runs_readonly_subagent(tmp_path, monkeypatch):
         assert "任务：" in result["text"]
         subagents = TaskStore(session.root).list(kind="subagent")
         assert subagents and subagents[-1].status == "completed"
+        summary = session.cost_summary()
+        assert summary["subagent_runs"] == 1
+        assert summary["subagent_tokens"] > 0
+        assert summary["runs"] == 0
+        assert "用量：" in result["text"]
+        trace = [json.loads(line) for line in session.trace_path.read_text(encoding="utf-8").splitlines()]
+        assert any(item.get("kind") == "subagent" for item in trace)
         await harness.close()
 
     asyncio.run(scenario())

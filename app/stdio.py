@@ -612,6 +612,10 @@ class _Connection:
                         f"(in {summary['prompt_tokens']:,} / out {summary['completion_tokens']:,}) · "
                         f"cost ${summary['cost_usd']:.6f} · tools {summary['tool_calls']} · "
                         f"last {summary['last_status'] or '未运行'}")
+                if summary.get("subagent_runs"):
+                    text += (f" · subagent {summary['subagent_runs']} 次 "
+                             f"{summary['subagent_tokens']:,} tokens "
+                             f"${summary['subagent_cost_usd']:.6f}")
             elif command == "tools":
                 text = "已注册工具：\n" + "\n".join(
                     f"- {spec['function']['name']}: {spec['function']['description']}"
@@ -670,6 +674,23 @@ class _Connection:
                     max_steps=6, max_run_tokens=20_000, max_run_seconds=60.0,
                     session_root=self.session.root,
                 )
+                try:
+                    usage = dict(sub.usage or {})
+                    prompt_tokens = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
+                    completion_tokens = int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
+                    total_tokens = int(usage.get("total_tokens") or prompt_tokens + completion_tokens)
+                    self.session.append_trace({
+                        "type": "run_end", "kind": "subagent",
+                        "ts": time.time(), "run_id": f"subagent:{sub.task_id or '-'}",
+                        "status": sub.status, "stop_reason": sub.stop_reason,
+                        "prompt_tokens": prompt_tokens,
+                        "completion_tokens": completion_tokens,
+                        "total_tokens": total_tokens,
+                        "cost_usd": float(sub.cost_usd or 0.0),
+                        "tool_calls": 0,
+                    })
+                except OSError:
+                    pass
                 self.send("notice", None,
                           message=f"子 Agent {sub.status}：{sub.task_id or '-'}")
                 if sub.task_id:
@@ -684,6 +705,15 @@ class _Connection:
                 text = f"子 Agent {sub.status}：{sub.summary}"
                 if sub.task_id:
                     text += f"\n任务：{sub.task_id}"
+                try:
+                    sub_usage = dict(sub.usage or {})
+                    sub_tokens = int(sub_usage.get("total_tokens")
+                                     or int(sub_usage.get("prompt_tokens") or 0)
+                                     + int(sub_usage.get("completion_tokens") or 0))
+                    if sub_tokens or sub.cost_usd:
+                        text += f"\n用量：{sub_tokens:,} tokens · ${float(sub.cost_usd or 0.0):.6f}"
+                except (TypeError, ValueError):
+                    pass
                 if sub.error:
                     text += f"\n错误：{sub.error}"
             elif command == "tasks":

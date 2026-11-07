@@ -1,6 +1,6 @@
 # 只读子 Agent runner P0
 
-状态：2026-11-06 P0 实现（harness 内部只读 runner + 子 TaskRecord/usage/取消级联/批量扇出上限 + /explore）；父预算硬上限、attach 回放、模型 delegate 待后续。
+状态：2026-11-06 P0 实现（harness 内部只读 runner + 子 TaskRecord/usage/取消级联/批量扇出上限 + /explore）；2026-11-07 补 session 成本聚合（`/cost` 计入子 Agent）。父预算硬上限、attach 回放、模型 delegate 待后续。
 设计来源：[16 子 Agent 的有机结合](../design/long-horizon/16-subagent-integration.md)。
 
 ## 已实现
@@ -35,7 +35,7 @@
 
 ## 未完成（P0 剩余）
 
-- 父任务预算硬上限对子 usage 的强制（当前只记账，不阻断）；
+- 父任务预算硬上限对子 usage 的强制（当前只记账，不阻断）；session `/cost` 已把子 Agent 的 usage/cost 作为 `run_end(kind=subagent)` 记入并单独汇总；
 - 与后台任务槽位/预算联动的扇出调度；stdio 子任务事件（当前已有子 TaskRecord 与摘要）。
 - 父任务收件箱审批归属（requester=child）；
 - stdio 事件/attach 显示；

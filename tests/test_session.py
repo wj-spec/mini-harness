@@ -252,3 +252,23 @@ def test_save_state_keeps_previous_file_when_replace_fails(tmp_path, monkeypatch
 
     assert session.state_path.read_bytes() == before
     assert not session.state_path.with_name("state.json.tmp").exists()
+
+
+def test_cost_summary_includes_subagent_usage(tmp_path):
+    session = SessionStore.new(tmp_path, "m")
+    session.append_trace(
+        {"type": "run_end", "prompt_tokens": 10, "completion_tokens": 5,
+         "total_tokens": 15, "cost_usd": 0.01, "tool_calls": 2, "status": "done"}
+    )
+    session.append_trace(
+        {"type": "run_end", "kind": "subagent", "prompt_tokens": 7, "completion_tokens": 3,
+         "total_tokens": 10, "cost_usd": 0.002, "tool_calls": 0, "status": "ok"}
+    )
+    summary = session.cost_summary()
+    assert summary["runs"] == 1
+    assert summary["subagent_runs"] == 1
+    assert summary["subagent_tokens"] == 10
+    assert summary["subagent_cost_usd"] == 0.002
+    assert summary["total_tokens"] == 25
+    assert summary["cost_usd"] == 0.012
+    assert summary["last_status"] == "done"

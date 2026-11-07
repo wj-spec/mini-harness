@@ -217,22 +217,32 @@ class SessionStore:
         if not self.trace_path.exists():
             return {"runs": 0, "prompt_tokens": 0, "completion_tokens": 0,
                     "total_tokens": 0, "cost_usd": 0.0, "tool_calls": 0,
+                    "subagent_runs": 0, "subagent_tokens": 0, "subagent_cost_usd": 0.0,
                     "last_status": None}
         runs: list[dict] = []
+        subagents: list[dict] = []
         for line in self.trace_path.read_text(encoding="utf-8").splitlines():
             try:
                 event = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            if event.get("type") == "run_end":
+            if event.get("type") != "run_end":
+                continue
+            if event.get("kind") == "subagent":
+                subagents.append(event)
+            else:
                 runs.append(event)
+        totals = runs + subagents
         return {
             "runs": len(runs),
-            "prompt_tokens": sum(int(r.get("prompt_tokens", 0)) for r in runs),
-            "completion_tokens": sum(int(r.get("completion_tokens", 0)) for r in runs),
-            "total_tokens": sum(int(r.get("total_tokens", 0)) for r in runs),
-            "cost_usd": sum(float(r.get("cost_usd", 0.0)) for r in runs),
-            "tool_calls": sum(int(r.get("tool_calls", 0)) for r in runs),
+            "prompt_tokens": sum(int(r.get("prompt_tokens", 0)) for r in totals),
+            "completion_tokens": sum(int(r.get("completion_tokens", 0)) for r in totals),
+            "total_tokens": sum(int(r.get("total_tokens", 0)) for r in totals),
+            "cost_usd": sum(float(r.get("cost_usd", 0.0)) for r in totals),
+            "tool_calls": sum(int(r.get("tool_calls", 0)) for r in totals),
+            "subagent_runs": len(subagents),
+            "subagent_tokens": sum(int(r.get("total_tokens", 0)) for r in subagents),
+            "subagent_cost_usd": sum(float(r.get("cost_usd", 0.0)) for r in subagents),
             "last_status": runs[-1].get("status") if runs else None,
         }
 
