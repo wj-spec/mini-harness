@@ -7,7 +7,7 @@
 
 | 检查 | 结果 |
 |---|---|
-| Python 全量 | **1512 passed / 13 skipped** |
+| Python 全量 | **1517 passed / 13 skipped** |
 | TUI | **394 passed / 1 failed**（395 收集）；失败为环境 pty smoke（`out of pty devices`）；含 8 个真实 Python 后端跨层集成用例；计划覆盖层新增 `d` 版本比较、`t` 步骤标题编辑 |
 | 长任务 fake 场景 | **12/12 PASS**（`scripts/bench_long.py --runs 1`；含 2 个 5xx 注入场景；另有 `--real` 真 provider 入口） |
 | 07 attach 人工验收 | TC-01–09 通过（[记录](manual-acceptance-07-results.md)） |
@@ -53,7 +53,7 @@ TUI /goal /chat /act /plan
   → 侧栏：p 打开计划步骤面板（↑↓ 选择、done/total、✓/✗）
   → 通知：plan_proposed/approved/rejected/acceptance、goal_segment/stopped、
     subagent_finished、workspace_queued、merge_*；可选 webhook 外发
-  → CLI 只读：--tasks（含 APPROVALS/PRIORITY）/--plans/--acceptance/--notifications/--approvals/--evidence
+  → CLI 只读：--tasks（含 APPROVALS/PRIORITY）/--plans/--acceptance/--notifications/--approvals/--evidence/--trace-summary
   → CLI 响应：--decide-approval（无 TUI 时经 worker attach 通道）
   → /plan background：创建计划绑定 task + detached worker；TUI 退出后继续
   → --merge-task：合并审批预览含计划可信验收命令；合并后重跑，失败 exit 1 + 通知
@@ -73,7 +73,8 @@ TUI /goal /chat /act /plan
    时钟/seed 注入、真实 5xx 服务端注入仍待。
 6. **环境**：真实 TUI 验收受 pty 限制；browser smoke 在负载下偶发 flake。
 7. **生产级**：合并后重验（真实链路 2/2 已跑通）、外部 webhook 告警、doctor 运行时自检、
-   计划任务 prepare+drain（含跨会话/跨工作区、continue-on-failure、1-8 并行、priority 排序）排队入口已接入；完整观测/追踪仍非生产完成。
+   计划任务 prepare+drain（含跨会话/跨工作区、continue-on-failure、1-8 并行、priority 排序）排队入口已接入；
+   trace 观测摘要（`--trace-summary`）已提供，跨机器集中观测/追踪仍非生产完成。
 
 ## 5. 结论
 
