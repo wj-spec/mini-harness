@@ -532,6 +532,35 @@ def check_bench_history(workspace: Path) -> Check:
     return Check(OK, f"最近长任务 benchmark 无回归（{passed}/{total}）")
 
 
+def real_suite_rows(workspace: Path) -> list[dict]:
+    root = workspace / ".vibe" / "real-p1-acceptance"
+    if not root.is_dir():
+        return []
+    rows: list[dict] = []
+    for path in sorted(root.glob("*.json")):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(payload, dict):
+            rows.append({"path": str(path), **payload})
+    return rows
+
+
+def check_real_suite(workspace: Path) -> Check:
+    rows = real_suite_rows(workspace)
+    if not rows:
+        return Check(OK, "没有真实模型验收报告（可选）")
+    latest = rows[-1]
+    if latest.get("ok") is True:
+        return Check(OK, f"最近真实模型验收通过（agent {latest.get('agent_version') or '?'}）")
+    reason = str(latest.get("error") or latest.get("stage") or "unknown")[:80]
+    return Check(
+        WARN, f"最近真实模型验收失败：{reason}",
+        "查看 .vibe/real-p1-acceptance 最新报告；运行 scripts/real_p1_acceptance.py --suite 复验",
+    )
+
+
 def collect_checks(
     *,
     repo_root: Path | None = None,
@@ -577,6 +606,7 @@ def collect_checks(
         check_worktrees(target),
         check_unattended_profile(target, environ),
         check_bench_history(target),
+        check_real_suite(target),
     ]
 
 

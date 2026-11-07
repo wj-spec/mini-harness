@@ -420,3 +420,31 @@ def test_verify_all_script_present_and_valid():
         assert step in source
     result = subprocess.run(["bash", "-n", str(path)], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
+
+
+def _write_real_suite(workspace, name, ok, agent_version="abc1234", error=None):
+    root = workspace / ".vibe" / "real-p1-acceptance"
+    root.mkdir(parents=True, exist_ok=True)
+    payload = {"ok": ok, "agent_version": agent_version}
+    if error:
+        payload["error"] = error
+    (root / name).write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_doctor_reports_missing_real_suite(tmp_path):
+    repo, workspace = _green_repo(tmp_path)
+    code, output = _run_doctor(repo, workspace, env={"VIBE_API_KEY": "sk-test"})
+    assert code == 0, output
+    assert "✓ 没有真实模型验收报告（可选）" in output
+
+
+def test_doctor_reports_real_suite_pass_and_failure(tmp_path):
+    repo, workspace = _green_repo(tmp_path)
+    _write_real_suite(workspace, "20261101T000000Z.json", True)
+    code, output = _run_doctor(repo, workspace, env={"VIBE_API_KEY": "sk-test"})
+    assert code == 0, output
+    assert "✓ 最近真实模型验收通过（agent abc1234）" in output
+    _write_real_suite(workspace, "20261102T000000Z.json", False, error="no plan.v1.json")
+    code, output = _run_doctor(repo, workspace, env={"VIBE_API_KEY": "sk-test"})
+    assert code == 0, output
+    assert "! 最近真实模型验收失败：no plan.v1.json" in output
