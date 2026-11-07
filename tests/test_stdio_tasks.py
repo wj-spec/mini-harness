@@ -1749,3 +1749,31 @@ def test_plan_edit_step_can_change_kind(tmp_path, monkeypatch):
     revised = load_plan(task_dir / "plan" / "plan.v2.json")
     assert revised.steps[0].kind == "verify"
     assert revised.steps[0].title == "读"
+
+
+def test_plan_edit_step_can_change_files(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    task_id = "t-20261106-000000-abcdef"
+    task_dir = session.root / "tasks" / task_id
+    from app.runtime.plan import Plan, load_plan, propose_plan
+    plan = Plan.from_dict({"schema_version": 1, "plan_id": "pl-edit-files", "task_id": task_id,
+                           "objective": "编辑文件范围",
+                           "steps": [{"step_id": "s1", "title": "写", "kind": "edit"}]})
+    propose_plan(task_dir, plan)
+
+    async def scenario():
+        harness = Harness(_agent(tmp_path), Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("command", "c-edit-files", command="plan",
+                     args={"action": "edit-step", "step_id": "s1", "files": ["a.py", "b.py"]})
+        await harness.until("command_result", "c-edit-files")
+        harness.send("command", "c-edit-files-bad", command="plan",
+                     args={"action": "edit-step", "step_id": "s1", "files": [""]})
+        bad = await harness.until("error", "c-edit-files-bad")
+        assert "files" in bad["message"]
+        await harness.close()
+
+    asyncio.run(scenario())
+    revised = load_plan(task_dir / "plan" / "plan.v2.json")
+    assert revised.steps[0].files == ["a.py", "b.py"]

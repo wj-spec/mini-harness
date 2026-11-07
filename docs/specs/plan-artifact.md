@@ -43,6 +43,7 @@
   - `/plan acceptance` 查看验收标准与可信验证命令清单（不执行）；
   - `/plan edit-step <id> <title>` 修改步骤标题并生成 version+1 draft；
   - `/plan edit-step <id> --kind read|edit|run|verify`（CLI/协议可省略标题）修改步骤类型，同样生成新 draft；
+  - 协议 `edit-step` 也接受 `files` 列表（步骤文件范围），三种字段可单独或组合修改；
   - 完整审批卡片与右侧 sidebar 仍待。
   - `/plan approve`、`/plan reject` 通过后端 `plan` command 处理最近计划（stdio 本地 user 决定）。
   - `/plan execute` 读取最近 approved 计划，提交带 `plan_id/plan_version` 的 act run。

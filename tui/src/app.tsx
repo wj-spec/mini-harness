@@ -1422,6 +1422,20 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       } catch (error) {notice(`计划差异未送达：${String(error)}`);}
       return;
     }
+    const planFiles = /^\/plan\s+files\s+(\S+)\s+(\S+)$/.exec(text);
+    if (planFiles) {
+      if (state.phase !== 'idle' || activeRun.current) {notice('当前有运行中任务；结束后再编辑步骤。'); return;}
+      const files = planFiles[2]!.split(',').map(item => item.trim()).filter(Boolean);
+      if (!files.length || files.length > 20) {notice('用法：/plan files <step_id> <path1,path2>（最多 20 个）'); return;}
+      try {
+        const id = client.command('plan', {action: 'edit-step', step_id: planFiles[1]!, files});
+        activeRun.current = id;
+        dispatch({type: 'begin_command', id, command: 'plan'});
+        setPlanOpen(false);
+        setInput('');
+      } catch (error) {notice(`步骤文件编辑未送达：${String(error)}`);}
+      return;
+    }
     const planKind = /^\/plan\s+kind\s+(\S+)\s+(\S+)$/.exec(text);
     if (planKind) {
       if (state.phase !== 'idle' || activeRun.current) {notice('当前有运行中任务；结束后再编辑步骤。'); return;}
