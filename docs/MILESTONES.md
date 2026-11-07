@@ -456,7 +456,9 @@ W1–W5 已完成真实验收；W6 v2 三组对照完成，主假设未获支持
 - 07 attach 人工验收 TC-01–09 通过；文档链接 75 个 0 失效。
 
 **未验收 / 未做**：
-- 真实模型长任务 P1：未配置 API key，`--real` 未跑；成本/完成质量/误完成率未知；
+- 真实模型 P1：2026-11-07 已用 deepseek-flash/chat 跑通 Plan 多步+验收+审批帧与 `/explore`
+  样本（见 [真实 P1 记录](specs/real-p1-plan-smoke-2026-11-07.md)）；真实 TUI 人工键路
+  （pty 环境）与更多 provider/大样本仍未验收；
 - 右侧 sidebar 计划/步骤导航、完整审批卡片、审批 deadline；
 - 子 Agent attach 回放、按 mode 委派开关、父预算硬上限联动；
 - 合并后重验、跨任务队列调度、外部告警渠道；

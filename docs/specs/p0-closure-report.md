@@ -60,7 +60,8 @@ TUI /goal /chat /act /plan
 
 ## 4. 已知限制（P0 之后仍需）
 
-1. **真模型 P1 未做**：08 全部为 fake worker 场景；未验证真实长任务、成本与完成质量。
+1. **真模型 P1**：2026-11-07 已跑通 Plan 多步+验收+审批帧及 `/explore`（deepseek-flash/chat），
+   仍有真实 TUI 人工键路与更大样本；08 长任务 benchmark 仍为 fake worker 场景。
 2. **Plan TUI**：覆盖层 + 侧栏步骤面板、审批/修订/执行、审批时限已接；完整审批卡片与更细粒度编辑仍待。
 3. **子 Agent**：已有子 TaskRecord/subagent_event/取消/depth/批量扇出；attach 回放、按 mode 委派开关、父预算硬上限联动仍待。
 4. **09 剩余**：events.jsonl 软上限/告警、红队清单自动化、只读任务并发与文件集并行、profile 变更审批入口。
