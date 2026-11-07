@@ -131,8 +131,11 @@ async def _run(config: Config, workspace: Path, verify_command: str = "true") ->
                     break
         finally:
             await exe.close()
-        if done is not None and done["result"].get("status") == "done":
-            break
+        if done is not None:
+            status = done["result"].get("status")
+            stop_reason = str(done["result"].get("stop_reason") or "")
+            if status == "done" or stop_reason.startswith("acceptance_") or stop_reason == "plan_incomplete":
+                break
     ledger_file = session.root / "tasks" / plan_task_id / "plan" / "execution.v1.json"
     ledger = json.loads(ledger_file.read_text(encoding="utf-8")) if ledger_file.is_file() else {}
     acc_file = session.root / "tasks" / plan_task_id / "acceptance.v1.json"
