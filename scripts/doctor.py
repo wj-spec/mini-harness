@@ -525,20 +525,23 @@ def check_bench_history(workspace: Path) -> Check:
         row for row in rows
         if (row.get("mode"), tuple(row.get("scenarios") or [])) == key
     ]
+    mode_label = str(latest.get("mode") or "?")
+    scenario_count = len(latest.get("scenarios") or [])
     if len(comparable) < 2:
         return Check(
             OK,
-            f"长任务 benchmark 历史 {len(rows)} 次（可比样本 {len(comparable)}；最近 {passed}/{total}）",
+            f"长任务 benchmark 历史 {len(rows)} 次（可比样本 {len(comparable)}；"
+            f"最近 {mode_label} · {scenario_count} 场景 · {passed}/{total}）",
         )
     previous = comparable[-2]
     previous_passed = int(previous.get("passed") or 0)
     if failed > 0 or passed < previous_passed:
         return Check(
             WARN, f"最近长任务 benchmark 有回归：{passed}/{total}"
-                  f"（上次 {previous_passed}/{previous.get('total')}）",
+                  f"（{mode_label} · 上次 {previous_passed}/{previous.get('total')}）",
             "运行 scripts/bench_long.py 复跑；--bench-history 查看历史与 agent_version",
         )
-    return Check(OK, f"最近长任务 benchmark 无回归（{passed}/{total}）")
+    return Check(OK, f"最近长任务 benchmark 无回归（{mode_label} · {scenario_count} 场景 · {passed}/{total}）")
 
 
 def real_suite_rows(workspace: Path) -> list[dict]:

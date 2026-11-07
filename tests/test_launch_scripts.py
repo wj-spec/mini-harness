@@ -368,7 +368,7 @@ def test_doctor_warns_about_bench_regression(tmp_path):
     _write_bench(tmp_path, workspace, "20261102T000000Z", 1, 2, "2026-11-02T00:00:00+00:00")
     code, output = _run_doctor(repo, workspace, env={"VIBE_API_KEY": "sk-test"})
     assert code == 0, output
-    assert "! 最近长任务 benchmark 有回归：1/2（上次 2/2）" in output
+    assert "! 最近长任务 benchmark 有回归：1/2（fake-worker-p0 · 上次 2/2）" in output
 
 
 def test_doctor_reports_bench_without_regression(tmp_path):
@@ -377,7 +377,7 @@ def test_doctor_reports_bench_without_regression(tmp_path):
     _write_bench(tmp_path, workspace, "20261102T000000Z", 2, 2, "2026-11-02T00:00:00+00:00")
     code, output = _run_doctor(repo, workspace, env={"VIBE_API_KEY": "sk-test"})
     assert code == 0, output
-    assert "✓ 最近长任务 benchmark 无回归（2/2）" in output
+    assert "✓ 最近长任务 benchmark 无回归（fake-worker-p0 · 0 场景 · 2/2）" in output
 
 
 def test_doctor_warns_when_relaxed_profile_needs_approval(tmp_path):
