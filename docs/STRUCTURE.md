@@ -87,6 +87,7 @@ mini-harness/
       budget_checks.py  # 离线预算机制检查
       bench_profile.py  # 跑分模式提示词（无人值守、容器内验证）
       oneshot.py        # 非交互跑分入口：--task、自动审批、telemetry
+      history.py        # 长任务 benchmark 历史（--bench-history/--bench-history-mode）
 
   bench/                # Harbor 跑分适配层（不作为 app 依赖）
     adapter.py          # BaseInstalledAgent：容器内安装并执行 --task
@@ -144,7 +145,11 @@ mini-harness/
   scripts/setup-ghostty-sidebar.sh # 写入右侧 quick terminal 配置（幂等）
   scripts/acceptance_seed_task.py  # 07 attach 人工验收：创建隔离 test session/task（可带 worktree）
   scripts/acceptance_attach_probe.py # 07 attach 人工验收：controller/observer/v2 帧低层探针
-  scripts/bench_long.py    # 长任务 P0 评测：fake worker 生命周期场景
+  scripts/bench_long.py    # 长任务评测：fake 15 场景 + real-only 3 + 双模式 1
+  scripts/real_p1_acceptance.py # 真实模型验收：foreground/background/queue/goal/repair/merge
+  scripts/delegate_ab.py   # 只读委派 A/B（survey/digest，真实模型，JSON/Markdown 报告）
+  scripts/verify_all.sh    # 一键验收（Python/TUI/bench/doctor/redteam/真实 suite/real-bench）
+  benchmarks/long/         # 长任务场景配置（modes: fake/real）
   AGENTS.md             # 项目规则（自举）
 
   tests/                # 镜像模块
