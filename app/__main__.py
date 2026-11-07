@@ -119,6 +119,7 @@ def main() -> None:
     parser.add_argument("--run-plan-queue", action="store_true", help="按创建顺序依次运行会话中已准备的计划 task")
     parser.add_argument("--queue-task-timeout", type=float, default=None, help="--run-plan-queue 单个 worker 超时秒数（默认 1800）")
     parser.add_argument("--queue-dry-run", action="store_true", help="与 --run-plan-queue 搭配：只报告队列与计划可执行性，不启动 worker")
+    parser.add_argument("--queue-all-sessions", action="store_true", help="与 --run-plan-queue 搭配：跨会话收集 created 计划 task 并串行执行")
     parser.add_argument("--prune-worktrees", action="store_true", help="只读报告 stale/孤立的 worktree")
     parser.add_argument("--prune-apply", action="store_true", help="与 --prune-worktrees 搭配：把目录缺失的 worktree 标记 removed 并删分支")
     parser.add_argument("--worker", action="store_true", help="后台 worker：执行一个 task segment 并暴露 attach socket")
@@ -270,9 +271,21 @@ def main() -> None:
         parser.error("--queue-task-timeout requires --run-plan-queue")
     if args.queue_dry_run and not args.run_plan_queue:
         parser.error("--queue-dry-run requires --run-plan-queue")
+    if args.queue_all_sessions and not args.run_plan_queue:
+        parser.error("--queue-all-sessions requires --run-plan-queue")
     if args.prepare_plan_task or args.run_plan_queue:
-        if args.session is None or args.continue_session:
-            parser.error("--prepare-plan-task/--run-plan-queue require a concrete --session")
+        if args.continue_session:
+            parser.error("--prepare-plan-task/--run-plan-queue cannot use --continue")
+        if args.prepare_plan_task:
+            if args.session is None:
+                parser.error("--prepare-plan-task requires a concrete --session")
+            if args.queue_all_sessions:
+                parser.error("--prepare-plan-task cannot use --queue-all-sessions")
+        else:
+            if args.session is None and not args.queue_all_sessions:
+                parser.error("--run-plan-queue requires --session or --queue-all-sessions")
+            if args.session is not None and args.queue_all_sessions:
+                parser.error("--run-plan-queue cannot combine --session with --queue-all-sessions")
         if (
             args.stdio or args.eval or args.eval_limit is not None or args.eval_tasks is not None
             or args.list_sessions or args.task is not None or args.bench or args.tasks
@@ -708,16 +721,33 @@ def main() -> None:
     if args.prepare_plan_task or args.run_plan_queue:
         import subprocess
 
-        from app.runtime.plan import executable_plans
+        from app.runtime.plan import can_execute, executable_plans, find_plan
         from app.runtime.tasks import TaskStore
 
         purpose = "test" if args.test_session or args.fake or config.provider == "fake" else "user"
-        session = SessionStore.open_existing(config.workspace, args.session, purpose=purpose)
-        if session is None:
-            print(f"no session {args.session} under {config.workspace}", file=sys.stderr)
-            raise SystemExit(2)
-        store = TaskStore(session.root)
+
+        def open_sessions():
+            if args.queue_all_sessions:
+                root = Path(config.workspace) / ".vibe" / "sessions"
+                sessions = []
+                if root.is_dir():
+                    for candidate in sorted(root.iterdir()):
+                        if not candidate.is_dir() or candidate.is_symlink():
+                            continue
+                        session = SessionStore(candidate)
+                        if session.purpose == purpose and (candidate / "tasks").is_dir():
+                            sessions.append(session)
+                return sessions
+            session = SessionStore.open_existing(config.workspace, args.session, purpose=purpose)
+            if session is None:
+                print(f"no session {args.session} under {config.workspace}", file=sys.stderr)
+                raise SystemExit(2)
+            return [session]
+
         if args.prepare_plan_task:
+            sessions = open_sessions()
+            session = sessions[0]
+            store = TaskStore(session.root)
             plans = executable_plans(session.root)
             if not plans:
                 print("no executable approved plan in this session", file=sys.stderr)
@@ -738,15 +768,17 @@ def main() -> None:
                 "objective": plan.objective, "plan_path": str(plan_path),
             }, ensure_ascii=False, indent=2))
             return
-        queue = [task for task in store.list() if task.status == "created" and task.plan_id]
-        queue.sort(key=lambda task: (task.created_at, task.task_id))
-        if not queue:
-            print(json.dumps({"session": session.id, "ran": [], "completed": 0,
-                              "stopped_early": None}, ensure_ascii=False, indent=2))
-            return
-        from app.runtime.plan import can_execute, find_plan
 
-        def plan_executable(task) -> bool:
+        sessions = open_sessions()
+        entries = []
+        for session in sessions:
+            store = TaskStore(session.root)
+            for task in store.list():
+                if task.status == "created" and task.plan_id:
+                    entries.append((session, store, task))
+        entries.sort(key=lambda item: (item[2].created_at, item[0].id, item[2].task_id))
+
+        def plan_executable(session, task) -> bool:
             if not task.plan_id:
                 return False
             try:
@@ -755,15 +787,19 @@ def main() -> None:
                 return False
             return bool(found) and can_execute(found[1])
 
+        session_ids = [session.id for session in sessions]
         if args.queue_dry_run:
             rows = [
-                {"task_id": task.task_id, "plan_id": task.plan_id,
-                 "plan_version": task.plan_version, "plan_executable": plan_executable(task),
+                {"session": session.id, "task_id": task.task_id, "plan_id": task.plan_id,
+                 "plan_version": task.plan_version,
+                 "plan_executable": plan_executable(session, task),
                  "objective": task.objective[:200]}
-                for task in queue
+                for session, _store, task in entries
             ]
-            print(json.dumps({"session": session.id, "dry_run": True, "queue": rows,
-                              "count": len(rows)}, ensure_ascii=False, indent=2))
+            payload = {"dry_run": True, "queue": rows, "count": len(rows), "sessions": session_ids}
+            if len(sessions) == 1:
+                payload["session"] = sessions[0].id
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
             return
         try:
             timeout = float(args.queue_task_timeout or 1800)
@@ -773,11 +809,11 @@ def main() -> None:
         repo_root = str(Path(__file__).resolve().parents[1])
         ran: list[dict] = []
         stopped_early: str | None = None
-        for task in queue:
-            if not plan_executable(task):
-                ran.append({"task_id": task.task_id, "plan_id": task.plan_id,
-                            "plan_version": task.plan_version, "exit_code": None,
-                            "status": "skipped_plan_unavailable", "stderr": ""})
+        for session, store, task in entries:
+            if not plan_executable(session, task):
+                ran.append({"session": session.id, "task_id": task.task_id,
+                            "plan_id": task.plan_id, "plan_version": task.plan_version,
+                            "exit_code": None, "status": "skipped_plan_unavailable", "stderr": ""})
                 stopped_early = "plan_unavailable"
                 break
             command = [sys.executable, "-m", "app", "--worker",
@@ -794,19 +830,20 @@ def main() -> None:
             except subprocess.TimeoutExpired:
                 exit_code, stderr = None, f"worker timeout after {timeout}s"
             try:
-                final = store.get(task.task_id)
-                status = final.status
+                status = store.get(task.task_id).status
             except Exception:
                 status = "unknown"
-            ran.append({"task_id": task.task_id, "plan_id": task.plan_id,
-                        "plan_version": task.plan_version, "exit_code": exit_code,
-                        "status": status, "stderr": stderr})
+            ran.append({"session": session.id, "task_id": task.task_id,
+                        "plan_id": task.plan_id, "plan_version": task.plan_version,
+                        "exit_code": exit_code, "status": status, "stderr": stderr})
             if status != "completed":
                 stopped_early = status
                 break
-        payload = {"session": session.id, "ran": ran,
+        payload = {"ran": ran,
                    "completed": sum(1 for item in ran if item["status"] == "completed"),
-                   "stopped_early": stopped_early}
+                   "stopped_early": stopped_early, "sessions": session_ids}
+        if len(sessions) == 1:
+            payload["session"] = sessions[0].id
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         if stopped_early is not None:
             raise SystemExit(1)

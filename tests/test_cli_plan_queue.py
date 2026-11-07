@@ -99,7 +99,16 @@ def test_plan_queue_requires_session(monkeypatch, capsys):
     with pytest.raises(SystemExit) as error:
         entrypoint.main()
     assert error.value.code == 2
-    assert "require a concrete --session" in capsys.readouterr().err
+    assert "requires --session or --queue-all-sessions" in capsys.readouterr().err
+
+
+def test_plan_queue_all_sessions_requires_run(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["vibe", "--queue-all-sessions", "--session", "s-1",
+                                      "--workspace", "/tmp"])
+    with pytest.raises(SystemExit) as error:
+        entrypoint.main()
+    assert error.value.code == 2
+    assert "--queue-all-sessions requires --run-plan-queue" in capsys.readouterr().err
 
 
 @pytest.mark.skipif(GIT is None, reason="git required")
@@ -138,3 +147,43 @@ def test_run_plan_queue_skips_when_plan_missing(repo, monkeypatch, capsys):
     assert payload["stopped_early"] == "plan_unavailable"
     assert payload["ran"][0]["status"] == "skipped_plan_unavailable"
     assert store.get(task.task_id).status == "created"
+
+
+def _prepared_task(repo):
+    session, plan = _approve_empty_plan(repo)
+    store = TaskStore(session.root)
+    task = store.create(kind="run", objective=plan.objective, workspace=str(repo),
+                        mode="act", plan_id=plan.plan_id, plan_version=plan.version,
+                        session_id=session.id)
+    return session, task
+
+
+@pytest.mark.skipif(GIT is None, reason="git required")
+def test_plan_queue_all_sessions_runs_across_sessions(repo, monkeypatch, capsys):
+    first_session, first_task = _prepared_task(repo)
+    second_session, second_task = _prepared_task(repo)
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=repo))
+    monkeypatch.setattr(sys, "argv", ["vibe", "--run-plan-queue", "--queue-all-sessions",
+                                      "--workspace", str(repo), "--fake"])
+    entrypoint.main()
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["completed"] == 2 and payload["stopped_early"] is None
+    assert payload["sessions"] == [first_session.id, second_session.id]
+    assert {item["task_id"] for item in payload["ran"]} == {first_task.task_id, second_task.task_id}
+    assert TaskStore(first_session.root).get(first_task.task_id).status == "completed"
+    assert TaskStore(second_session.root).get(second_task.task_id).status == "completed"
+
+
+@pytest.mark.skipif(GIT is None, reason="git required")
+def test_plan_queue_all_sessions_dry_run_lists_sessions(repo, monkeypatch, capsys):
+    first_session, first_task = _prepared_task(repo)
+    second_session, second_task = _prepared_task(repo)
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=repo))
+    monkeypatch.setattr(sys, "argv", ["vibe", "--run-plan-queue", "--queue-all-sessions",
+                                      "--queue-dry-run", "--workspace", str(repo), "--fake"])
+    entrypoint.main()
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["dry_run"] is True and payload["count"] == 2
+    assert payload["sessions"] == [first_session.id, second_session.id]
+    assert all(item["plan_executable"] for item in payload["queue"])
+    assert TaskStore(first_session.root).get(first_task.task_id).status == "created"
