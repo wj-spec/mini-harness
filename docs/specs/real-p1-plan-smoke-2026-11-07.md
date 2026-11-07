@@ -143,13 +143,30 @@ VIBE_MAX_STEPS=4 VIBE_MAX_RUN_TOKENS=8000 \
 结论修正：之前的“多步不收敛”主要受旧 session 中反复失败的 ledger/轨迹影响；
 干净会话中多步可完成。仍建议用单一运行隔离/新会话做真实验收。
 
+## 3g. 真实两步计划 + 验收命令成功
+
+在干净工作区/会话中，对 2 步计划补充：
+
+- confirmed criterion `ac1`；
+- trusted command `true`；
+- `VIBE_AUTONOMY=full`。
+
+结果：
+
+- 真实模型生成 2 步计划（s1→s2 依赖）；
+- 批准后执行：s1=done、s2=done；
+- run status=done，steps=8；
+- `acceptance.v1.json` status=**true**。
+
+端到端覆盖：多步 Plan 生成 → 批准 → 绑定执行 → step 证据 → 可信验收命令 → 完成。
+
 ## 4. 结论与限制
 
 - 已证明：真实模型可以走 `--task` 只读链路、可以生成结构化 proposed plan；
 - 已证明：计划批准后绑定/门禁/step 工具在真实模型下可运行，s1 产生 read 证据；
 - 已证明（单步）：真实模型能完成全部步骤并通过可信验收命令（acceptance=true）；
-- 已证明（干净会话）：真实模型两步计划全部完成；
-- 仍待：多步 + 验收命令、TUI 审批下的真实验收、更多样本；
+- 已证明（干净会话）：真实模型两步计划全部完成，并通过可信验收命令（acceptance=true）；
+- 仍待：TUI 审批下的真实验收、更多 provider/样本；
 - 本次仅 deepseek-flash、一次样本，成本显示 $0；
 - 观察到一次真实 provider 长时间无返回（>300s），需要重跑/检查超时与重试；
 - 下一步：重跑第 3 步（更强提示/更多步数/不同 provider），再按
