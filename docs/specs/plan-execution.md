@@ -29,6 +29,9 @@
   - run 结束注销工具并持久化 execution.vN.json；
 - 步骤工具：`complete_plan_step` 接受模型额外 evidence/evidence_refs 参数（忽略），
   证据不足返回带操作提示的错误；
+- 步骤级工具门禁：read 步骤只允许只读工具，edit 允许写，run/verify 允许 bash；
+  越界返回 `plan_step_tool_blocked`；
+- 完成一步返回下一步提示（start directly / do not re-read）；
 - 全部步骤完成后 harness 设置 tool_gate，拒绝后续非计划工具并提示停止；
   连续 2 次 gate 命中后 Agent 直接以 done 收尾，避免模型无限探索；
 - 计划级完成门：绑定 plan 的 run 返回 done 时，若 required 步骤仍有未 done，

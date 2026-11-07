@@ -967,3 +967,40 @@ def test_plan_completion_force_finishes_after_repeated_gate(tmp_path, monkeypatc
         await harness.close()
 
     asyncio.run(scenario())
+
+
+def test_bound_plan_step_kind_blocks_other_tools(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    monkeypatch.setenv("VIBE_AUTONOMY", "full")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    (tmp_path / "README.md").write_text("hello\n", encoding="utf-8")
+    plan_task = "t-20261106-000000-abcdef"
+    plan_dir = session.root / "tasks" / plan_task
+    from app.runtime.plan import Plan, approve_plan, propose_plan
+    plan = Plan.from_dict({"schema_version": 1, "plan_id": "pl-kind", "task_id": plan_task,
+                           "objective": "step gate", "steps": [{"step_id": "s1", "title": "读", "kind": "read"}]})
+    propose_plan(plan_dir, plan)
+    approve_plan(plan_dir, plan, approved_by="user")
+    from core.contracts import Response, ToolCall
+    agent = Agent(FakeProvider([
+        Response(tool_calls=[ToolCall("start_plan_step", {"step_id": "s1"}, id="t1")]),
+        Response(tool_calls=[ToolCall("bash", {"command": "echo hi"}, id="t2")]),
+        Response(tool_calls=[ToolCall("read_file", {"path": "README.md"}, id="t3")]),
+        Response(tool_calls=[ToolCall("complete_plan_step", {"step_id": "s1"}, id="t4")]),
+        "完成",
+    ]), ToolRegistry(tmp_path), approval=ApprovalGate())
+
+    async def scenario():
+        harness = Harness(agent, Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("run", "r-kind", text="执行", task={
+            "kind": "run", "mode": "act", "objective": "执行",
+            "plan_id": "pl-kind", "plan_version": 1,
+        })
+        done = await harness.until("done", "r-kind")
+        assert done["result"]["status"] == "done"
+        outputs = [event.get("output", "") for event in harness.events if event["type"] == "tool_result"]
+        assert any("plan_step_tool_blocked" in output and "bash" in output for output in outputs)
+        await harness.close()
+
+    asyncio.run(scenario())

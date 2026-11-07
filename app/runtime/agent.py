@@ -1297,7 +1297,8 @@ class Agent:
             before_metadata = None
             gate_reason = self.tool_gate(call) if self.tool_gate is not None else None
             if gate_reason:
-                run.gate_hits += 1
+                if gate_reason.startswith("all plan steps complete"):
+                    run.gate_hits += 1
                 ok, output = False, f"ERROR tool_gate: {gate_reason}"
             elif duplicate:
                 ok, output = False, (

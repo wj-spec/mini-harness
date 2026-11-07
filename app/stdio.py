@@ -770,6 +770,28 @@ class _Connection:
                         save_ledger(bound_task_dir, ledger)
                     plan_context = {"plan": bound_plan, "ledger": ledger, "task_dir": bound_task_dir}
                     self.plan_context = plan_context
+                    from app.runtime.modes import READ_ONLY_TOOLS
+                    edit_tools = {"write_file", "edit_file", "apply_patch"}
+                    exec_tools = {"bash", "run_command"}
+
+                    def plan_step_tool_gate(call) -> str | None:
+                        if call.name in {"start_plan_step", "complete_plan_step"}:
+                            return None
+                        if call.name in READ_ONLY_TOOLS:
+                            return None
+                        current = active_plan_step["step_id"]
+                        if current is None:
+                            return "no active plan step; start a step before using non-read tools"
+                        step = next((item for item in bound_plan.steps if item.step_id == current), None)
+                        kind = step.kind if step is not None else "read"
+                        if kind == "edit" and call.name in edit_tools:
+                            return None
+                        if kind in {"run", "verify"} and call.name in exec_tools:
+                            return None
+                        return (f"plan_step_tool_blocked: step {current} kind={kind} "
+                                f"does not allow tool {call.name}")
+
+                    self.agent.tool_gate = plan_step_tool_gate
                     try:
                         self.task_runtime.store.append_event(
                             run_task.task_id, "plan_binding",
@@ -795,6 +817,8 @@ class _Connection:
                     def complete_plan_step(step_id: str, **_ignored) -> str:
                         try:
                             record = ledger.complete_step(bound_plan, step_id)
+                            if active_plan_step["step_id"] == step_id:
+                                active_plan_step["step_id"] = None
                         except ExecutionError as exc:
                             hint = ""
                             if "step_evidence_missing" in str(exc):
@@ -808,6 +832,11 @@ class _Connection:
                             )
                             return (f"step {step_id}: {record.status}; "
                                     "all plan steps complete — stop calling tools and summarize now")
+                        pending = next((item.step_id for item in bound_plan.steps
+                                        if ledger.record(item.step_id).status != "done"), None)
+                        if pending:
+                            return (f"step {step_id}: {record.status}; next step is {pending}; "
+                                    f"start it directly with start_plan_step and do not re-read files")
                         return f"step {step_id}: {record.status}"
 
                     from app.tools.registry import ToolSpec
