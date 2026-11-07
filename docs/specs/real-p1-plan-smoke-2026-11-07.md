@@ -365,6 +365,8 @@ deepseek-flash 一次 suite 结果（2026-11-07）：
 
 稳定性实测（2026-11-07，deepseek-flash）：`--suite --suite-runs 2` → **passed_runs=2**、
 两轮各 6/6（合计 12/12 阶段），未出现跨轮状态污染。
+跨模型稳定性（2026-11-07，deepseek-chat）：同样 `--suite --suite-runs 2` → **passed_runs=2**、
+两轮各 6/6（合计 12/12 阶段）。
 
 跨模型重复（2026-11-07）：suite 扩展为六种模式后，deepseek-flash 与 deepseek-chat 各跑一次，**均 6/6 通过**（新增 `goal` 完成验收模式）。
 
