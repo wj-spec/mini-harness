@@ -280,6 +280,8 @@ VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --backgrou
 连续 2 次：ok=true、worker exit 0、task completed、s1/s2 done、acceptance=true、
 `/explore` ok；另用 deepseek-chat 后台路径 1/1 通过。
 
+最终追加 2 次后台样本均 ok；后台路径累计 deepseek-flash 4/4、deepseek-chat 1/1。
+
 ## 4. 结论与限制
 
 - 已证明：真实模型可以走 `--task` 只读链路、可以生成结构化 proposed plan；

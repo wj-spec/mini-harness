@@ -30,8 +30,8 @@ VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py
 - JSON 报告 `.vibe/real-p1-acceptance/<timestamp>.json`；
 - 失败默认保留工作区，`--discard-on-failure` 可关闭；
 - 最终修复后连续 5/5 样本 ok，s1/s2 done、acceptance=true、审批均 1 次；
-- `--background` 真实后台路径连续 2 次 ok（worker exit 0、plan steps+acceptance）；
-  deepseek-chat 后台路径 1/1 通过。
+- `--background` 真实后台路径 deepseek-flash 4/4、deepseek-chat 1/1（worker exit 0、
+  plan steps+acceptance）。
 
 ## 3. TC-16 自动化映射
 
