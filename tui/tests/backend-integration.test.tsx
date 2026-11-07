@@ -273,3 +273,62 @@ test('plan step command forwards step_id through the real backend', async t => {
     await rm(workspace, {recursive: true, force: true});
   }
 });
+
+test('task and approvals commands surface seeded pending approvals through the real backend', async t => {
+  const python = path.join(repoRoot, '.venv', 'bin', 'python3');
+  if (!existsSync(python) || !existsSync(path.join(repoRoot, 'run_vibe.sh'))) {
+    t.skip('python backend unavailable');
+    return;
+  }
+  const workspace = await mkdtemp(path.join(tmpdir(), 'vibe-tui-approval-list-'));
+  const events: ServerEvent[] = [];
+  const client = createBackendClient({repoRoot, args: ['--fake', '--workspace', workspace]});
+  client.subscribe(event => events.push(event));
+  const view = render(<App client={client}/>);
+  try {
+    client.start();
+    await waitFor(() => events.some(event => event.type === 'ready'));
+    const ready = events.find(event => event.type === 'ready') as Extract<ServerEvent, {type: 'ready'}>;
+    const sessionPath = ready.session_path ?? '';
+    assert.ok(sessionPath, 'ready should include session_path');
+    const sessionId = path.basename(sessionPath);
+    const taskId = 't-20261001-000000-abcdef';
+    const taskDir = path.join(sessionPath, 'tasks', taskId);
+    await mkdir(taskDir, {recursive: true});
+    const stamp = new Date().toISOString();
+    await writeFile(path.join(taskDir, 'meta.json'), JSON.stringify({
+      schema_version: 1, task_id: taskId, session_id: sessionId, kind: 'goal',
+      status: 'paused', objective: '待审批任务', mode: 'goal', workspace,
+      parent_id: null, goal_id: null, plan_id: null, plan_version: null,
+      budget: {max_run_tokens: 0, max_goal_tokens: 0, max_wall_seconds: 0},
+      approval_policy: {autonomy: 'ask', scope: 'own', capabilities: []},
+      segments: [], result_ref: null, created_at: stamp, updated_at: stamp,
+    }, null, 2));
+    await writeFile(path.join(taskDir, 'approvals.jsonl'), JSON.stringify({
+      schema_version: 1, type: 'requested', approval_id: 'a-test-1',
+      task_id: taskId, tool: 'bash', tier: 'exec', requester: 'parent',
+      decisions: ['once', 'deny'], created_at: stamp,
+    }) + '\n');
+    const stdin = view.stdin as unknown as {write(value: string): void};
+    stdin.write('/task');
+    await pause(80);
+    stdin.write('\r');
+    await waitFor(() => events.some(event => event.type === 'command_result' && event.command === 'tasks'));
+    const tasksResult = events.find(event => event.type === 'command_result' && event.command === 'tasks') as
+      Extract<ServerEvent, {type: 'command_result'}>;
+    assert.match(tasksResult.text, /待审批 1/);
+    assert.match(tasksResult.text, new RegExp(taskId));
+    stdin.write('/approvals');
+    await pause(80);
+    stdin.write('\r');
+    await waitFor(() => events.some(event => event.type === 'command_result' && event.command === 'approvals'));
+    const approvalsResult = events.find(event => event.type === 'command_result' && event.command === 'approvals') as
+      Extract<ServerEvent, {type: 'command_result'}>;
+    assert.match(approvalsResult.text, /a-test-1/);
+    assert.match(approvalsResult.text, /bash/);
+  } finally {
+    await client.shutdown();
+    cleanup();
+    await rm(workspace, {recursive: true, force: true});
+  }
+});
