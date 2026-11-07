@@ -57,3 +57,26 @@ def test_bench_long_report_marks_repeatability(tmp_path):
     data = json.loads(path.read_text(encoding="utf-8"))
     assert data["summary"]["passed"] == 2
     assert data["summary"]["repeated_scenarios"]["a"] is True
+
+
+def test_bench_long_report_includes_scenario_stats(tmp_path):
+    bench = _load()
+    results = [
+        {"scenario": "a", "run_index": 1, "ok": True, "task_status": "completed", "worker_status": "exited",
+         "segments": 1, "changed_files": [], "duration_seconds": 2},
+        {"scenario": "a", "run_index": 2, "ok": False, "task_status": "failed", "worker_status": "exited",
+         "segments": 1, "changed_files": [], "duration_seconds": 4, "errors": ["forced"]},
+        {"scenario": "b", "run_index": 1, "ok": True, "task_status": "completed", "worker_status": "exited",
+         "segments": 2, "changed_files": [], "duration_seconds": 6},
+    ]
+    path = bench.write_report(tmp_path, results, ["a", "b"])
+    data = json.loads(path.read_text(encoding="utf-8"))
+    stats = data["summary"]["scenario_stats"]
+    assert stats["a"]["runs"] == 2 and stats["a"]["passed"] == 1 and stats["a"]["failed"] == 1
+    assert stats["a"]["pass_rate"] == 0.5
+    assert stats["a"]["avg_duration_seconds"] == 3.0
+    assert stats["a"]["max_duration_seconds"] == 4.0
+    assert stats["b"]["pass_rate"] == 1.0
+    md = (tmp_path / "report.md").read_text(encoding="utf-8")
+    assert "## scenario stats" in md
+    assert "| a | 2 | 1 | 1 | 50% | 3.0s | 4.0s |" in md

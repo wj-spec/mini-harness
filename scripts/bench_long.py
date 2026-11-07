@@ -311,6 +311,26 @@ def _repeatable(results: list[dict]) -> dict[str, bool]:
     }
 
 
+def _scenario_stats(results: list[dict]) -> dict[str, dict]:
+    grouped: dict[str, list[dict]] = {}
+    for item in results:
+        grouped.setdefault(item["scenario"], []).append(item)
+    stats: dict[str, dict] = {}
+    for name in sorted(grouped):
+        items = grouped[name]
+        durations = [float(item.get("duration_seconds") or 0.0) for item in items]
+        passed = sum(1 for item in items if item["ok"])
+        stats[name] = {
+            "runs": len(items),
+            "passed": passed,
+            "failed": len(items) - passed,
+            "pass_rate": round(passed / len(items), 3) if items else 0.0,
+            "avg_duration_seconds": round(sum(durations) / len(durations), 1) if durations else 0.0,
+            "max_duration_seconds": round(max(durations), 1) if durations else 0.0,
+        }
+    return stats
+
+
 def write_report(root: Path, results: list[dict], scenario_ids: list[str], *, real: bool = False) -> Path:
     report = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -322,6 +342,7 @@ def write_report(root: Path, results: list[dict], scenario_ids: list[str], *, re
             "passed": sum(1 for item in results if item["ok"]),
             "failed": sum(1 for item in results if not item["ok"]),
             "repeated_scenarios": _repeatable(results),
+            "scenario_stats": _scenario_stats(results),
         },
     }
     root.mkdir(parents=True, exist_ok=True)
@@ -334,6 +355,16 @@ def write_report(root: Path, results: list[dict], scenario_ids: list[str], *, re
             f"| {item['scenario']} | {item['run_index']} | {'yes' if item['ok'] else 'NO'} | "
             f"{item['task_status']} | {item['worker_status']} | {item['segments']} | {item['duration_seconds']}s |"
         )
+    stats = report["summary"]["scenario_stats"]
+    if stats:
+        lines += ["", "## scenario stats",
+                  "| scenario | runs | passed | failed | pass rate | avg duration | max duration |",
+                  "|---|---|---|---|---|---|---|"]
+        for name, item in stats.items():
+            lines.append(
+                f"| {name} | {item['runs']} | {item['passed']} | {item['failed']} | "
+                f"{item['pass_rate']:.0%} | {item['avg_duration_seconds']}s | {item['max_duration_seconds']}s |"
+            )
     lines += ["", "## failures"]
     failures = [item for item in results if not item["ok"]]
     if not failures:
