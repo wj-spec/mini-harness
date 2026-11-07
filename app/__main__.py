@@ -1001,10 +1001,17 @@ def main() -> None:
         workspaces = [Path(item).expanduser().resolve() for item in (args.queue_workspace or [])]
         if not workspaces:
             workspaces = [Path(config.workspace).expanduser().resolve()]
+        unique_workspaces: list[Path] = []
+        seen_workspaces: set[Path] = set()
         for workspace in workspaces:
             if not workspace.is_dir():
                 print(f"queue workspace is not a directory: {workspace}", file=sys.stderr)
                 raise SystemExit(2)
+            if workspace in seen_workspaces:
+                continue
+            seen_workspaces.add(workspace)
+            unique_workspaces.append(workspace)
+        workspaces = unique_workspaces
         entries = []
         session_ids: list[str] = []
         for workspace in workspaces:

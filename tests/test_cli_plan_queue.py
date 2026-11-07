@@ -434,3 +434,23 @@ def test_run_plan_queue_rejects_missing_workspace(tmp_path, monkeypatch, capsys)
         entrypoint.main()
     assert error.value.code == 2
     assert "queue workspace is not a directory" in capsys.readouterr().err
+
+
+@pytest.mark.skipif(GIT is None, reason="git required")
+def test_run_plan_queue_dedupes_workspaces(repo, monkeypatch, capsys):
+    session, task = _prepared_task(repo)
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=repo))
+    base = ["vibe", "--run-plan-queue", "--queue-all-sessions", "--fake",
+            "--workspace", str(repo)]
+    monkeypatch.setattr(sys, "argv", base + ["--queue-workspace", str(repo),
+                                             "--queue-workspace", str(repo),
+                                             "--queue-dry-run"])
+    entrypoint.main()
+    dry = json.loads(capsys.readouterr().out)
+    assert dry["count"] == 1 and dry["workspaces"] == [str(repo.resolve())]
+    monkeypatch.setattr(sys, "argv", base + ["--queue-workspace", str(repo),
+                                             "--queue-workspace", str(repo)])
+    entrypoint.main()
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["completed"] == 1
+    assert TaskStore(session.root).get(task.task_id).status == "completed"
