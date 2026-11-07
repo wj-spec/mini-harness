@@ -597,3 +597,47 @@ test('/plan card renders approval card through the real backend', async t => {
     await rm(workspace, {recursive: true, force: true});
   }
 });
+
+
+test('/queue lists pending plan tasks through the real backend', async t => {
+  const python = path.join(repoRoot, '.venv', 'bin', 'python3');
+  if (!existsSync(python) || !existsSync(path.join(repoRoot, 'run_vibe.sh'))) {
+    t.skip('python backend unavailable');
+    return;
+  }
+  const workspace = await mkdtemp(path.join(tmpdir(), 'vibe-tui-queue-'));
+  const events: ServerEvent[] = [];
+  const client = createBackendClient({repoRoot, args: ['--fake', '--workspace', workspace]});
+  client.subscribe(event => events.push(event));
+  const view = render(<App client={client}/>);
+  try {
+    client.start();
+    await waitFor(() => events.some(event => event.type === 'ready'));
+    const ready = events.find(event => event.type === 'ready') as Extract<ServerEvent, {type: 'ready'}>;
+    const sessionPath = ready.session_path ?? '';
+    assert.ok(sessionPath, 'ready should include session_path');
+    const script = [
+      'import sys',
+      'from app.runtime.tasks import TaskStore',
+      'task = TaskStore(sys.argv[1]).create(kind="run", objective="排队任务", workspace=sys.argv[2],',
+      '    mode="act", plan_id="pl-q", plan_version=1, priority=3)',
+      'print(task.task_id)',
+    ].join('\n');
+    const taskId = execFileSync(python, ['-c', script, sessionPath, workspace],
+      {cwd: repoRoot, encoding: 'utf8'}).trim();
+    const stdin = view.stdin as unknown as {write(value: string): void};
+    stdin.write('/queue');
+    await pause(80);
+    stdin.write('\r');
+    await waitFor(() => events.some(event => event.type === 'command_result' && event.command === 'queue'));
+    const result = events.find(event => event.type === 'command_result' && event.command === 'queue') as
+      Extract<ServerEvent, {type: 'command_result'}>;
+    assert.match(result.text, /计划队列（1）/);
+    assert.match(result.text, new RegExp(taskId));
+    assert.match(result.text, /priority 3/);
+  } finally {
+    await client.shutdown();
+    cleanup();
+    await rm(workspace, {recursive: true, force: true});
+  }
+});
