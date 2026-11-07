@@ -33,6 +33,7 @@ def test_plans_lists_versions(tmp_path, monkeypatch, capsys):
     assert versions == [1, 2]
     assert payload["plans"][-1]["objective"] == "新目标"
     assert payload["plans"][-1]["acceptance"] is None
+    assert payload["plans"][-1]["executable"] is False
 
 
 def test_plans_empty_read_only(tmp_path, monkeypatch, capsys):

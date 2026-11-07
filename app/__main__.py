@@ -864,7 +864,7 @@ def main() -> None:
         return
 
     if args.plans:
-        from app.runtime.plan import PlanError, load_plan
+        from app.runtime.plan import PlanError, can_execute, load_plan
 
         sessions_root = Path(config.workspace) / ".vibe" / "sessions"
         rows = []
@@ -912,6 +912,7 @@ def main() -> None:
                             "version": plan.version,
                             "status": plan.status,
                             "stale": bool(plan.approval.get("stale")),
+                            "executable": can_execute(plan),
                             "acceptance": acceptance,
                             "total_steps": len(plan.steps),
                             "done_steps": done_steps,
