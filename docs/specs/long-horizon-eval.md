@@ -33,7 +33,8 @@
   11. `provider-retry-recovers`：`VIBE_FAKE_STREAM_ERRORS=1` 注入一次 503 → 重试后 task completed（08 故障注入）；
   12. `provider-error-gives-up`：注入 3 次 503、`VIBE_LLM_RETRIES=1` → 重试耗尽 task paused，不记成完成；
   13. `goal-max-seconds`：`VIBE_FAKE_TIME_OFFSET_SECONDS=120` + `VIBE_GOAL_SECONDS=60` → goal_max_seconds 停止续段、task paused，通知 `goal_stopped`；
-  14. `goal-token-segments`：`VIBE_MAX_RUN_TOKENS=20` 触发 token 预算停止 → 自动续段，达到 `VIBE_GOAL_MAX_SEGMENTS=3` 后 goal_max_segments 停止、task paused。
+  14. `goal-token-segments`：`VIBE_MAX_RUN_TOKENS=20` 触发 token 预算停止 → 自动续段，达到 `VIBE_GOAL_MAX_SEGMENTS=3` 后 goal_max_segments 停止、task paused；
+  15. `real-read-summary`：只读读取 README 并总结后结束；fake 与真实 provider 双模式可用，期望 completed 且不改文件。
 - 测试：`tests/test_bench_long.py`（场景 schema、校验、列表、报告可重复标记、scenario_stats）。
 
 ## 用法
@@ -47,6 +48,8 @@
 
 - `two-slot-write-serial` 已覆盖写任务排队串行、只读任务并发已实现；文件集级并行写仍待后续；
 - 多段场景现有 2 个（goal-multisegment、goal-token-segments），其余场景为单段；
+- `real-read-summary` 是首个双模式场景：2026-11-07 真实 provider（deepseek-flash/chat）各跑 1 次均 PASS
+  （task=completed、worker=exited、无文件改动）；其余 14 个场景仍按 fake 行为设计。
 - 已覆盖 fake provider 5xx、本地 mock OpenAI 服务端 503→200、fake 时钟偏移；seed 注入当前不适用
   （评测/基准无随机采样，保持确定性；未来引入随机任务生成再增加 seed）；
 - 重复运行统计已有 pass rate/耗时聚合、agent_version 与本地历史视图（`--bench-history`）；跨机器汇总/历史趋势图表仍待；

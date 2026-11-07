@@ -72,12 +72,15 @@ def file_hashes(workspace: Path) -> dict[str, str]:
     return hashes
 
 
-def create_task(workspace: Path, objective: str) -> tuple[str, str]:
+def create_task(
+    workspace: Path, objective: str, *, session_purpose: str = "test",
+) -> tuple[str, str]:
     sys.path.insert(0, str(ROOT))
     from app.runtime.tasks import TaskStore
     from app.session.store import SessionStore
 
-    session = SessionStore.new(workspace, "fake", purpose="test")
+    provider = "fake" if session_purpose == "test" else "openai"
+    session = SessionStore.new(workspace, provider, purpose=session_purpose)
     task = TaskStore(session.root).create(
         kind="goal", objective=objective, workspace=str(workspace), mode="goal",
     )
@@ -173,7 +176,10 @@ def run_scenario(scenario: dict, run_dir: Path, run_index: int, *, real: bool = 
     scenario_dir.mkdir(parents=True, exist_ok=True)
     build_workspace(workspace)
     before = file_hashes(workspace)
-    session_id, task_id = create_task(workspace, scenario.get("objective", scenario["id"]))
+    session_purpose = "user" if real else "test"
+    session_id, task_id = create_task(
+        workspace, scenario.get("objective", scenario["id"]), session_purpose=session_purpose,
+    )
     task_dir, _ = task_paths(workspace, session_id, task_id)
     from app.runtime.worker import socket_path
     worker_socket = socket_path(task_dir, task_id)
@@ -221,7 +227,9 @@ def run_scenario(scenario: dict, run_dir: Path, run_index: int, *, real: bool = 
             WorkerSupervisor(workspace / ".vibe" / "sessions" / session_id).recover()
         elif action == "two_slot":
             assert wait_for(lambda: worker_socket.exists(), 10), "worker socket did not appear"
-            second_session, second_task = create_task(workspace, scenario["objective"] + " second")
+            second_session, second_task = create_task(
+                workspace, scenario["objective"] + " second", session_purpose=session_purpose,
+            )
             second_env = dict(env)
             second_env.update({str(k): str(v) for k, v in scenario.get("secondary_env", {}).items()})
             second = subprocess.run(

@@ -1,0 +1,17 @@
+{
+  "id": "real-read-summary",
+  "description": "只读任务：读取 README 并总结后结束；fake 与真实 provider 都应完成且不修改文件",
+  "objective": "读取 README.md，用一句话说明项目用途后结束。只读，不要修改任何文件。",
+  "action": "wait",
+  "worker_env": {
+    "VIBE_MAX_STEPS": "4",
+    "VIBE_MAX_RUN_TOKENS": "60000"
+  },
+  "expected": {
+    "task_status": ["completed"],
+    "worker_status": ["exited"],
+    "min_segments": 1,
+    "no_changed_files": true
+  },
+  "timeout_seconds": 150
+}

@@ -128,3 +128,13 @@ def test_build_worker_command_switches_fake_and_args():
         Path("/ws"), "s-1", "t-1", real=True, worker_args=["--max-steps", "1"])
     assert "--fake" not in real_command
     assert real_command[-2:] == ["--max-steps", "1"]
+
+
+def test_create_task_uses_real_session_purpose(tmp_path):
+    bench = _load()
+    test_session, task_id = bench.create_task(tmp_path, "fake 任务", session_purpose="test")
+    real_session, real_task = bench.create_task(tmp_path, "真实任务", session_purpose="user")
+    from app.session.store import SessionStore
+    assert SessionStore(tmp_path / ".vibe" / "sessions" / test_session).purpose == "test"
+    assert SessionStore(tmp_path / ".vibe" / "sessions" / real_session).purpose == "user"
+    assert task_id and real_task
