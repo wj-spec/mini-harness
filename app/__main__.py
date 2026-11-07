@@ -550,18 +550,26 @@ def main() -> None:
         except Exception:
             pass
         agent_version = "unknown"
+        dirty = False
         try:
             out = subprocess.run(["git", "-C", str(Path(__file__).resolve().parents[1]),
                                   "rev-parse", "--short", "HEAD"],
                                  capture_output=True, text=True, timeout=5)
             if out.returncode == 0 and out.stdout.strip():
                 agent_version = out.stdout.strip()
+                status = subprocess.run(
+                    ["git", "-C", str(Path(__file__).resolve().parents[1]),
+                     "status", "--porcelain"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                dirty = status.returncode == 0 and bool(status.stdout.strip())
         except Exception:
             pass
         print(json.dumps({
             "version": version,
             "python": platform.python_version(),
             "agent_version": agent_version,
+            "dirty": dirty,
             "platform": platform.system().lower(),
         }, ensure_ascii=False, indent=2))
         return

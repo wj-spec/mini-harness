@@ -15,7 +15,8 @@ def test_version_outputs_json(monkeypatch, capsys):
     entrypoint.main()
     payload = json.loads(capsys.readouterr().out)
     assert payload["version"] and payload["python"]
-    assert set(payload) == {"version", "python", "agent_version", "platform"}
+    assert set(payload) == {"version", "python", "agent_version", "dirty", "platform"}
+    assert isinstance(payload["dirty"], bool)
 
 
 def test_version_rejects_other_modes(monkeypatch, capsys):
