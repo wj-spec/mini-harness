@@ -366,3 +366,59 @@ def test_queue_concurrency_one_keeps_stop_semantics(tmp_path, monkeypatch, capsy
     payload = json.loads(capsys.readouterr().out)
     assert payload["stopped_early"] == "plan_unavailable"
     assert payload["completed"] == 0
+
+
+@pytest.mark.skipif(GIT is None, reason="git required")
+def test_set_task_priority_updates_created_task(repo, monkeypatch, capsys):
+    session, task = _prepared_task(repo)
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=repo))
+    monkeypatch.setattr(sys, "argv", ["vibe", "--set-task-priority", task.task_id,
+                                      "--task-priority", "9", "--workspace", str(repo)])
+    entrypoint.main()
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["task_id"] == task.task_id and payload["priority"] == 9
+    store = TaskStore(session.root)
+    assert store.get(task.task_id).priority == 9
+    events = (session.root / "tasks" / task.task_id / "events.jsonl").read_text(encoding="utf-8")
+    assert "task_priority_set" in events
+
+
+@pytest.mark.skipif(GIT is None, reason="git required")
+def test_set_task_priority_rejects_non_created_task(repo, monkeypatch, capsys):
+    session, task = _prepared_task(repo)
+    store = TaskStore(session.root)
+    store.transition(task.task_id, "running")
+    store.transition(task.task_id, "completed")
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=repo))
+    monkeypatch.setattr(sys, "argv", ["vibe", "--set-task-priority", task.task_id,
+                                      "--task-priority", "5", "--workspace", str(repo)])
+    with pytest.raises(SystemExit) as error:
+        entrypoint.main()
+    assert error.value.code == 2
+    assert "only created tasks can be reprioritized" in capsys.readouterr().err
+
+
+@pytest.mark.skipif(GIT is None, reason="git required")
+def test_set_task_priority_missing_task(repo, monkeypatch, capsys):
+    _prepared_task(repo)
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=repo))
+    monkeypatch.setattr(sys, "argv", ["vibe", "--set-task-priority", "t-20261107-000000-ffffff",
+                                      "--task-priority", "5", "--workspace", str(repo)])
+    with pytest.raises(SystemExit) as error:
+        entrypoint.main()
+    assert error.value.code == 2
+    assert "no task" in capsys.readouterr().err
+
+
+def test_set_task_priority_validation(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["vibe", "--set-task-priority", "t-1",
+                                      "--task-priority", "101", "--workspace", "/tmp"])
+    with pytest.raises(SystemExit) as error:
+        entrypoint.main()
+    assert error.value.code == 2
+    assert "--task-priority must be between 0 and 100" in capsys.readouterr().err
+    monkeypatch.setattr(sys, "argv", ["vibe", "--task-priority", "5", "--workspace", "/tmp"])
+    with pytest.raises(SystemExit) as error:
+        entrypoint.main()
+    assert error.value.code == 2
+    assert "--task-priority requires --set-task-priority" in capsys.readouterr().err

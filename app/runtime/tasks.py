@@ -424,6 +424,18 @@ class TaskStore:
             raise
         return record
 
+    def set_priority(self, task_id: str, priority: int) -> TaskRecord:
+        """调整尚未开始的 created 任务优先级；运行中/已结束任务不允许改。"""
+        if not isinstance(priority, int) or isinstance(priority, bool) or priority < 0 or priority > 100:
+            raise ValueError("priority must be an integer between 0 and 100")
+        record = self.get(task_id)
+        if record.status != "created":
+            raise ValueError(f"only created tasks can be reprioritized (status={record.status})")
+        updated = replace(record, priority=priority, updated_at=_now())
+        self._write_meta(updated)
+        self.append_event(task_id, "task_priority_set", data={"priority": priority})
+        return updated
+
     def get(self, task_id: str) -> TaskRecord:
         directory = self.task_dir(task_id)
         return self._read_meta(directory)
