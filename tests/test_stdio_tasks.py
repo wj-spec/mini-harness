@@ -1259,3 +1259,27 @@ def test_bound_plan_repair_enforces_edit_file_scope(tmp_path, monkeypatch):
         await harness.close()
 
     asyncio.run(scenario())
+
+
+def test_tasks_command_shows_pending_approvals(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    task = TaskStore(session.root).create(
+        kind="goal", objective="待审批任务", workspace=str(tmp_path), mode="goal",
+    )
+    ApprovalInbox(session.root).submit(
+        task.task_id, tool="bash", tier="exec",
+        decisions=["once", "deny"], preview="ls",
+    )
+
+    async def scenario():
+        harness = Harness(_agent(tmp_path), Config(workspace=tmp_path), session)
+        ready = await harness.until("ready")
+        hint = next(item for item in ready["tasks"] if item["task_id"] == task.task_id)
+        assert hint["pending_approvals"] == 1
+        harness.send("command", "c-tasks2", command="tasks")
+        result = await harness.until("command_result", "c-tasks2")
+        assert "待审批 1" in result["text"]
+        await harness.close()
+
+    asyncio.run(scenario())

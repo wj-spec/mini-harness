@@ -8,7 +8,8 @@
 
 - CLI `--approvals` 只读列出本工作区跨会话 pending 审批（JSON：`session/task_id/approval_id/tool/tier/requester/created_at/expires_at`，最多 100 条），不创建 session、不与其他模式组合；
 - CLI `--decide-approval APPROVAL_ID --approval-decision once|session|workspace|deny` 在无 TUI 时通过 worker attach control 通道响应审批（`decided_by=attach`）；需要目标 worker 正在运行且无其他 controller，否则明确报错；
-- 两者复用 worker 既有 attach 协议，不新增绕过审批的写路径。
+- 两者复用 worker 既有 attach 协议，不新增绕过审批的写路径；
+- `--tasks` / `/task` / ready hints 增加 `pending_approvals`（每任务待审批数），用于无 TUI 时定位阻塞任务。
 
 
 ## 0 第一性原理与不变量

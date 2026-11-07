@@ -167,6 +167,7 @@ export interface TaskHint {
   mode?: string;
   parent_id?: string | null;
   plan_id?: string | null;
+  pending_approvals?: number;
 }
 
 export interface AttachTaskSnapshot {
@@ -442,7 +443,9 @@ function taskHint(value: unknown): value is TaskHint {
     typeof value.stale === 'boolean' &&
     (value.mode === undefined || typeof value.mode === 'string') &&
     (value.parent_id === undefined || value.parent_id === null || typeof value.parent_id === 'string') &&
-    (value.plan_id === undefined || value.plan_id === null || typeof value.plan_id === 'string');
+    (value.plan_id === undefined || value.plan_id === null || typeof value.plan_id === 'string') &&
+    (value.pending_approvals === undefined || (typeof value.pending_approvals === 'number' &&
+      Number.isSafeInteger(value.pending_approvals) && value.pending_approvals >= 0));
 }
 
 function taskSnapshot(value: unknown): value is TaskSnapshot {

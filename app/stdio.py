@@ -46,6 +46,15 @@ def _task_hints(session_root) -> list[dict]:
     try:
         from app.runtime.supervise import WorkerSupervisor
 
+        pending_counts: dict[str, int] = {}
+        try:
+            from app.runtime.approvals import ApprovalInbox
+            for item in ApprovalInbox(session_root).pending():
+                task_id = item.get("task_id")
+                if isinstance(task_id, str):
+                    pending_counts[task_id] = pending_counts.get(task_id, 0) + 1
+        except Exception:
+            pass
         return [
             {
                 "task_id": snapshot.task.task_id,
@@ -56,6 +65,7 @@ def _task_hints(session_root) -> list[dict]:
                 "mode": snapshot.task.mode,
                 "parent_id": snapshot.task.parent_id,
                 "plan_id": snapshot.task.plan_id,
+                "pending_approvals": pending_counts.get(snapshot.task.task_id, 0),
             }
             for snapshot in WorkerSupervisor(session_root).snapshot()
         ]
@@ -80,7 +90,7 @@ def _format_approvals(session_root) -> str:
             f"{item.get('tool')}  tier={item.get('tier') or '-'}  "
             f"requester={item.get('requester')}  expires={expires}"
         )
-    lines.append("决定可在 attach 客户端或用收件箱 API/后续 /approvals 决定命令完成。")
+    lines.append("决定可在 attach 客户端完成；无 TUI 时用 --decide-approval <id> --approval-decision once|deny。")
     return "\n".join(lines)
 
 
@@ -98,6 +108,9 @@ def _format_task_hints(hints: list[dict]) -> str:
             extras.append(f"plan={hint['plan_id']}")
         if hint.get("parent_id"):
             extras.append(f"parent={hint['parent_id']}")
+        pending = int(hint.get("pending_approvals") or 0)
+        if pending:
+            extras.append(f"待审批 {pending}")
         suffix = (" " + " ".join(extras)) if extras else ""
         lines.append(
             f"- {hint['task_id']}  {hint['kind']}  {hint['status']}  worker={worker}{stale}{suffix}"

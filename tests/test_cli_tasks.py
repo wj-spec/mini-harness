@@ -9,6 +9,7 @@ import pytest
 
 from app import __main__ as entrypoint
 from app.config import Config
+from app.runtime.approvals import ApprovalInbox
 from app.runtime.supervise import WorkerState, write_worker_state
 from app.runtime.tasks import TaskStore
 from app.session.store import SessionStore
@@ -20,6 +21,10 @@ def _seed(tmp_path):
     task = store.create(kind="goal", objective="长任务目标", workspace=str(tmp_path), mode="goal")
     plan_task = store.create(kind="run", objective="计划任务", workspace=str(tmp_path),
                              mode="act", plan_id="pl-cli", plan_version=2)
+    ApprovalInbox(session.root).submit(
+        plan_task.task_id, tool="bash", tier="exec",
+        decisions=["once", "deny"], preview="ls",
+    )
     write_worker_state(store.task_dir(task.task_id), WorkerState(
         schema_version=1, task_id=task.task_id, pid=999_999_999,
         host=socket.gethostname(), status="running",
@@ -40,6 +45,9 @@ def test_tasks_lists_latest_session_tasks(tmp_path, monkeypatch, capsys):
     assert "goal" in out and "running" in out
     assert "pl-cliv2" in out and "plan_task" not in out
     assert plan_task.task_id in out
+    assert "APPROVALS" in out
+    plan_row = next(line for line in out.splitlines() if plan_task.task_id in line)
+    assert "\t1\t" in plan_row
 
 
 def test_tasks_without_session_is_read_only(tmp_path, monkeypatch, capsys):
@@ -69,3 +77,5 @@ def test_tasks_json_output(tmp_path, monkeypatch, capsys):
     rows = {item["task_id"]: item for item in payload["tasks"]}
     assert rows[plan_task.task_id]["plan_id"] == "pl-cli"
     assert rows[plan_task.task_id]["mode"] == "act"
+    assert rows[plan_task.task_id]["pending_approvals"] == 1
+    assert rows[_task.task_id]["pending_approvals"] == 0

@@ -673,6 +673,15 @@ def main() -> None:
         if not snapshots:
             print(f"no tasks under {session_root}")
             return
+        pending_counts: dict[str, int] = {}
+        try:
+            from app.runtime.approvals import ApprovalInbox
+            for item in ApprovalInbox(session_root).pending():
+                task_id = item.get("task_id")
+                if isinstance(task_id, str):
+                    pending_counts[task_id] = pending_counts.get(task_id, 0) + 1
+        except Exception:
+            pass
         if args.tasks_json:
             rows = []
             for snapshot in snapshots:
@@ -687,11 +696,12 @@ def main() -> None:
                     "heartbeat": worker.heartbeat_at if worker is not None else None,
                     "stale": snapshot.stale, "plan_id": task.plan_id,
                     "plan_version": task.plan_version, "parent_id": task.parent_id,
+                    "pending_approvals": pending_counts.get(task.task_id, 0),
                     "objective": task.objective,
                 })
             print(json.dumps({"session": session_root.name, "tasks": rows}, ensure_ascii=False, indent=2))
             return
-        print("TASK_ID\tKIND\tMODE\tSTATUS\tSEGMENTS\tWORKER\tPID\tHEARTBEAT\tSTALE\tPLAN\tPARENT\tOBJECTIVE")
+        print("TASK_ID\tKIND\tMODE\tSTATUS\tSEGMENTS\tWORKER\tPID\tHEARTBEAT\tSTALE\tAPPROVALS\tPLAN\tPARENT\tOBJECTIVE")
         for snapshot in snapshots:
             task = snapshot.task
             worker = snapshot.worker
@@ -706,6 +716,7 @@ def main() -> None:
                 str(worker.pid) if worker is not None else "-",
                 worker.heartbeat_at if worker is not None else "-",
                 "!" if snapshot.stale else "-",
+                str(pending_counts.get(task.task_id, 0)),
                 f"{task.plan_id}v{task.plan_version}" if task.plan_id else "-",
                 task.parent_id or "-",
                 task.objective[:60],

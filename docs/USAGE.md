@@ -740,7 +740,7 @@ VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --backgrou
 ## 后台 worker
 
 ```bash
-./run_vibe.sh --tasks --workspace /path/to/repo  # 含 MODE/PLAN/PARENT 列
+./run_vibe.sh --tasks --workspace /path/to/repo  # 含 MODE/APPROVALS/PLAN/PARENT 列
 ./run_vibe.sh --tasks --tasks-json --workspace /path/to/repo  # 机器可读
 ./run_vibe.sh --notifications --workspace /path/to/repo
 ./run_vibe.sh --notifications --notification-kind plan_acceptance --workspace /path/to/repo
@@ -766,6 +766,7 @@ VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --backgrou
 `VIBE_NOTIFY_WEBHOOK_KINDS` 过滤 kind（逗号分隔，`*`=全部，默认全部）；只允许 http/https，请求失败静默，不影响任务与本地通知。
 `--plans` 只读列出本工作区会话的计划版本（session/task/plan_id/version/status/stale/acceptance/objective）。
 `--acceptance` 只读列出计划验收结果（plan_id/objective/plan_version/status/codes/命令数，最多 100 条）。
+`--tasks` / `--tasks-json` 的 `pending_approvals` 显示每个任务待审批数量（`/task` 同时显示「待审批 N」），便于无人值守时定位卡在审批上的任务。
 `--approvals` 只读列出跨会话待审批项（session/task/approval_id/tool/tier/requester/created_at/expires_at，最多 100 条）；已解决/过期项不显示。
 `--decide-approval` 在无 TUI 时通过 worker 的 attach control 通道响应审批（默认 once，可 `deny`/`session`/`workspace`）：
 先 `--approvals` 找到 id，再执行；需要 worker 正在运行且当前没有其他 controller，否则明确报错并 exit 1。

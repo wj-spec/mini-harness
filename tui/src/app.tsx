@@ -398,7 +398,7 @@ export function App({client, attach = false, initialState = emptyState, windowSi
     if (event.type === 'approval_request') {setDetail(null); setContextOpen(false); answeredApproval.current = null;}
     if (event.type === 'ready' && event.tasks && event.tasks.length) {
       const running = event.tasks.filter(task => task.worker_status && task.worker_status !== 'exited' && task.worker_status !== 'failed' && task.worker_status !== 'interrupted');
-      const summary = event.tasks.slice(0, 5).map(task => `${task.task_id} ${task.status}${task.worker_status ? `/${task.worker_status}` : ''}`).join('；');
+      const summary = event.tasks.slice(0, 5).map(task => `${task.task_id} ${task.status}${task.worker_status ? `/${task.worker_status}` : ''}${task.pending_approvals ? ` 待审批${task.pending_approvals}` : ''}`).join('；');
       dispatch({type: 'notice', text: `检测到 ${event.tasks.length} 个任务${running.length ? `（${running.length} 个后台 worker 活跃）` : ''}：${summary}${event.tasks.length > 5 ? ' …' : ''}\n输入 /task 查看；/attach 生成 attach 命令。`});
     }
     if (event.type === 'subagent_event') {
