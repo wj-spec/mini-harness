@@ -7,13 +7,13 @@
 
 | 检查 | 结果 |
 |---|---|
-| Python 全量 | **1405 passed / 13 skipped** |
+| Python 全量 | **1416 passed / 13 skipped** |
 | TUI | **382 passed / 1 failed**；失败为环境 pty smoke（`out of pty devices`） |
 | 长任务 fake 场景 | **10/10 PASS**（`scripts/bench_long.py --runs 1`；新增 `--real` 真 provider 入口） |
 | 07 attach 人工验收 | TC-01–09 通过（[记录](manual-acceptance-07-results.md)） |
 | Plan/SubAgent 人工验收清单 | TC-16-01–08 已编写，真模型环境待逐项记录（[清单](manual-acceptance-16-plan-subagent.md)） |
 | 真实模型 Plan P1 冒烟 | deepseek-flash：只读任务 done、单步+验收 acceptance=true、两步计划+验收 acceptance=true、stdio approval 帧模拟审批全链路 2/2、干净会话多步+验收 3/3、/explore ok；真实 TUI 人工键路待（[记录](real-p1-plan-smoke-2026-11-07.md)） |
-| 文档链接 | 76 个 specs/long-horizon 文档，**0 失效** |
+| 文档链接 | 77 个 specs/long-horizon 文档，**0 失效** |
 
 ## 2. 16 块 P0 状态
 
