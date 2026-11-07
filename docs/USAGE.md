@@ -864,3 +864,22 @@ worker 启动会审计 profile：任务事件 `unattended_profile` 记 `profile/
   （合并已完成，不回滚；修复后重新合并/验收）；
 - 无验收命令时 `post_merge_verified=false`，不视为失败；
 - 审批事件与结果也会写 `.vibe/notifications.jsonl`（`merge_approval_requested` / `merge_completed`）。
+
+## 只读视图总览
+
+以下命令都只读（不初始化模型/不修改会话），脚本可配合 `--json` 变体解析：
+
+| 视图 | 命令 | JSON / 备注 |
+|---|---|---|
+| 会话列表 | `--list-sessions` | `--sessions-json`（id/message_count/updated_at/title，不含正文） |
+| 任务与 worker | `--tasks` | `--tasks-json`；损坏 task 目录 → `skipped_task_dirs` + stderr 告警 |
+| 计划版本 | `--plans` | JSON；含 `executable`、`skipped_plan_files` |
+| 计划审批卡 | `--plan-card --session SID [--plan-card-version N]` | JSON；含 `card`、`executable`、`skipped_plan_files` |
+| 验收结果 | `--acceptance` | JSON；含 `skipped_acceptance_files` |
+| 审批收件箱 | `--approvals` | JSON；含 `skipped_approval_records` |
+| 本地通知 | `--notifications [--notification-kind K]` | JSON；含 `skipped_notification_records` |
+| 单轮证据 | `--evidence --session SID` | `--evidence-json`；含 `skipped_rounds` |
+| trace 观测 | `--trace-summary --session SID [--trace-last-hours H]` | `--trace-json`；`--trace-all-sessions` 跨会话；`malformed` 计数 |
+| 评测历史 | `--bench-history` | `--bench-history-json`；含 `regression`、`skipped_bench_reports` |
+| 环境自检 | `--doctor` | `--json`；含待审批/events/worktree/profile/benchmark/真实模型报告 |
+| 构建信息 | `--version` | JSON（version/python/agent_version/platform） |
