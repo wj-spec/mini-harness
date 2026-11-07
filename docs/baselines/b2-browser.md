@@ -36,7 +36,7 @@
 
 - Python 全量：`./run_tests.sh -q` 退出 0（收集 **1072** 项，含浏览器 opt-in 跳过项）。
 - Ink 全量：**337 项、336 通过**；唯一失败为既有“沙箱无 PTY 的交互 CLI”环境项，不是浏览器功能回归。
-- 历史验收：B2 真实模型 + Ink 两段验收（2026-10-27，会话 `20261027-142127-403528`）17/17 检查通过、0 提交；证据见 [Browser Use 规格](../specs/browser-use.md#37-b2-真实模型与-ink-验收) 与 `.vibe/browser/acceptance/`。
+- 历史验收：B2 真实模型 + Ink 两段验收（2026-10-27，会话 `20261027-142127-403528`）17/17 检查通过、0 提交；证据见 [Browser Use 规格](../specs/browser-use.md) 与 `.vibe/browser/acceptance/`。
 
 ## 已知边界（基线语义）
 

@@ -84,3 +84,36 @@ def test_every_spec_is_referenced_somewhere():
     specs = {path.resolve() for path in (REPO_ROOT / "docs" / "specs").glob("*.md")}
     orphans = sorted(path.relative_to(REPO_ROOT).as_posix() for path in specs - referenced)
     assert orphans == [], f"unreferenced specs: {orphans}"
+
+
+HEADING_RE = re.compile(r"^#{1,6}\s+(.+?)\s*#*\s*$", re.M)
+
+
+def github_slug(heading: str) -> str:
+    """近似 GitHub 锚点：小写、去标点、空格转连字符，保留中文/字母/数字。"""
+    text = heading.strip().lower()
+    kept = []
+    for char in text:
+        if char.isalnum() or char in " -_":
+            kept.append(char)
+    return "".join(kept).replace(" ", "-")
+
+
+ANCHOR_LINK_RE = re.compile(r"\[[^\]]*\]\(([^)\s]+?\.md)#([^)]+)\)")
+
+
+def test_doc_anchors_resolve_to_headings():
+    problems: list[tuple[str, str, str]] = []
+    for doc in _docs():
+        text = doc.read_text(encoding="utf-8", errors="replace")
+        for match in ANCHOR_LINK_RE.finditer(text):
+            target = (doc.parent / match.group(1)).resolve()
+            anchor = match.group(2)
+            if not target.is_file():
+                continue
+            slugs = {github_slug(item) for item in HEADING_RE.findall(
+                target.read_text(encoding="utf-8", errors="replace"))}
+            if anchor not in slugs:
+                problems.append((doc.relative_to(REPO_ROOT).as_posix(),
+                                 match.group(1), anchor))
+    assert problems == [], f"unresolved doc anchors: {problems}"
