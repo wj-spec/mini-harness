@@ -68,7 +68,7 @@ TUI /goal /chat /act /plan
    以及验收失败自动修复（`--repair` 修复后连续 2/2）、worktree→merge→合并后重验（`--merge` 连续 2/2）、`--suite` 六种模式（含 queue/goal）跨模型 **6/6 ×2**，
    `--suite-runs 2` 扩样本后 flash/chat 各 **2×6/6**；剩余为真实 TUI 人工键路。
    08 长任务 benchmark 仍为 fake worker 场景（含 5xx/时钟注入），真实模型长任务样本仍有限。
-2. **Plan TUI**：覆盖层 + 侧栏步骤面板、审批/修订/执行、审批时限已接；完整审批卡片与更细粒度编辑仍待。
+2. **Plan TUI**：覆盖层 + 侧栏步骤面板、审批/修订/执行、审批时限已接；步骤标题/类型/文件范围可在 draft 阶段编辑，`depends_on` 编辑与完整审批卡片仍待。
 3. **子 Agent**：已有子 TaskRecord/subagent_event/取消/depth/批量扇出；attach 回放、按 mode 委派开关、父预算硬上限联动仍待。
 4. **09 剩余**：events 软上限告警、红队清单自动化、只读任务并发、外部 webhook 告警、profile 放宽审计已实现；
    文件集级并行写仍待；profile 放宽审批门已实现（`--approve-unattended-profile` + `VIBE_UNATTENDED_REQUIRE_APPROVAL`）。
