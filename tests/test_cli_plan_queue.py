@@ -251,3 +251,32 @@ def test_queue_continue_on_failure_requires_run(monkeypatch, capsys):
         entrypoint.main()
     assert error.value.code == 2
     assert "--queue-continue-on-failure requires --run-plan-queue" in capsys.readouterr().err
+
+
+@pytest.mark.skipif(GIT is None, reason="git required")
+def test_plan_queue_runs_with_concurrency(tmp_path, monkeypatch, capsys):
+    first_repo = _init_repo(tmp_path / "cfirst")
+    second_repo = _init_repo(tmp_path / "csecond")
+    first_session, first_task = _prepared_task(first_repo)
+    second_session, second_task = _prepared_task(second_repo)
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=first_repo))
+    monkeypatch.setattr(sys, "argv", [
+        "vibe", "--run-plan-queue", "--queue-all-sessions", "--queue-concurrency", "2",
+        "--queue-workspace", str(first_repo), "--queue-workspace", str(second_repo), "--fake",
+    ])
+    entrypoint.main()
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["concurrency"] == 2
+    assert payload["completed"] == 2 and payload["failed"] == 0
+    assert TaskStore(first_session.root).get(first_task.task_id).status == "completed"
+    assert TaskStore(second_session.root).get(second_task.task_id).status == "completed"
+
+
+def test_queue_concurrency_bounds(monkeypatch, capsys):
+    for value in ("0", "9"):
+        monkeypatch.setattr(sys, "argv", ["vibe", "--run-plan-queue", "--queue-all-sessions",
+                                          "--queue-concurrency", value, "--workspace", "/tmp"])
+        with pytest.raises(SystemExit) as error:
+            entrypoint.main()
+        assert error.value.code == 2
+        assert "--queue-concurrency must be between 1 and 8" in capsys.readouterr().err

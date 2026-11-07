@@ -124,6 +124,7 @@ def main() -> None:
     parser.add_argument("--queue-all-sessions", action="store_true", help="与 --run-plan-queue 搭配：跨会话收集 created 计划 task 并串行执行")
     parser.add_argument("--queue-workspace", action="append", default=None, metavar="PATH", help="与 --run-plan-queue 搭配：指定工作区（可重复；默认当前 --workspace）")
     parser.add_argument("--queue-continue-on-failure", action="store_true", help="与 --run-plan-queue 搭配：某个任务失败/计划不可执行时继续后续任务")
+    parser.add_argument("--queue-concurrency", type=int, default=None, metavar="N", help="与 --run-plan-queue 搭配：并行 worker 数（1-8，默认 1）")
     parser.add_argument("--prune-worktrees", action="store_true", help="只读报告 stale/孤立的 worktree")
     parser.add_argument("--prune-apply", action="store_true", help="与 --prune-worktrees 搭配：把目录缺失的 worktree 标记 removed 并删分支")
     parser.add_argument("--worker", action="store_true", help="后台 worker：执行一个 task segment 并暴露 attach socket")
@@ -298,6 +299,11 @@ def main() -> None:
         parser.error("--queue-workspace requires --run-plan-queue")
     if args.queue_continue_on_failure and not args.run_plan_queue:
         parser.error("--queue-continue-on-failure requires --run-plan-queue")
+    if args.queue_concurrency is not None:
+        if not args.run_plan_queue:
+            parser.error("--queue-concurrency requires --run-plan-queue")
+        if args.queue_concurrency < 1 or args.queue_concurrency > 8:
+            parser.error("--queue-concurrency must be between 1 and 8")
     if args.prepare_plan_task or args.run_plan_queue:
         if args.continue_session:
             parser.error("--prepare-plan-task/--run-plan-queue cannot use --continue")
@@ -846,25 +852,19 @@ def main() -> None:
         repo_root = str(Path(__file__).resolve().parents[1])
         ran: list[dict] = []
         stopped_early: str | None = None
-        failed = 0
-        for workspace, session, store, task in entries:
-            if not plan_executable(session, task):
-                ran.append({"workspace": str(workspace), "session": session.id,
-                            "task_id": task.task_id, "plan_id": task.plan_id,
-                            "plan_version": task.plan_version, "exit_code": None,
-                            "status": "skipped_plan_unavailable", "stderr": ""})
-                failed += 1
-                if stopped_early is None:
-                    stopped_early = "plan_unavailable"
-                if args.queue_continue_on_failure:
-                    continue
-                break
+        concurrency = max(1, min(args.queue_concurrency or 1, 8))
+        lock_wait = str(int(max(30, min(timeout, 300))))
+
+        def run_one(entry) -> dict:
+            workspace, session, store, task = entry
             command = [sys.executable, "-m", "app", "--worker",
                        "--workspace", str(workspace), "--session", session.id,
                        "--task-id", task.task_id]
             if args.fake or config.provider == "fake":
                 command.append("--fake")
             env = dict(os.environ, VIBE_TASK_RUNTIME="1")
+            if concurrency > 1:
+                env["VIBE_WORKSPACE_LOCK_WAIT"] = lock_wait
             try:
                 proc = subprocess.run(command, cwd=repo_root, env=env,
                                       capture_output=True, text=True, timeout=timeout)
@@ -876,29 +876,66 @@ def main() -> None:
                 status = store.get(task.task_id).status
             except Exception:
                 status = "unknown"
-            ran.append({"workspace": str(workspace), "session": session.id,
-                        "task_id": task.task_id, "plan_id": task.plan_id,
-                        "plan_version": task.plan_version,
-                        "exit_code": exit_code, "status": status, "stderr": stderr})
-            if status != "completed":
-                failed += 1
-                if stopped_early is None:
-                    stopped_early = status
-                if args.queue_continue_on_failure:
+            return {"workspace": str(workspace), "session": session.id,
+                    "task_id": task.task_id, "plan_id": task.plan_id,
+                    "plan_version": task.plan_version,
+                    "exit_code": exit_code, "status": status, "stderr": stderr}
+
+        failed = 0
+        stopped_early: str | None = None
+        if concurrency <= 1:
+            for entry in entries:
+                workspace, session, _store, task = entry
+                if not plan_executable(session, task):
+                    ran.append({"workspace": str(workspace), "session": session.id,
+                                "task_id": task.task_id, "plan_id": task.plan_id,
+                                "plan_version": task.plan_version, "exit_code": None,
+                                "status": "skipped_plan_unavailable", "stderr": ""})
+                    failed += 1
+                    if stopped_early is None:
+                        stopped_early = "plan_unavailable"
+                    if args.queue_continue_on_failure:
+                        continue
+                    break
+                row = run_one(entry)
+                ran.append(row)
+                if row["status"] != "completed":
+                    failed += 1
+                    if stopped_early is None:
+                        stopped_early = row["status"]
+                    if args.queue_continue_on_failure:
+                        continue
+                    break
+        else:
+            from concurrent.futures import ThreadPoolExecutor
+
+            runnable = []
+            for entry in entries:
+                workspace, session, _store, task = entry
+                if not plan_executable(session, task):
+                    ran.append({"workspace": str(workspace), "session": session.id,
+                                "task_id": task.task_id, "plan_id": task.plan_id,
+                                "plan_version": task.plan_version, "exit_code": None,
+                                "status": "skipped_plan_unavailable", "stderr": ""})
                     continue
-                break
+                runnable.append(entry)
+            with ThreadPoolExecutor(max_workers=concurrency) as pool:
+                for row in pool.map(run_one, runnable):
+                    ran.append(row)
+            failed = sum(1 for item in ran if item["status"] != "completed")
         payload = {"ran": ran,
                    "completed": sum(1 for item in ran if item["status"] == "completed"),
                    "failed": failed,
                    "stopped_early": stopped_early if not args.queue_continue_on_failure else None,
                    "continue_on_failure": bool(args.queue_continue_on_failure),
+                   "concurrency": concurrency,
                    "workspaces": workspace_names, "sessions": session_ids}
         if len(workspaces) == 1:
             payload["workspace"] = workspace_names[0]
         if len(session_ids) == 1:
             payload["session"] = session_ids[0]
         print(json.dumps(payload, ensure_ascii=False, indent=2))
-        if failed or (stopped_early is not None and not args.queue_continue_on_failure):
+        if failed:
             raise SystemExit(1)
         return
 
