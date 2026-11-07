@@ -23,11 +23,13 @@ def test_bench_long_scenarios_are_well_formed():
     scenarios = bench.load_scenarios()
     assert {"detach-continue", "approval-timeout", "kill-switch", "restart-attach",
             "provider-retry-recovers", "provider-error-gives-up",
-            "goal-max-seconds"} <= set(scenarios)
+            "goal-max-seconds", "goal-token-segments"} <= set(scenarios)
     assert scenarios["provider-retry-recovers"]["worker_env"]["VIBE_FAKE_STREAM_ERRORS"] == "1"
     assert scenarios["provider-error-gives-up"]["expected"]["task_status"] == ["paused"]
     assert scenarios["goal-max-seconds"]["worker_env"]["VIBE_FAKE_TIME_OFFSET_SECONDS"] == "120"
     assert scenarios["goal-max-seconds"]["expected"]["notification_kind"] == "goal_stopped"
+    assert scenarios["goal-token-segments"]["expected"]["min_segments"] == 3
+    assert scenarios["goal-token-segments"]["worker_env"]["VIBE_MAX_RUN_TOKENS"] == "20"
     for scenario in scenarios.values():
         assert scenario["id"] == Path(scenario["_path"]).stem
         assert scenario["action"] in {"wait", "attach", "stop", "approval_timeout", "crash", "two_slot", "criteria"}

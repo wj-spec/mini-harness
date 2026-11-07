@@ -1,0 +1,19 @@
+{
+  "id": "goal-token-segments",
+  "description": "token 预算触发资源停止后自动续段，达到最大段数后 goal_max_segments 停止",
+  "objective": "长任务评测：token 预算多段",
+  "action": "wait",
+  "worker_env": {
+    "VIBE_FAKE_READ": "1",
+    "VIBE_MAX_RUN_TOKENS": "20",
+    "VIBE_GOAL_MAX_SEGMENTS": "3"
+  },
+  "expected": {
+    "task_status": ["paused"],
+    "worker_status": ["exited"],
+    "min_segments": 3,
+    "notification_kind": "goal_stopped",
+    "no_changed_files": true
+  },
+  "timeout_seconds": 90
+}
