@@ -665,9 +665,14 @@ def exit_code(checks: Sequence[Check]) -> int:
     return 2 if any(check.status == FAIL for check in checks) else 0
 
 
-def render_report(workspace: Path, checks: Sequence[Check]) -> str:
+def render_report(
+    workspace: Path, checks: Sequence[Check], build: dict | None = None,
+) -> str:
     """把清单渲染成中文报告；末尾一行是结论。"""
-    lines = [f"mini-harness 环境自检（workspace: {workspace}）", ""]
+    detail = f"workspace: {workspace}"
+    if build:
+        detail += f"；version {build.get('version') or '?'}，agent {build.get('agent_version') or '?'}"
+    lines = [f"mini-harness 环境自检（{detail}）", ""]
     lines.extend(check.render() for check in checks)
     warnings = [check for check in checks if check.status == WARN]
     failures = [check for check in checks if check.status == FAIL]
@@ -716,9 +721,10 @@ def main(argv: Sequence[str] | None = None, **probe_kwargs) -> int:
     workspace = Path(args.workspace).expanduser().absolute() if args.workspace else root
     checks = collect_checks(repo_root=root, workspace=workspace, **probe_kwargs)
     if args.json:
+        info = build_info(root)
         payload = {
             "workspace": str(workspace),
-            **build_info(root),
+            **info,
             "ok": exit_code(checks) == 0,
             "failures": [check.label for check in checks if check.status == FAIL],
             "warnings": [check.label for check in checks if check.status == WARN],
@@ -729,7 +735,7 @@ def main(argv: Sequence[str] | None = None, **probe_kwargs) -> int:
         }
         stream.write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
     else:
-        stream.write(render_report(workspace, checks))
+        stream.write(render_report(workspace, checks, build_info(root)))
     return exit_code(checks)
 
 
