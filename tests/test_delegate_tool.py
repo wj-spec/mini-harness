@@ -127,3 +127,26 @@ def test_delegate_tool_runs_through_agent_loop(tmp_path, monkeypatch):
                      if getattr(message, "role", None) == "tool"]
     assert any("untrusted claim" in content or "子 Agent 摘要" in content
                for content in tool_contents)
+
+
+def test_delegate_failure_surfaces_as_tool_error(tmp_path, monkeypatch):
+    from core.contracts import Response, ToolCall
+
+    monkeypatch.setenv("VIBE_SUBAGENT_DELEGATE", "1")
+
+    async def failing(provider, workspace, objective, **kwargs):
+        raise RuntimeError("child exploded")
+
+    monkeypatch.setattr("app.runtime.subagents.run_subagent", failing)
+    provider = FakeProvider([
+        Response(tool_calls=[ToolCall("delegate", {"prompt": "查"}, id="c1")]),
+        "子 Agent 失败已记录，结束。",
+    ])
+    agent = Agent(provider, ToolRegistry(tmp_path), approval=ApprovalGate())
+    register_delegate_tool(agent, tmp_path)
+    result = asyncio.run(agent.run("请委派"))
+    assert result.status == "done"
+    tool_contents = [message.content for message in agent.history
+                     if getattr(message, "role", None) == "tool"]
+    assert any("RuntimeError" in content and "child exploded" in content
+               for content in tool_contents)

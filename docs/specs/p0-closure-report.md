@@ -7,7 +7,7 @@
 
 | 检查 | 结果 |
 |---|---|
-| Python 全量 | **1625 passed / 13 skipped** |
+| Python 全量 | **1626 passed / 13 skipped** |
 | TUI | **414 passed / 1 failed**（415 收集）；失败为环境 pty smoke（`out of pty devices`）；含 14 个真实 Python 后端跨层集成用例 + TUI/Python 命令集合一致性检查；计划覆盖层新增 `d` 版本比较、`t` 步骤标题编辑、`k` 步骤类型编辑 |
 | 长任务 fake 场景 | **15/15 PASS**（默认 `modes=fake`）；真实模式 5 场景（read/deadline/kill-switch/restart-attach/two-slot）deepseek-flash/chat 各 **5/5 PASS**；flash `--real --runs 2` **10/10** |
 | 07 attach 人工验收 | TC-01–09 通过（[记录](manual-acceptance-07-results.md)） |
@@ -101,7 +101,7 @@ TUI /goal /chat /act /plan
 
 ### 当前基线（第 151 轮，2026-11-07）
 
-- Python **1625 passed / 13 skipped**；TUI **414 passed / 1 failed**（无 pty）。
+- Python **1626 passed / 13 skipped**；TUI **414 passed / 1 failed**（无 pty）。
 - 长任务：fake **15/15**；真实模式 5 场景 flash/chat 各 **5/5**。
 - 真实模型：deepseek-flash/chat 各 **6/6**；`--with-real --real-runs 2` 通过；第 151 轮 `verify_all.sh` 复跑全通过（第 146 轮含真实 suite/bench 全量终验）。
 - 只读视图 12 个、真实后端跨层用例 14 个、文档链接 0 失效（有测试守护）。
