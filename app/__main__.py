@@ -67,6 +67,7 @@ def build_provider(config: Config, fake: bool, debug_path=None):
         config.model,
         config.api_key,
         config.base_url,
+        timeout=config.llm_timeout,
         trust_env=config.trust_env,
         debug_path=debug_path,
         stream_usage=config.stream_usage,

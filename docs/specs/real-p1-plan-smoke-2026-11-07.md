@@ -45,6 +45,25 @@ VIBE_MAX_STEPS=4 VIBE_MAX_RUN_TOKENS=8000 \
 - 之后真实 provider 调用超过 300s 未返回，测试侧取消：run=cancelled、任务 paused；
 - 未完成计划验收，**不算执行 P1 通过**。
 
+## 3b. 单步计划真实执行成功（补充）
+
+为避免多步计划在真实 provider 上长尾，另建一次性工作区做单步计划：
+
+- Plan 模式真实模型调用 submit_plan，生成 1 步计划（s1 读 README），status=proposed；
+- 批准后在新 Harness（空历史）执行绑定计划；
+- 真实模型依次调用：
+  - `start_plan_step s1`；
+  - `read_file README.md`；
+  - `complete_plan_step s1`；
+- run status=done，`execution.v1.json` 中 s1=done；
+- 这是**真实模型 Plan 生成 → 批准 → 绑定执行 → step 完成**的端到端成功样本。
+
+随后给同一单步计划加 confirmed criterion + `true` 验收命令再执行：
+
+- s1 仍完成；
+- 但模型在完成步骤后的下一次 provider 调用超过 240s 未返回，测试取消；
+- acceptance.v1.json 未生成，因此**验收命令真实端到端仍未通过**。
+
 ## 4. 结论与限制
 
 - 已证明：真实模型可以走 `--task` 只读链路、可以生成结构化 proposed plan；
