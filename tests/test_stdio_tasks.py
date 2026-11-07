@@ -1570,3 +1570,24 @@ def test_trace_command_accepts_hours_argument(tmp_path, monkeypatch):
         await harness.close()
 
     asyncio.run(scenario())
+
+
+def test_command_args_validation_rejects_malformed_frames(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+
+    async def scenario():
+        harness = Harness(_agent(tmp_path), Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("command", "c-bad-notify", command="notifications", args={"kind": ""})
+        bad_notify = await harness.until("error", "c-bad-notify")
+        assert "notifications" in bad_notify["message"]
+        harness.send("command", "c-bad-explore", command="explore", args={})
+        bad_explore = await harness.until("error", "c-bad-explore")
+        assert "explore" in bad_explore["message"]
+        harness.send("command", "c-after-invalid", command="tasks")
+        after = await harness.until("command_result", "c-after-invalid")
+        assert after["command"] == "tasks"
+        await harness.close()
+
+    asyncio.run(scenario())

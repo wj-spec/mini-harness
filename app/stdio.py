@@ -1560,7 +1560,7 @@ class _Connection:
                     raise ValueError("run text must be a nonempty string")
                 if kind == "command" and (not isinstance(request["command"], str) or request["command"] not in COMMANDS):
                     raise ValueError("unknown command")
-                if kind == "command" and request["command"] in {"skills", "plan", "trace"} and "args" in request:
+                if kind == "command" and request["command"] in {"skills", "plan", "trace", "notifications", "explore"} and "args" in request:
                     args = request["args"]
                     if not isinstance(args, dict):
                         raise ValueError("command args must be an object")
