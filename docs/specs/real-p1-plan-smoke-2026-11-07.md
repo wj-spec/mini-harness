@@ -78,11 +78,33 @@ VIBE_MAX_STEPS=4 VIBE_MAX_RUN_TOKENS=8000 \
 
 这是真实模型 **只读子 Agent runner** 的端到端成功样本。
 
+## 3d. 真实模型 Plan 全链路成功（单步 + 验收命令）
+
+在同一单步计划上补充：
+
+- confirmed criterion `ac1`；
+- trusted verification command `true`（source=plan_approval）；
+- 运行环境 `VIBE_AUTONOMY=full`（验收命令无需人工审批）。
+
+结果：
+
+- 真实模型生成 1 步计划并批准；
+- 绑定执行后 s1=done，run status=done；
+- `acceptance.v1.json` status=**true**；
+- 端到端覆盖：Plan 生成 → 批准 → 绑定执行 → step 证据 → 可信验收命令 → 完成。
+
+之前该用例“卡住”的根因：验收命令走 ApprovalGate；测试 Harness 未响应 approval_request，
+不是 provider 流式读取问题。修复/缓解：
+
+- `212d885` 给整轮验收加总超时，超时转 `stopped/acceptance_timeout`；
+- 真实运行需在 TUI 审批或使用 `VIBE_AUTONOMY=full`（按风险理解）。
+
 ## 4. 结论与限制
 
 - 已证明：真实模型可以走 `--task` 只读链路、可以生成结构化 proposed plan；
 - 已证明：计划批准后绑定/门禁/step 工具在真实模型下可运行，s1 产生 read 证据；
-- 未证明：真实模型能稳定完成全部步骤、通过验收命令、完成 Plan 端到端；
+- 已证明（单步）：真实模型能完成全部步骤并通过可信验收命令（acceptance=true）；
+- 仍待：多步计划、TUI 审批下的真实验收、更多样本；
 - 本次仅 deepseek-flash、一次样本，成本显示 $0；
 - 观察到一次真实 provider 长时间无返回（>300s），需要重跑/检查超时与重试；
 - 下一步：重跑第 3 步（更强提示/更多步数/不同 provider），再按
