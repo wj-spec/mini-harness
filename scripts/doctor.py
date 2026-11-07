@@ -631,6 +631,35 @@ def check_stop_file(workspace: Path) -> Check:
     return Check(OK, "没有 workspace stop 文件")
 
 
+def check_pending_plan_tasks(workspace: Path) -> Check:
+    sessions_root = workspace / ".vibe" / "sessions"
+    if not sessions_root.is_dir():
+        return Check(OK, "没有待运行的 created 计划任务")
+    pending = 0
+    broken = []
+    for tasks_root in sessions_root.glob("*/tasks"):
+        for task_dir in tasks_root.iterdir():
+            meta = task_dir / "meta.json"
+            if not meta.is_file():
+                continue
+            try:
+                payload = json.loads(meta.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if payload.get("status") != "created" or not payload.get("plan_id"):
+                continue
+            pending += 1
+            version = payload.get("plan_version") or 1
+            if not (task_dir / "plan" / f"plan.v{version}.json").is_file():
+                broken.append(task_dir.name)
+    if broken:
+        return Check(
+            WARN, f"{len(broken)} 个待运行计划任务缺少计划文件（共 {pending} 个 created）",
+            "运行 --run-plan-queue --queue-dry-run 预演；不可执行任务会被跳过",
+        )
+    return Check(OK, f"待运行计划任务 {pending} 个，计划文件齐全")
+
+
 def collect_checks(
     *,
     repo_root: Path | None = None,
@@ -679,6 +708,7 @@ def collect_checks(
         check_bench_storage(target),
         check_real_suite(target),
         check_stop_file(target),
+        check_pending_plan_tasks(target),
         check_version_consistency(root),
     ]
 

@@ -152,6 +152,7 @@ def test_doctor_reports_ready_environment(tmp_path):
     assert "✓ 没有长任务 benchmark 历史（可选）" in output
     assert "✓ 没有长任务 benchmark 运行目录" in output
     assert "✓ 没有 workspace stop 文件" in output
+    assert "✓ 没有待运行的 created 计划任务" in output
     assert "✗" not in output
 
 
@@ -513,3 +514,22 @@ def test_doctor_warns_about_active_stop_file(tmp_path):
     assert code == 0, output
     assert "! workspace stop 文件存在（kill switch 激活）" in output
     assert ".vibe/stop" in output
+
+
+def test_doctor_warns_about_pending_task_without_plan(tmp_path):
+    repo, workspace = _green_repo(tmp_path)
+    task_dir = workspace / ".vibe" / "sessions" / "s-1" / "tasks" / "t-1"
+    task_dir.mkdir(parents=True)
+    (task_dir / "meta.json").write_text(json.dumps({
+        "schema_version": 1, "task_id": "t-1", "status": "created",
+        "plan_id": "pl-1", "plan_version": 1,
+    }), encoding="utf-8")
+    code, output = _run_doctor(repo, workspace, env={"VIBE_API_KEY": "sk-test"})
+    assert code == 0, output
+    assert "! 1 个待运行计划任务缺少计划文件（共 1 个 created）" in output
+    plan_dir = task_dir / "plan"
+    plan_dir.mkdir()
+    (plan_dir / "plan.v1.json").write_text("{}", encoding="utf-8")
+    code, output = _run_doctor(repo, workspace, env={"VIBE_API_KEY": "sk-test"})
+    assert code == 0, output
+    assert "✓ 待运行计划任务 1 个，计划文件齐全" in output
