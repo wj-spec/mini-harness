@@ -62,7 +62,9 @@ VIBE_MAX_STEPS=4 VIBE_MAX_RUN_TOKENS=8000 \
 
 - s1 仍完成；
 - 但模型在完成步骤后的下一次 provider 调用超过 240s 未返回，测试取消；
-- acceptance.v1.json 未生成，因此**验收命令真实端到端仍未通过**。
+- acceptance.v1.json 未生成，因此**验收命令真实端到端仍未通过**；
+- 重试 deepseek-flash 与 deepseek-chat、并设置 `VIBE_LLM_MAX_OUTPUT_TOKENS=512` 后仍在
+  完成 s1 后的下一次模型调用长时间无返回；已记录为 provider 长尾，需单独排查。
 
 ## 3c. 真实模型子 Agent（/explore）成功
 
