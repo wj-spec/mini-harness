@@ -380,3 +380,44 @@ test('evidence command surfaces acceptance tri-state through the real backend', 
     await rm(workspace, {recursive: true, force: true});
   }
 });
+
+test('trace command renders session observability through the real backend', async t => {
+  const python = path.join(repoRoot, '.venv', 'bin', 'python3');
+  if (!existsSync(python) || !existsSync(path.join(repoRoot, 'run_vibe.sh'))) {
+    t.skip('python backend unavailable');
+    return;
+  }
+  const workspace = await mkdtemp(path.join(tmpdir(), 'vibe-tui-trace-'));
+  const events: ServerEvent[] = [];
+  const client = createBackendClient({repoRoot, args: ['--fake', '--workspace', workspace]});
+  client.subscribe(event => events.push(event));
+  const view = render(<App client={client}/>);
+  try {
+    client.start();
+    await waitFor(() => events.some(event => event.type === 'ready'));
+    const ready = events.find(event => event.type === 'ready') as Extract<ServerEvent, {type: 'ready'}>;
+    const sessionPath = ready.session_path ?? '';
+    assert.ok(sessionPath, 'ready should include session_path');
+    await writeFile(path.join(sessionPath, 'trace.jsonl'), [
+      JSON.stringify({type: 'run_start', ts: 1}),
+      JSON.stringify({type: 'llm_end', ts: 2, prompt_tokens: 10, completion_tokens: 5, cost_usd: 0.001}),
+      JSON.stringify({type: 'tool_end', ts: 3, tool: 'bash', ok: false}),
+      JSON.stringify({type: 'approval', ts: 4, tool: 'bash', allowed: false}),
+      JSON.stringify({type: 'run_end', ts: 5, status: 'stopped', stop_reason: 'max_run_seconds'}),
+    ].join('\n') + '\n');
+    const stdin = view.stdin as unknown as {write(value: string): void};
+    stdin.write('/trace');
+    await pause(80);
+    stdin.write('\r');
+    await waitFor(() => events.some(event => event.type === 'command_result' && event.command === 'trace'));
+    const result = events.find(event => event.type === 'command_result' && event.command === 'trace') as
+      Extract<ServerEvent, {type: 'command_result'}>;
+    assert.match(result.text, /trace 摘要/);
+    assert.match(result.text, /max_run_seconds=1/);
+    assert.match(result.text, /tokens 15/);
+  } finally {
+    await client.shutdown();
+    cleanup();
+    await rm(workspace, {recursive: true, force: true});
+  }
+});

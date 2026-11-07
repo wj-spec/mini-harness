@@ -55,6 +55,7 @@ set -a; . ./.env; set +a          # 需要真实 provider；也可用 --fake 走
 ./run_vibe.sh --notifications --workspace <ws>
 ./run_vibe.sh --approvals --workspace <ws>
 ./run_vibe.sh --evidence --session <sid> --workspace <ws>
+./run_vibe.sh --trace-summary --session <sid> --workspace <ws>
 ```
 
 期望：`--tasks` 显示 MODE/APPROVALS/PRIORITY 列；`/notifications` 与 CLI 都能看到 `worker_started/worker_exited`；`--decide-approval` 可处理后台待审批。

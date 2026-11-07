@@ -41,9 +41,10 @@
 
 ## 未完成（P0 剩余）
 
-- `two-slot-write-serial` 已覆盖写任务排队串行；只读任务并发与文件集并行仍待后续；
+- `two-slot-write-serial` 已覆盖写任务排队串行、只读任务并发已实现；文件集级并行写仍待后续；
 - 多段场景目前 1 个（goal-multisegment），其余场景为单段；
-- 已覆盖 5xx 类流错误的确定性注入（fake provider）；时钟/seed/trace 摘要与真实 5xx 服务端注入仍待；
-- 重复运行统计已有 pass rate/耗时聚合与 agent_version，但还没有跨机器/跨提交的历史趋势对比。
-- 成本 cap、token/成本指标、`agent_version`、真实模型 P1；
-- fake 通过只表示接线/生命周期语义，不代表模型能力。
+- 已覆盖 fake provider 5xx、本地 mock OpenAI 服务端 503→200、fake 时钟偏移；seed 注入当前不适用
+  （评测/基准无随机采样，保持确定性；未来引入随机任务生成再增加 seed）；
+- 重复运行统计已有 pass rate/耗时聚合与 agent_version，但还没有跨机器/跨提交的历史趋势对比；
+- fake 通过只表示接线/生命周期语义，不代表模型能力；真实模型能力证据见
+  [真实 P1 记录](real-p1-plan-smoke-2026-11-07.md)。
