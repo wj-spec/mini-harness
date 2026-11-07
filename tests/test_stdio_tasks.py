@@ -1088,3 +1088,167 @@ def test_resume_rebinds_paused_plan_task(tmp_path, monkeypatch):
         await harness.close()
 
     asyncio.run(scenario())
+
+
+def _repair_plan(plan_dir, *, command="grep -q ok out.txt"):
+    from app.runtime.plan import Plan, approve_plan, propose_plan
+
+    plan = Plan.from_dict({
+        "schema_version": 1, "plan_id": "pl-repair", "task_id": "t-20261106-000000-abcdef",
+        "objective": "修复验收",
+        "acceptance_criteria": [{"id": "ac1", "text": "out.txt 含 ok", "confirmed": True}],
+        "verification_plan": [{"id": "v1", "covers": ["ac1"], "command": command,
+                               "source": "plan_approval"}],
+        "steps": [{"step_id": "s1", "title": "写 out.txt", "kind": "edit", "files": ["out.txt"]}],
+    })
+    propose_plan(plan_dir, plan)
+    approve_plan(plan_dir, plan, approved_by="user")
+
+
+def _repair_agent(tmp_path, script):
+    from app.safety.policy import ApprovalDecision
+
+    agent = Agent(FakeProvider(script), ToolRegistry(tmp_path), approval=ApprovalGate())
+
+    async def allow(call, preview):
+        return ApprovalDecision(True, "once")
+    agent.approval.handler = allow
+    return agent
+
+
+def test_bound_plan_acceptance_repair_recovers(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    monkeypatch.setenv("VIBE_AUTONOMY", "full")
+    monkeypatch.setenv("VIBE_ACCEPTANCE_REPAIR_ATTEMPTS", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    plan_dir = session.root / "tasks" / "t-20261106-000000-abcdef"
+    _repair_plan(plan_dir)
+    from core.contracts import Response, ToolCall
+    agent = _repair_agent(tmp_path, [
+        Response(tool_calls=[ToolCall("start_plan_step", {"step_id": "s1"}, id="t1")]),
+        Response(tool_calls=[ToolCall("write_file", {"path": "out.txt", "content": "bad"}, id="t2")]),
+        Response(tool_calls=[ToolCall("complete_plan_step", {"step_id": "s1"}, id="t3")]),
+        "写好了",
+        Response(tool_calls=[ToolCall("read_file", {"path": "out.txt"}, id="t4")]),
+        Response(tool_calls=[ToolCall("write_file", {"path": "out.txt", "content": "ok"}, id="t5")]),
+        "已修复",
+    ])
+
+    async def scenario():
+        harness = Harness(agent, Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("run", "r-repair", text="执行", task={
+            "kind": "run", "mode": "act", "objective": "执行",
+            "plan_id": "pl-repair", "plan_version": 1,
+        })
+        done = await harness.until("done", "r-repair")
+        assert done["result"]["status"] == "done"
+        assert (tmp_path / "out.txt").read_text(encoding="utf-8") == "ok"
+        import json as _json
+        saved = _json.loads((plan_dir / "acceptance.v1.json").read_text(encoding="utf-8"))
+        assert saved["status"] is True
+        assert agent.provider.i == 7
+        notices = [event["message"] for event in harness.events if event["type"] == "notice"]
+        assert any("自动修复第 1/1 次" in message for message in notices)
+        from app.runtime.notifications import read_notifications
+        repairs = [item for item in read_notifications(tmp_path) if item["kind"] == "plan_repair"]
+        assert repairs and repairs[-1]["attempt"] == 1
+        await harness.close()
+
+    asyncio.run(scenario())
+
+
+def test_bound_plan_acceptance_repair_exhausted_stops(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    monkeypatch.setenv("VIBE_AUTONOMY", "full")
+    monkeypatch.setenv("VIBE_ACCEPTANCE_REPAIR_ATTEMPTS", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    plan_dir = session.root / "tasks" / "t-20261106-000000-abcdef"
+    _repair_plan(plan_dir)
+    from core.contracts import Response, ToolCall
+    agent = _repair_agent(tmp_path, [
+        Response(tool_calls=[ToolCall("start_plan_step", {"step_id": "s1"}, id="t1")]),
+        Response(tool_calls=[ToolCall("write_file", {"path": "out.txt", "content": "bad"}, id="t2")]),
+        Response(tool_calls=[ToolCall("complete_plan_step", {"step_id": "s1"}, id="t3")]),
+        "写好了",
+        Response(tool_calls=[ToolCall("write_file", {"path": "out.txt", "content": "still bad"}, id="t4")]),
+        "又没修好",
+    ])
+
+    async def scenario():
+        harness = Harness(agent, Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("run", "r-bad", text="执行", task={
+            "kind": "run", "mode": "act", "objective": "执行",
+            "plan_id": "pl-repair", "plan_version": 1,
+        })
+        done = await harness.until("done", "r-bad")
+        assert done["result"]["status"] == "stopped"
+        assert done["result"]["stop_reason"].startswith("acceptance_")
+        assert agent.provider.i == 6
+        notices = [event["message"] for event in harness.events if event["type"] == "notice"]
+        assert sum("自动修复" in message for message in notices) == 1
+        await harness.close()
+
+    asyncio.run(scenario())
+
+
+def test_bound_plan_repair_does_not_run_when_plan_incomplete(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    monkeypatch.setenv("VIBE_ACCEPTANCE_REPAIR_ATTEMPTS", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    plan_dir = session.root / "tasks" / "t-20261106-000000-abcdef"
+    _repair_plan(plan_dir)
+    agent = _repair_agent(tmp_path, ["完成"])
+
+    async def scenario():
+        harness = Harness(agent, Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("run", "r-incomplete2", text="执行", task={
+            "kind": "run", "mode": "act", "objective": "执行",
+            "plan_id": "pl-repair", "plan_version": 1,
+        })
+        done = await harness.until("done", "r-incomplete2")
+        assert done["result"]["status"] == "stopped"
+        assert done["result"]["stop_reason"] == "plan_incomplete"
+        assert agent.provider.i == 1
+        await harness.close()
+
+    asyncio.run(scenario())
+
+
+def test_bound_plan_repair_enforces_edit_file_scope(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    monkeypatch.setenv("VIBE_AUTONOMY", "full")
+    monkeypatch.setenv("VIBE_ACCEPTANCE_REPAIR_ATTEMPTS", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    plan_dir = session.root / "tasks" / "t-20261106-000000-abcdef"
+    _repair_plan(plan_dir)
+    from core.contracts import Response, ToolCall
+    agent = _repair_agent(tmp_path, [
+        Response(tool_calls=[ToolCall("start_plan_step", {"step_id": "s1"}, id="t1")]),
+        Response(tool_calls=[ToolCall("write_file", {"path": "out.txt", "content": "bad"}, id="t2")]),
+        Response(tool_calls=[ToolCall("complete_plan_step", {"step_id": "s1"}, id="t3")]),
+        "写好了",
+        Response(tool_calls=[ToolCall("write_file", {"path": "other.txt", "content": "x"}, id="t4")]),
+        Response(tool_calls=[ToolCall("write_file", {"path": "out.txt", "content": "ok"}, id="t5")]),
+        "已修复",
+    ])
+
+    async def scenario():
+        harness = Harness(agent, Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("run", "r-scope", text="执行", task={
+            "kind": "run", "mode": "act", "objective": "执行",
+            "plan_id": "pl-repair", "plan_version": 1,
+        })
+        done = await harness.until("done", "r-scope")
+        assert done["result"]["status"] == "done"
+        assert not (tmp_path / "other.txt").exists()
+        assert (tmp_path / "out.txt").read_text(encoding="utf-8") == "ok"
+        blocked = [event.get("output", "") for event in harness.events
+                   if event["type"] == "tool_result" and not event.get("ok")]
+        assert any("plan_repair_file_scope" in output for output in blocked)
+        await harness.close()
+
+    asyncio.run(scenario())

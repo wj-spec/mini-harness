@@ -181,6 +181,31 @@ async def _stdin_frames():
         transport.close()
 
 
+def _acceptance_repair_limit() -> int:
+    try:
+        value = int(os.getenv("VIBE_ACCEPTANCE_REPAIR_ATTEMPTS", "0"))
+    except ValueError:
+        return 0
+    return max(0, min(value, 3))
+
+
+def _acceptance_repair_prompt(plan_context, result) -> str:
+    plan = plan_context["plan"]
+    failed = result.stop_reason or "acceptance_failed"
+    lines = [
+        f"计划验收未通过（{failed}）。请修复导致验收失败的问题，然后直接总结。",
+        f"计划目标：{plan.objective}",
+    ]
+    marker = "[失败命令]"
+    if marker in result.text:
+        lines.append(result.text[result.text.index(marker):])
+    lines.append(
+        "要求：只修复实际失败点；不要修改测试或验收命令来规避失败；"
+        "不要重复执行验收命令，harness 会在你结束后重新验收。"
+    )
+    return "\n".join(lines)
+
+
 class _Connection:
     def __init__(self, agent: Agent, config: Config, session: SessionStore, emit, mcp=None,
                  task_runtime: TaskRuntime | None = None):
@@ -1018,20 +1043,64 @@ class _Connection:
             except OSError:
                 pass
             publish_metrics()
-            result = await self.agent.run(
-                text,
-                on_text=lambda delta: self.send("text_delta", request_id, delta=delta),
-                on_tool=lambda call: self.send("tool_call", request_id, call=asdict(call)),
-                on_result=tool_result,
-                on_execution=lambda call, execution: executions.__setitem__(id(call), execution),
-                on_context=record_context,
-                on_state=record_state,
-                on_message=persist_message,
-                on_history=self.session.save_context,
-                trace=record_trace,
-                cancel=self.cancel,
-            )
-            completed = True
+            repair_limit = _acceptance_repair_limit()
+            repair_attempt = 0
+            total_steps = 0
+            total_cost = 0.0
+            total_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+            prompt = text
+            while True:
+                result = await self.agent.run(
+                    prompt,
+                    on_text=lambda delta: self.send("text_delta", request_id, delta=delta),
+                    on_tool=lambda call: self.send("tool_call", request_id, call=asdict(call)),
+                    on_result=tool_result,
+                    on_execution=lambda call, execution: executions.__setitem__(id(call), execution),
+                    on_context=record_context,
+                    on_state=record_state,
+                    on_message=persist_message,
+                    on_history=self.session.save_context,
+                    trace=record_trace,
+                    cancel=self.cancel,
+                )
+                completed = True
+                total_steps += int(result.steps or 0)
+                total_cost += float(result.cost_usd or 0.0)
+                for key in total_usage:
+                    total_usage[key] += int((result.usage or {}).get(key) or 0)
+                if plan_context is None or result.status != "done":
+                    break
+                result = await self._verify_bound_plan(plan_context, result)
+                if result.status == "done":
+                    break
+                repair_needed = (
+                    plan_context is not None
+                    and result.stop_reason.startswith("acceptance_")
+                    and result.stop_reason != "acceptance_timeout"
+                )
+                if (not repair_needed or repair_attempt >= repair_limit
+                        or self.cancel.is_set() or self.stop.is_set()):
+                    break
+                repair_attempt += 1
+                self._enter_plan_repair_mode(plan_context)
+                try:
+                    self.send("notice", None,
+                              message=f"计划验收未通过，自动修复第 {repair_attempt}/{repair_limit} 次")
+                    from app.runtime.notifications import notify
+                    notify(self.agent.tools.root, "plan_repair",
+                           task_id=plan_context["plan"].task_id,
+                           plan_id=plan_context["plan"].plan_id,
+                           plan_version=plan_context["plan"].version,
+                           attempt=repair_attempt, stop_reason=result.stop_reason)
+                except Exception:
+                    pass
+                prompt = _acceptance_repair_prompt(plan_context, result)
+            if repair_attempt:
+                result = replace(
+                    result, steps=total_steps,
+                    usage={**dict(result.usage or {}), **total_usage},
+                    cost_usd=total_cost,
+                )
         except asyncio.CancelledError:
             result = AgentResult("cancelled", 0, "cancelled", dict(observed_usage), metrics["cost_usd"],
                                  trace_identity.get("run_id", ""))
@@ -1054,93 +1123,6 @@ class _Connection:
             if failures:
                 result = replace(result, text="error: session save failed: " + "; ".join(failures),
                                  status="error", stop_reason="")
-            if completed and plan_context is not None and result.status == "done":
-                from app.runtime.plan_execution import load_ledger
-                try:
-                    ledger = load_ledger(plan_context["task_dir"], plan_context["plan"].version)
-                    if not ledger.plan_complete(plan_context["plan"]):
-                        result = replace(
-                            result, status="stopped", stop_reason="plan_incomplete",
-                            text=(result.text + "\n[计划未完成：required 步骤仍有未 done 项]").strip(),
-                        )
-                    else:
-                        acceptance = plan_context["plan"].acceptance()
-                        if acceptance is not None:
-                            from app.runtime.verification import run_verification_plan
-                            from app.safety.sandbox import CommandCancelled
-                            import os
-                            try:
-                                retries = int(os.getenv("VIBE_ACCEPTANCE_RETRIES", "0"))
-                            except ValueError:
-                                retries = 0
-                            try:
-                                timeout = float(os.getenv("VIBE_ACCEPTANCE_TIMEOUT_SECONDS", "300"))
-                            except ValueError:
-                                timeout = 300.0
-                            try:
-                                total_timeout = float(os.getenv("VIBE_ACCEPTANCE_TOTAL_TIMEOUT_SECONDS", "0"))
-                            except ValueError:
-                                total_timeout = 0.0
-                            if total_timeout <= 0:
-                                total_timeout = timeout * (max(0, min(retries, 3)) + 1) + 30.0
-                            try:
-                                verification = await asyncio.wait_for(
-                                    run_verification_plan(
-                                        acceptance, self.agent.tools.root, self.agent.approval,
-                                        retries=max(0, min(retries, 3)),
-                                        timeout=max(1.0, min(timeout, 3600.0)),
-                                    ),
-                                    timeout=max(1.0, min(total_timeout, 7200.0)),
-                                )
-                            except (asyncio.TimeoutError, CommandCancelled):
-                                result = replace(
-                                    result, status="stopped", stop_reason="acceptance_timeout",
-                                    text=(result.text + "\n[计划验收超时]").strip(),
-                                )
-                                verification = None
-                            if verification is not None:
-                                try:
-                                    from app.runtime.acceptance import save_acceptance_result
-                                    save_acceptance_result(
-                                        plan_context["task_dir"], plan_context["plan"].version, verification,
-                                    )
-                                except Exception:
-                                    pass
-                            if verification is None:
-                                pass
-                            else:
-                                try:
-                                    from app.runtime.notifications import notify
-                                    notify(
-                                        self.agent.tools.root, "plan_acceptance",
-                                        task_id=plan_context["plan"].task_id,
-                                        plan_id=plan_context["plan"].plan_id,
-                                        plan_version=plan_context["plan"].version,
-                                        status=verification["status"],
-                                        codes=verification["codes"],
-                                    )
-                                except Exception:
-                                    pass
-                            if verification is not None and verification["status"] is not True:
-                                codes = ",".join(verification["codes"]) or "acceptance_failed"
-                                commands = {item.id: item.command for item in acceptance.verification_plan}
-                                details = []
-                                for vid, item in verification["results"].items():
-                                    if item.get("ok"):
-                                        continue
-                                    reason = item.get("reason") or f"exit={item.get('exit_code')}"
-                                    output = str(item.get("output") or "").strip()[-500:]
-                                    details.append(f"- {vid}: {commands.get(vid, '?')} → {reason}"
-                                                   + (f"\n  {output}" if output else ""))
-                                suffix = "\n[计划验收未通过：" + codes + "]"
-                                if details:
-                                    suffix += "\n[失败命令]\n" + "\n".join(details[:5])
-                                result = replace(
-                                    result, status="stopped", stop_reason=f"acceptance_{codes}",
-                                    text=(result.text + suffix).strip(),
-                                )
-                except Exception:
-                    pass
             if completed:
                 metrics["used_tokens"] = result.usage.get(
                     "total_tokens", result.usage.get("prompt_tokens", 0) + result.usage.get("completion_tokens", 0),
@@ -1190,6 +1172,127 @@ class _Connection:
                 previous_tools.unregister("complete_plan_step")
             if not self.stop.is_set():
                 self.send("status", phase="idle")
+
+    async def _verify_bound_plan(self, plan_context, result) -> AgentResult:
+        """绑定计划的完成门：required 步骤必须 done，然后跑可信验收命令。"""
+        from app.runtime.plan_execution import load_ledger
+
+        try:
+            ledger = load_ledger(plan_context["task_dir"], plan_context["plan"].version)
+            if not ledger.plan_complete(plan_context["plan"]):
+                return replace(
+                    result, status="stopped", stop_reason="plan_incomplete",
+                    text=(result.text + "\n[计划未完成：required 步骤仍有未 done 项]").strip(),
+                )
+            acceptance = plan_context["plan"].acceptance()
+            if acceptance is None:
+                return result
+            from app.runtime.verification import run_verification_plan
+            from app.safety.sandbox import CommandCancelled
+
+            try:
+                retries = int(os.getenv("VIBE_ACCEPTANCE_RETRIES", "0"))
+            except ValueError:
+                retries = 0
+            try:
+                timeout = float(os.getenv("VIBE_ACCEPTANCE_TIMEOUT_SECONDS", "300"))
+            except ValueError:
+                timeout = 300.0
+            try:
+                total_timeout = float(os.getenv("VIBE_ACCEPTANCE_TOTAL_TIMEOUT_SECONDS", "0"))
+            except ValueError:
+                total_timeout = 0.0
+            if total_timeout <= 0:
+                total_timeout = timeout * (max(0, min(retries, 3)) + 1) + 30.0
+            verification = None
+            try:
+                verification = await asyncio.wait_for(
+                    run_verification_plan(
+                        acceptance, self.agent.tools.root, self.agent.approval,
+                        retries=max(0, min(retries, 3)),
+                        timeout=max(1.0, min(timeout, 3600.0)),
+                    ),
+                    timeout=max(1.0, min(total_timeout, 7200.0)),
+                )
+            except (asyncio.TimeoutError, CommandCancelled):
+                result = replace(
+                    result, status="stopped", stop_reason="acceptance_timeout",
+                    text=(result.text + "\n[计划验收超时]").strip(),
+                )
+            if verification is not None:
+                try:
+                    from app.runtime.acceptance import save_acceptance_result
+                    save_acceptance_result(
+                        plan_context["task_dir"], plan_context["plan"].version, verification,
+                    )
+                except Exception:
+                    pass
+                try:
+                    from app.runtime.notifications import notify
+                    notify(
+                        self.agent.tools.root, "plan_acceptance",
+                        task_id=plan_context["plan"].task_id,
+                        plan_id=plan_context["plan"].plan_id,
+                        plan_version=plan_context["plan"].version,
+                        status=verification["status"],
+                        codes=verification["codes"],
+                    )
+                except Exception:
+                    pass
+            if verification is not None and verification["status"] is not True:
+                codes = ",".join(verification["codes"]) or "acceptance_failed"
+                commands = {item.id: item.command for item in acceptance.verification_plan}
+                details = []
+                for vid, item in verification["results"].items():
+                    if item.get("ok"):
+                        continue
+                    reason = item.get("reason") or f"exit={item.get('exit_code')}"
+                    output = str(item.get("output") or "").strip()[-500:]
+                    details.append(f"- {vid}: {commands.get(vid, '?')} → {reason}"
+                                   + (f"\n  {output}" if output else ""))
+                suffix = "\n[计划验收未通过：" + codes + "]"
+                if details:
+                    suffix += "\n[失败命令]\n" + "\n".join(details[:5])
+                result = replace(
+                    result, status="stopped", stop_reason=f"acceptance_{codes}",
+                    text=(result.text + suffix).strip(),
+                )
+            return result
+        except Exception:
+            return result
+
+    def _enter_plan_repair_mode(self, plan_context) -> None:
+        """验收失败后放开计划完成门：允许按计划范围读取/修改，必要时执行命令。"""
+        from app.runtime.modes import READ_ONLY_TOOLS
+
+        plan = plan_context["plan"]
+        edit_steps = [step for step in plan.steps if step.kind == "edit"]
+        scoped = any(step.files for step in edit_steps)
+        allowed = {str(item).replace("\\", "/").lstrip("./")
+                   for step in edit_steps for item in step.files}
+        allow_exec = any(step.kind in {"run", "verify"} for step in plan.steps)
+        edit_tools = {"write_file", "edit_file", "apply_patch"}
+
+        def repair_gate(call) -> str | None:
+            if call.name in READ_ONLY_TOOLS:
+                return None
+            if call.name in edit_tools:
+                if scoped and call.name == "apply_patch":
+                    return ("plan_repair_file_scope: repair cannot scope apply_patch; "
+                            "use write_file/edit_file")
+                if scoped and call.name in {"write_file", "edit_file"}:
+                    path = str(call.args.get("path") or "").replace("\\", "/").lstrip("./")
+                    if path not in allowed:
+                        return (f"plan_repair_file_scope: repair only allows {sorted(allowed)}; "
+                                f"blocked {path!r}")
+                return None
+            if allow_exec and call.name in {"bash", "run_command"}:
+                return None
+            extra = "/exec " if allow_exec else ""
+            return (f"plan_repair_tool_blocked: acceptance repair only allows read/edit{extra}tools; "
+                    f"blocked {call.name}")
+
+        self.agent.tool_gate = repair_gate
 
     def _mark_plan_stale_for_steer(self) -> None:
         context = self.plan_context

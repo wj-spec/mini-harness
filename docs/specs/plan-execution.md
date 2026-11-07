@@ -56,3 +56,13 @@
 
 `tests/test_plan_execution.py`：roundtrip、依赖顺序、无验证证据拒绝、非法 step/状态、
 deviation、原子写。
+
+## 验收修复模式（2026-11-07 补充）
+
+`VIBE_ACCEPTANCE_REPAIR_ATTEMPTS>0` 时，验收失败后的下一轮 Agent 运行使用修复门禁：
+
+- 只读工具始终允许；
+- `write_file` / `edit_file` 仅允许计划 `edit` 步骤声明过的文件（全部 edit 步骤的并集）；
+  `apply_patch` 无法校验范围，修复模式直接拒绝；
+- 若计划存在 `run`/`verify` 步骤，允许 `bash`/`run_command`；
+- 其余工具返回 `plan_repair_tool_blocked`，不会触发完成门的强制收敛计数。

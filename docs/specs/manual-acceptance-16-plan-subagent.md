@@ -57,7 +57,10 @@ cd /path/to/mini-harness
 **期望**
 - 成功：run done，`acceptance.v1.json` status=true，通知 `plan_acceptance`；
 - 失败：run stopped/acceptance_<code>，结果文本含失败命令与 exit/输出摘要；
-- 设置 `VIBE_ACCEPTANCE_RETRIES=2` 时 flaky 命令可重试（最多 3）。
+- 设置 `VIBE_ACCEPTANCE_RETRIES=2` 时 flaky 命令可重试（最多 3）；
+- 设置 `VIBE_ACCEPTANCE_REPAIR_ATTEMPTS=1` 且命令可修复时：界面出现
+  `计划验收未通过，自动修复第 1/1 次` 通知；修复后 run done、`acceptance.v1.json=true`，
+  通知含 `plan_repair`；修复仍失败则 stopped/acceptance_<code>。
 
 ## TC-16-05 stale / 修订 / 版本
 
@@ -116,6 +119,7 @@ cd /path/to/mini-harness
 | TC-16-02 |  |  |  |
 | TC-16-03 |  |  |  |
 | TC-16-04 |  |  |  |
+| TC-16-04b（可选，自动修复） |  |  |  |
 | TC-16-05 |  |  |  |
 | TC-16-06 |  |  |  |
 | TC-16-07 |  |  |  |

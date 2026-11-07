@@ -55,6 +55,12 @@
 - 合并后重验：`./run_vibe.sh --merge-task` 时，若任务绑定 approved 且未 stale 的计划，
   自动取可信验收命令（显式 `--merge-verify` 优先）在合并后的主工作区重跑；
   命令会列在合并审批预览中；失败写 `merge_verification_failed` 通知并 exit 1。
+- 验收失败自动修复（有界回灌）：`VIBE_ACCEPTANCE_REPAIR_ATTEMPTS`（0=关闭，最大 3）
+  开启后，验收非 True 时把失败命令与输出作为新一轮用户消息回灌同一 Agent，
+  并进入修复模式：允许只读工具、计划 edit 步骤范围内的写工具；若计划含 run/verify 步骤再允许 bash。
+  修复后重新验收；通过则 run 为 done，仍失败且在次数内继续，用完则 `stopped/acceptance_<code>`。
+  每轮写 `plan_repair` 通知（task/plan/attempt/stop_reason）；总 steps/usage/cost 汇总到最后结果。
+  只对验收失败生效：`plan_incomplete`、`acceptance_timeout` 不触发修复。
 
 ## 未完成
 
@@ -62,7 +68,7 @@
 - 已执行结果可在任务目录 `acceptance.v<version>.json` 核对；
 - `/plan acceptance` 若已有结果会追加 status/codes 与每条命令 ok/attempts。
 - 从 GoalRecord 生成 PlanAcceptance（当前从 Plan 生成）；
-- 失败回灌已带命令证据；单命令有界重试已实现；合并后重验已接入 merge 门禁（见下文）；agent 回灌循环仍待；
+- 合并后重验已接入 merge 门禁（见下文）；
 - rounds/`/evidence` 展示验收结果；
 - 三态结论写入 rounds/`/evidence` 与 goal 完成判定；
 - 模型提议 criteria 的 `confirmed=false` 流程接 TUI plan.review。

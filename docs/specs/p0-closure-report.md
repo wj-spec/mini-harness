@@ -7,7 +7,7 @@
 
 | 检查 | 结果 |
 |---|---|
-| Python 全量 | **1441 passed / 13 skipped** |
+| Python 全量 | **1445 passed / 13 skipped** |
 | TUI | **383 passed / 1 failed**；失败为环境 pty smoke（`out of pty devices`） |
 | 长任务 fake 场景 | **10/10 PASS**（`scripts/bench_long.py --runs 1`；新增 `--real` 真 provider 入口） |
 | 07 attach 人工验收 | TC-01–09 通过（[记录](manual-acceptance-07-results.md)） |
@@ -46,7 +46,7 @@ TUI /goal /chat /act /plan
   → plan propose/approve（hash+audit）
   → /plan execute 绑定 approved plan（plan_id/version）
   → step ledger（start/complete + 工具证据）
-  → 完成门：required 步骤 + 可信验收命令
+  → 完成门：required 步骤 + 可信验收命令（可配置验收失败自动修复回灌）
   → subagent 只读执行（TaskRecord/usage/取消/扇出）
   → /explore 只读探索 + subagent_event；/notifications 查看后台通知
   → /plan 覆盖层：折叠/展开、↑↓选择、s步骤详情、e修订、y/n审批、Enter执行

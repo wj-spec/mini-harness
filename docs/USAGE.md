@@ -710,7 +710,10 @@ VIBE_DEBUG=1 ./run_ink.sh --workspace /path/to/repo
 
 - 写/执行前检查计划是否 approved、hash 是否匹配；未批准/已 stale 时 deny(`plan_not_approved` / `plan_stale`)；
 - 通过 `start_plan_step` / `complete_plan_step` 推进 step ledger，并自动记录 read/file_change/command_ok 证据；
-- 完成前要求 required 步骤全 done；有已确认验收标准时执行可信验收命令（失败可重试，`VIBE_ACCEPTANCE_RETRIES`）。
+- 完成前要求 required 步骤全 done；有已确认验收标准时执行可信验收命令（失败可重试，`VIBE_ACCEPTANCE_RETRIES`）；
+- 可选自动修复：`VIBE_ACCEPTANCE_REPAIR_ATTEMPTS=1..3` 时，验收失败会带着失败命令与输出回灌模型再跑一轮
+  （修复模式按计划范围放开读/改，必要时允许执行命令；重新验收通过才算完成），仍失败则
+  `stopped/acceptance_<code>` 并暂停；每轮写 `plan_repair` 通知。
 
 ## 真实模型 Plan P1 验收
 
@@ -727,8 +730,8 @@ VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --backgrou
 - 校验 s1/s2 done、`acceptance.v1.json=true`；
 - `--background` 使用 prepare-background + detached worker（真实后台 Plan 路径）；
 - `--verify-command` 可替换验收命令（默认 true，需可信 source=plan_approval）；
-- 验收重试/超时：`VIBE_ACCEPTANCE_RETRIES`、`VIBE_ACCEPTANCE_TIMEOUT_SECONDS`、
-  `VIBE_ACCEPTANCE_TOTAL_TIMEOUT_SECONDS`（见 `.env.example`）；
+- 验收重试/超时/自动修复：`VIBE_ACCEPTANCE_RETRIES`、`VIBE_ACCEPTANCE_TIMEOUT_SECONDS`、
+  `VIBE_ACCEPTANCE_TOTAL_TIMEOUT_SECONDS`、`VIBE_ACCEPTANCE_REPAIR_ATTEMPTS`（见 `.env.example`）；
 - 再跑一次真实 `/explore` 只读子 Agent，校验 `subagent_event.status=ok`；
 - 执行遇到 error/stopped 时自动重试一次（验收失败/计划未完成不重试）；失败默认保留临时工作区（`--discard-on-failure` 可关闭）；
 - 输出 JSON 并写 `.vibe/real-p1-acceptance/<timestamp>.json`；
