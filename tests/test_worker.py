@@ -505,3 +505,37 @@ def test_worker_goal_loop_stops_on_budget(tmp_path, monkeypatch, env, reason, le
     from app.runtime.notifications import read_notifications
     stopped = [item for item in read_notifications(tmp_path) if item["kind"] == "goal_stopped"]
     assert stopped and stopped[-1]["reason"] == reason
+
+
+def test_worker_warns_when_session_events_exceed_soft_limit(tmp_path, monkeypatch):
+    from app.runtime.notifications import read_notifications
+    from app.runtime.worker import Worker
+
+    session = SessionStore.new(tmp_path, "fake", purpose="test")
+    store = TaskStore(session.root)
+    task = store.create(kind="goal", objective="日志告警", workspace=str(tmp_path), mode="goal")
+    (session.root / "events.jsonl").write_text("e" * 100, encoding="utf-8")
+    worker = Worker(session_root=session.root, task_id=task.task_id, workspace=tmp_path,
+                    child_args=[], child_env={})
+    monkeypatch.setenv("VIBE_EVENTS_MAX_BYTES", "10")
+    worker._check_session_events_size()
+    items = [item for item in read_notifications(tmp_path) if item["kind"] == "session_events_large"]
+    assert items and items[-1]["task_id"] == task.task_id
+    assert items[-1]["bytes"] == 100 and items[-1]["soft_limit"] == 10
+    events = store.read_events(task.task_id)
+    assert any(event.get("event") == "session_events_large" for event in events)
+
+
+def test_worker_does_not_warn_for_small_session_events(tmp_path, monkeypatch):
+    from app.runtime.notifications import read_notifications
+    from app.runtime.worker import Worker
+
+    session = SessionStore.new(tmp_path, "fake", purpose="test")
+    store = TaskStore(session.root)
+    task = store.create(kind="goal", objective="日志正常", workspace=str(tmp_path), mode="goal")
+    (session.root / "events.jsonl").write_text("small", encoding="utf-8")
+    worker = Worker(session_root=session.root, task_id=task.task_id, workspace=tmp_path,
+                    child_args=[], child_env={})
+    monkeypatch.setenv("VIBE_EVENTS_MAX_BYTES", "1000")
+    worker._check_session_events_size()
+    assert not [item for item in read_notifications(tmp_path) if item["kind"] == "session_events_large"]

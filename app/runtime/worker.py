@@ -428,6 +428,7 @@ class Worker:
             notify(self.workspace, "worker_started", task_id=self.task_id, pid=os.getpid(),
                    task_kind=started_task.kind, mode=started_task.mode,
                    plan_id=started_task.plan_id, plan_version=started_task.plan_version)
+            self._check_session_events_size()
             waiters = [asyncio.create_task(self.done.wait()), asyncio.create_task(self.stopping.wait())]
             finished, _ = await asyncio.wait(waiters, return_when=asyncio.FIRST_COMPLETED)
             for task in waiters:
@@ -695,6 +696,33 @@ class Worker:
         notify(self.workspace, "goal_segment", task_id=self.task_id, segment=segment)
         text = goal_prompt(self.goal_record, segment=segment, stop_reason=stop_reason)
         await self._queue_run(text)
+
+    def _check_session_events_size(self) -> None:
+        """events.jsonl 是恢复权威来源：超过软上限时只告警，不轮转、不阻塞。"""
+        from app.session.retention import DEFAULT_EVENTS_MAX_BYTES
+
+        try:
+            limit = int(os.getenv("VIBE_EVENTS_MAX_BYTES", str(DEFAULT_EVENTS_MAX_BYTES)))
+        except ValueError:
+            limit = DEFAULT_EVENTS_MAX_BYTES
+        if limit <= 0:
+            return
+        path = Path(self.session_root) / "events.jsonl"
+        try:
+            size = path.stat().st_size
+        except OSError:
+            return
+        if size <= limit:
+            return
+        notify(self.workspace, "session_events_large", task_id=self.task_id,
+               session_id=Path(self.session_root).name, bytes=size, soft_limit=limit)
+        try:
+            TaskStore(self.session_root).append_event(
+                self.task_id, "session_events_large",
+                data={"bytes": size, "soft_limit": limit},
+            )
+        except Exception:
+            pass
 
     async def _record_approval(self, event: dict[str, Any]) -> None:
         approval_id = event.get("approval_id")

@@ -45,6 +45,7 @@
   `merge_approval_requested`/`merge_completed`/`merge_failed`，供后续告警渠道消费；
   stdio command `notifications` 与 TUI `/notifications` 可查看最近通知。
 - 日志保留：`--cleanup-logs --workspace <ws> [--log-max-bytes N] [--log-dry-run]` 显式轮转会话 `trace.jsonl`（`.1`…备份），写 `.vibe/retention.jsonl` 审计；`events.jsonl` 不轮转，避免破坏会话恢复。
+- events 软上限：`--cleanup-logs` 输出 `events_soft_limit` / `events` / `oversized_events`（只报告不轮转）；后台 worker 启动时若本会话 `events.jsonl` 超过 `VIBE_EVENTS_MAX_BYTES`（默认 32 MiB，0=关闭），写 `session_events_large` 通知与任务事件。
 - 自动 trace 轮转：追加 trace 前检查 `VIBE_TRACE_MAX_BYTES`（默认 0=关闭）/`VIBE_TRACE_BACKUPS`，超过阈值即轮转；`events.jsonl` 仍不轮转。
 - 两任务写串行：`VIBE_WORKSPACE_LOCK_WAIT=<seconds>` 让第二个 worker 排队等待 workspace lock（默认 0=立即拒绝）；`bench_long` 的 two-slot 场景覆盖。
 - 审批超时前 `VIBE_WORKER_APPROVAL_WARN_SECONDS` 写 `approval_warning` 通知/事件；

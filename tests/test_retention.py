@@ -54,6 +54,7 @@ def test_cleanup_logs_cli(monkeypatch, capsys, tmp_path):
     entrypoint.main()
     out = json.loads(capsys.readouterr().out)
     assert out["rotated"] and out["rotated"][0]["rotated"] is True
+    assert out["events_soft_limit"] > 0 and out["oversized_events"] == []
     assert (session / "trace.jsonl.1").exists()
 
 
@@ -67,3 +68,29 @@ def test_session_append_trace_auto_rotates(monkeypatch, tmp_path):
         session.append_trace({"type": "run_start", "run_id": "r", "pad": "x" * 20})
     assert (tmp_path / "trace.jsonl.1").exists()
     assert session.trace_path.exists()
+
+
+def test_cleanup_reports_oversized_events_without_rotating(tmp_path, monkeypatch):
+    workspace = tmp_path / "ws"
+    session = workspace / ".vibe" / "sessions" / "s-1"
+    session.mkdir(parents=True)
+    (session / "events.jsonl").write_text("e" * 100, encoding="utf-8")
+    monkeypatch.setenv("VIBE_EVENTS_MAX_BYTES", "10")
+    result = cleanup_workspace_logs(workspace, policy=RetentionPolicy(max_bytes=1000))
+    assert result["events"] == 1
+    assert len(result["oversized_events"]) == 1
+    assert result["oversized_events"][0]["session"] == "s-1"
+    assert result["oversized_events"][0]["bytes"] == 100
+    assert (session / "events.jsonl").exists()
+    assert not (session / "events.jsonl.1").exists()
+
+
+def test_oversized_session_events_respects_soft_limit(tmp_path):
+    from app.session.retention import oversized_session_events
+
+    session = tmp_path / ".vibe" / "sessions" / "s-1"
+    session.mkdir(parents=True)
+    (session / "events.jsonl").write_text("e" * 50, encoding="utf-8")
+    assert oversized_session_events(tmp_path, limit=10)[0]["session"] == "s-1"
+    assert oversized_session_events(tmp_path, limit=100) == []
+    assert oversized_session_events(tmp_path, limit=0) == []
