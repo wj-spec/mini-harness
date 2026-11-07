@@ -99,12 +99,25 @@ VIBE_MAX_STEPS=4 VIBE_MAX_RUN_TOKENS=8000 \
 - `212d885` 给整轮验收加总超时，超时转 `stopped/acceptance_timeout`；
 - 真实运行需在 TUI 审批或使用 `VIBE_AUTONOMY=full`（按风险理解）。
 
+## 3e. 真实多步计划部分通过
+
+对 2 步计划（s1 读 README、s2 总结）批准后执行：
+
+- 真实模型完成 s1（read 证据）；
+- s2 进入 in_progress；
+- 模型在后续步骤中反复检查 ledger/README；
+- 在 20k/60k token 预算下以 `token_budget` 停止，s2 未最终 done；
+- 同一次执行轨迹中模型曾调用 complete_plan_step s2 成功，但随后继续探索并耗尽预算。
+
+结论：多步真实执行的行为基本成立，但**任务完成前的收敛/预算控制仍不稳定**；
+需改进提示/预算/进度守卫后再判定多步 P1。
+
 ## 4. 结论与限制
 
 - 已证明：真实模型可以走 `--task` 只读链路、可以生成结构化 proposed plan；
 - 已证明：计划批准后绑定/门禁/step 工具在真实模型下可运行，s1 产生 read 证据；
 - 已证明（单步）：真实模型能完成全部步骤并通过可信验收命令（acceptance=true）；
-- 仍待：多步计划、TUI 审批下的真实验收、更多样本；
+- 仍待：多步计划收敛、TUI 审批下的真实验收、更多样本；
 - 本次仅 deepseek-flash、一次样本，成本显示 $0；
 - 观察到一次真实 provider 长时间无返回（>300s），需要重跑/检查超时与重试；
 - 下一步：重跑第 3 步（更强提示/更多步数/不同 provider），再按
