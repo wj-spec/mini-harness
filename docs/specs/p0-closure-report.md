@@ -53,7 +53,7 @@ TUI /goal /chat /act /plan
   → 侧栏：p 打开计划步骤面板（↑↓ 选择、done/total、✓/✗）
   → 通知：plan_proposed/approved/rejected/acceptance、goal_segment/stopped、
     subagent_finished、workspace_queued、merge_*；可选 webhook 外发
-  → CLI 只读：--tasks/--plans/--acceptance/--notifications/--approvals/--evidence
+  → CLI 只读：--tasks（含 APPROVALS/PRIORITY）/--plans/--acceptance/--notifications/--approvals/--evidence
   → CLI 响应：--decide-approval（无 TUI 时经 worker attach 通道）
   → /plan background：创建计划绑定 task + detached worker；TUI 退出后继续
   → --merge-task：合并审批预览含计划可信验收命令；合并后重跑，失败 exit 1 + 通知

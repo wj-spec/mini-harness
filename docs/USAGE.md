@@ -753,7 +753,7 @@ VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py --suite
 ## 后台 worker
 
 ```bash
-./run_vibe.sh --tasks --workspace /path/to/repo  # 含 MODE/APPROVALS/PLAN/PARENT 列
+./run_vibe.sh --tasks --workspace /path/to/repo  # 含 MODE/APPROVALS/PRIORITY/PLAN/PARENT 列
 ./run_vibe.sh --tasks --tasks-json --workspace /path/to/repo  # 机器可读
 ./run_vibe.sh --notifications --workspace /path/to/repo
 ./run_vibe.sh --notifications --notification-kind plan_acceptance --workspace /path/to/repo
@@ -792,7 +792,7 @@ worker 启动会审计 profile：任务事件 `unattended_profile` 记 `profile/
 `VIBE_NOTIFY_WEBHOOK_KINDS` 过滤 kind（逗号分隔，`*`=全部，默认全部）；只允许 http/https，请求失败静默，不影响任务与本地通知。
 `--plans` 只读列出本工作区会话的计划版本（session/task/plan_id/version/status/stale/acceptance/total_steps/done_steps/executed_steps/objective），便于外部监控计划进度。
 `--acceptance` 只读列出计划验收结果（plan_id/objective/plan_version/status/codes/命令数，最多 100 条）。
-`--tasks` / `--tasks-json` 的 `pending_approvals` 显示每个任务待审批数量（`/task` 同时显示「待审批 N」），便于无人值守时定位卡在审批上的任务。
+`--tasks` / `--tasks-json` 的 `pending_approvals` 显示每个任务待审批数量、`priority` 显示队列优先级（`/task` 同时显示「待审批 N」与 `priority=N`），便于无人值守时定位卡在审批上的任务。
 `--prepare-plan-task --plan-task-priority N`（0-100）给待运行 task 设优先级，队列按 `(-priority, created_at)` 排序；`--tasks-json` 输出 `priority`。
 `--run-plan-queue --queue-all-sessions` 会跨本工作区所有会话收集 created 计划 task（按 created_at 排序），逐会话串行执行；dry-run 同样支持；默认任一失败即停，`--queue-continue-on-failure` 可继续后续任务（失败的仍计入 `failed`，最终 exit 1）；`--queue-concurrency 2..8` 可并行多个 worker（同一工作区靠 `VIBE_WORKSPACE_LOCK_WAIT` 自动排队）。
 `--queue-workspace PATH`（可重复）让队列跨多个工作区串行执行，输出含 `workspaces/sessions`；与 `--session` 互斥。

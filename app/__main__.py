@@ -1048,7 +1048,7 @@ def main() -> None:
                 })
             print(json.dumps({"session": session_root.name, "tasks": rows}, ensure_ascii=False, indent=2))
             return
-        print("TASK_ID\tKIND\tMODE\tSTATUS\tSEGMENTS\tWORKER\tPID\tHEARTBEAT\tSTALE\tAPPROVALS\tPLAN\tPARENT\tOBJECTIVE")
+        print("TASK_ID\tKIND\tMODE\tSTATUS\tSEGMENTS\tWORKER\tPID\tHEARTBEAT\tSTALE\tAPPROVALS\tPRIORITY\tPLAN\tPARENT\tOBJECTIVE")
         for snapshot in snapshots:
             task = snapshot.task
             worker = snapshot.worker
@@ -1064,6 +1064,7 @@ def main() -> None:
                 worker.heartbeat_at if worker is not None else "-",
                 "!" if snapshot.stale else "-",
                 str(pending_counts.get(task.task_id, 0)),
+                str(task.priority),
                 f"{task.plan_id}v{task.plan_version}" if task.plan_id else "-",
                 task.parent_id or "-",
                 task.objective[:60],

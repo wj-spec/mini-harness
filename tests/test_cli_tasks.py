@@ -45,9 +45,10 @@ def test_tasks_lists_latest_session_tasks(tmp_path, monkeypatch, capsys):
     assert "goal" in out and "running" in out
     assert "pl-cliv2" in out and "plan_task" not in out
     assert plan_task.task_id in out
-    assert "APPROVALS" in out
+    assert "APPROVALS" in out and "PRIORITY" in out
     plan_row = next(line for line in out.splitlines() if plan_task.task_id in line)
     assert "\t1\t" in plan_row
+    assert "\t4\t" in plan_row
 
 
 def test_tasks_without_session_is_read_only(tmp_path, monkeypatch, capsys):

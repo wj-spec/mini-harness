@@ -65,6 +65,7 @@ def _task_hints(session_root) -> list[dict]:
                 "mode": snapshot.task.mode,
                 "parent_id": snapshot.task.parent_id,
                 "plan_id": snapshot.task.plan_id,
+                "priority": snapshot.task.priority,
                 "pending_approvals": pending_counts.get(snapshot.task.task_id, 0),
             }
             for snapshot in WorkerSupervisor(session_root).snapshot()
@@ -108,6 +109,9 @@ def _format_task_hints(hints: list[dict]) -> str:
             extras.append(f"plan={hint['plan_id']}")
         if hint.get("parent_id"):
             extras.append(f"parent={hint['parent_id']}")
+        priority = int(hint.get("priority") or 0)
+        if priority:
+            extras.append(f"priority={priority}")
         pending = int(hint.get("pending_approvals") or 0)
         if pending:
             extras.append(f"待审批 {pending}")

@@ -275,6 +275,10 @@ test('accepts optional task hints on ready', () => {
   for (const change of [{pending_approvals: -1}, {pending_approvals: 1.5}, {pending_approvals: '2'}]) {
     assert.throws(() => parseServerEvent(JSON.stringify({...base, tasks: [{...hint, ...change}]})));
   }
+  assert.equal(parseServerEvent(JSON.stringify({...base, tasks: [{...hint, priority: 5}]})).type, 'ready');
+  for (const change of [{priority: -1}, {priority: 101}, {priority: 1.5}, {priority: '5'}]) {
+    assert.throws(() => parseServerEvent(JSON.stringify({...base, tasks: [{...hint, ...change}]})));
+  }
   assert.throws(() => parseServerEvent(JSON.stringify({...base, tasks: [{task_id: 'x'}]})));
 });
 test('accepts attach task_snapshot with approvals', () => {
