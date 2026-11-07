@@ -362,6 +362,8 @@ deepseek-flash 一次 suite 结果（2026-11-07）：
 
 跨模型重复（2026-11-07）：suite 扩展为六种模式后，deepseek-flash 与 deepseek-chat 各跑一次，**均 6/6 通过**（新增 `goal` 完成验收模式）。
 
+复跑（2026-11-07，queue/priority/trace/profile 审批门等改动合入后）：deepseek-flash 与 deepseek-chat 再次各跑一次，**均 6/6 通过**；同轮 Python 1526/13、TUI 396/397、长任务 fake 14/14。
+
 **chat 首跑暴露并修复的三个问题**：
 
 1. **后台 plan 只发 objective**：deepseek-chat 后台任务只输出文字、不调用 step 工具 → `stopped/plan_incomplete`。
