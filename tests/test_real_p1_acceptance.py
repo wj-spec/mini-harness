@@ -22,3 +22,9 @@ def test_real_p1_script_help_exits_zero(tmp_path):
     )
     assert proc.returncode == 0
     assert "真实模型 Plan P1 验收脚本" in proc.stdout
+
+
+def test_real_p1_script_parses_background_and_verify(monkeypatch, capsys):
+    monkeypatch.setattr(real_p1_acceptance.Config, "from_env", lambda: Config(workspace=None))
+    assert real_p1_acceptance.main(["--background", "--verify-command", "true"]) == 2
+    assert "missing API key" in capsys.readouterr().out
