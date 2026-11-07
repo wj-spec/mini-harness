@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {MAX_FRAME_BYTES, parseServerEvent, validateClientArgs, validateTraceArgs} from '../src/protocol.js';
+import {MAX_FRAME_BYTES, parseServerEvent, validateClientArgs, validateTraceArgs, validatePriorityArgs} from '../src/protocol.js';
 import {contextSnapshot, loadedContextSnapshot} from './context-fixture.js';
 
 test('accepts startup context independently of model requests and only zero startup usage', () => {
@@ -309,5 +309,15 @@ test('validateTraceArgs accepts bounded hours and rejects others', () => {
   assert.doesNotThrow(() => validateTraceArgs({hours: 8760}));
   for (const bad of [{hours: 0}, {hours: -1}, {hours: 8761}, {hours: '24'}, {kind: 'x'}]) {
     assert.throws(() => validateTraceArgs(bad), /trace 参数/);
+  }
+});
+
+
+test('validatePriorityArgs accepts valid payload and rejects others', () => {
+  assert.doesNotThrow(() => validatePriorityArgs({task_id: 't-1', priority: 9}));
+  for (const bad of [{task_id: '', priority: 9}, {task_id: 't-1', priority: 101},
+    {task_id: 't-1', priority: -1}, {task_id: 't-1', priority: 1.5},
+    {task_id: 't-1', priority: '9'}, {priority: 9}, {task_id: 't-1', priority: 9, extra: 1}]) {
+    assert.throws(() => validatePriorityArgs(bad), /priority 参数/);
   }
 });

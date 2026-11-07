@@ -56,12 +56,12 @@ async function mountMenu() {
 test('slash opens the menu with guidance and arrows scroll the selection', async () => {
   const {key, lastFrame} = await mountMenu();
   await key('/');
-  assert.match(lastFrame() ?? '', /↑↓ 选择 · Tab 填充 · 1\/36/);
+  assert.match(lastFrame() ?? '', /↑↓ 选择 · Tab 填充 · 1\/37/);
   await key('\u001b[B');
   await key('\u001b[B');
-  assert.match(lastFrame() ?? '', /3\/36/);
+  assert.match(lastFrame() ?? '', /3\/37/);
   await key('\u001b[A');
-  assert.match(lastFrame() ?? '', /2\/36/);
+  assert.match(lastFrame() ?? '', /2\/37/);
 });
 
 test('Tab fills the highlighted command while scrolling', async () => {

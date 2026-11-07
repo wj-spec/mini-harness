@@ -1662,3 +1662,26 @@ def test_stdio_rejects_second_command_while_busy(tmp_path, monkeypatch):
         await harness.close()
 
     asyncio.run(scenario())
+
+
+def test_priority_command_updates_created_task(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    store = TaskStore(session.root)
+    task = store.create(kind="run", objective="队列任务", workspace=str(tmp_path), mode="act")
+
+    async def scenario():
+        harness = Harness(_agent(tmp_path), Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        harness.send("command", "c-priority", command="priority",
+                     args={"task_id": task.task_id, "priority": 9})
+        result = await harness.until("command_result", "c-priority")
+        assert "优先级为 9" in result["text"]
+        harness.send("command", "c-priority-bad", command="priority",
+                     args={"task_id": "", "priority": 9})
+        bad = await harness.until("error", "c-priority-bad")
+        assert "priority" in bad["message"]
+        await harness.close()
+
+    asyncio.run(scenario())
+    assert store.get(task.task_id).priority == 9

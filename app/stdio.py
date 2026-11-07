@@ -36,7 +36,7 @@ _OVERSIZED = object()
 COMMANDS = frozenset({
     "resume", "permissions", "permissions_reset", "cost", "tools", "diff", "mcp",
     "skills", "evidence", "autonomy", "tasks", "approvals", "plan", "explore", "notifications",
-    "trace",
+    "trace", "priority",
 })
 COMPLETION_CODE_LABELS = {
     "no_verification": "有文件改动但没有验证命令",
@@ -735,6 +735,16 @@ class _Connection:
                     pass
                 if sub.error:
                     text += f"\n错误：{sub.error}"
+            elif command == "priority":
+                from app.runtime.tasks import TaskError, TaskStore
+                task_id = str((args or {}).get("task_id") or "")
+                priority_value = (args or {}).get("priority")
+                try:
+                    task = TaskStore(self.session.root).set_priority(task_id, priority_value)
+                except (ValueError, TaskError) as exc:
+                    text = f"调整失败：{exc}"
+                else:
+                    text = f"已调整 {task.task_id} 优先级为 {task.priority}"
             elif command == "trace":
                 import time as _time
 
@@ -1545,7 +1555,7 @@ class _Connection:
             }
             if not isinstance(kind, str) or kind not in fields:
                 raise ValueError("unknown request type")
-            if kind == "command" and request.get("command") in {"skills", "autonomy", "plan", "explore", "notifications", "trace"} and "args" in request:
+            if kind == "command" and request.get("command") in {"skills", "autonomy", "plan", "explore", "notifications", "trace", "priority"} and "args" in request:
                 fields[kind] = fields[kind] | {"args"}
             allowed = {"v", "type", "id"} | fields[kind]
             if kind == "run" and "task" in request:
@@ -1560,7 +1570,7 @@ class _Connection:
                     raise ValueError("run text must be a nonempty string")
                 if kind == "command" and (not isinstance(request["command"], str) or request["command"] not in COMMANDS):
                     raise ValueError("unknown command")
-                if kind == "command" and request["command"] in {"skills", "plan", "trace", "notifications", "explore"} and "args" in request:
+                if kind == "command" and request["command"] in {"skills", "plan", "trace", "notifications", "explore", "priority"} and "args" in request:
                     args = request["args"]
                     if not isinstance(args, dict):
                         raise ValueError("command args must be an object")
@@ -1586,6 +1596,15 @@ class _Connection:
                     elif request["command"] == "explore":
                         if set(args) != {"prompt"} or not isinstance(args.get("prompt"), str) or not args["prompt"].strip():
                             raise ValueError("explore args must contain only a nonempty prompt")
+                    elif request["command"] == "priority":
+                        if set(args) != {"task_id", "priority"}:
+                            raise ValueError("priority args must contain exactly task_id and priority")
+                        if not isinstance(args.get("task_id"), str) or not args["task_id"].strip():
+                            raise ValueError("priority requires a nonempty task_id")
+                        if (not isinstance(args.get("priority"), int)
+                                or isinstance(args.get("priority"), bool)
+                                or not 0 <= args["priority"] <= 100):
+                            raise ValueError("priority must be an integer between 0 and 100")
                     elif request["command"] == "trace":
                         if set(args) - {"hours"}:
                             raise ValueError("trace args must contain only hours")

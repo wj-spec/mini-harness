@@ -1517,6 +1517,23 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       } catch (error) {notice(`未能提交计划任务：${String(error)}`);}
       return;
     }
+    if (text === '/priority' || text.startsWith('/priority ')) {
+      setInput('');
+      const parts = text.split(/\s+/);
+      const requested = parts.length === 3 ? Number(parts[2]) : Number.NaN;
+      if (parts.length !== 3 || !/^\d+$/.test(parts[2] ?? '') || !Number.isSafeInteger(requested) || requested < 0 || requested > 100) {
+        notice('用法：/priority <task_id> <0-100>');
+        return;
+      }
+      if (state.phase !== 'idle' || activeRun.current) {notice('当前有运行中任务；结束后再调整队列优先级。'); return;}
+      try {
+        const id = client.command('priority', {task_id: parts[1]!, priority: requested});
+        activeRun.current = id;
+        dispatch({type: 'begin_command', id, command: 'priority'});
+        setFeedback(''); setScroll({follow: true, top: 0});
+      } catch (error) {reportError(`优先级调整未送达：${String(error)}`);}
+      return;
+    }
     const traceMatch = /^\/trace(?:\s+(\S+))?$/.exec(text);
     if (traceMatch) {
       if (state.phase === 'idle' && !activeRun.current) {
