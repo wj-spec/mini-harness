@@ -4,7 +4,7 @@
 
 新路线使用 **W0–W7** 编号；旧 M1–M8 的模块建设记录保存在 [历史计划](history/MILESTONES-M1-M8.md)，不与本轮验收混用。方向与取舍见 [roadmap](roadmap.md)。按验收顺序推进，暂不绑定日期。
 
-> 近期（2026-11-07，第 55–138 轮）生产化加固摘要、真实模型长任务/六模式证据与当前测试基线，见 [P0 收束报告 §7](specs/p0-closure-report.md#7-100-轮加固摘要2026-11-07)；待你拍板事项见 [open-decisions](specs/open-decisions.md)；回来继续先看[交接摘要](specs/final-handoff-2026-11-07.md)。
+> 近期（2026-11-07，第 55–138 轮）生产化加固摘要、真实模型长任务/六模式证据与当前测试基线，见 [P0 收束报告 §7](specs/p0-closure-report.md)；待你拍板事项见 [open-decisions](specs/open-decisions.md)；回来继续先看[交接摘要](specs/final-handoff-2026-11-07.md)。
 
 ## 总览与当前状态
 

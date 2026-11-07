@@ -35,6 +35,6 @@ fake bench **15/15**；real-bench **5/5**；真实 suite **六模式 ×2**；doc
 ## 4. 如果你要回来继续
 
 - 仓库在 `main`，工作树应干净；`./scripts/verify_all.sh` 可先确认环境。
-- 想先看最近变更：`git log --oneline | head -50`；本轮综述见 [P0 收束报告 §7](p0-closure-report.md#7-100-轮加固摘要2026-11-07)。
+- 想先看最近变更：`git log --oneline | head -50`；本轮综述见 [P0 收束报告 §7](p0-closure-report.md)。
 - 想做 P2 委派：先在 open-decisions 确认选项，再按 16-subagent 设计补 `delegate` 工具与 A/B 指标。
 - 想做集中观测：先定目标系统，再在 `--trace-summary`/webhook 基础上加导出。
