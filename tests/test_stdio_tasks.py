@@ -1591,3 +1591,32 @@ def test_command_args_validation_rejects_malformed_frames(tmp_path, monkeypatch)
         await harness.close()
 
     asyncio.run(scenario())
+
+
+def test_stdio_rejects_malformed_frames_and_stays_responsive(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    session = SessionStore.new(tmp_path, "fake", purpose="user")
+    malformed = [
+        "not json",
+        json.dumps([1, 2, 3]),
+        json.dumps({"v": 2, "type": "command", "id": "bad-v", "command": "tasks"}),
+        json.dumps({"v": 1, "type": "command", "id": "f-extra-args", "command": "tasks", "args": {}}),
+        json.dumps({"v": 1, "type": "command", "id": "f-unknown", "command": "totally-unknown"}),
+        json.dumps({"v": 1, "type": "run", "id": "f-empty-run", "text": "   "}),
+        json.dumps({"v": 1, "type": "command", "id": "f-null-args", "command": "trace", "args": None}),
+    ]
+
+    async def scenario():
+        harness = Harness(_agent(tmp_path), Config(workspace=tmp_path), session)
+        await harness.until("ready")
+        for frame in malformed:
+            harness.incoming.put_nowait(frame)
+        harness.send("command", "c-after-malformed", command="tasks")
+        result = await harness.until("command_result", "c-after-malformed")
+        assert result["command"] == "tasks"
+        errors = [event for event in harness.events if event["type"] == "error"]
+        assert len(errors) >= len(malformed)
+        assert {event.get("code") for event in errors} <= {"invalid_request"}
+        await harness.close()
+
+    asyncio.run(scenario())
