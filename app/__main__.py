@@ -724,6 +724,7 @@ def main() -> None:
 
         sessions_root = Path(config.workspace) / ".vibe" / "sessions"
         rows = []
+        skipped_acceptance_files = 0
         if sessions_root.is_dir() and sessions_root.resolve().is_relative_to(Path(config.workspace).resolve()):
             for session_path in sorted(p for p in sessions_root.iterdir() if p.is_dir() and not p.is_symlink()):
                 tasks_root = session_path / "tasks"
@@ -734,9 +735,11 @@ def main() -> None:
                         try:
                             version = int(file.stem.split("v")[-1])
                         except ValueError:
+                            skipped_acceptance_files += 1
                             continue
                         saved = load_acceptance_result(task_path, version)
                         if saved is None:
+                            skipped_acceptance_files += 1
                             continue
                         plan_id = None
                         objective = None
@@ -753,7 +756,12 @@ def main() -> None:
                             "codes": saved.get("codes", []),
                             "commands": len((saved.get("results") or {})),
                         })
-        print(json.dumps({"acceptance": rows[-100:]}, ensure_ascii=False, indent=2))
+        if skipped_acceptance_files:
+            print(f"warning: skipped {skipped_acceptance_files} corrupt acceptance files",
+                  file=sys.stderr)
+        print(json.dumps({"acceptance": rows[-100:],
+                          "skipped_acceptance_files": skipped_acceptance_files},
+                         ensure_ascii=False, indent=2))
         return
 
     if args.approvals:
@@ -1112,10 +1120,16 @@ def main() -> None:
     if args.bench_history:
         from app.eval.history import bench_reports, latest_regression, render_bench_history
 
-        rows = bench_reports(config.workspace, limit=args.bench_history_limit)
+        stats: dict[str, int] = {}
+        rows = bench_reports(config.workspace, limit=args.bench_history_limit, stats=stats)
+        skipped_bench_reports = int(stats.get("skipped", 0))
+        if skipped_bench_reports:
+            print(f"warning: skipped {skipped_bench_reports} corrupt bench reports",
+                  file=sys.stderr)
         if args.bench_history_json:
             print(json.dumps({"workspace": str(config.workspace), "count": len(rows),
                               "regression": latest_regression(rows),
+                              "skipped_bench_reports": skipped_bench_reports,
                               "reports": rows}, ensure_ascii=False, indent=2))
             return
         print(render_bench_history(rows))

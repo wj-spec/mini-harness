@@ -449,7 +449,7 @@ W1–W5 已完成真实验收；W6 v2 三组对照完成，主假设未获支持
 - Plan 覆盖层：折叠/展开、方向键选择、`s` 步骤详情、`e` 修订、`y/n` 审批、Enter 执行、`/plan list|step|diff|acceptance|revise`；stale/审批时限保护，侧栏 `p` 可看步骤进度。
 
 **验证证据**：
-- Python 全量 **1546 passed / 13 skipped**；TUI **396/397**（唯一失败为环境 pty smoke；含 9 个真实 Python 后端跨层集成用例；计划覆盖层新增 `d` 版本比较、`t` 步骤标题编辑）；
+- Python 全量 **1548 passed / 13 skipped**；TUI **396/397**（唯一失败为环境 pty smoke；含 9 个真实 Python 后端跨层集成用例；计划覆盖层新增 `d` 版本比较、`t` 步骤标题编辑）；
 - 长任务 fake 场景 14/14 PASS（`scripts/bench_long.py`，含 2 个 5xx 注入、1 个 fake 时钟与 2 个多段场景）；新增 `--real` 真 provider 入口；
 - CLI 只读视图 `--plans/--acceptance/--notifications/--approvals`；`--decide-approval` 可在无 TUI 时经 worker attach 响应审批；Plan/SubAgent 人工验收清单 TC-16-01–08 已编写；
 - `/plan background` 计划绑定 task + detached worker 端到端 fake 验收通过；`plan_binding` 事件与验收产物可核对。
@@ -480,7 +480,7 @@ W1–W5 已完成真实验收；W6 v2 三组对照完成，主假设未获支持
 - 08 长任务 fake 场景扩到 **12/12**（新增 2 个 5xx 注入），bench 报告含每场景 pass rate/耗时统计。
 
 **验证证据**：
-- Python 全量 **1546 passed / 13 skipped**；TUI **396/397**（唯一失败为环境 pty smoke；含 9 个真实 Python 后端跨层集成用例；计划覆盖层新增 `d` 版本比较、`t` 步骤标题编辑）；
+- Python 全量 **1548 passed / 13 skipped**；TUI **396/397**（唯一失败为环境 pty smoke；含 9 个真实 Python 后端跨层集成用例；计划覆盖层新增 `d` 版本比较、`t` 步骤标题编辑）；
 - 长任务 fake 场景 **14/14**；真实模型 `--repair` 修复后 **2/2**、`--merge`（worktree → 合并 → 重验）连续 **2/2**、`--suite` 六模式（含 queue/goal）跨模型 **6/6 ×2**；
 - 工作树 clean，`.vibe/` 运行产物未提交。
 

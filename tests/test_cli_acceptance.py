@@ -54,3 +54,18 @@ def test_acceptance_rejects_other_modes(monkeypatch, capsys):
         entrypoint.main()
     assert error.value.code == 2
     assert "--acceptance cannot be combined" in capsys.readouterr().err
+
+
+def test_acceptance_reports_corrupt_files(tmp_path, monkeypatch, capsys):
+    task = _seed(tmp_path)
+    session_root = next((tmp_path / ".vibe" / "sessions").iterdir())
+    task_dir = TaskStore(session_root).task_dir(task.task_id)
+    (task_dir / "acceptance.v99.json").write_text("{bad json", encoding="utf-8")
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path))
+    monkeypatch.setattr("sys.argv", ["vibe", "--acceptance", "--workspace", str(tmp_path)])
+    entrypoint.main()
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["skipped_acceptance_files"] == 1
+    assert [item["plan_version"] for item in payload["acceptance"]] == [1, 2]
+    assert "skipped 1 corrupt acceptance files" in captured.err

@@ -64,6 +64,7 @@ def test_bench_history_cli_json(tmp_path, monkeypatch, capsys):
     entrypoint.main()
     payload = json.loads(capsys.readouterr().out)
     assert payload["count"] == 2
+    assert payload["skipped_bench_reports"] == 0
     assert payload["reports"][-1]["agent_version"] == "bbb2222"
 
 
@@ -106,3 +107,19 @@ def test_bench_history_detects_regression(tmp_path, monkeypatch, capsys):
     entrypoint.main()
     payload = json.loads(capsys.readouterr().out)
     assert payload["regression"]["latest_failed"] == 1
+
+
+def test_bench_history_reports_corrupt_reports(tmp_path, monkeypatch, capsys):
+    _seed(tmp_path)
+    bad = tmp_path / ".vibe" / "bench-long" / "20261103T000000Z"
+    bad.mkdir(parents=True)
+    (bad / "report.json").write_text("{bad json", encoding="utf-8")
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path))
+    monkeypatch.setattr("sys.argv", ["vibe", "--bench-history", "--bench-history-json",
+                                     "--workspace", str(tmp_path)])
+    entrypoint.main()
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["count"] == 2
+    assert payload["skipped_bench_reports"] == 1
+    assert "skipped 1 corrupt bench reports" in captured.err

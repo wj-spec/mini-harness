@@ -9,7 +9,10 @@ from typing import Any
 MAX_REPORTS = 200
 
 
-def bench_reports(workspace: str | Path, *, limit: int = 50) -> list[dict[str, Any]]:
+def bench_reports(
+    workspace: str | Path, *, limit: int = 50,
+    stats: dict[str, int] | None = None,
+) -> list[dict[str, Any]]:
     root = Path(workspace) / ".vibe" / "bench-long"
     if not root.is_dir():
         return []
@@ -18,8 +21,12 @@ def bench_reports(workspace: str | Path, *, limit: int = 50) -> list[dict[str, A
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
+            if stats is not None:
+                stats["skipped"] = stats.get("skipped", 0) + 1
             continue
         if not isinstance(payload, dict):
+            if stats is not None:
+                stats["skipped"] = stats.get("skipped", 0) + 1
             continue
         summary = payload.get("summary") or {}
         rows.append({
