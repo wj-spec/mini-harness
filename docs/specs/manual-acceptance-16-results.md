@@ -29,7 +29,7 @@ VIBE_TASK_RUNTIME=1 ./.venv/bin/python3 scripts/real_p1_acceptance.py
 - `/explore` 子 Agent；
 - JSON 报告 `.vibe/real-p1-acceptance/<timestamp>.json`；
 - 失败默认保留工作区，`--discard-on-failure` 可关闭；
-- 修复后 3/3 样本 ok，审批均 1 次。
+- 最终修复后连续 5/5 样本 ok，s1/s2 done、acceptance=true、审批均 1 次。
 
 ## 3. TC-16 自动化映射
 
