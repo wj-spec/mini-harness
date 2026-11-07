@@ -310,6 +310,8 @@ def test_bound_plan_step_tools_record_evidence_and_complete(tmp_path, monkeypatc
         ledger = load_ledger(plan_dir, 1)
         assert ledger.steps["s1"].status == "done"
         assert any(item["kind"] == "read" for item in ledger.steps["s1"].evidence)
+        outputs = [event.get("output", "") for event in harness.events if event["type"] == "tool_result"]
+        assert any("all plan steps complete" in output for output in outputs)
         assert agent.tools.names() == ["web_search", "read_file", "grep", "list_files", "git_status",
                                       "git_diff", "write_file", "edit_file", "apply_patch", "bash",
                                       "list_skills", "load_skill", "unload_skill"]

@@ -797,6 +797,9 @@ class _Connection:
                         except ExecutionError as exc:
                             return f"ERROR {exc}"
                         save_ledger(bound_task_dir, ledger)
+                        if ledger.plan_complete(bound_plan):
+                            return (f"step {step_id}: {record.status}; "
+                                    "all plan steps complete — stop calling tools and summarize now")
                         return f"step {step_id}: {record.status}"
 
                     from app.tools.registry import ToolSpec

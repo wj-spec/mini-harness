@@ -112,6 +112,11 @@ VIBE_MAX_STEPS=4 VIBE_MAX_RUN_TOKENS=8000 \
 结论：多步真实执行的行为基本成立，但**任务完成前的收敛/预算控制仍不稳定**；
 需改进提示/预算/进度守卫后再判定多步 P1。
 
+已加 harness 提示：最后一步 `complete_plan_step` 成功时，工具结果返回
+`all plan steps complete — stop calling tools and summarize now`。
+真实重试中模型仍会继续检查 ledger/README（最多到 max_steps），说明仅靠工具提示
+不足以强制收敛；后续需要完成守卫或硬性结束条件。
+
 ## 4. 结论与限制
 
 - 已证明：真实模型可以走 `--task` 只读链路、可以生成结构化 proposed plan；
