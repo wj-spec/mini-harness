@@ -48,7 +48,7 @@ def test_approvals_empty_read_only(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path))
     monkeypatch.setattr("sys.argv", ["vibe", "--approvals"])
     entrypoint.main()
-    assert json.loads(capsys.readouterr().out) == {"approvals": [], "count": 0}
+    assert json.loads(capsys.readouterr().out) == {"approvals": [], "count": 0, "skipped_approval_records": 0}
     assert not (tmp_path / ".vibe").exists()
 
 
@@ -142,3 +142,18 @@ def test_decide_approval_via_worker_attach(tmp_path, monkeypatch, capsys):
     finally:
         stop.set()
         thread.join(3)
+
+
+def test_approvals_reports_corrupt_records(tmp_path, monkeypatch, capsys):
+    session, task, _write = _seed(tmp_path)
+    path = ApprovalInbox(session.root).path_for(task.task_id)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write("{bad json\n")
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path))
+    monkeypatch.setattr("sys.argv", ["vibe", "--approvals", "--workspace", str(tmp_path)])
+    entrypoint.main()
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["skipped_approval_records"] == 1
+    assert payload["count"] == 2
+    assert "skipped 1 corrupt approval records" in captured.err

@@ -61,6 +61,7 @@ class ApprovalInbox:
     def __init__(self, session_root: str | Path):
         self.root = Path(session_root)
         self.tasks_root = self.root / "tasks"
+        self.last_skipped = 0
 
     def path_for(self, task_id: str) -> Path:
         from app.runtime.tasks import TaskStore
@@ -188,6 +189,7 @@ class ApprovalInbox:
             handle.flush()
 
     def _read(self, task_id: str | None = None) -> list[dict[str, Any]]:
+        self.last_skipped = 0
         if task_id is not None:
             paths = [self.path_for(task_id)]
         else:
@@ -199,14 +201,18 @@ class ApprovalInbox:
             try:
                 lines = path.read_text(encoding="utf-8").splitlines()
             except OSError:
+                self.last_skipped += 1
                 continue
             for line in lines:
                 try:
                     value = json.loads(line)
                 except json.JSONDecodeError:
+                    self.last_skipped += 1
                     continue
                 if isinstance(value, dict):
                     result.append(value)
+                else:
+                    self.last_skipped += 1
         return result
 
     def _latest(self) -> dict[str, dict[str, Any]]:

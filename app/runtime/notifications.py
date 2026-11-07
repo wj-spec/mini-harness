@@ -102,18 +102,30 @@ def notify(workspace: str | Path, kind: str, **data: Any) -> bool:
         return False
 
 
-def read_notifications(workspace: str | Path) -> list[dict[str, Any]]:
+def read_notifications(
+    workspace: str | Path, *, stats: dict[str, int] | None = None,
+) -> list[dict[str, Any]]:
     path = notify_path(workspace)
     if not path.is_file():
         return []
     result = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        if stats is not None:
+            stats["skipped"] = stats.get("skipped", 0) + 1
+        return []
+    for line in lines:
         try:
             item = json.loads(line)
         except json.JSONDecodeError:
+            if stats is not None:
+                stats["skipped"] = stats.get("skipped", 0) + 1
             continue
         if isinstance(item, dict):
             result.append(item)
+        elif stats is not None:
+            stats["skipped"] = stats.get("skipped", 0) + 1
     return result
 
 

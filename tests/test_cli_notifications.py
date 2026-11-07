@@ -46,3 +46,20 @@ def test_notification_kind_filter(tmp_path, monkeypatch, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload["count"] == 1
     assert payload["notifications"][0]["kind"] == "plan_acceptance"
+
+
+def test_notifications_reports_corrupt_records(tmp_path, monkeypatch, capsys):
+    from app.runtime.notifications import notify_path
+
+    notify(tmp_path, "worker_started", task_id="t-1")
+    notify(tmp_path, "worker_exited", task_id="t-1", status="exited")
+    with notify_path(tmp_path).open("a", encoding="utf-8") as handle:
+        handle.write("{bad json\n")
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path))
+    monkeypatch.setattr("sys.argv", ["vibe", "--notifications", "--workspace", str(tmp_path)])
+    entrypoint.main()
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["count"] == 2
+    assert payload["skipped_notification_records"] == 1
+    assert "skipped 1 corrupt notification records" in captured.err

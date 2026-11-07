@@ -761,14 +761,17 @@ def main() -> None:
 
         sessions_root = Path(config.workspace) / ".vibe" / "sessions"
         rows = []
+        skipped_approval_records = 0
         if sessions_root.is_dir() and sessions_root.resolve().is_relative_to(Path(config.workspace).resolve()):
             for session_path in sorted(p for p in sessions_root.iterdir() if p.is_dir() and not p.is_symlink()):
                 if not (session_path / "tasks").is_dir():
                     continue
+                inbox = ApprovalInbox(session_path)
                 try:
-                    pending = ApprovalInbox(session_path).pending()
+                    pending = inbox.pending()
                 except Exception:
                     continue
+                skipped_approval_records += int(getattr(inbox, "last_skipped", 0) or 0)
                 for item in pending:
                     rows.append({
                         "session": session_path.name,
@@ -782,7 +785,12 @@ def main() -> None:
                         "preview_ref": item.get("preview_ref"),
                     })
         rows.sort(key=lambda row: str(row.get("created_at") or ""))
-        print(json.dumps({"approvals": rows[-100:], "count": len(rows)}, ensure_ascii=False, indent=2))
+        if skipped_approval_records:
+            print(f"warning: skipped {skipped_approval_records} corrupt approval records",
+                  file=sys.stderr)
+        print(json.dumps({"approvals": rows[-100:], "count": len(rows),
+                          "skipped_approval_records": skipped_approval_records},
+                         ensure_ascii=False, indent=2))
         return
 
     if args.plans:
@@ -850,12 +858,19 @@ def main() -> None:
     if args.notifications:
         from app.runtime.notifications import read_notifications
 
-        items = read_notifications(config.workspace)
+        stats: dict[str, int] = {}
+        items = read_notifications(config.workspace, stats=stats)
         if args.notification_kind:
             items = [item for item in items if item.get("kind") == args.notification_kind]
         recent = items[-50:]
+        skipped_notifications = int(stats.get("skipped", 0))
+        if skipped_notifications:
+            print(f"warning: skipped {skipped_notifications} corrupt notification records",
+                  file=sys.stderr)
         print(json.dumps({"workspace": str(config.workspace), "count": len(recent),
-                          "notifications": recent}, ensure_ascii=False, indent=2))
+                          "notifications": recent,
+                          "skipped_notification_records": skipped_notifications},
+                         ensure_ascii=False, indent=2))
         return
 
     if args.prepare_plan_task or args.run_plan_queue:
