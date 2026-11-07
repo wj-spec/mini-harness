@@ -7,7 +7,7 @@
 
 | 检查 | 结果 |
 |---|---|
-| Python 全量 | **1451 passed / 13 skipped** |
+| Python 全量 | **1454 passed / 13 skipped** |
 | TUI | **383 passed / 1 failed**；失败为环境 pty smoke（`out of pty devices`） |
 | 长任务 fake 场景 | **10/10 PASS**（`scripts/bench_long.py --runs 1`；新增 `--real` 真 provider 入口） |
 | 07 attach 人工验收 | TC-01–09 通过（[记录](manual-acceptance-07-results.md)） |
@@ -27,7 +27,7 @@
 | 06 | 预算账本 | 已实现 | `budget.py`、`budget-ledger.md` |
 | 07 | 控制面 attach | 已实现 | controller/observer、心跳、v2 帧、TC-01–09 |
 | 08 | 长任务评测 | P0 fake 场景 10/10 | `bench_long.py`、`benchmarks/long/` |
-| 09 | 无人值守默认 | P0 部分 | conservative profile、env scrub、pause、两槽串行、deadline、retention、events 软上限告警 |
+| 09 | 无人值守默认 | P0 部分 | conservative profile、env scrub、pause、两槽串行、deadline、retention、events 软上限告警、doctor 运行时提示 |
 | 10 | 模式状态机 | P0 chat/act/plan | `modes.py`、TUI `/chat` `/act` `/plan` |
 | 11 | 模式契约 | P0 profile | mode profile、plan 只读子集 |
 | 12 | Plan 产物 | P0 已实现 | `plan.py` schema/原子存储/渲染 |

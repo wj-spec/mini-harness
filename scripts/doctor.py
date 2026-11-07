@@ -307,6 +307,128 @@ def check_git_repo(workspace: Path, git_path: str | None = None, run: _Run | Non
     )
 
 
+DEFAULT_EVENTS_MAX_BYTES = 32 * 1024 * 1024
+
+
+def _sessions_root(workspace: Path) -> Path:
+    return workspace / ".vibe" / "sessions"
+
+
+def count_pending_approvals(workspace: Path) -> int:
+    """只读统计跨 session/task 的 pending 审批（不 import app，保持脚本可独立运行）。"""
+    root = _sessions_root(workspace)
+    if not root.is_dir():
+        return 0
+    total = 0
+    for session in sorted(root.iterdir()):
+        if not session.is_dir() or session.is_symlink():
+            continue
+        tasks = session / "tasks"
+        if not tasks.is_dir():
+            continue
+        for task in sorted(tasks.iterdir()):
+            if not task.is_dir() or task.is_symlink():
+                continue
+            path = task / "approvals.jsonl"
+            if not path.is_file():
+                continue
+            states: dict[str, str] = {}
+            try:
+                lines = path.read_text(encoding="utf-8").splitlines()
+            except OSError:
+                continue
+            for line in lines:
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(event, dict):
+                    continue
+                approval_id = event.get("approval_id")
+                kind = event.get("type")
+                if isinstance(approval_id, str) and isinstance(kind, str):
+                    states[approval_id] = kind
+            total += sum(1 for kind in states.values() if kind == "requested")
+    return total
+
+
+def check_pending_approvals(workspace: Path) -> Check:
+    count = count_pending_approvals(workspace)
+    if count:
+        return Check(
+            WARN, f"有 {count} 个待审批动作",
+            "运行 ./run_vibe.sh --approvals --workspace <ws> 查看；无 TUI 时用 --decide-approval <id> 处理",
+        )
+    return Check(OK, "没有待审批动作")
+
+
+def _events_soft_limit(env: Mapping[str, str]) -> int:
+    try:
+        value = int((env.get("VIBE_EVENTS_MAX_BYTES") or "").strip())
+    except ValueError:
+        return DEFAULT_EVENTS_MAX_BYTES
+    return max(0, value)
+
+
+def oversized_session_events(workspace: Path, limit: int) -> list[dict]:
+    root = _sessions_root(workspace)
+    if limit <= 0 or not root.is_dir():
+        return []
+    items: list[dict] = []
+    for session in sorted(root.iterdir()):
+        if not session.is_dir() or session.is_symlink():
+            continue
+        path = session / "events.jsonl"
+        try:
+            size = path.stat().st_size
+        except OSError:
+            continue
+        if size > limit:
+            items.append({"session": session.name, "bytes": size})
+    return items
+
+
+def check_session_logs(workspace: Path, env: Mapping[str, str] | None = None) -> Check:
+    environ: Mapping[str, str] = os.environ if env is None else env
+    limit = _events_soft_limit(environ)
+    if limit <= 0:
+        return Check(OK, "events 软上限告警已关闭（VIBE_EVENTS_MAX_BYTES=0）")
+    oversized = oversized_session_events(workspace, limit)
+    if oversized:
+        names = "、".join(item["session"] for item in oversized[:3])
+        return Check(
+            WARN, f"{len(oversized)} 个会话 events.jsonl 超过软上限（{limit} 字节）：{names}",
+            "运行 ./run_vibe.sh --cleanup-logs --workspace <ws> 查看；events 不自动轮转",
+        )
+    return Check(OK, "会话 events.jsonl 未超过软上限")
+
+
+def stale_worktrees(workspace: Path) -> list[dict]:
+    root = workspace / ".vibe" / "worktrees"
+    if not root.is_dir():
+        return []
+    items: list[dict] = []
+    for meta_path in sorted(root.glob("*.meta.json")):
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            items.append({"task_id": meta_path.name.removesuffix(".meta.json"), "reason": "meta 不可读"})
+            continue
+        path = meta.get("path") if isinstance(meta, dict) else None
+        if not isinstance(path, str) or not Path(path).is_dir():
+            items.append({"task_id": meta_path.name.removesuffix(".meta.json"), "reason": "目录缺失"})
+    return items
+
+
+def check_worktrees(workspace: Path) -> Check:
+    stale = stale_worktrees(workspace)
+    if stale:
+        names = "、".join(item["task_id"] for item in stale[:3])
+        return Check(WARN, f"{len(stale)} 个 worktree 目录缺失或 meta 不可读：{names}",
+                     "用 ./run_vibe.sh --tasks 核对；确认后手动清理 .vibe/worktrees/<task_id>.meta.json")
+    return Check(OK, "worktree 元数据完整")
+
+
 def collect_checks(
     *,
     repo_root: Path | None = None,
@@ -347,6 +469,9 @@ def collect_checks(
         check_workspace(target),
         check_git(git_path, run=run_fn),
         check_git_repo(target, git_path, run=run_fn),
+        check_pending_approvals(target),
+        check_session_logs(target, environ),
+        check_worktrees(target),
     ]
 
 

@@ -1,5 +1,6 @@
 import importlib.util
 import io
+import json
 import os
 import shutil
 import subprocess
@@ -145,6 +146,8 @@ def test_doctor_reports_ready_environment(tmp_path):
     assert "✓ 工作区存在且可写" in output
     assert "VIBE_BASE_URL=https://api.deepseek.com，VIBE_MODEL=deepseek-chat" in output
     assert "结论：可以启动 ./run_ink.sh" in output
+    assert "✓ 没有待审批动作" in output
+    assert "✓ worktree 元数据完整" in output
     assert "✗" not in output
 
 
@@ -249,3 +252,48 @@ def test_ink_launcher_runs_doctor_before_node_and_frontend_checks(tmp_path):
     assert "mini-harness 环境自检" in result.stdout, result.stderr
     assert "npm --prefix tui ci" in result.stdout, result.stderr
     assert "Ink 入口需要 Node.js 22+ 和 npm。" not in result.stderr
+
+
+def test_doctor_warns_about_pending_approvals(tmp_path):
+    repo, workspace = _green_repo(tmp_path)
+    task_dir = workspace / ".vibe" / "sessions" / "s-1" / "tasks" / "t-1"
+    task_dir.mkdir(parents=True)
+    (task_dir / "approvals.jsonl").write_text(
+        '\n'.join([
+            '{"type": "requested", "approval_id": "a-1", "tool": "bash"}',
+            '{"type": "resolved", "approval_id": "a-0", "decision": "once"}',
+            '{"type": "requested", "approval_id": "a-2", "tool": "write_file"}',
+        ]) + '\n',
+        encoding="utf-8",
+    )
+    code, output = _run_doctor(repo, workspace, env={"VIBE_API_KEY": "sk-test"})
+    assert code == 0, output
+    assert "! 有 2 个待审批动作" in output
+    assert "--decide-approval" in output
+
+
+def test_doctor_warns_about_oversized_events(tmp_path):
+    repo, workspace = _green_repo(tmp_path)
+    task_dir = workspace / ".vibe" / "sessions" / "s-1" / "tasks" / "t-1"
+    task_dir.mkdir(parents=True)
+    (workspace / ".vibe" / "sessions" / "s-1" / "events.jsonl").write_text("e" * 50, encoding="utf-8")
+    code, output = _run_doctor(
+        repo, workspace, env={"VIBE_API_KEY": "sk-test", "VIBE_EVENTS_MAX_BYTES": "10"},
+    )
+    assert code == 0, output
+    assert "! 1 个会话 events.jsonl 超过软上限" in output
+    assert "--cleanup-logs" in output
+
+
+def test_doctor_warns_about_stale_worktree(tmp_path):
+    repo, workspace = _green_repo(tmp_path)
+    worktrees = workspace / ".vibe" / "worktrees"
+    worktrees.mkdir(parents=True)
+    (worktrees / "t-1.meta.json").write_text(
+        json.dumps({"task_id": "t-1", "path": str(tmp_path / "missing-worktree")}),
+        encoding="utf-8",
+    )
+    code, output = _run_doctor(repo, workspace, env={"VIBE_API_KEY": "sk-test"})
+    assert code == 0, output
+    assert "! 1 个 worktree 目录缺失" in output
+    assert "t-1" in output
