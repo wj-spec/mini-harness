@@ -1079,11 +1079,12 @@ def main() -> None:
         return
 
     if args.bench_history:
-        from app.eval.history import bench_reports, render_bench_history
+        from app.eval.history import bench_reports, latest_regression, render_bench_history
 
         rows = bench_reports(config.workspace, limit=args.bench_history_limit)
         if args.bench_history_json:
             print(json.dumps({"workspace": str(config.workspace), "count": len(rows),
+                              "regression": latest_regression(rows),
                               "reports": rows}, ensure_ascii=False, indent=2))
             return
         print(render_bench_history(rows))

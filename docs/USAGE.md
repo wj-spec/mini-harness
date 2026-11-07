@@ -4,7 +4,7 @@
 
 ## 怎么跑
 
-首次使用先跑环境自检：`./run_ink.sh --doctor`（没有 `.venv` 时可用 `python3 scripts/doctor.py`）。它逐项检查 Node / Python / 依赖 / API Key / TTY / 工作区/ git 仓库，缺项给出补齐命令；阻塞项 exit 2。运行时状态也会提示（非阻塞）：待审批动作数（`--approvals` / `--decide-approval`）、超过 `VIBE_EVENTS_MAX_BYTES` 的会话 events、目录缺失的 worktree。脚本 / CI 用 `python3 scripts/doctor.py --json` 获取机器可读结果（`ok/failures/warnings/checks`）。
+首次使用先跑环境自检：`./run_ink.sh --doctor`（没有 `.venv` 时可用 `python3 scripts/doctor.py`）。它逐项检查 Node / Python / 依赖 / API Key / TTY / 工作区/ git 仓库，缺项给出补齐命令；阻塞项 exit 2。运行时状态也会提示（非阻塞）：待审批动作数（`--approvals` / `--decide-approval`）、超过 `VIBE_EVENTS_MAX_BYTES` 的会话 events、目录缺失的 worktree、benchmark 历史回归（用 `--bench-history` 查看）。脚本 / CI 用 `python3 scripts/doctor.py --json` 获取机器可读结果（`ok/failures/warnings/checks`）。
 
 首次安装（Python 3.11+，建议 3.12）：
 
@@ -807,7 +807,7 @@ worker 启动会审计 profile：任务事件 `unattended_profile` 记 `profile/
 `--run-plan-queue --queue-all-sessions` 会跨本工作区所有会话收集 created 计划 task（按 created_at 排序），逐会话串行执行；dry-run 同样支持；默认任一失败即停，`--queue-continue-on-failure` 可继续后续任务（失败的仍计入 `failed`，最终 exit 1）；`--queue-concurrency 2..8` 可并行多个 worker（同一工作区靠 `VIBE_WORKSPACE_LOCK_WAIT` 自动排队）。
 `--queue-workspace PATH`（可重复）让队列跨多个工作区串行执行，输出含 `workspaces/sessions`；与 `--session` 互斥。
 `--prepare-plan-task` 选取会话中最新可执行（approved、非 stale）计划并创建 `kind=run/mode=act` 的待运行 task（JSON 输出 task_id/plan）；`--run-plan-queue` 按创建顺序串行启动这些 created 计划 task 的 worker，任一未 completed 即停止（exit 1），`--queue-task-timeout` 控制单任务超时（默认 1800s）；执行前会核对计划仍可执行（approved/未 stale），不可执行时标记 `skipped_plan_unavailable` 并停止；`--queue-dry-run` 只输出队列与 `plan_executable`，不启动 worker。
-`--bench-history [--bench-history-json] [--bench-history-limit N]` 只读扫描 `.vibe/bench-long/*/report.json`，列出每次运行的 mode/agent_version/passed/total 与最近一次场景通过率，用于跨提交对比。
+`--bench-history [--bench-history-json] [--bench-history-limit N]` 只读扫描 `.vibe/bench-long/*/report.json`，列出每次运行的 mode/agent_version/passed/total 与最近一次场景通过率，并标出最近一次相对上一次的回归（`regression` 字段）；用于跨提交对比。
 `--trace-summary --trace-all-sessions` 汇总本工作区所有会话（按最近更新排序，输出 totals + 最近 10 个会话），适合巡检整个工作区的 retries/errors/denials。
 `--trace-summary` 只读聚合指定会话 trace.jsonl：事件数/损坏行、runs 与最近状态、LLM calls/retries/errors/tokens/cost、tool calls/failures、approvals/denials、停止原因与时间窗（`--trace-json` 输出原始摘要）。
 `--evidence` 只读输出指定会话最近一轮证据（完成判定/验收三态/审计/hash/验证记录），`--evidence-json` 输出原始 round JSON；无轮次时提示先完成任务。

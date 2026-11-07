@@ -89,3 +89,20 @@ def test_bench_history_rejects_other_modes(monkeypatch, capsys):
         entrypoint.main()
     assert error.value.code == 2
     assert "--bench-history cannot be combined" in capsys.readouterr().err
+
+
+def test_bench_history_detects_regression(tmp_path, monkeypatch, capsys):
+    _seed(tmp_path)  # 2/2 -> 1/2
+    rows = bench_reports(tmp_path, limit=10)
+    from app.eval.history import latest_regression
+
+    regression = latest_regression(rows)
+    assert regression["previous_passed"] == 2 and regression["latest_passed"] == 1
+    text = render_bench_history(rows)
+    assert "⚠ 最近一次较前一次下降：2/2 → 1/2" in text
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path))
+    monkeypatch.setattr("sys.argv", ["vibe", "--bench-history", "--bench-history-json",
+                                     "--workspace", str(tmp_path)])
+    entrypoint.main()
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["regression"]["latest_failed"] == 1

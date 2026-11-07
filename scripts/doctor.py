@@ -473,6 +473,52 @@ def check_unattended_profile(workspace: Path, env: Mapping[str, str] | None = No
     return Check(OK, "无人值守 profile 使用默认保守策略")
 
 
+def bench_history_rows(workspace: Path) -> list[dict]:
+    root = workspace / ".vibe" / "bench-long"
+    if not root.is_dir():
+        return []
+    rows: list[dict] = []
+    for path in sorted(root.glob("*/report.json")):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        summary = payload.get("summary") or {}
+        rows.append({
+            "generated_at": payload.get("generated_at"),
+            "mode": payload.get("mode"),
+            "agent_version": payload.get("agent_version"),
+            "total": summary.get("total"),
+            "passed": summary.get("passed"),
+            "failed": summary.get("failed"),
+        })
+    rows.sort(key=lambda item: str(item.get("generated_at") or ""))
+    return rows
+
+
+def check_bench_history(workspace: Path) -> Check:
+    rows = bench_history_rows(workspace)
+    if not rows:
+        return Check(OK, "没有长任务 benchmark 历史（可选）")
+    latest = rows[-1]
+    passed = int(latest.get("passed") or 0)
+    total = int(latest.get("total") or 0)
+    failed = int(latest.get("failed") or 0)
+    if len(rows) < 2:
+        return Check(OK, f"长任务 benchmark 历史 {len(rows)} 次（最近 {passed}/{total}）")
+    previous = rows[-2]
+    previous_passed = int(previous.get("passed") or 0)
+    if failed > 0 or passed < previous_passed:
+        return Check(
+            WARN, f"最近长任务 benchmark 有回归：{passed}/{total}"
+                  f"（上次 {previous_passed}/{previous.get('total')}）",
+            "运行 scripts/bench_long.py 复跑；--bench-history 查看历史与 agent_version",
+        )
+    return Check(OK, f"最近长任务 benchmark 无回归（{passed}/{total}）")
+
+
 def collect_checks(
     *,
     repo_root: Path | None = None,
@@ -517,6 +563,7 @@ def collect_checks(
         check_session_logs(target, environ),
         check_worktrees(target),
         check_unattended_profile(target, environ),
+        check_bench_history(target),
     ]
 
 

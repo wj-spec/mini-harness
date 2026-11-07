@@ -39,6 +39,31 @@ def bench_reports(workspace: str | Path, *, limit: int = 50) -> list[dict[str, A
     return rows
 
 
+def latest_regression(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """比较最近两次报告：返回通过数下降/失败增加的信息；无回归返回 None。"""
+    if len(rows) < 2:
+        return None
+    previous, latest = rows[-2], rows[-1]
+    prev_total = int(previous.get("total") or 0)
+    prev_passed = int(previous.get("passed") or 0)
+    total = int(latest.get("total") or 0)
+    passed = int(latest.get("passed") or 0)
+    failed = int(latest.get("failed") or 0)
+    if total <= 0:
+        return None
+    if failed <= 0 and (prev_total <= 0 or passed >= prev_passed):
+        return None
+    return {
+        "previous_passed": prev_passed,
+        "previous_total": prev_total,
+        "latest_passed": passed,
+        "latest_total": total,
+        "latest_failed": failed,
+        "previous_agent_version": previous.get("agent_version"),
+        "latest_agent_version": latest.get("agent_version"),
+    }
+
+
 def render_bench_history(rows: list[dict[str, Any]]) -> str:
     if not rows:
         return "当前工作区还没有长任务 benchmark 报告（先运行 scripts/bench_long.py）。"
@@ -51,6 +76,14 @@ def render_bench_history(rows: list[dict[str, Any]]) -> str:
             f"- {row.get('generated_at') or '?'} · {row.get('mode') or '?'} · "
             f"agent {row.get('agent_version') or '?'} · "
             f"{passed}/{total}（{rate}）"
+        )
+    regression = latest_regression(rows)
+    if regression:
+        lines.append(
+            f"- ⚠ 最近一次较前一次下降：{regression['previous_passed']}/{regression['previous_total']}"
+            f" → {regression['latest_passed']}/{regression['latest_total']}"
+            f"（agent {regression.get('previous_agent_version') or '?'} → "
+            f"{regression.get('latest_agent_version') or '?'}）"
         )
     latest = rows[-1]
     stats = latest.get("scenario_stats") or {}

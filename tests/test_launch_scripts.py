@@ -149,6 +149,7 @@ def test_doctor_reports_ready_environment(tmp_path):
     assert "✓ 没有待审批动作" in output
     assert "✓ worktree 元数据完整" in output
     assert "✓ 无人值守 profile 使用默认保守策略" in output
+    assert "✓ 没有长任务 benchmark 历史（可选）" in output
     assert "✗" not in output
 
 
@@ -348,3 +349,30 @@ def test_doctor_fails_on_invalid_unattended_profile(tmp_path):
     code, output = _run_doctor(repo, workspace, env={"VIBE_API_KEY": "sk-test"})
     assert code == 2
     assert "✗ 无人值守 profile 不可读或不是合法 JSON" in output
+
+
+def _write_bench(tmp_path, workspace, name, passed, total, generated_at):
+    directory = workspace / ".vibe" / "bench-long" / name
+    directory.mkdir(parents=True)
+    (directory / "report.json").write_text(json.dumps({
+        "generated_at": generated_at, "mode": "fake-worker-p0", "agent_version": "aaa",
+        "scenarios": [], "summary": {"total": total, "passed": passed, "failed": total - passed},
+    }), encoding="utf-8")
+
+
+def test_doctor_warns_about_bench_regression(tmp_path):
+    repo, workspace = _green_repo(tmp_path)
+    _write_bench(tmp_path, workspace, "20261101T000000Z", 2, 2, "2026-11-01T00:00:00+00:00")
+    _write_bench(tmp_path, workspace, "20261102T000000Z", 1, 2, "2026-11-02T00:00:00+00:00")
+    code, output = _run_doctor(repo, workspace, env={"VIBE_API_KEY": "sk-test"})
+    assert code == 0, output
+    assert "! 最近长任务 benchmark 有回归：1/2（上次 2/2）" in output
+
+
+def test_doctor_reports_bench_without_regression(tmp_path):
+    repo, workspace = _green_repo(tmp_path)
+    _write_bench(tmp_path, workspace, "20261101T000000Z", 2, 2, "2026-11-01T00:00:00+00:00")
+    _write_bench(tmp_path, workspace, "20261102T000000Z", 2, 2, "2026-11-02T00:00:00+00:00")
+    code, output = _run_doctor(repo, workspace, env={"VIBE_API_KEY": "sk-test"})
+    assert code == 0, output
+    assert "✓ 最近长任务 benchmark 无回归（2/2）" in output
