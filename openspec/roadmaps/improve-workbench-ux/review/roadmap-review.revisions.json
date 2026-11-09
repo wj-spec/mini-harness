@@ -1,0 +1,29 @@
+{
+  "v": 1,
+  "page": "roadmap-review.html",
+  "revisions": [
+    {
+      "n": 1,
+      "at": "2026-11-08T17:08:49+08:00",
+      "event": "首次生成",
+      "docs": {
+        "roadmap": {
+          "path": "openspec/roadmaps/improve-workbench-ux/roadmap.md",
+          "sha256": "eefd608e95f351ff671b3f6ac37e8713ca98b4df4ed6e84668ee01aa656143a9"
+        },
+        "design": {
+          "path": "openspec/roadmaps/improve-workbench-ux/design.md",
+          "sha256": "48762ef766ba58bceb59213513ab7f8fa00f448dc2b5f9c4fa16e4cd2d78bd43"
+        },
+        "task-log": {
+          "path": "openspec/roadmaps/improve-workbench-ux/task-log.md",
+          "sha256": "e454b3082a2c2f9d04260ba8fe08f113493c5d76400febcd369f79e872c7e7f7"
+        }
+      },
+      "notes": 0,
+      "dispositions": 0,
+      "changed": [],
+      "fp": "f6c2ac6140ef1127e5e93ba2578364c2219375711420708a4f1becb440213878"
+    }
+  ]
+}

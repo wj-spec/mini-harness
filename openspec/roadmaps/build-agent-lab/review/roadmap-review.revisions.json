@@ -1,0 +1,108 @@
+{
+  "v": 1,
+  "page": "roadmap-review.html",
+  "revisions": [
+    {
+      "n": 1,
+      "at": "2026-11-08T17:54:33+08:00",
+      "event": "第一性原理与开发规范规划完成；独立评审后修正无效样本归属",
+      "docs": {
+        "roadmap": {
+          "path": "openspec/roadmaps/build-agent-lab/roadmap.md",
+          "sha256": "6e9c672f9f4c0cb54be8aa181de936859327775b49b32d21ff5edceb6f4f8341"
+        },
+        "design": {
+          "path": "openspec/roadmaps/build-agent-lab/design.md",
+          "sha256": "425a5d3d62e5791fd8d6b72fcf6c537e34f1b1c713e666f83727f1f0f8c4ddf1"
+        },
+        "task-log": {
+          "path": "openspec/roadmaps/build-agent-lab/task-log.md",
+          "sha256": "8c318bc6e9d60200bf08d632a0cad655b6a99575120dd5d68cb6e48aa5e4a8f8"
+        }
+      },
+      "notes": 0,
+      "dispositions": 0,
+      "changed": [],
+      "fp": "1a076d1e8133646c442996b051f690ed395343a8b7aaa1dbaec3f9140ec994aa"
+    },
+    {
+      "n": 2,
+      "at": "2026-11-08T21:26:39+08:00",
+      "event": "v2：SWE-bench 与 Terminal-Bench 列为主基准；区分原生评分与上榜状态",
+      "docs": {
+        "roadmap": {
+          "path": "openspec/roadmaps/build-agent-lab/roadmap.md",
+          "sha256": "ba2284c7d00230e9888986f655ea7717498b2443dc36d37bb3a1f68067d82909"
+        },
+        "design": {
+          "path": "openspec/roadmaps/build-agent-lab/design.md",
+          "sha256": "037ff1e09f92c043d7fb216772e4ee8c02cf82093dd101c398641daf5a51dbc4"
+        },
+        "task-log": {
+          "path": "openspec/roadmaps/build-agent-lab/task-log.md",
+          "sha256": "bfc21889b3b67979d6c159cec3da41afd88c3efed05b74f1757ec8beb4a7757a"
+        }
+      },
+      "notes": 0,
+      "dispositions": 0,
+      "changed": [
+        "roadmap",
+        "design",
+        "task-log"
+      ],
+      "fp": "1b023447686aa8f9a13bee69340ecf7eafb5807878c0c1ae3013109f1008f542"
+    },
+    {
+      "n": 3,
+      "at": "2026-11-08T21:56:09+08:00",
+      "event": "完成 Agent 实验台流程原型与浏览器核验，用户体验反馈待收集；P1–P7 状态不变",
+      "docs": {
+        "roadmap": {
+          "path": "openspec/roadmaps/build-agent-lab/roadmap.md",
+          "sha256": "ba2284c7d00230e9888986f655ea7717498b2443dc36d37bb3a1f68067d82909"
+        },
+        "design": {
+          "path": "openspec/roadmaps/build-agent-lab/design.md",
+          "sha256": "037ff1e09f92c043d7fb216772e4ee8c02cf82093dd101c398641daf5a51dbc4"
+        },
+        "task-log": {
+          "path": "openspec/roadmaps/build-agent-lab/task-log.md",
+          "sha256": "712b03dc711c565efe2f2dfce7b5b4ab875264c66a3b6d9000d138e03007c28b"
+        }
+      },
+      "notes": 0,
+      "dispositions": 0,
+      "changed": [
+        "task-log"
+      ],
+      "fp": "9b2ad8e8b768e282c5c66cd21cae7bfd8a1d0d73bc7ac0bbbc6f501f0550ddc1"
+    },
+    {
+      "n": 4,
+      "at": "2026-11-08T22:27:40+08:00",
+      "event": "用户明确诊断优先；新增真实业务旅程，原型改为任务诊断与带证据的改进草案，生产阶段不变",
+      "docs": {
+        "roadmap": {
+          "path": "openspec/roadmaps/build-agent-lab/roadmap.md",
+          "sha256": "5fd3b00728cd50efec67e0d5ebd13301542c0597e89ad017c7c9609d03d6eaa3"
+        },
+        "design": {
+          "path": "openspec/roadmaps/build-agent-lab/design.md",
+          "sha256": "4aca748c18a7bb6efa84e3a8d420de0f13bf594653c3f5411b28d46b769d10f9"
+        },
+        "task-log": {
+          "path": "openspec/roadmaps/build-agent-lab/task-log.md",
+          "sha256": "443fa27dea83ea05267d62b3da86ff890708074d509ee8356033d9e18b67875f"
+        }
+      },
+      "notes": 0,
+      "dispositions": 0,
+      "changed": [
+        "roadmap",
+        "design",
+        "task-log"
+      ],
+      "fp": "5423d8f21f062fa13fdad3ea9e40711fb48aeb1457f077a1da3209501b8ebfa4"
+    }
+  ]
+}

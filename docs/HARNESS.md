@@ -854,6 +854,7 @@ TUI 把 receipt 追加为 notice，并根据 `result.verified` 显示“本轮�
 | LLM 审计默认关闭 | 额外一次模型调用（成本）+ 质量未验收；`VIBE_LLM_AUDITOR=1` 才启用，eval/bench 固定关闭，严格契约反查默认开 | 已决定（默认关闭） | [完成守卫与审计](specs/verified-completion.md) |
 | 个性化（W6） | v2 三组对照未减少重复说明/纠正，主假设未获支持；停止扩张、不进入 P5，保留显式可管理的偏好 | 停止 | [W6 收益](specs/w6-benefit.md)；[偏好路线](specs/memory-personalization-roadmap.md) |
 | MCP HTTP transport / 资源与 prompt / LSP / Computer Use | 均未实现，按实际需求再评估；当前只有 stdio MCP（启动与调用分别审批） | 推迟 | [README 下一步](../README.md)；[roadmap](roadmap.md) |
+| 集中/跨机器观测 | 本地 `trace.jsonl` + `--trace-summary` + 通知 webhook 优先；OTLP 导出按 M0–M4 分阶段、默认关闭、隐私分级，目标系统待拍板 | 推迟（未实现；规格已出） | [OTel 集中观测规格](specs/otel-observability.md)；[待拍板事项](specs/open-decisions.md) |
 
 ## 12 已知边界与风险
 

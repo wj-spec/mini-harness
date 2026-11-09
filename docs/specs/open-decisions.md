@@ -51,12 +51,12 @@
 
 ## 5. 跨机器/集中观测
 
-**现状**：本地已有 `--evidence`、`--trace-summary`（可跨会话）、`--bench-history`、通知 webhook。
+**现状**：本地已有 `--evidence`、`--trace-summary`（可跨会话）、`--bench-history`、通知 webhook；跨机器/集中观测仍保持本地优先，尚未接入 OTel。
 **选项**：
 - A. 保持本地（当前），外发靠 webhook；
-- B. 增加 OTLP/Prometheus 导出或集中日志汇聚（需要部署环境与目标系统信息）。
+- B. 按可执行规格 [OTel 集中观测规格](otel-observability.md) 分阶段推进（M0 离线导出 → M1 进程内 span → M2 指标 → M3 跨进程；M3b TUI 全链路可选），默认关闭、L0/L1 隐私分级。
 
-**需要你确认**：是否有实际的多机/集中观测需求与目标（OTLP endpoint / Prometheus / 日志平台）。
+**需要你确认**：是否按 spec 推进；目标系统与 endpoint（本地 collector / Jaeger / Tempo / Prometheus 等）；是否允许 L1 路径信息；是否接受官方 SDK optional extra。
 
 ## 汇总
 
@@ -66,4 +66,4 @@
 | 2 | 文件集级并行写 | 串行 | 是否有真实需求 |
 | 3 | 真实 TUI 人工验收 | 待终端 | 按清单执行并记录 |
 | 4 | 真实模型长任务评测预算 | 暂不投入 | 是否做 A（2-3 场景真实化）与 token 上限 |
-| 5 | 跨机器集中观测 | 本地 | 是否需要与目标系统 |
+| 5 | 跨机器集中观测 | 本地 | spec 已出（M0–M3），待选目标系统与范围 |
