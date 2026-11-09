@@ -11,7 +11,8 @@ const definitions: readonly CommandDefinition[] = [
   {command: '/cost', group: '查看', description: '查看本轮与会话成本', aliases: ['/costs']},
   {command: '/inspections', group: '查看', description: '查看历史结果与验证记录', keywords: ['历史结果', '旧任务结果']},
   {command: '/find', group: '查看', description: '在本次会话中查找关键词并定位', usage: '<关键词>', required: true, keywords: ['查找', '搜索', '定位']},
-  {command: '/rounds', group: '查看', description: '按轮次定位本次会话历史', keywords: ['轮次', '历史定位']},
+  {command: '/rounds', group: '查看', description: '按轮次定位并查看轮次账本（验证/费用）', keywords: ['轮次', '历史定位', '账本']},
+  {command: '/history', group: '查看', description: '跨会话检索已保存消息并打开定位', usage: '<关键词>', required: true, aliases: ['/search'], keywords: ['历史搜索', '跨会话', '旧结论']},
   {command: '/errors', group: '查看', description: '定位工具错误与失败轮次', keywords: ['错误', '失败定位']},
   {command: '/tools', group: '查看', description: '查看可用工具目录'},
   {command: '/diff', group: '查看', description: '查看工作区改动', keywords: ['查看改动', '文件变化']},
@@ -137,7 +138,7 @@ export function commandUnavailable(value: string, context: CommandContext): stri
   if (root === '/task' && context.taskNavigation) return;
   if (root === '/sessions' && context.sessionNavigation) return;
   if (text === '/permissions' && context.permissionPanel) return;
-  if (['/help', '/context', '/copy', '/inspections', '/find', '/rounds', '/errors', '/sidebar', '/project', '/about', '/theme', '/session', '/quit', '/attach', '/merge', '/stop-workers'].includes(root)) return;
+  if (['/help', '/context', '/copy', '/inspections', '/find', '/rounds', '/errors', '/history', '/sidebar', '/project', '/about', '/theme', '/session', '/quit', '/attach', '/merge', '/stop-workers'].includes(root)) return;
   if (text === '/autonomy' || text === '/goal' || text === '/goal stop') return;
   if (root === '/followup') return context.activeCommand && context.activeCommand !== 'resume' ? '命令执行中，结束后再发送' : undefined;
   if (text === '/plan' || text === '/plan all') return;

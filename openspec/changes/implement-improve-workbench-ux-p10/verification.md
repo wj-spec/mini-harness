@@ -1,6 +1,33 @@
 # P10 验证记录
 
-状态：实施中，未整体验收。会话内搜索、按轮/错误定位与连续成功只读工具折叠已通过工程核验；跨会话全文检索/索引、rounds 账本深链、真人终端与 Owner Review 仍在范围内。
+状态：实施中，未整体验收。会话内搜索、按轮/错误定位、只读工具折叠、跨会话检索与 rounds 账本深链已通过工程核验；索引优化、真实终端与 Owner Review 仍在范围内。
+
+## 跨会话检索与轮次账本深链（2026-11-09）
+
+第二批补「旧结论」的跨会话路径。`search` 命令（能力 `history-search`）在当前工作区、当前用途（user/test）的已保存会话消息中做大小写不敏感子串检索：匹配带 session_id、identity（沿用会话目录身份哈希，打开前仍复核）、role、上下文 snippet 与 message_index；按会话创建时间倒序、会话内消息顺序返回，20 条一页并提供身份游标；损坏记录、不可读会话与超限扫描分别计数/标记。读取只扫 `.vibe/sessions` 下当前用途的事件文件，不调用模型、不写记录。
+
+TUI `/history <关键词>`（别名 `/search`）展示跨会话匹配；「打开会话」复用 P8 显式打开流程（候选后端 + ready 回执核对 workspace/session/identity），成功后把查询交给新工作台，在历史回放后自动定位首个匹配行。打开仍受运行中/待办/草稿 guard 约束，不自动运行。
+
+`rounds` 命令（能力 `rounds-ledger`）只读当前会话 rounds 账本：轮次序号、目标、状态、验证三态、步数/费用、保存时间，损坏记录计数，最多 50 轮并标记截断。TUI `/rounds` 有该能力时展示账本（关键词可拖选复制前先看验证状态），「定位」按目标文本映射正文轮次起点；不在当前正文的旧轮次提示用 `/sessions` 打开原会话核验；无能力时回退第一批的正文轮次列表。
+
+### 自动验证
+
+| 边界 | 证据与结果 |
+|---|---|
+| 跨会话检索 | 新增 2 项 Python：用途隔离/身份可打开/损坏跳过；20+10 身份游标跨页、跨用途 cursor 与坏参数拒绝 |
+| 轮次账本 | 新增 1 项 Python：新旧顺序、验证/费用字段、损坏文件计数、limit 截断；字段级防御式校验 |
+| stdio 协议 | `history-search`/`rounds-ledger` 能力声明；`search`/`rounds` 结构化事件、空 query 与多余 args 返回 `invalid_request` |
+| TUI 传输 | fixture：search/rounds 结构化 args 传输、非法参数与缺能力拒绝；实际 Python：跨会话命中带 identity、当前会话账本 total=0 |
+| App 旅程 | 新增 4 项：结果面板打开旧会话并携带 focus query、迟到/异范围回执保留、账本定位与「不在当前正文」提示、能力缺失回退正文轮次；另 1 项新会话 initialFocus 自动定位 |
+| 完整 Ink | `tui-full.log`：**725** 项（**723 passed**，2 项 sandbox PTY 环境失败，与基线相同） |
+| 完整 Python | `python-full.log`：**1950** 项，**1937 passed / 13 skipped**，0 失败 |
+| 先红后绿 | `backend-red.log` 保存模块缺失的收集失败；`backend-green.log` 4/4 通过；`green.log` 8/8 通过 |
+
+### 终端与范围
+
+产品源码：`app/runtime/history_search.py`、`app/runtime/round_ledger.py`、`app/stdio.py`、`tui/src/{protocol,backend,app,cli,commands}.ts*`，新增 `history-search-panel.tsx` 与 3 份测试。证据在 `.vibe/ux-p10-batch2-2026-11-09/`。
+
+未做：跨会话索引/增量缓存（当前每次分页重新扫描，量级大时需要）、搜索结果在正文内的高亮、账本到 P6 检查记录的精确跳转、真人终端与 Ghostty 真人/Owner Review。本批不把自动验证当作阶段或真人验收。
 
 ## 会话内定位与只读工具折叠（2026-11-09）
 

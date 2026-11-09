@@ -3,7 +3,7 @@ import {randomUUID} from 'node:crypto';
 import {StringDecoder} from 'node:string_decoder';
 import {validateTaskCatalogArgs, type TaskCatalogArgs} from './protocol.js';
 import {backendCommand, backendLaunchOptions} from './backend-launch.js';
-import {BACKEND_COMMANDS, MAX_FRAME_BYTES, parseServerEvent, validateAutonomyArgs, validateClientArgs, validateExploreArgs, validateNotificationsArgs, validatePlanArgs, validateInspectionArgs, validateSessionCatalogArgs, validatePermissionArgs, type InspectionHistoryArgs, type PermissionCommandArgs, validateSkillsArgs, validateTraceArgs, validatePriorityArgs, type ApprovalDecision, type AutonomyCommandArgs, type BackendCommand, type ClientRequest, type CommandArgs, type ExploreCommandArgs, type NotificationsCommandArgs, type PlanCommandArgs, type RunTaskMeta, type ServerEvent, type SkillsCommandArgs, type TraceCommandArgs, type PriorityCommandArgs} from './protocol.js';
+import {BACKEND_COMMANDS, MAX_FRAME_BYTES, parseServerEvent, validateAutonomyArgs, validateClientArgs, validateExploreArgs, validateNotificationsArgs, validatePlanArgs, validateInspectionArgs, validateSessionCatalogArgs, validatePermissionArgs, validateSearchArgs, type SearchCommandArgs, type InspectionHistoryArgs, type PermissionCommandArgs, validateSkillsArgs, validateTraceArgs, validatePriorityArgs, type ApprovalDecision, type AutonomyCommandArgs, type BackendCommand, type ClientRequest, type CommandArgs, type ExploreCommandArgs, type NotificationsCommandArgs, type PlanCommandArgs, type RunTaskMeta, type ServerEvent, type SkillsCommandArgs, type TraceCommandArgs, type PriorityCommandArgs} from './protocol.js';
 
 export interface BackendClient {
   subscribe(listener: (event: ServerEvent) => void): () => void;
@@ -503,6 +503,14 @@ export function createBackendClient(options: BackendOptions = {}): BackendClient
           if (!(ready.type === 'ready' && ready.capabilities.includes('permission-panel'))) throw new Error('后端不支持权限面板');
           validatePermissionArgs(args);
         }
+        else if (command === 'search') {
+          if (!(ready.type === 'ready' && ready.capabilities.includes('history-search'))) throw new Error('后端不支持跨会话检索');
+          validateSearchArgs(args);
+        }
+        else if (command === 'rounds') {
+          if (!(ready.type === 'ready' && ready.capabilities.includes('rounds-ledger'))) throw new Error('后端不支持轮次账本');
+          if (Object.keys(args).length) throw new Error('轮次账本参数无效');
+        }
         else if (command === 'inspections') validateInspectionArgs(args);
         else if (command === 'skills') validateSkillsArgs(args);
         else if (command === 'autonomy') validateAutonomyArgs(args);
@@ -538,6 +546,8 @@ export function createBackendClient(options: BackendOptions = {}): BackendClient
       else if (command === 'tasks') send({v: 1, type: 'command', id, command, ...(args === undefined ? {} : {args: args as TaskCatalogArgs})});
       else if (command === 'sessions') send({v: 1, type: 'command', id, command, ...(args === undefined ? {} : {args: args as TaskCatalogArgs})});
       else if (command === 'permissions') send({v: 1, type: 'command', id, command, ...(args === undefined ? {} : {args: args as PermissionCommandArgs})});
+      else if (command === 'search') send({v: 1, type: 'command', id, command, args: args as SearchCommandArgs});
+      else if (command === 'rounds') send({v: 1, type: 'command', id, command, ...(args === undefined ? {} : {args: args as Record<string, never>})});
       else if (command === 'inspections') send({v: 1, type: 'command', id, command, ...(args === undefined ? {} : {args: args as InspectionHistoryArgs})});
       else if (command === 'plan') send({v: 1, type: 'command', id, command, ...(args === undefined ? {} : {args: args as PlanCommandArgs})});
       else send({v: 1, type: 'command', id, command});

@@ -42,7 +42,7 @@ _OVERSIZED = object()
 COMMANDS = frozenset({
     "resume", "permissions", "permissions_reset", "cost", "tools", "diff", "mcp",
     "skills", "evidence", "autonomy", "tasks", "approvals", "plan", "explore", "notifications",
-    "trace", "priority", "queue", "inspections", "sessions",
+    "trace", "priority", "queue", "inspections", "sessions", "search", "rounds",
 })
 COMPLETION_CODE_LABELS = {
     "no_verification": "有文件改动但没有验证命令",
@@ -2113,7 +2113,7 @@ class _Connection:
             }
             if not isinstance(kind, str) or kind not in fields:
                 raise ValueError("unknown request type")
-            if kind == "command" and request.get("command") in {"skills", "autonomy", "plan", "explore", "notifications", "trace", "priority", "inspections", "tasks", "sessions", "permissions"} and "args" in request:
+            if kind == "command" and request.get("command") in {"skills", "autonomy", "plan", "explore", "notifications", "trace", "priority", "inspections", "tasks", "sessions", "permissions", "search", "rounds"} and "args" in request:
                 fields[kind] = fields[kind] | {"args"}
             allowed = {"v", "type", "id"} | fields[kind]
             if kind == "run" and "task" in request:
@@ -2172,6 +2172,21 @@ class _Connection:
                     self.send("permission_overview", request_id, **overview,
                               workspace=str(self.config.workspace.resolve()),
                               session_id=self.session.root.name)
+                    return
+                if kind == "command" and request["command"] == "search":
+                    from app.runtime.history_search import history_search
+                    if "args" not in request:
+                        raise ValueError("search requires args")
+                    page = history_search(self.session, self.config.workspace, request["args"])
+                    self.send("history_search", request_id, **page)
+                    return
+                if kind == "command" and request["command"] == "rounds":
+                    from app.runtime.round_ledger import session_rounds
+                    args = request.get("args", {})
+                    if not isinstance(args, dict) or set(args):
+                        raise ValueError("rounds accepts no args")
+                    view = session_rounds(self.session, workspace=self.config.workspace)
+                    self.send("rounds_ledger", request_id, **view)
                     return
                 if kind == "command" and request["command"] == "tasks" and "args" in request:
                     from app.runtime.task_navigation import task_catalog
@@ -2453,7 +2468,7 @@ async def serve(
     reading = None
     stopped = asyncio.create_task(connection.stop.wait())
     capabilities = ["run", "cancel", "steer", "approval_once", "approval_scopes", "session_recording",
-                    "metrics", "history_restore", "commands", "resume", "inspection-history", "task-navigation", "session-navigation", "permission-panel"]
+                    "metrics", "history_restore", "commands", "resume", "inspection-history", "task-navigation", "session-navigation", "permission-panel", "history-search", "rounds-ledger"]
     from app.runtime import plan as plan_artifacts
     if plan_artifacts.fcntl is not None:
         capabilities.append("plan-review")

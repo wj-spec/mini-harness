@@ -26,7 +26,9 @@ import {SessionNavigationPanel} from './session-navigation-panel.js';
 import {usePermissionPanel} from './use-permission-panel.js';
 import {PermissionPanel} from './permission-panel.js';
 import {LocatorPanel} from './locator-panel.js';
-import {errorItems, roundItems, searchTranscript, type LocateItem} from './history-locate.js';
+import {HistorySearchPanel} from './history-search-panel.js';
+import {errorItems, firstLineByEntry, roundItems, searchTranscript, type LocateItem} from './history-locate.js';
+import {validHistorySearchPage, validRoundsLedgerPage, type HistorySearchMatch, type RoundsLedgerPage} from './protocol.js';
 import type {SessionCatalogRow} from './protocol.js';
 import {usePlanReview} from './use-plan-review.js';
 import {SidebarApp} from './sidebar/app.js';
@@ -195,7 +197,7 @@ function latestPlanText(sessionPath: string, full = false): string | null {
   } catch {return null;}
 }
 
-export function App({client, attach = false, active = true, initialDraft, onDraftChange, onDetach, stopOnConnect = false, onSessionSwitch, initialState = emptyState, windowSize, initialTheme = 'system', copyText = copyToClipboard, profilePath, userProfilePath, launchSidebar = launchSidebarForTui, setupSidebar = runSidebarSetup, publishSidebarSignal = writeSidebarSignal, autoObserve = process.env.VIBE_AUTO_OBSERVE === '1'}: {
+export function App({client, attach = false, active = true, initialDraft, onDraftChange, onDetach, stopOnConnect = false, onSessionSwitch, initialFocus, initialState = emptyState, windowSize, initialTheme = 'system', copyText = copyToClipboard, profilePath, userProfilePath, launchSidebar = launchSidebarForTui, setupSidebar = runSidebarSetup, publishSidebarSignal = writeSidebarSignal, autoObserve = process.env.VIBE_AUTO_OBSERVE === '1'}: {
   client: BackendClient; attach?: boolean; initialState?: ViewState; windowSize?: {columns: number; rows: number}; initialTheme?: ThemeName;
   copyText?: (text: string) => string | null; profilePath?: string; userProfilePath?: string;
   launchSidebar?: (workspace: string, mode?: SidebarMode, totalColumns?: number, owner?: SidebarOwner) => LaunchResult;
@@ -203,7 +205,8 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
   publishSidebarSignal?: (workspace: string, input: SidebarSignalInput) => void;
   autoObserve?: boolean;
   active?: boolean; initialDraft?: TaskDraft; onDraftChange?: (draft: TaskDraft) => void; onDetach?: () => void; stopOnConnect?: boolean;
-  onSessionSwitch?: (client: BackendClient) => void | Promise<void>;
+  onSessionSwitch?: (client: BackendClient, options?: {focusQuery?: string}) => void | Promise<void>;
+  initialFocus?: string;
 }) {
   const [state, dispatch] = useReducer(reduceView, initialState);
   const taskConnection = useTaskConnection(client);
@@ -228,7 +231,19 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
   const permissionPanel = usePermissionPanel(client, state.workspace, state.sessionId, state.phase === 'closed');
   const permissionPanelRef = useRef(permissionPanel); permissionPanelRef.current = permissionPanel;
   const permissionPanelAvailable = Boolean(client.capabilities?.().includes('permission-panel'));
-  const [locator, setLocator] = useState<{title: string; items: LocateItem[]; kind: 'find' | 'rounds' | 'errors'} | null>(null);
+  const historySearchAvailable = Boolean(client.capabilities?.().includes('history-search'));
+  const roundsLedgerAvailable = Boolean(client.capabilities?.().includes('rounds-ledger'));
+  const [locator, setLocator] = useState<{title: string; items: LocateItem[]; kind: 'find' | 'rounds' | 'errors' | 'ledger'} | null>(null);
+  const [searchPanel, setSearchPanel] = useState<{query: string; matches: HistorySearchMatch[]; next: string | null; loading: boolean; problem: string; truncated: boolean; skipped: number} | null>(null);
+  const searchRequest = useRef<{id: string; append: boolean; timer: ReturnType<typeof setTimeout>} | null>(null);
+  const roundsRequest = useRef<{id: string; timer: ReturnType<typeof setTimeout>} | null>(null);
+  const ledgerItemsRef = useRef<(page: RoundsLedgerPage) => LocateItem[]>(() => []);
+  const localRoundsRef = useRef<() => void>(() => {});
+  const initialFocusDone = useRef(false);
+  useEffect(() => () => {
+    if (searchRequest.current) clearTimeout(searchRequest.current.timer);
+    if (roundsRequest.current) clearTimeout(roundsRequest.current.timer);
+  }, []);
   const sessionSwitch = useRef<AbortController | null>(null);
   useEffect(() => () => {sessionSwitch.current?.abort();}, []);
   const sidebarRequests = useSidebarPlanRequests(client, state, sidebarOwner);
@@ -337,14 +352,16 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
   const terminal = useWindowSize();
   const columns = Math.max(1, windowSize?.columns ?? terminal.columns);
   const rows = Math.max(1, windowSize?.rows ?? terminal.rows);
-  const minimumColumns = state.approval || review.focused || revision.mode || followups.open || navigation.open || sessionNav.open || permissionPanel.open || locator ? 32 : 24;
-  const minimumRows = state.approval || review.focused || revision.mode || followups.open || navigation.open || sessionNav.open || permissionPanel.open || locator ? 12 : 11;
+  const minimumColumns = state.approval || review.focused || revision.mode || followups.open || navigation.open || sessionNav.open || permissionPanel.open || locator || searchPanel ? 32 : 24;
+  const minimumRows = state.approval || review.focused || revision.mode || followups.open || navigation.open || sessionNav.open || permissionPanel.open || locator || searchPanel ? 12 : 11;
   const inspectionVisible = surfaceActive && inspectionFocused && !quitPrompt;
   const followupsVisible = surfaceActive && followups.open && !quitPrompt;
   const navigationVisible = surfaceActive && navigation.open && !quitPrompt;
   const sessionNavVisible = surfaceActive && sessionNav.open && !quitPrompt;
   const permissionPanelVisible = surfaceActive && permissionPanel.open && !quitPrompt;
   const locatorVisible = surfaceActive && Boolean(locator) && !quitPrompt;
+  const searchPanelVisible = surfaceActive && Boolean(searchPanel) && !quitPrompt;
+  const secondaryPanelVisible = locatorVisible || searchPanelVisible;
   const terminalTooSmall = rows < minimumRows || columns < minimumColumns;
   const palette = getPalette(theme);
   const tools = state.entries.filter(entry => entry.kind === 'tool' && entry.call);
@@ -466,6 +483,14 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
   const maximum = Math.max(0, lines.length - bodyRows);
   const top = overlayKey ? Math.min(overlayScroll.key === overlayKey ? overlayScroll.top : 0, maximum) :
     isEmpty ? Math.min(scroll.top, maximum) : scroll.follow ? maximum : Math.min(scroll.top, maximum);
+  useEffect(() => {
+    if (!initialFocus || initialFocusDone.current) return;
+    const found = searchTranscript(lines, initialFocus);
+    if (!found.length) return;
+    initialFocusDone.current = true;
+    setScroll({follow: false, top: Math.max(0, found[0]!.line - 2)});
+    dispatch({type: 'notice', text: `已在旧会话中定位“${initialFocus}”`});
+  }, [initialFocus, lines.length]);
   const viewport = useRef({top, maximum, overlayKey});
   viewport.current = {top, maximum, overlayKey};
   const approvalFocused = Boolean(state.approval && approvalSelection?.id === state.approval.id);
@@ -490,6 +515,39 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
 
   useEffect(() => client.subscribe(event => {
     let stopTarget: string | null | undefined;
+    const pendingSearch = searchRequest.current;
+    if (event.type === 'history_search' && pendingSearch && event.id === pendingSearch.id) {
+      clearTimeout(pendingSearch.timer); searchRequest.current = null;
+      if (event.workspace !== latestState.current.workspace || event.session_id !== latestState.current.sessionId || !validHistorySearchPage(event)) {
+        setSearchPanel(prev => prev ? {...prev, loading: false, problem: '检索回执不匹配，保留已读结果'} : prev);
+        return;
+      }
+      setSearchPanel(prev => prev ? {...prev, query: event.query,
+        matches: pendingSearch.append ? [...prev.matches, ...event.matches] : event.matches,
+        next: event.next_cursor, loading: false, problem: '', truncated: event.truncated, skipped: event.skipped} : prev);
+      return;
+    }
+    if (event.type === 'error' && pendingSearch && event.id === pendingSearch.id) {
+      clearTimeout(pendingSearch.timer); searchRequest.current = null;
+      setSearchPanel(prev => prev ? {...prev, loading: false, problem: event.message} : prev);
+      return;
+    }
+    const pendingRounds = roundsRequest.current;
+    if (event.type === 'rounds_ledger' && pendingRounds && event.id === pendingRounds.id) {
+      clearTimeout(pendingRounds.timer); roundsRequest.current = null;
+      if (event.workspace !== latestState.current.workspace || event.session_id !== latestState.current.sessionId || !validRoundsLedgerPage(event)) {
+        dispatch({type: 'notice', text: '轮次账本回执不匹配；保留正文轮次。'});
+        return;
+      }
+      setLocator({title: `轮次账本 · ${event.total} 轮`, items: ledgerItemsRef.current(event), kind: 'ledger'});
+      return;
+    }
+    if (event.type === 'error' && pendingRounds && event.id === pendingRounds.id) {
+      clearTimeout(pendingRounds.timer); roundsRequest.current = null;
+      dispatch({type: 'notice', text: `轮次账本未读取：${event.message}；改用正文轮次。`});
+      localRoundsRef.current();
+      return;
+    }
     if (navigationRef.current.receive(event) || event.type === 'task_catalog') return;
     if (sessionNavRef.current.receive(event) || event.type === 'session_catalog') return;
     if (permissionPanelRef.current.receive(event) || event.type === 'permission_overview') return;
@@ -663,7 +721,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
       if (canContinue) startQueuedFollowup();
     }
   }), [client]);
-  usePaste(() => {}, {isActive: surfaceActive && (readerFocused || inspectionVisible || followupsVisible || navigationVisible || sessionNavVisible || permissionPanelVisible || locatorVisible)});
+  usePaste(() => {}, {isActive: surfaceActive && (readerFocused || inspectionVisible || followupsVisible || navigationVisible || sessionNavVisible || permissionPanelVisible || secondaryPanelVisible)});
   // 只读信号文件：侧栏据此即时刷新，并标记本轮 Agent 写/改过的文件。
   const [draftAppendRevision, setDraftAppendRevision] = useState(0);
   useSidebarDraftRequests(state, sidebarOwner, text => {
@@ -708,7 +766,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
   const notice = (text: string) => {dispatch({type: 'notice', text}); setScroll({follow: true, top: 0});};
   const cancelSessionOpen = () => {sessionSwitch.current?.abort(); sessionSwitch.current = null;};
   // 旧会话打开：候选后端确认身份后才交给外层替换，失败/取消保留当前会话与草稿。
-  const openOldSession = async (row: SessionCatalogRow) => {
+  const openOldSession = async (row: {session_id: string; identity: string}, focusQuery?: string) => {
     if (sessionNav.opening) return;
     if (!onSessionSwitch || attach) {sessionNav.setProblem('先返回原会话再打开旧会话'); return;}
     if (state.attachOffline) {sessionNav.setProblem('当前离线只读，不能切换会话'); return;}
@@ -725,7 +783,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
     try {
       const next = await client.openSession({workspace: state.workspace, sessionId: row.session_id, identity: row.identity}, controller.signal);
       if (controller.signal.aborted) {await next.shutdown(); return;}
-      await onSessionSwitch(next);
+      await onSessionSwitch(next, focusQuery ? {focusQuery} : undefined);
     } catch (error) {
       if (!controller.signal.aborted) sessionNav.setProblem(`打开失败：${String(error)}；当前会话保留`);
     } finally {
@@ -1134,7 +1192,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
       setSelection(chosen);
       copySelection(chosen);
     },
-    enabled: surfaceActive && !inspectionVisible && !followupsVisible && !navigationVisible && !sessionNavVisible && !permissionPanelVisible && !locatorVisible && !quitting && rows >= 11 && columns >= 24,
+    enabled: surfaceActive && !inspectionVisible && !followupsVisible && !navigationVisible && !sessionNavVisible && !permissionPanelVisible && !secondaryPanelVisible && !quitting && rows >= 11 && columns >= 24,
   });
   const openTool = () => {if (chosenTool) {setDetail(chosenTool.id); setOverlayScroll({key: `tool-${chosenTool.id}`, top: 0});}};
   const openContext = () => {setDetail(null); setContextSelection(null); setContextOpen(true); setOverlayScroll({key: 'context', top: 0});};
@@ -1465,7 +1523,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
       } else if (!state.activeId) requestShutdown();
       return;
     }
-    if (inspectionVisible || followupsVisible || navigationVisible || sessionNavVisible || permissionPanelVisible || locatorVisible || terminalTooSmall) return;
+    if (inspectionVisible || followupsVisible || navigationVisible || sessionNavVisible || permissionPanelVisible || secondaryPanelVisible || terminalTooSmall) return;
     if (key.ctrl && keyInput === 'y') {copyCurrent(); return;}
     if (key.ctrl && keyInput === 'g') {openSidebarPanel(); return;}
     if (state.approval) {
@@ -1708,6 +1766,64 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
     }
   });
 
+  const fallbackLocalRounds = () => {
+    const items = roundItems(state.entries, lines);
+    if (!items.length) {notice('本次会话还没有可定位的轮次。'); return;}
+    setLocator({title: `按轮定位 · ${items.length} 轮`, items, kind: 'rounds'});
+  };
+  const requestRoundsLedger = () => {
+    if (!roundsLedgerAvailable) {fallbackLocalRounds(); return;}
+    if (roundsRequest.current) return;
+    try {
+      const id = client.command('rounds', {});
+      roundsRequest.current = {id, timer: setTimeout(() => {
+        roundsRequest.current = null;
+        notice('轮次账本读取超时；改用正文轮次。');
+        fallbackLocalRounds();
+      }, 10_000)};
+      notice('正在读取轮次账本…');
+    } catch (error) {
+      notice(`轮次账本未能读取：${String(error)}；改用正文轮次。`);
+      fallbackLocalRounds();
+    }
+  };
+  const ledgerItems = (page: RoundsLedgerPage): LocateItem[] => {
+    const firstLine = firstLineByEntry(lines);
+    const linesByGoal = new Map<string, number>();
+    for (const entry of state.entries) {
+      if (entry.kind !== 'task') continue;
+      const goal = entry.text.trim();
+      const line = firstLine.get(entry.id);
+      if (goal && line !== undefined && !linesByGoal.has(goal)) linesByGoal.set(goal, line);
+    }
+    return page.rounds.map(round => {
+      const line = linesByGoal.get(round.goal.trim()) ?? -1;
+      const verified = round.verified === true ? ' · 已验证' : round.verified === false ? ' · 验证未通过' : '';
+      return {line, label: `第 ${round.index} 轮 · ${round.status}${verified} · ${round.goal}`,
+        detail: `${round.saved_at ?? '时间未知'} · steps=${round.steps} · $${round.cost_usd.toFixed(6)} · ${line >= 0 ? `正文第 ${line + 1} 行` : '不在当前正文'}`};
+    });
+  };
+  const requestHistorySearch = (query: string, cursor?: string, append = false) => {
+    if (!historySearchAvailable) {notice('后端不支持跨会话检索；可用 /find 搜索当前会话。'); return;}
+    if (searchRequest.current) return;
+    try {
+      const id = client.command('search', cursor ? {query, cursor} : {query});
+      searchRequest.current = {id, append, timer: setTimeout(() => {
+        searchRequest.current = null;
+        setSearchPanel(prev => prev ? {...prev, loading: false, problem: '检索超时；可重试'} : prev);
+      }, 15_000)};
+      setSearchPanel(prev => ({query, matches: append && prev ? prev.matches : [], next: append && prev ? prev.next : null,
+        loading: true, problem: '', truncated: false, skipped: 0}));
+    } catch (error) {notice(`跨会话检索未能开始：${String(error)}`);}
+  };
+  const openSearchMatch = (match: HistorySearchMatch) => {
+    if (!onSessionSwitch) {notice('先返回原会话再打开旧会话'); return;}
+    const focus = searchPanel?.query;
+    setSearchPanel(null);
+    void openOldSession({session_id: match.session_id, identity: match.identity}, focus);
+  };
+  ledgerItemsRef.current = ledgerItems;
+  localRoundsRef.current = fallbackLocalRounds;
   const rejectBusyCommand = () => {
     if (state.phase === 'idle' && !activeRun.current) return false;
     notice('未执行：当前任务运行中；草稿保留，结束后重试。');
@@ -1745,9 +1861,14 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
     }
     if (text === '/rounds') {
       setInput('');
-      const items = roundItems(state.entries, lines);
-      if (!items.length) {notice('本次会话还没有可定位的轮次。'); return;}
-      setLocator({title: `按轮定位 · ${items.length} 轮`, items, kind: 'rounds'});
+      requestRoundsLedger();
+      return;
+    }
+    if (text === '/history' || text.startsWith('/history ')) {
+      setInput('');
+      const query = text.slice('/history'.length).trim();
+      if (!query) {notice('用法：/history <关键词>：跨会话检索已保存的消息并打开定位。'); return;}
+      requestHistorySearch(query);
       return;
     }
     if (text === '/errors') {
@@ -2321,7 +2442,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
     {rows > 3 && state.approval ? <Text color={palette.secondary}>{fitText('Ctrl+Q 退出', columns)}</Text> : null}
   </Box>;
 
-  return <><Box display={surfaceActive ? 'flex' : 'none'} flexDirection="column"><Box display={inspectionVisible || followupsVisible || navigationVisible || sessionNavVisible || permissionPanelVisible || locatorVisible ? 'none' : 'flex'} flexDirection="column" width={columns} height={rows} backgroundColor={palette.background} overflow="hidden">
+  return <><Box display={surfaceActive ? 'flex' : 'none'} flexDirection="column"><Box display={inspectionVisible || followupsVisible || navigationVisible || sessionNavVisible || permissionPanelVisible || secondaryPanelVisible ? 'none' : 'flex'} flexDirection="column" width={columns} height={rows} backgroundColor={palette.background} overflow="hidden">
     <AgentHeader state={state} columns={columns} height={headerRows} palette={palette}/>
     {compactRows ? <StatusPanel state={state} columns={columns} height={compactRows} palette={palette}/> : null}
     <Box display={compactQuit ? 'none' : 'flex'} flexDirection="row" width={columns} height={paneRows} flexShrink={0}>
@@ -2329,7 +2450,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
         <Text color={palette.accent} bold>{fitText(`修订反馈 · v${revision.record.target.plan_version} · ${[...revision.record.draft.trim()].length}/4000 字`, readerColumns - 4)}</Text>
         <Text color={palette.secondary}>{fitText(revision.record.objective.replace(/\s+/g, ' '), readerColumns - 4)}</Text>
         <Composer value={revision.record.draft} onChange={revision.change} onSubmit={revision.preview} history={[]}
-          focused={surfaceActive && !inspectionVisible && !followupsVisible && !navigationVisible && !sessionNavVisible && !permissionPanelVisible && !locatorVisible && !revision.selected && !quitting} placeholder="写下希望修改的地方" columns={bodyColumns} maxRows={Math.max(1, paneRows - 4)}
+          focused={surfaceActive && !inspectionVisible && !followupsVisible && !navigationVisible && !sessionNavVisible && !permissionPanelVisible && !secondaryPanelVisible && !revision.selected && !quitting} placeholder="写下希望修改的地方" columns={bodyColumns} maxRows={Math.max(1, paneRows - 4)}
           onTab={backwards => revision.move(backwards ? -1 : 1)} accentColor={palette.accent} foregroundColor={palette.foreground} secondaryColor={palette.secondary}/>
       </Box> : <ReadingPane title={paneTitle} lines={lines} top={top} height={paneRows} columns={readerColumns} palette={palette} overlay={readerFocused} selection={selection}/>}
       {sidebar ? <><Box width={1}/><StatusPanel state={state} columns={32} height={paneRows} palette={palette}/></> : null}
@@ -2351,7 +2472,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
       </Text>)}
     </Box> : null}
     <Box display={quitPrompt ? 'none' : 'flex'} backgroundColor={state.approval ? palette.surfaces.warning : readerFocused ? palette.surface : palette.focus} height={composerRows + composerPadding * 2} width={columns} paddingX={2} paddingY={composerPadding} flexShrink={0}>
-      <Composer value={input} initialCursor={initialDraft?.cursor} onDraftChange={onDraftChange} appendRevision={draftAppendRevision} onChange={text => {setMenuIndex(0); setInput(text);}} onSubmit={submit} onSubmitBlocked={() => setFeedback(`未发送：${submissionBlock}，草稿保留`)} history={inputHistory} disabled={composerDisabled} disabledHint={unavailableHint} focused={surfaceActive && !quitPrompt && !inspectionVisible && !followupsVisible && !navigationVisible && !sessionNavVisible && !permissionPanelVisible && !locatorVisible && !readerFocused && !quitting} placeholder={effectivePlaceholder} columns={Math.max(1, columns - 4)} maxRows={composerRows} accentColor={palette.accent} warningColor={palette.warning} foregroundColor={palette.foreground} secondaryColor={palette.secondary}
+      <Composer value={input} initialCursor={initialDraft?.cursor} onDraftChange={onDraftChange} appendRevision={draftAppendRevision} onChange={text => {setMenuIndex(0); setInput(text);}} onSubmit={submit} onSubmitBlocked={() => setFeedback(`未发送：${submissionBlock}，草稿保留`)} history={inputHistory} disabled={composerDisabled} disabledHint={unavailableHint} focused={surfaceActive && !quitPrompt && !inspectionVisible && !followupsVisible && !navigationVisible && !sessionNavVisible && !permissionPanelVisible && !secondaryPanelVisible && !readerFocused && !quitting} placeholder={effectivePlaceholder} columns={Math.max(1, columns - 4)} maxRows={composerRows} accentColor={palette.accent} warningColor={palette.warning} foregroundColor={palette.foreground} secondaryColor={palette.secondary}
         onTab={state.approval ? backwards => {const button = backwards ? approvalChoices.at(-1) : approvalChoices[0]; if (button) selectApproval(button.action);} : undefined}
         menu={menuRows ? {
           count: menuMatches.length,
@@ -2393,8 +2514,19 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
       onReturn={() => permissionPanel.close()}/></Box> : null}
     {locator ? <Box display={locatorVisible ? 'flex' : 'none'}><LocatorPanel title={locator.title} items={locator.items} columns={columns} rows={rows} palette={palette}
       active={locatorVisible} status={locator.kind === 'find' ? '搜索只读 · 定位后返回阅读' : locator.kind === 'rounds' ? '选择轮次定位旧结论' : '选择错误定位失败现场'}
-      onJump={line => {notice(`已定位到第 ${line + 1} 行；Ctrl+End 回到最新。`); setScroll({follow: false, top: Math.max(0, line - 2)}); setLocator(null);}}
+      onJump={line => {
+        if (line < 0) {notice('该轮不在当前正文（重开前的历史）；可用 /sessions 打开原会话核验。'); setLocator(null); return;}
+        notice(`已定位到第 ${line + 1} 行；Ctrl+End 回到最新。`);
+        setScroll({follow: false, top: Math.max(0, line - 2)});
+        setLocator(null);
+      }}
       onReturn={() => setLocator(null)}/></Box> : null}
+    {searchPanel ? <Box display={searchPanelVisible ? 'flex' : 'none'}><HistorySearchPanel query={searchPanel.query} matches={searchPanel.matches} columns={columns} rows={rows} palette={palette}
+      active={searchPanelVisible} loading={searchPanel.loading} problem={searchPanel.problem} next={searchPanel.next}
+      truncated={searchPanel.truncated} skipped={searchPanel.skipped}
+      onOpen={openSearchMatch}
+      onMore={() => requestHistorySearch(searchPanel.query, searchPanel.next ?? undefined, true)}
+      onReturn={() => setSearchPanel(null)}/></Box> : null}
     {followups.open ? <Box display={followupsVisible ? 'flex' : 'none'}><FollowupPanel queue={followups} columns={columns} rows={rows} palette={palette} active={followupsVisible}
       blocked={submissionBlock || (state.attachOffline ? '离线只读，不能继续执行' : goal?.active ? '目标模式进行中' : undefined)}
       status={state.approval ? '待审批 · 返回主区处理' : state.activeId ? '当前任务仍运行 · Ctrl+C 停止' :

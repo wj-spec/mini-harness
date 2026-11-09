@@ -23,6 +23,8 @@
 
 ## 界面迁移与全栈学习切片
 
+**P10 跨会话检索与轮次账本深链（2026-11-09，实施中）**：`/history <关键词>` 跨会话检索已保存消息并打开所选会话，打开复用 P8 身份复核、不自动运行，打开后自动定位首个匹配行；`/rounds` 展示轮次账本（目标/状态/验证三态/步数费用）并按目标文本定位正文轮次，旧轮次不在正文时提示用 `/sessions` 核验，无能力回退正文轮次。后端新增 `search`/`rounds` 结构化命令与能力协商；完整 Ink **725**（723 passed、2 项沙箱 PTY 环境失败）、Python **1950** 项（1937 passed / 13 skipped）。跨会话索引/增量缓存、搜索高亮与真人/Owner Review 待完成，P10 不标完成。见 [本批验证](../openspec/changes/implement-improve-workbench-ux-p10/verification.md#跨会话检索与轮次账本深链2026-11-09)。
+
 **P10 会话内定位与只读工具折叠（2026-11-09，实施中）**：`/find <关键词>` 搜索本次会话正文并跳到命中行；`/rounds` 按用户任务轮次（含终态）定位；`/errors` 定位工具错误与失败轮次；定位只改变回看位置，`Ctrl+End` 回最新，返回保留草稿与光标。连续 ≥2 个成功只读（tier=read）工具调用折叠为摘要，`Tab`/`Ctrl+O` 仍可查看原始调用与输出；旧后端无 tier 时不折叠。3000 条记录/8999 渲染行实测搜索 p95 **4.3–4.5ms**；完整 Ink **717**（715 passed、2 项沙箱 PTY 环境失败）、Python **1946** 项（1933 passed / 13 skipped）。跨会话全文检索/索引、rounds 账本深链、真实终端与 Owner Review 待完成，P10 不标完成。见 [本批验证](../openspec/changes/implement-improve-workbench-ux-p10/verification.md#会话内定位与只读工具折叠2026-11-09)。
 
 **P9 权限来源与逐条撤销（2026-11-09，实施中）**：`/permissions` 打开结构化权限面板：显示当前档位与来源（本进程 CLI / 用户策略默认 / 默认 ask，含 project 上限）、进程内 workspace/session 授权的稳定 id、工具与目标摘要、有效期（本进程，退出失效）、持久 user/project 策略规则（来源文件、不可进程内撤销原因）与策略加载错误。面板可逐条撤销授权并显示撤销后的剩余权限；未知/已撤销/跨工作区 id 明确拒绝且不改变现有授权；`/permissions reset` 保留 P1 文案与语义，旧后端回退文本结果。新增 3 项 Python、8 项 TUI 回归（含实际 Python list/revoke 传输），完整 Ink **707**（705 passed、2 项沙箱 PTY 环境失败）、Python **1946** 项（1933 passed / 13 skipped）。持久策略文件写回/撤销与真实终端、Owner Review 待完成，P9 不标完成。见 [本批验证](../openspec/changes/implement-improve-workbench-ux-p9/verification.md#权限来源与逐条撤销2026-11-09)。

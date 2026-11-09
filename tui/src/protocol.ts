@@ -21,7 +21,7 @@ export const AUTONOMY_LABELS: Record<AutonomyLevel, string> = {
   workspace: '工作区自动（写入+执行）',
   full: '完全执行（写入+执行+网络）',
 };
-export const BACKEND_COMMANDS = ['resume', 'permissions', 'permissions_reset', 'cost', 'tools', 'diff', 'mcp', 'skills', 'evidence', 'autonomy', 'tasks', 'approvals', 'plan', 'explore', 'notifications', 'trace', 'priority', 'queue', 'inspections', 'sessions'] as const;
+export const BACKEND_COMMANDS = ['resume', 'permissions', 'permissions_reset', 'cost', 'tools', 'diff', 'mcp', 'skills', 'evidence', 'autonomy', 'tasks', 'approvals', 'plan', 'explore', 'notifications', 'trace', 'priority', 'queue', 'inspections', 'sessions', 'search', 'rounds'] as const;
 export {COMMAND_COMPLETIONS, COMMAND_DESCRIPTIONS, commandMatches} from './commands.js';
 export type BackendCommand = typeof BACKEND_COMMANDS[number];
 export type SkillsCommandArgs = {action?: 'list' | 'refresh' | 'activate' | 'unload'; name?: string};
@@ -67,6 +67,49 @@ export function validPermissionOverview(value: unknown): value is PermissionOver
       !permissionGrantId(value.revoked.id) || !['workspace', 'session'].includes(String(value.revoked.kind)) ||
       (value.revoked.tool !== null && !bounded(value.revoked.tool, 128)) || !bounded(value.revoked.target, 512))) return false;
   return bounded(value.workspace, 1024) && bounded(value.session_id, 128);
+}
+export type SearchCommandArgs = {query: string; cursor?: string};
+export type HistorySearchMatch = {session_id: string; identity: string; title: string; updated_at: string;
+  role: 'user' | 'assistant' | 'tool'; snippet: string; ts: string | null; message_index: number};
+export type HistorySearchPage = {workspace: string; session_id: string; purpose: SessionPurpose; query: string;
+  matches: HistorySearchMatch[]; next_cursor: string | null; skipped: number; truncated: boolean};
+export const searchCursor = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9_-]{1,512}$/.test(value);
+export function validateSearchArgs(value: unknown): asserts value is SearchCommandArgs {
+  if (!record(value) || Object.keys(value).some(key => key !== 'query' && key !== 'cursor')) throw new Error('检索参数无效');
+  if (typeof value.query !== 'string' || !value.query.trim() || [...value.query].length > 200) throw new Error('检索关键词须为 1-200 个字符');
+  if (value.cursor !== undefined && !searchCursor(value.cursor)) throw new Error('检索游标无效');
+}
+export function validHistorySearchPage(value: unknown): value is HistorySearchPage {
+  const text = (item: unknown, limit: number) => typeof item === 'string' && [...item].length <= limit;
+  if (!record(value) || typeof value.workspace !== 'string' || !validId(value.session_id) ||
+      !['user', 'test'].includes(String(value.purpose)) || !text(value.query, 200) ||
+      value.next_cursor !== null && !searchCursor(value.next_cursor) ||
+      !Number.isSafeInteger(value.skipped) || Number(value.skipped) < 0 || typeof value.truncated !== 'boolean' ||
+      !Array.isArray(value.matches) || value.matches.length > 20) return false;
+  return value.matches.every(item => record(item) && validId(item.session_id) &&
+    typeof item.identity === 'string' && /^[0-9a-f]{64}$/.test(item.identity) &&
+    text(item.title, 200) && text(item.updated_at, 128) && ['user', 'assistant', 'tool'].includes(String(item.role)) &&
+    text(item.snippet, 280) && (item.ts === null || text(item.ts, 128)) &&
+    Number.isSafeInteger(item.message_index) && Number(item.message_index) >= 0);
+}
+export type RoundsLedgerRound = {index: number; run_id: string; goal: string; goal_truncated: boolean;
+  task_kind: string | null; status: string; stop_reason: string | null; steps: number; cost_usd: number;
+  verified: boolean | null; saved_at: string | null};
+export type RoundsLedgerPage = {workspace: string; session_id: string; purpose: SessionPurpose; total: number;
+  skipped: number; truncated: boolean; rounds: RoundsLedgerRound[]};
+export function validRoundsLedgerPage(value: unknown): value is RoundsLedgerPage {
+  const text = (item: unknown, limit: number) => typeof item === 'string' && [...item].length <= limit;
+  if (!record(value) || typeof value.workspace !== 'string' || !validId(value.session_id) ||
+      !['user', 'test'].includes(String(value.purpose)) || !Number.isSafeInteger(value.total) || Number(value.total) < 0 ||
+      !Number.isSafeInteger(value.skipped) || Number(value.skipped) < 0 || typeof value.truncated !== 'boolean' ||
+      !Array.isArray(value.rounds) || value.rounds.length > 50) return false;
+  return value.rounds.every(item => record(item) && Number.isSafeInteger(item.index) && Number(item.index) >= 1 &&
+    text(item.run_id, 128) && text(item.goal, 1000) && typeof item.goal_truncated === 'boolean' &&
+    (item.task_kind === null || text(item.task_kind, 32)) && text(item.status, 32) &&
+    (item.stop_reason === null || text(item.stop_reason, 200)) &&
+    Number.isSafeInteger(item.steps) && Number(item.steps) >= 0 &&
+    typeof item.cost_usd === 'number' && Number.isFinite(item.cost_usd) && item.cost_usd >= 0 &&
+    (item.verified === null || typeof item.verified === 'boolean') && (item.saved_at === null || text(item.saved_at, 128)));
 }
 export type SessionCatalogRow = {session_id: string; identity: string; title: string; updated_at: string;
   message_count: number; preview: string; truncated: boolean};
@@ -177,7 +220,7 @@ export type ExploreCommandArgs = {prompt: string};
 export type NotificationsCommandArgs = {kind?: string};
 export type TraceCommandArgs = {hours?: number};
 export type PriorityCommandArgs = {task_id: string; priority: number};
-export type CommandArgs = SkillsCommandArgs | AutonomyCommandArgs | PlanCommandArgs | ExploreCommandArgs | NotificationsCommandArgs | TraceCommandArgs | PriorityCommandArgs | InspectionHistoryArgs | TaskCatalogArgs | PermissionCommandArgs;
+export type CommandArgs = SkillsCommandArgs | AutonomyCommandArgs | PlanCommandArgs | ExploreCommandArgs | NotificationsCommandArgs | TraceCommandArgs | PriorityCommandArgs | InspectionHistoryArgs | TaskCatalogArgs | PermissionCommandArgs | SearchCommandArgs;
 export function validateNotificationsArgs(value: unknown): asserts value is NotificationsCommandArgs {
   if (!record(value) || Object.keys(value).some(key => key !== 'kind') ||
       (value.kind !== undefined && (typeof value.kind !== 'string' || !value.kind.trim()))) {
@@ -472,6 +515,8 @@ export type ServerEvent =
   | Envelope<'task_catalog', TaskCatalogPage>
   | Envelope<'session_catalog', SessionCatalogPage>
   | Envelope<'permission_overview', PermissionOverview>
+  | Envelope<'history_search', HistorySearchPage>
+  | Envelope<'rounds_ledger', RoundsLedgerPage>
   | Envelope<'history_message', {message: PersistedMessage}>
   | Envelope<'notice', {message: string}>
   | Envelope<'command_result', {command: BackendCommand; text: string; skills?: SkillInfo[]; autonomy?: string}>
@@ -498,6 +543,8 @@ export type ClientRequest = (
   | Envelope<'command', {command: Exclude<BackendCommand, 'skills' | 'autonomy' | 'plan' | 'explore' | 'notifications' | 'trace' | 'priority' | 'inspections' | 'tasks'>}>
   | Envelope<'command', {command: 'tasks' | 'sessions'; args?: TaskCatalogArgs}>
   | Envelope<'command', {command: 'permissions'; args?: PermissionCommandArgs}>
+  | Envelope<'command', {command: 'search'; args: SearchCommandArgs}>
+  | Envelope<'command', {command: 'rounds'; args?: Record<string, never>}>
   | Envelope<'command', {command: 'inspections'; args?: InspectionHistoryArgs}>
   | Envelope<'command', {command: 'skills'; args?: SkillsCommandArgs}>
   | Envelope<'command', {command: 'autonomy'; args: AutonomyCommandArgs}>
@@ -823,6 +870,8 @@ export function parseServerEvent(line: string): ServerEvent {
     case 'task_catalog': valid = validId(value.id) && validTaskCatalogPage(value); break;
     case 'session_catalog': valid = validId(value.id) && validSessionCatalogPage(value); break;
     case 'permission_overview': valid = validId(value.id) && validPermissionOverview(value); break;
+    case 'history_search': valid = validId(value.id) && validHistorySearchPage(value); break;
+    case 'rounds_ledger': valid = validId(value.id) && validRoundsLedgerPage(value); break;
     case 'inspection_history':
       valid = validId(value.id) && typeof value.workspace === 'string' && validId(value.session_id) &&
         (value.task_id === undefined || validId(value.task_id)) &&

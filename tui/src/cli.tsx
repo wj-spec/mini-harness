@@ -67,6 +67,7 @@ Ctrl+C 取消任务或 MCP 初始化，空闲时退出；Ctrl+Q 退出。
   /goal <目标> | /goal stop | /goal resume   目标模式：长任务自动续段
   /session                      查看当前会话路径
   /sessions                     选择并预览旧会话，显式打开（打开不会自动运行）
+  /history <关键词>             跨会话检索已保存的消息；打开所选会话并定位（打开不会自动运行）
   /followup [TEXT]              查看/编辑后续消息；成功后续发，失败暂停
   /copy                         复制最近回复、工具详情或审批预览（Ctrl+Y）
   /find <关键词>                搜索本次会话正文并定位；/rounds 按轮定位；/errors 定位错误
@@ -92,12 +93,12 @@ function extractAttach(args: string[]): {args: string[]; attach?: AttachOptions;
 
 // 顶层 App 持有当前会话的后端；旧会话显式打开成功后替换客户端并重挂载工作台。
 function Root({initial, attach, onClientChange}: {initial: BackendClient; attach: boolean; onClientChange: (client: BackendClient) => void}) {
-  const [current, setCurrent] = useState({client: initial, generation: 0});
+  const [current, setCurrent] = useState<{client: BackendClient; generation: number; focus?: string}>({client: initial, generation: 0});
   useEffect(() => {onClientChange(current.client);}, [current.client, onClientChange]);
-  return <App key={current.generation} client={current.client} attach={attach}
-    onSessionSwitch={async next => {
+  return <App key={current.generation} client={current.client} attach={attach} initialFocus={current.focus}
+    onSessionSwitch={async (next, options) => {
       const previous = current.client;
-      setCurrent({client: next, generation: current.generation + 1});
+      setCurrent({client: next, generation: current.generation + 1, focus: options?.focusQuery});
       try {await previous.shutdown();} catch {void 0;}
     }}/>;
 }
