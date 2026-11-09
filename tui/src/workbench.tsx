@@ -89,7 +89,15 @@ export function transcriptLines(state: ViewState, columns: number, selectedTool:
   for (const entry of state.entries) {
     if (lines.length) lines.push({spans: [{text: ''}]});
     let entryLines: ReadingLine[];
-    if (entry.kind === 'tool' && entry.call) entryLines = toolSummary(entry, columns, entry.id === selectedTool);
+    if (entry.review) {
+      const {target, summary, message, launch} = entry.review;
+      entryLines = [
+        `计划 v${target?.plan_version ?? '?'} · ${summary?.objective ?? '结果待核对'}`,
+        `步骤 ${summary?.step_count ?? '?'} · 验收 ${summary?.criterion_count ?? '?'} · 待决定 ${summary?.question_count ?? '?'}`,
+        entry.reviewProblem ?? (launch ? `${message} · ${launch.task_id} · ${launch.status}` : message),
+        'Ctrl+R审阅 · 正文与动作',
+      ].map(text => ({spans: [{text: fitText(text.replace(/\s+/g, ' '), columns)}]}));
+    } else if (entry.kind === 'tool' && entry.call) entryLines = toolSummary(entry, columns, entry.id === selectedTool);
     else {
       const inside = Math.max(1, columns - 4);
       if (entry.kind === 'notice') {
@@ -101,6 +109,15 @@ export function transcriptLines(state: ViewState, columns: number, selectedTool:
         entryLines = cardLines(label, entry.kind === 'assistant' ? markdownLines(entry.text, inside) : textLines(entry.text, inside), columns,
           entry.kind === 'approval' ? 'warning' : entry.kind === 'task' ? 'accent' : undefined, false,
           entry.kind === 'task' ? 'task' : entry.kind === 'approval' ? 'warning' : 'agent');
+      }
+    }
+    if (entry.inspection) {
+      const actions = [{page: 'changes' as const, label: '变更'}, {page: 'plan' as const, label: '计划'}, {page: 'verification' as const, label: '验证'}];
+      const groups = columns >= 26 ? [actions] : actions.map(action => [action]);
+      for (const group of groups) {
+        let left = 0;
+        const inspectionActions = group.map(({page}) => {const action = {page, left, right: left + 7}; left += 9; return action;});
+        entryLines.push({spans: [{text: group.map(action => `[ ${action.label} ]`).join(' '), bold: true}], inspectionActions, kind: 'label'});
       }
     }
     lines.push(...entryLines.map(line => ({...line, entryId: entry.id})));

@@ -1,6 +1,7 @@
 import {readSidebarLink, type SidebarLink} from './lifecycle.js';
 import {resizeSidebarSplit} from './host.js';
 import {setTimeout as delay} from 'node:timers/promises';
+import {sameOwner, type SidebarOwner} from './channel.js';
 
 /** 右侧侧栏目标宽度占比；主 TUI 约占 70%。 */
 export const SIDEBAR_RATIO = 0.3;
@@ -13,11 +14,12 @@ export function targetSidebarColumns(totalColumns: number, ratio = SIDEBAR_RATIO
 }
 
 export type AdjustDeps = {
+  owner?: SidebarOwner;
   workspace: string;
   totalColumns: number;
   ratio?: number;
   parentPid?: number;
-  readLink?: (workspace: string) => SidebarLink | null;
+  readLink?: (workspace: string, owner?: SidebarOwner) => SidebarLink | null;
   resize?: (direction: 'left' | 'right', pixels: number) => boolean;
   wait?: (ms: number) => Promise<unknown>;
   timeoutMs?: number;
@@ -47,10 +49,14 @@ async function waitForColumns(
  */
 export async function adjustSidebarSplit(options: AdjustDeps): Promise<SidebarLink | null> {
   const wait = options.wait ?? (ms => delay(ms));
-  const readLink = options.readLink ?? readSidebarLink;
-  const resize = options.resize ?? ((direction, pixels) => resizeSidebarSplit(direction, pixels));
+  const read = options.readLink ?? readSidebarLink;
+  const readLink = (workspace: string) => {
+    const link = read(workspace, options.owner);
+    return options.owner && !sameOwner(link?.owner, options.owner) ? null : link;
+  };
+  const resize = options.resize ?? ((direction, pixels) => resizeSidebarSplit(direction, pixels, {owner: options.owner}));
   const target = targetSidebarColumns(options.totalColumns, options.ratio);
-  const parentPid = options.parentPid ?? process.pid;
+  const parentPid = options.parentPid ?? options.owner?.parentPid ?? process.pid;
   let link = await waitForColumns(options.workspace, readLink, wait, options.timeoutMs ?? DEFAULT_TIMEOUT_MS, parentPid);
   if (!link?.columns) return null;
   let columns = link.columns;

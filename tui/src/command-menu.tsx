@@ -2,6 +2,7 @@ import React from 'react';
 import {Box, Text} from 'ink';
 import {clipCells} from './editor.js';
 import {COMMAND_DESCRIPTIONS} from './protocol.js';
+import {commandDefinition} from './commands.js';
 
 type CommandMenuProps = {
   matches: readonly string[];
@@ -13,10 +14,11 @@ type CommandMenuProps = {
   secondaryColor?: string;
   surfaceColor?: string;
   descriptions?: Record<string, string>;
+  unavailable?: Record<string, string | undefined>;
 };
 
 // 命令菜单：带说明、可滚动；无框线，沿用 ▌/› 工作台视觉语言。
-export function CommandMenu({matches, index, rows, columns, accentColor, foregroundColor, secondaryColor, surfaceColor, descriptions}: CommandMenuProps) {
+export function CommandMenu({matches, index, rows, columns, accentColor, foregroundColor, secondaryColor, surfaceColor, descriptions, unavailable}: CommandMenuProps) {
   const total = matches.length;
   const visibleRows = Math.max(1, Math.min(rows, total));
   const top = Math.max(0, Math.min(index - Math.floor(visibleRows / 2), total - visibleRows));
@@ -28,11 +30,13 @@ export function CommandMenu({matches, index, rows, columns, accentColor, foregro
       const position = top + offset;
       const active = position === index;
       const description = COMMAND_DESCRIPTIONS[command] ?? descriptions?.[command] ?? '';
+      const group = commandDefinition(command)?.group;
+      const reason = unavailable?.[command];
       const head = active ? '› ' : '  ';
       const label = command.padEnd(labelWidth, ' ');
       return <Text key={command} wrap="truncate-end">
-        <Text bold color={active ? accentColor : foregroundColor}>{head}{label}</Text>
-        <Text color={active ? foregroundColor : secondaryColor}>{clipCells(`  ${description}`, width - labelWidth - 2)}</Text>
+        <Text bold color={reason ? secondaryColor : active ? accentColor : foregroundColor}>{head}{label}</Text>
+        <Text color={reason ? secondaryColor : active ? foregroundColor : secondaryColor}>{clipCells(`  ${reason ? '暂不可用 · ' + reason : (group ? group + ' · ' : '') + description}`, width - labelWidth - 2)}</Text>
       </Text>;
     })}
   </Box>;

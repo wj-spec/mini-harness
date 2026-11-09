@@ -1,4 +1,7 @@
+import {readSidebarLink} from './sidebar/lifecycle.js';
+import {useSidebarDraftRequests} from './sidebar/use-draft-requests.js';
 import {spawn, spawnSync} from 'node:child_process';
+import {createHash, randomUUID} from 'node:crypto';
 import {readFileSync, readdirSync, rmSync, statSync} from 'node:fs';
 import path from 'node:path';
 import React, {useEffect, useMemo, useReducer, useRef, useState} from 'react';
@@ -8,14 +11,27 @@ import type {BackendClient} from './backend.js';
 import {backendCommand, backendLaunchOptions} from './backend-launch.js';
 import {parseAttachCommand} from './attach-command.js';
 import {AUTONOMY_LABELS, AUTONOMY_LEVELS, commandMatches} from './protocol.js';
+import {commandDefinition, commandHelp, commandUnavailable} from './commands.js';
 import {approvalTitle, splitApprovalPreview} from './approval-view.js';
+import {ApprovalActions, approvalButtons, type ApprovalAction, type ApprovalTarget} from './approval-actions.js';
+import {ActionButtons, type ActionTarget} from './action-buttons.js';
+import {FollowupPanel} from './followup-panel.js';
+import {useFollowups} from './use-followups.js';
+import {useTaskNavigation} from './use-task-navigation.js';
+import {useTaskConnection, type TaskDraft} from './use-task-connection.js';
+import type {TaskConnectionTarget} from './backend.js';
+import {TaskNavigationPanel} from './task-navigation-panel.js';
+import {usePlanReview} from './use-plan-review.js';
+import {SidebarApp} from './sidebar/app.js';
+import {useInspectionHistory} from './use-inspection-history.js';
+import {usePlanRevision, type RevisionAction} from './use-plan-revision.js';
 import {buildSkillMenu} from './skills-menu.js';
 import type {ApprovalDecision, AutonomyLevel, BackendCommand, RunResult, SkillsCommandArgs} from './protocol.js';
 import {goalDecision, goalLabel, goalPrompt, goalStatusText, resumeGoal, startGoal as newGoal, type GoalMode} from './goal.js';
 import {loadGoal, saveGoal} from './goal-store.js';
 import {initialState as emptyState, reduceView, resultReason, type ViewState} from './view-state.js';
 import {Composer} from './composer.js';
-import {fitText, textLines} from './markdown.js';
+import {fitText, textLines, type ReadingLine} from './markdown.js';
 import {detailLines, errorLines, liveLines, metricsText, ReadingPane, transcriptLines, welcomeLines} from './workbench.js';
 import {AgentHeader, agentStatus, StatusPanel} from './agent-status.js';
 import {getPalette, type ThemeName} from './theme.js';
@@ -29,7 +45,10 @@ import {appendProfileAudit, exportUserProfile, loadUserProfile, looksSensitive, 
 import {mergeProposals, proposePreferences, readSessionUserMessages} from './preference-observer.js';
 import {adjustSidebarSplitForTui, closeSidebarWindowForTui, killSidebarForTui, launchSidebarForTui, runSidebarSetup} from './sidebar/launch.js';
 import {agentTouchedFiles} from './sidebar/agent-activity.js';
-import {writeSidebarSignal, type SidebarSignalInput} from './sidebar/signal.js';
+import {removeSidebarSignal, writeSidebarSignal, type SidebarSignalInput} from './sidebar/signal.js';
+import {createSidebarOwner, type SidebarOwner} from './sidebar/channel.js';
+import {verificationInspection, type InspectionSnapshot} from './inspection.js';
+import {useSidebarPlanRequests} from './sidebar/use-plan-requests.js';
 import type {LaunchResult, SidebarMode, TerminalHost} from './sidebar/host.js';
 import type {SetupResult} from './sidebar/launch.js';
 
@@ -41,7 +60,11 @@ const backendCommands: Record<string, BackendCommand> = {
 };
 const approvalKeys: Record<string, ApprovalDecision> = {y: 'once', s: 'session', p: 'workspace', n: 'deny'};
 const FAKE_DEMO_PROMPT = '创建 .vibe/fake-demo.txt 并验证';
-const fakeDemoEnabled = () => /^(1|true|yes)$/i.test(process.env.VIBE_FAKE_DEMO ?? '');
+const fakeDemoPrompt = () => {
+  const mode = (process.env.VIBE_FAKE_DEMO ?? '').trim().toLowerCase();
+  if (mode === 'plan' || mode === 'revision') return '/plan 写入 .vibe/plan-demo.txt 并校验内容';
+  return /^(1|true|yes)$/.test(mode) ? FAKE_DEMO_PROMPT : '';
+};
 
 function latestPlanArtifact(sessionPath: string): Record<string, unknown> | null {
   if (!sessionPath) return null;
@@ -165,78 +188,41 @@ function latestPlanText(sessionPath: string, full = false): string | null {
   } catch {return null;}
 }
 
-function planSidebarSummary(sessionPath: string): {version: number; status: string; stale: boolean; objective: string; stepCount: number; doneSteps: number; acceptance?: boolean | null; steps: {id: string; title: string; status: string}[]} | null {
-  const payload = latestPlanArtifact(sessionPath);
-  if (!payload) return null;
-  const approval = payload.approval && typeof payload.approval === 'object' ? payload.approval as Record<string, unknown> : {};
-  let acceptance: boolean | null = null;
-  let doneSteps = 0;
-  try {
-    const version = Number(payload.version ?? 1);
-    const tasksRoot = path.join(sessionPath, 'tasks');
-    for (const task of readdirSync(tasksRoot, {withFileTypes: true})) {
-      if (!task.isDirectory()) continue;
-      const acceptanceFile = path.join(tasksRoot, task.name, `acceptance.v${version}.json`);
-      try {
-        const saved = JSON.parse(readFileSync(acceptanceFile, 'utf8')) as Record<string, unknown>;
-        if (saved.status === true || saved.status === false || saved.status === null) {
-          acceptance = saved.status as boolean | null;
-        }
-      } catch {}
-      const executionFile = path.join(tasksRoot, task.name, 'plan', `execution.v${version}.json`);
-      try {
-        const saved = JSON.parse(readFileSync(executionFile, 'utf8')) as Record<string, unknown>;
-        doneSteps = Array.isArray(saved.steps)
-          ? saved.steps.filter((item: unknown) => item && typeof item === 'object' && (item as Record<string, unknown>).status === 'done').length
-          : 0;
-      } catch {}
-      if (acceptance !== null || doneSteps > 0) break;
-    }
-  } catch {}
-  const stepStatuses: Record<string, string> = {};
-  try {
-    const version = Number(payload.version ?? 1);
-    const tasksRoot = path.join(sessionPath, 'tasks');
-    for (const task of readdirSync(tasksRoot, {withFileTypes: true})) {
-      if (!task.isDirectory()) continue;
-      try {
-        const execution = JSON.parse(readFileSync(path.join(tasksRoot, task.name, 'plan', `execution.v${version}.json`), 'utf8')) as Record<string, unknown>;
-        for (const step of Array.isArray(execution.steps) ? execution.steps : []) {
-          if (step && typeof step === 'object') {
-            const record = step as Record<string, unknown>;
-            if (typeof record.step_id === 'string') stepStatuses[record.step_id] = String(record.status ?? 'pending');
-          }
-        }
-      } catch {}
-    }
-  } catch {}
-  const steps = (Array.isArray(payload.steps) ? payload.steps : []).map(step => {
-    const item = step && typeof step === 'object' ? step as Record<string, unknown> : {};
-    const id = String(item.step_id ?? '?');
-    return {id, title: String(item.title ?? ''), status: stepStatuses[id] ?? 'pending'};
-  });
-  return {
-    version: Number(payload.version ?? 1),
-    status: String(payload.status ?? ''),
-    stale: approval.stale === true,
-    objective: String(payload.objective ?? '').slice(0, 200),
-    stepCount: Array.isArray(payload.steps) ? payload.steps.length : 0,
-    doneSteps,
-    acceptance,
-    steps,
-  };
-}
-
-export function App({client, attach = false, initialState = emptyState, windowSize, initialTheme = 'system', copyText = copyToClipboard, profilePath, userProfilePath, launchSidebar = launchSidebarForTui, setupSidebar = runSidebarSetup, publishSidebarSignal = writeSidebarSignal, autoObserve = process.env.VIBE_AUTO_OBSERVE === '1'}: {
+export function App({client, attach = false, active = true, initialDraft, onDraftChange, onDetach, stopOnConnect = false, initialState = emptyState, windowSize, initialTheme = 'system', copyText = copyToClipboard, profilePath, userProfilePath, launchSidebar = launchSidebarForTui, setupSidebar = runSidebarSetup, publishSidebarSignal = writeSidebarSignal, autoObserve = process.env.VIBE_AUTO_OBSERVE === '1'}: {
   client: BackendClient; attach?: boolean; initialState?: ViewState; windowSize?: {columns: number; rows: number}; initialTheme?: ThemeName;
   copyText?: (text: string) => string | null; profilePath?: string; userProfilePath?: string;
-  launchSidebar?: (workspace: string, mode?: SidebarMode, totalColumns?: number) => LaunchResult;
+  launchSidebar?: (workspace: string, mode?: SidebarMode, totalColumns?: number, owner?: SidebarOwner) => LaunchResult;
   setupSidebar?: () => SetupResult;
   publishSidebarSignal?: (workspace: string, input: SidebarSignalInput) => void;
   autoObserve?: boolean;
+  active?: boolean; initialDraft?: TaskDraft; onDraftChange?: (draft: TaskDraft) => void; onDetach?: () => void; stopOnConnect?: boolean;
 }) {
   const [state, dispatch] = useReducer(reduceView, initialState);
-  const [input, setInput] = useState(fakeDemoEnabled() ? FAKE_DEMO_PROMPT : '');
+  const taskConnection = useTaskConnection(client);
+  const surfaceActive = active && !taskConnection.connection;
+  const surfaceActiveRef = useRef(surfaceActive); surfaceActiveRef.current = surfaceActive;
+  const stopOnConnectRef = useRef(stopOnConnect);
+  const [handoff, setHandoff] = useState<{target: TaskConnectionTarget; stop: boolean; mode: 'choose' | 'wait'} | null>(null);
+  const handoffRef = useRef(handoff); handoffRef.current = handoff;
+  const connectRef = useRef(taskConnection.connect); connectRef.current = taskConnection.connect;
+  const [sidebarOwner] = useState(createSidebarOwner);
+  const history = useInspectionHistory(client, state.workspace, state.sessionId, state.phase === 'closed', attach ? state.attachedTaskId : undefined);
+  const [historyIndex, setHistoryIndex] = useState<number | null>(null);
+  useEffect(() => setHistoryIndex(null), [history.open, history.cursor]);
+  const historyRef = useRef(history); historyRef.current = history;
+  const historyAvailable = (!attach || Boolean(state.attachedTaskId)) && Boolean(state.sessionId) && Boolean(client.capabilities?.().includes('inspection-history'));
+  const navigation = useTaskNavigation(client, state.workspace, state.sessionId, state.phase === 'closed');
+  const navigationRef = useRef(navigation); navigationRef.current = navigation;
+  const navigationAvailable = Boolean(state.sessionId && client.capabilities?.().includes('task-navigation'));
+  const sidebarRequests = useSidebarPlanRequests(client, state, sidebarOwner);
+  const sidebarRequestsRef = useRef(sidebarRequests); sidebarRequestsRef.current = sidebarRequests;
+  const [inspectionSelection, setInspectionSelection] = useState<{id: string; page: 'changes' | 'plan' | 'verification'; snapshot: InspectionSnapshot | null} | null>(null);
+  const [inspectionFocused, setInspectionFocused] = useState(false);
+  const [inspectionMounted, setInspectionMounted] = useState(false);
+  const showFocusedInspection = () => {setInspectionMounted(true); setInspectionFocused(true);};
+  const inspectionTargets = useRef<ActionTarget<'current' | 'history' | 'older' | 'newer' | 'retry' | 'back' | 'focus'>[]>([]);
+  const inspectionPress = useRef<{key: string; entryId: number | null; page: 'changes' | 'plan' | 'verification' | 'current' | 'history' | 'older' | 'newer' | 'retry' | 'back' | 'focus'} | null>(null);
+  const [input, setInput] = useState(() => initialDraft?.value ?? fakeDemoPrompt());
   const [menuIndex, setMenuIndex] = useState(0);
   const [theme, setTheme] = useState<ThemeName>(initialTheme);
   const [quitting, setQuitting] = useState(false);
@@ -255,13 +241,29 @@ export function App({client, attach = false, initialState = emptyState, windowSi
   const [contextSelection, setContextSelection] = useState<string | null>(null);
   const [overlayScroll, setOverlayScroll] = useState({key: '', top: 0});
   const [reading, setReading] = useState(false);
+  const [approvalSelection, setApprovalSelection] = useState<{id: string; decision: ApprovalAction | null} | null>(null);
+  const [approvalMore, setApprovalMore] = useState<string | null>(null);
+  const approvalTargets = useRef<ApprovalTarget[]>([]);
+  const approvalPress = useRef<{layout: string; action: ApprovalAction} | null>(null);
+  const revisionTargets = useRef<ActionTarget<RevisionAction>[]>([]);
+  const revisionPress = useRef<{layout: string; action: RevisionAction} | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [goal, setGoal] = useState<GoalMode | null>(null);
   const closing = useRef(false);
   const activeRun = useRef(state.activeId);
-  const answeredApproval = useRef<string | null>(null);
-  const controlRequests = useRef(new Map<string, 'steer' | 'cancel'>());
-  const followups = useRef<string[]>([]);
+  const answeredApprovals = useRef(new Set<string>());
+  const approvalRun = useRef(state.activeId);
+  const controlRequests = useRef(new Map<string, 'steer' | 'cancel' | 'approval'>());
+  const modeRequest = useRef<{id: string; draft: string; timer: ReturnType<typeof setTimeout>} | null>(null);
+  const modeRequestIds = useRef(new Set<string>());
+  useEffect(() => () => {if (modeRequest.current) clearTimeout(modeRequest.current.timer);}, []);
+  const followups = useFollowups({workspace: state.workspace, sessionId: state.sessionId, sessionPath: state.sessionPath,
+    ...(attach ? {taskId: state.attachedTaskId ?? 'pending-attach'} : {})});
+  const followupsRef = useRef(followups); followupsRef.current = followups;
+  const failedFollowupVerification = useRef<string | null>(null);
+  const followupTargets = useRef<ActionTarget<'followups' | 'tasks' | 'parent'>[]>([]);
+  const followupPress = useRef<string | null>(null);
+  const followupDraftDirty = useRef(false);
   const sidebarWindow = useRef<{host: TerminalHost; windowId: string} | null>(null);
   const dragAnchor = useRef<SelectionPoint | null>(null);
   const goalRef = useRef<GoalMode | null>(null);
@@ -276,22 +278,35 @@ export function App({client, attach = false, initialState = emptyState, windowSi
   const quittingRef = useRef(quitting);
   quittingRef.current = quitting;
   activeRun.current = state.activeId;
+  const revision = usePlanRevision(client, text => {setFeedback(text); setFeedbackTone('info');}, (id, target, objective, receipt) => {
+    if (activeRun.current || latestState.current.phase !== 'idle') return false;
+    activeRun.current = id;
+    dispatch({type: 'begin', id, text: `修订计划 v${target.plan_version}：${objective}`, revision: receipt});
+    return true;
+  }, (source, target, activate) => reviewRef.current.showRevision(source, target, activate), () => !activeRun.current && latestState.current.phase === 'idle', result => dispatch({type: 'revision_receipt', result}));
+  const revisionRef = useRef(revision); revisionRef.current = revision;
+  const review = usePlanReview(client, (result, problem) => dispatch({type: 'review_card', result, problem}), text => {setFeedback(text); setFeedbackTone('info');}, (id, result) => {
+    if (activeRun.current || latestState.current.phase !== 'idle') return false;
+    activeRun.current = id;
+    dispatch({type: 'begin', id, text: `执行计划 v${result.target?.plan_version}：${result.summary?.objective ?? ''}`, plan: result});
+    return true;
+  }, () => !activeRun.current && latestState.current.phase === 'idle', (target, objective, history) => {
+    if (history) revisionRef.current.openHistory(target, objective); else revisionRef.current.open(target, objective);
+  });
+  const reviewRef = useRef(review);
+  reviewRef.current = review;
   const startQueuedFollowup = () => {
-    if (!followups.current.length) return;
     const current = latestState.current;
-    if (quittingRef.current || current.phase === 'closed') return;
-    const text = followups.current.shift()!;
-    try {
-      const id = client.run(text);
+    if (!surfaceActiveRef.current || quittingRef.current || current.phase === 'closed' || current.attachOffline || activeRun.current) return;
+    followupsRef.current.start((text, requestId) => {
+      const id = client.run(text, undefined, requestId);
       activeRun.current = id;
       dispatch({type: 'begin', id, text});
       setFeedback(''); setScroll({follow: true, top: 0});
-    } catch (error) {
-      followups.current.unshift(text);
-      dispatch({type: 'notice', text: `后续消息未能启动：${String(error)}`});
-    }
+      return id;
+    });
   };
-  const history = useMemo(() => state.entries.filter(entry => entry.kind === 'task').map(entry => entry.text), [state.entries]);
+  const inputHistory = useMemo(() => state.entries.filter(entry => entry.kind === 'task').map(entry => entry.text), [state.entries]);
   const {exit} = useApp();
   type QuitOption = {label: string; action: () => void; disabled?: boolean};
   const [quitPrompt, setQuitPrompt] = useState<{options: QuitOption[]; index: number} | null>(null);
@@ -305,32 +320,63 @@ export function App({client, attach = false, initialState = emptyState, windowSi
   const terminal = useWindowSize();
   const columns = Math.max(1, windowSize?.columns ?? terminal.columns);
   const rows = Math.max(1, windowSize?.rows ?? terminal.rows);
+  const minimumColumns = state.approval || review.focused || revision.mode || followups.open || navigation.open ? 32 : 24;
+  const minimumRows = state.approval || review.focused || revision.mode || followups.open || navigation.open ? 12 : 11;
+  const inspectionVisible = surfaceActive && inspectionFocused && !quitPrompt;
+  const followupsVisible = surfaceActive && followups.open && !quitPrompt;
+  const navigationVisible = surfaceActive && navigation.open && !quitPrompt;
+  const terminalTooSmall = rows < minimumRows || columns < minimumColumns;
   const palette = getPalette(theme);
   const tools = state.entries.filter(entry => entry.kind === 'tool' && entry.call);
   const chosenTool = tools.find(entry => entry.id === selectedTool) ?? tools.at(-1);
   const detailEntry = state.entries.find(entry => entry.id === detail);
-  const overlayKey = state.approval ? `approval-${state.approval.id}` : contextOpen ? 'context' : planOpen ? 'plan' : detailEntry ? `tool-${detailEntry.id}` : '';
+  const overlayKey = state.approval ? `approval-${state.approval.id}` : revision.mode ? `revision-${revision.key}-${revision.mode}${revision.mode === 'history' ? `-${revision.history?.cursor ?? ''}-${revision.history?.index}` : ''}` : review.focused ? `review-${review.key}-${review.body ? review.cursor : 'actions'}` : contextOpen ? 'context' : planOpen ? 'plan' : detailEntry ? `tool-${detailEntry.id}` : history.open ? 'inspection-history' : '';
   const composerRows = rows >= 32 ? 5 : rows >= 18 ? 3 : 1;
-  const headerRows = rows >= 26 && columns >= 96 ? 5 : rows >= 18 ? 3 : 2;
+  const compactApproval = Boolean((state.approval || revision.mode) && rows < 18);
+  const compactLayout = rows >= 18 && rows < 26;
+  const compactQuit = Boolean(quitPrompt && rows < 18);
+  const composerPadding = rows < 18 || compactApproval || compactLayout ? 0 : 1;
+  const headerRows = rows >= 26 && columns >= 96 ? 5 : rows >= 18 ? 3 : compactApproval ? 1 : 2;
   const sidebar = columns >= 118 && rows >= 24;
   const readerColumns = sidebar ? columns - 33 : columns;
-  const compactRows = !sidebar && rows >= 24 && !overlayKey ? 3 : 0;
+  const compactRows = !sidebar && rows >= 24 && !overlayKey ? compactLayout ? state.contextSnapshots.length ? 1 : 0 : 3 : 0;
   const skillMenu = !reading && !overlayKey && !quitting ? buildSkillMenu(input, state.skills) : null;
   const menuMatches = skillMenu?.matches ?? (!reading && !overlayKey && !quitting ? commandMatches(input) : []);
-  const paneBase = rows - headerRows - compactRows - composerRows - 4;
+  const submissionBlock = review.decisionPending ? '计划决策处理中' : revision.decisionPending ? '修订请求处理中' : quitting ? '正在退出' :
+    state.phase === 'closed' ? '连接已断开' : state.phase === 'starting' ? '后端尚未就绪' : state.phase === 'stopping' ? '正在停止' :
+      state.phase === 'waiting_approval' ? '等待审批' : undefined;
+  const commandContext = {busy: state.phase !== 'idle' || Boolean(activeRun.current), activeCommand: state.activeCommand,
+    tasks: client.capabilities?.().includes('tasks') ?? false, blocked: submissionBlock, taskNavigation: navigationAvailable,
+    planModeControl: client.capabilities?.().includes('plan-mode-control') ?? false, modePending: Boolean(modeRequest.current)};
+  const menuUnavailable = Object.fromEntries(menuMatches.map(command => [command, commandUnavailable(command, commandContext)]));
+  const approvalRows = state.approval ? rows >= 18 ? 3 : 1 : 0;
+  const revisionRows = !state.approval && revision.mode ? rows >= 18 ? 3 : 1 : 0;
+  const historyVisible = overlayKey === 'inspection-history';
+  const inspectionButtons: {action: 'current' | 'history' | 'older' | 'newer' | 'retry' | 'back' | 'focus'; label: string}[] = historyVisible
+    ? [...(history.loading ? [] : history.problem ? [{action: 'retry' as const, label: '重试'}] : [
+      ...(history.previous.length ? [{action: 'newer' as const, label: '较新'}] : []),
+      ...(history.next ? [{action: 'older' as const, label: '更早'}] : [])]), {action: 'back', label: '返回'}]
+    : [...(state.workspace ? [{action: 'focus' as const, label: columns < 48 ? '检查' : '专注检查'}] : []),
+      ...(historyAvailable ? [{action: 'history' as const, label: columns < 48 ? '历史' : '历史结果'}] : []),
+      ...(inspectionSelection?.snapshot ? [{action: 'current' as const, label: columns < 48 ? '当前' : '回到当前'}] : [])];
+  const inspectionInline = !overlayKey && inspectionButtons.length === 1 && inspectionButtons[0]?.action === 'focus';
+  const inspectionRows = !inspectionInline && (!overlayKey || historyVisible) && inspectionButtons.length ? 1 : 0;
+  const followupRows = (onDetach || followups.count || followups.problem || navigationAvailable) && (!overlayKey || (navigationAvailable || onDetach) && state.approval) ? 1 : 0;
+  const followupButtons: {action: 'tasks' | 'followups' | 'parent'; label: string}[] = [
+    ...(onDetach ? [{action: 'parent' as const, label: '返回原会话'}] : []),
+    ...(navigationAvailable ? [{action: 'tasks' as const, label: '任务'}] : []),
+    ...(followups.count || followups.problem ? [{action: 'followups' as const, label: `后续 ${followups.count}`}] : [])];
+  const followupButtonsWidth = (onDetach ? 16 : 0) + (navigationAvailable ? 10 : 0) + (followups.count || followups.problem ? 13 : 0);
+  const paneBase = rows - followupRows - inspectionRows - headerRows - compactRows - composerRows - composerPadding * 2 - 2 - approvalRows - revisionRows;
   const menuRows = rows >= 18 ? Math.min(menuMatches.length, 5, Math.max(0, paneBase - 4)) : 0;
   const paneRows = Math.max(4, paneBase - menuRows);
   const menuPosition = Math.min(menuIndex, Math.max(0, menuMatches.length - 1));
   const bodyRows = Math.max(1, paneRows - 3);
   const bodyColumns = Math.max(1, readerColumns - 5);
-  const decisions = state.approval?.decisions ?? ['once', 'deny'];
-  const approvalLabels: Record<string, [string, string]> = {
-    once: ['y 允许一次', 'y一次'], session: ['s 精确规则', 's规则'],
-    workspace: ['p 工作区', 'p工作区'], deny: ['n 拒绝', 'n拒绝'],
-  };
-  const fullApprovalHint = decisions.map(decision => approvalLabels[decision]?.[0]).filter(Boolean).join(' / ');
-  const approvalHint = fitText(fullApprovalHint, columns) === fullApprovalHint ? fullApprovalHint :
-    decisions.map(decision => approvalLabels[decision]?.[1]).filter(Boolean).join(' ');
+  const decisions: ApprovalDecision[] = state.approval?.decisions ?? ['once', 'deny'];
+  const approvalExpanded = Boolean(state.approval && approvalMore === state.approval.id);
+  const approvalChoices = approvalButtons(decisions, state.approval?.tool ?? '', approvalExpanded, columns);
+  const approvalLayout = `${state.approval?.id}:${columns}:${rows}:${approvalExpanded}`;
   const isEmpty = !state.entries.length && !state.live && !state.error;
   const completedLines = useMemo(() => transcriptLines({...state, live: '', error: null}, bodyColumns, chosenTool?.id ?? null), [state.entries, bodyColumns, chosenTool?.id]);
   const transcript = useMemo(() => [
@@ -339,28 +385,71 @@ export function App({client, attach = false, initialState = emptyState, windowSi
     ...(state.error ? errorLines(state.error, bodyColumns) : []),
   ], [completedLines, state.live, state.error, bodyColumns]);
   const approvalView = state.approval ? splitApprovalPreview(state.approval.preview) : null;
-  const lines = useMemo(() => {
+  const lines = useMemo<ReadingLine[]>(() => {
     if (state.approval && approvalView) return [
       ...textLines(approvalTitle(state.approval.tool, state.approval.tierLabel ?? approvalView.tier), bodyColumns, 'heading'),
-      ...(state.approval.tierLabel || approvalView.tier ? textLines(`层级：${state.approval.tierLabel ?? approvalView.tier}；作用域选项见底部按键。`, bodyColumns, 'notice') : []),
+      ...(approvalExpanded && compactApproval ? [
+        ...textLines('仅本进程有效，MCP 单独审批', bodyColumns, 'notice'),
+        ...(decisions.includes('session') ? textLines('精确规则：记住此工具与目标', bodyColumns, 'notice') : []),
+        ...(decisions.includes('workspace') ? textLines('工作区：允许原生写入和命令', bodyColumns, 'notice') : []),
+      ] : []),
+      ...(state.approval.tierLabel || approvalView.tier ? textLines(`层级：${state.approval.tierLabel ?? approvalView.tier}`, bodyColumns, 'notice') : []),
       ...(state.approval.rule ? textLines(`命中规则：[${state.approval.rule.source}] ${state.approval.rule.tool}${state.approval.rule.decision ? ` → ${state.approval.rule.decision}` : ''}${state.approval.rule.note ? ` · ${state.approval.rule.note}` : ''}`, bodyColumns, 'notice') : []),
-      ...(decisions.includes('session') ? textLines('s 精确规则：本进程内记住同一工作区、工具及目标；命令内容与目录必须相同。', bodyColumns, 'notice') : []),
-      ...(decisions.includes('workspace') ? textLines('p 工作区授权：本进程内允许原生文件写入、编辑与命令；MCP 仍单独审批。', bodyColumns, 'notice') : []),
+      ...(approvalExpanded && decisions.includes('session') ? textLines('精确规则：本进程内记住同一工作区、工具及目标；命令内容与目录必须相同。', bodyColumns, 'notice') : []),
+      ...(approvalExpanded && decisions.includes('workspace') ? textLines('工作区授权：本进程内允许原生文件写入、编辑与命令；MCP 仍单独审批。', bodyColumns, 'notice') : []),
       ...textLines('预览', bodyColumns, 'label'),
       ...textLines(approvalView.body, bodyColumns),
+    ];
+    if (revision.mode === 'history' && revision.history) {
+      const history = revision.history; const entry = history.records[history.index];
+      const label = {absent: '无记录', pending: '准备中', running: '修订中', paused: '已暂停', incomplete: '未完成', submitted: '已提交', unavailable: '不可续做'};
+      return [
+        ...textLines(fitText(history.objective.replace(/\s+/g, ' '), bodyColumns), bodyColumns, 'notice'),
+        ...textLines(history.pending ? '正在读取修订记录…' : history.problem ?? (entry ? `原计划 v${entry.target?.plan_version} · ${label[entry.outcome]}` : '没有已发送的修订反馈'), bodyColumns, 'heading'),
+        ...(!history.pending && !history.problem && entry ? textLines(entry.feedback, bodyColumns) : []),
+      ];
+    }
+    if (revision.mode && revision.record) return [
+      ...textLines(fitText(revision.record.objective.replace(/\s+/g, ' '), bodyColumns), bodyColumns, 'notice'),
+      ...textLines(revision.mode === 'confirm' ? '确认后只读修订，新版仍需审阅' : revision.record.pending ? '修订请求处理中…' : revision.record.problem ?? revision.record.receipt?.message ?? '反馈已保留', bodyColumns, 'heading'),
+      ...(revision.record.receipt ? textLines(`修订状态：${revision.record.receipt.outcome}${revision.record.receipt.task ? ` · ${revision.record.receipt.task.status} · 段 ${revision.record.receipt.task.segment}` : ''}`, bodyColumns) : []),
+      ...textLines(revision.mode === 'confirm' ? revision.record.draft : revision.record.submitted ?? revision.record.draft, bodyColumns),
+      ...textLines(`\n原计划：${revision.record.target.plan_id} v${revision.record.target.plan_version}`, bodyColumns, 'notice'),
+    ];
+    if (review.focused && review.body && review.card) return [
+      ...(review.card.outcome === 'unavailable' ? textLines(`旧版缓存，仅供核对：${review.card.message}`, bodyColumns, 'notice') : []),
+      ...textLines(review.bodyText, bodyColumns),
+      ...textLines(`\n计划身份：\n${JSON.stringify(review.card.target, null, 2)}`, bodyColumns, 'notice'),
+    ];
+    if (review.focused && review.card) return [
+      ...textLines(review.pending ? '等待回执…' : review.choice ? `› ${review.choices.find(choice => choice.value === review.choice)?.label}` : '↑↓ 选择动作（未选）', bodyColumns, 'heading'),
+      ...review.choices.map(choice => ({spans: [{text: fitText(`${choice.key} ${choice.label}`, bodyColumns)}]})),
+      ...textLines(fitText((review.card.summary?.objective ?? review.card.message).replace(/\s+/g, ' '), bodyColumns), bodyColumns),
+      ...textLines(review.card.message, bodyColumns),
+      ...(review.card.launch ? textLines(`绑定任务：${review.card.launch.task_id} · ${review.card.launch.status}`, bodyColumns) : []),
+      ...(review.card.outcome === 'launched' ? textLines(`已有运行记录；/task 核对，/attach ${review.card.launch.task_id} 查看连接方式`, bodyColumns, 'notice') : []),
+      ...(review.problem ? textLines(review.problem, bodyColumns, 'notice') : []),
+    ];
+    if (historyVisible) return [
+      ...(history.taskId ? textLines(`筛选任务：${history.taskId}`, bodyColumns, 'notice') : []),
+      ...textLines(history.loading ? '正在读取历史结果…' : history.problem || (history.records.length ? '选择原运行的检查对象；读取不会执行任务。' : '没有保存的检查记录；旧会话不会从历史文字补造结果。'), bodyColumns, 'notice'),
+      ...(history.skipped ? textLines(`跳过 ${history.skipped} 条损坏或身份不明的记录`, bodyColumns, 'notice') : []),
+      ...transcriptLines({...state, entries: history.records.map((snapshot, index) => ({id: -index - 1, kind: 'notice' as const, inspection: snapshot,
+        text: `${historyIndex === index ? '› ' : `${index + 1}. `}${snapshot.scope.objective}\n${snapshot.scope.status === 'unknown' ? '未取得结束结果' : snapshot.verification.verified === true ? '已验证' : snapshot.verification.verified === false ? '验证未通过' : '未验证'} · ${snapshot.scope.requestId}${snapshot.scope.segment ? ' · 段 ' + snapshot.scope.segment : ''}`}))}, bodyColumns, null),
     ];
     if (contextOpen) return contextLines(state.contextSnapshots, contextSelection, bodyColumns);
     if (planOpen) return planLines.flatMap((line, index) =>
       textLines(`${index === planSelection ? '› ' : '  '}${line}`, bodyColumns));
     if (detailEntry) return detailLines(detailEntry, bodyColumns);
     return isEmpty ? welcomeLines(state, bodyColumns) : transcript;
-  }, [state.approval, approvalView, contextOpen, planOpen, planLines, planSelection, state.contextSnapshots, contextSelection, detailEntry, bodyColumns, isEmpty, transcript]);
+  }, [history, historyIndex, historyVisible, state.approval, approvalView, approvalExpanded, compactApproval, revision, review, contextOpen, planOpen, planLines, planSelection, state.contextSnapshots, contextSelection, detailEntry, bodyColumns, isEmpty, transcript]);
   const maximum = Math.max(0, lines.length - bodyRows);
   const top = overlayKey ? Math.min(overlayScroll.key === overlayKey ? overlayScroll.top : 0, maximum) :
     isEmpty ? Math.min(scroll.top, maximum) : scroll.follow ? maximum : Math.min(scroll.top, maximum);
   const viewport = useRef({top, maximum, overlayKey});
   viewport.current = {top, maximum, overlayKey};
-  const readerFocused = reading || Boolean(overlayKey);
+  const approvalFocused = Boolean(state.approval && approvalSelection?.id === state.approval.id);
+  const readerFocused = state.approval ? approvalFocused : reading || Boolean(overlayKey);
   const selectionBody = {
     top: headerRows + compactRows + 3,
     bottom: headerRows + compactRows + 2 + bodyRows,
@@ -380,13 +469,48 @@ export function App({client, attach = false, initialState = emptyState, windowSi
   };
 
   useEffect(() => client.subscribe(event => {
+    let stopTarget: string | null | undefined;
+    if (navigationRef.current.receive(event) || event.type === 'task_catalog') return;
+    if (historyRef.current.receive(event) || event.type === 'inspection_history') return;
+    if (sidebarRequestsRef.current.receive(event)) return;
+    if (event.type === 'error' && ['default_mode_unavailable', 'session_busy', 'session_unavailable'].includes(event.code) && event.id === activeRun.current) {
+      if (!followupsRef.current.rejected(event.id!)) {
+        const task = latestState.current.entries.findLast(entry => entry.kind === 'task');
+        if (task) setInput(draft => draft || task.text);
+        followupsRef.current.pause('任务未启动，待办保留');
+      }
+      activeRun.current = null;
+    }
+    if (revisionRef.current.receive(event) || event.type === 'plan_revision' || event.type === 'plan_revision_history') return;
+    if (reviewRef.current.receive(event) || event.type === 'plan_review') return;
+    const mode = modeRequest.current;
+    if (event.id && modeRequestIds.current.has(event.id) && (event.type === 'command_result' || event.type === 'error')) {
+      modeRequestIds.current.delete(event.id);
+      if (mode?.id !== event.id) return;
+    }
+    if (event.type === 'closed') modeRequestIds.current.clear();
+    if (mode && (event.type === 'closed' || event.id === mode.id && (event.type === 'command_result' || event.type === 'error'))) {
+      clearTimeout(mode.timer); modeRequest.current = null;
+      if (event.type === 'command_result') {
+        setInput(draft => draft === mode.draft ? '' : draft);
+        dispatch({type: 'notice', text: event.text});
+        setFeedback('默认模式已确认；当前任务模式不变'); setFeedbackTone('info');
+        return;
+      }
+      setFeedback(event.type === 'error' ? `默认模式未确认：${event.message}；草稿保留，可 /plan status 查询` : '连接已断开，默认模式结果待确认；重开后核对');
+      setFeedbackTone('error');
+      if (event.type === 'error') return;
+    }
     if (event.type === 'ack' || event.type === 'error') {
       const kind = event.id === null ? undefined : controlRequests.current.get(event.id);
       if (kind) {
         controlRequests.current.delete(event.id!);
         if (event.type === 'ack') {
           if (kind === 'steer') dispatch({type: 'notice', text: '纠偏已提交，将在下一次模型请求生效'});
+          else if (kind === 'approval') setFeedback('');
           else dispatch({type: 'notice', text: '后端已确认停止请求，等待收尾…'});
+        } else if (kind === 'approval') {
+          reportError(`审批未生效：${event.code}: ${event.message}；Ctrl+C 停止后核对`);
         } else if (kind === 'steer') {
           dispatch({type: 'notice', text: `纠偏未送达：${event.code}: ${event.message}`});
           setFeedback(`纠偏未送达：${event.message}`);
@@ -396,12 +520,34 @@ export function App({client, attach = false, initialState = emptyState, windowSi
         return;
       }
     }
-    if (event.type === 'approval_request') {setDetail(null); setContextOpen(false); answeredApproval.current = null;}
+    if (event.type === 'approval_request') {
+      if (event.id !== activeRun.current) return;
+      if (approvalRun.current !== event.id) {
+        approvalRun.current = event.id;
+        answeredApprovals.current.clear();
+      }
+      if (answeredApprovals.current.has(event.approval_id) ||
+          latestState.current.phase === 'stopping' || latestState.current.phase === 'closed') return;
+      if (latestState.current.approval?.id !== event.approval_id) {
+        reviewRef.current.blur();
+        revisionRef.current.close();
+        setDetail(null); setContextOpen(false); setPlanOpen(false); setReading(false);
+        setApprovalSelection(null);
+        setApprovalMore(null); approvalPress.current = null;
+        setFeedback('');
+      }
+    }
+    if (event.type === 'approval_resolved' && event.id === activeRun.current && latestState.current.approval?.id === event.approval_id) {
+      answeredApprovals.current.add(event.approval_id);
+      setApprovalSelection(null);
+      setFeedback('审批已被处理，草稿保留');
+    }
     if (event.type === 'ready' && event.tasks && event.tasks.length) {
       const running = event.tasks.filter(task => task.worker_status && task.worker_status !== 'exited' && task.worker_status !== 'failed' && task.worker_status !== 'interrupted');
       const summary = event.tasks.slice(0, 5).map(task => `${task.task_id} ${task.status}${task.worker_status ? `/${task.worker_status}` : ''}${task.pending_approvals ? ` 待审批${task.pending_approvals}` : ''}`).join('；');
       dispatch({type: 'notice', text: `检测到 ${event.tasks.length} 个任务${running.length ? `（${running.length} 个后台 worker 活跃）` : ''}：${summary}${event.tasks.length > 5 ? ' …' : ''}\n输入 /task 查看；/attach 生成 attach 命令。`});
     }
+    if (!attach && event.type === 'ready' && event.resumed && client.capabilities?.().includes('plan-review')) reviewRef.current.discover();
     if (event.type === 'subagent_event') {
       notice(`子 Agent ${event.status}：${event.task_id}${event.summary ? ` · ${event.summary}` : ''}`);
     }
@@ -429,6 +575,11 @@ export function App({client, attach = false, initialState = emptyState, windowSi
     }
     if (event.type === 'task_snapshot') {
       lastTaskId.current = event.task.task_id;
+      activeRun.current = !client.capabilities?.().includes('attach-offline') && event.task.status === 'running' ? event.task.run_id : null;
+      if (stopOnConnectRef.current) {
+        stopOnConnectRef.current = false;
+        stopTarget = client.capabilities?.().includes('cancel') ? activeRun.current : null;
+      }
       const worker = event.task.worktree ? ` · worktree ${event.task.worktree.branch}` : '';
       const plan = event.task.plan_id ? ` · plan ${event.task.plan_id}v${event.task.plan_version ?? 1}` : '';
       dispatch({type: 'notice', text: `已 attach：${event.task.task_id} ${event.task.status} · 段 ${event.task.segment}${worker}${plan} · 待审批 ${event.approvals.length}`});
@@ -449,48 +600,91 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       }
     }
     if (event.type === 'status' && event.phase === 'starting' && event.id) activeRun.current = event.id;
+    if (event.type === 'tool_result' && event.id === activeRun.current && event.call.args.verification === true &&
+        (!event.ok || event.execution?.status !== 'succeeded' || event.execution.exit_code !== 0)) failedFollowupVerification.current = event.id;
     const finished = (event.type === 'done' || event.type === 'command_result') && event.id === activeRun.current;
     if (finished) activeRun.current = null;
     if (event.type === 'status' && event.phase === 'idle' && activeRun.current === 'startup') activeRun.current = null;
-    if (event.type === 'closed') {activeRun.current = null; followups.current = [];}
+    if (event.type === 'closed') {
+      handoffRef.current = null; setHandoff(null);
+      if ([...controlRequests.current.values()].includes('approval')) setFeedback('连接已断开，审批结果未知；核对后再操作');
+      activeRun.current = null; followupsRef.current.disconnected(); controlRequests.current.clear();
+    }
+    if (event.type === 'error' && event.id === activeRun.current) followupsRef.current.disconnected('运行发生错误，结果待核对；待办保留');
     dispatch({type: 'event', event});
+    if (stopTarget !== undefined) {
+      if (!stopTarget) dispatch({type: 'notice', text: '任务已不再可停止；未发送停止请求，请核对当前状态'});
+      else try {
+        controlRequests.current.set(client.cancel(stopTarget), 'cancel');
+        dispatch({type: 'cancel'});
+        dispatch({type: 'notice', text: '已向所选任务发送停止请求，等待后端收尾；原会话未停止'});
+      } catch (error) {dispatch({type: 'notice', text: `停止请求未送达：${String(error)}；未自动重试`});}
+    }
     if (finished && event.type === 'done') {
-      if (goalDoneRef.current?.(event.result)) return;
+      const verificationFailed = failedFollowupVerification.current === event.id;
+      failedFollowupVerification.current = null;
+      const canContinue = followupsRef.current.settle(event.result, verificationFailed, event.id ?? undefined);
+      const revisedPlan = revisionRef.current.takeCompletedRun(event.id!);
+      if (!revisedPlan && event.result.stop_reason === 'plan_submitted' && client.capabilities?.().includes('plan-review')) reviewRef.current.discover();
+      if (handoffRef.current?.mode === 'wait') {
+        const requested = handoffRef.current; handoffRef.current = null; setHandoff(null);
+        void connectRef.current(requested.target, requested.stop); return;
+      }
+      if (goalDoneRef.current?.(event.result)) {followupsRef.current.pause('目标模式优先，待办保留'); return;}
       if (waitForExit.current) {
         waitForExit.current = false;
         shutdownRef.current();
         return;
       }
       if (event.result.status === 'done' || event.result.status === 'stopped') autoObserveRef.current?.();
-      if (event.result.status === 'cancelled') {
-        const dropped = followups.current.length;
-        followups.current = [];
-        dispatch({type: 'notice', text: '已取消：已发生的修改仍需核对'});
-        if (dropped) dispatch({type: 'notice', text: `已取消，${dropped} 条排队消息已丢弃`});
-      } else {
-        startQueuedFollowup();
-      }
+      if (event.result.status === 'cancelled') dispatch({type: 'notice', text: '已取消：已发生的修改仍需核对，后续待办保留'});
+      if (canContinue) startQueuedFollowup();
     }
   }), [client]);
-  usePaste(() => {}, {isActive: readerFocused});
+  usePaste(() => {}, {isActive: surfaceActive && (readerFocused || inspectionVisible || followupsVisible || navigationVisible)});
   // 只读信号文件：侧栏据此即时刷新，并标记本轮 Agent 写/改过的文件。
+  const [draftAppendRevision, setDraftAppendRevision] = useState(0);
+  useSidebarDraftRequests(state, sidebarOwner, text => {
+    setInput(previous => previous + (previous ? '\n\n' : '') + text);
+    setDraftAppendRevision(value => value + 1); setFeedback('已附入侧栏引用 · 尚未发送');
+  }, quitting, (target, cursor) => sidebarRequestsRef.current.readPage(target, cursor));
   const publishedSignal = useRef('');
+  useEffect(() => {setInspectionSelection(null); setInspectionFocused(false); setInspectionMounted(false);}, [state.workspace, state.sessionId]);
+  useEffect(() => () => {
+    if (state.workspace) removeSidebarSignal(state.workspace, sidebarOwner);
+  }, [state.workspace, sidebarOwner]);
   useEffect(() => {
     if (!state.workspace) return;
     const last = state.entries.at(-1);
-    const signature = `${state.activeId ?? ''}:${state.entries.length}:${last?.id ?? 0}:${last?.pending ? 1 : 0}:${state.phase}:${state.lastStatus ?? ''}`;
+    const retained = inspectionSelection?.snapshot;
+    const selected = retained?.workspace === state.workspace && retained.sessionId === state.sessionId
+      ? state.entries.find(entry => entry.inspection?.sessionId === retained.sessionId &&
+          entry.inspection.scope.requestId === retained.scope.requestId)?.inspection ?? retained
+      : null;
+    const plan = selected ? selected.plan : state.inspectionPlan;
+    const fileSource = selected ? selected.fileSource ?? null : state.fileSource;
+    const run = selected ? selected.scope : plan?.relation === 'review' ? undefined : state.inspection?.scope;
+    const verification = selected ? selected.verification : run && state.inspection ? verificationInspection(state.inspection, state.entries) : undefined;
+    const summary = plan ? {target: plan.target, relation: plan.relation, problem: plan.problem,
+      version: plan.target.plan_version, status: plan.status, stale: Boolean(plan.problem), objective: plan.objective,
+      stepCount: plan.stepCount, doneSteps: null,
+      acceptance: plan.relation === 'execution' ? verification?.verified ?? null : null} : undefined;
+    const navigation = inspectionSelection ? {id: inspectionSelection.id, page: inspectionSelection.page, mode: selected ? 'result' as const : 'current' as const} : undefined;
+    const signature = createHash('sha256').update(JSON.stringify([state.workspace, state.sessionId, fileSource, run, summary, verification, navigation,
+      state.activeId, state.entries.length, last?.id, last?.pending, state.phase, state.lastStatus])).digest('hex');
     if (signature === publishedSignal.current) return;
     publishedSignal.current = signature;
     try {
       publishSidebarSignal(state.workspace, {
-        signature, files: agentTouchedFiles(state.entries),
-        active: state.phase === 'running' || state.phase === 'waiting_approval',
+        owner: sidebarOwner, sessionId: state.sessionId, fileSource,
+        signature, navigation, files: selected?.files ?? agentTouchedFiles(state.entries, run?.requestId ?? null), run, plan: summary, verification,
+        active: run?.status === 'running',
       });
     } catch {}
-  }, [state.workspace, state.entries, state.activeId, state.phase, state.lastStatus, publishSidebarSignal]);
+  }, [state.workspace, state.sessionId, state.fileSource, state.inspection, state.inspectionPlan, state.entries, state.activeId, state.phase, state.lastStatus, sidebarOwner, publishSidebarSignal, inspectionSelection]);
 
   const notice = (text: string) => {dispatch({type: 'notice', text}); setScroll({follow: true, top: 0});};
-  const announce = (text: string) => {notice(text); setFeedback(text); setFeedbackTone('info');};
+  const announce = (text: string) => {dispatch({type: 'notice', text}); setFeedback(text); setFeedbackTone('info');};
   const reportError = (text: string) => {notice(text); setFeedback(text); setFeedbackTone('error');};
   const launchGoalSegment = (nextGoal: GoalMode, display: string) => {
     try {
@@ -627,17 +821,30 @@ export function App({client, attach = false, initialState = emptyState, windowSi
     const workspace = state.workspace;
     if (!workspace) {notice('尚未连接工作区，暂时无法打开变更侧栏'); return;}
     try {
-      const result = launchSidebar(workspace, mode, columns);
+      const result = launchSidebar(workspace, mode, columns, sidebarOwner);
       announce(result.message);
       if (result.host && result.windowId) sidebarWindow.current = {host: result.host, windowId: result.windowId};
       if (mode === 'split' && result.outcome === 'started' && result.host === 'ghostty' && usesDefaultLauncher) {
         const totalColumns = columns;
-        setTimeout(() => adjustSidebarSplitForTui(workspace, totalColumns), 1200);
+        setTimeout(() => {if (!closing.current) adjustSidebarSplitForTui(workspace, totalColumns, sidebarOwner);}, 1200);
       }
+      return ['started', 'focused', 'toggled'].includes(result.outcome);
     } catch (error) {
       reportError(`打开变更侧栏失败：${String(error)}`);
+      return false;
     }
   };
+  const inspectResult = (entryId: number, page: 'changes' | 'plan' | 'verification') => {
+    const snapshot = entryId < 0 && historyVisible ? history.records[-entryId - 1] : latestState.current.entries.find(entry => entry.id === entryId)?.inspection;
+    if (!snapshot || snapshot.workspace !== state.workspace || snapshot.sessionId !== state.sessionId) {
+      setFeedback('结果来源已失效，未切换检查对象'); return;
+    }
+    if (entryId < 0) dispatch({type: 'retain_history', snapshot});
+    history.close();
+    setInspectionSelection({id: randomUUID(), page, snapshot});
+    if (!openSidebarPanel()) showFocusedInspection();
+  };
+  const inspectCurrent = () => setInspectionSelection({id: randomUUID(), page: 'changes', snapshot: null});
   const setupSidebarConfig = () => {
     if (quitting) return;
     try {
@@ -659,17 +866,16 @@ export function App({client, attach = false, initialState = emptyState, windowSi
   const shutdown = () => {
     if (closing.current) return;
     closing.current = true;
-    followups.current = [];
     setQuitting(true);
     // 工作台退出时联动收起同一进程启动的侧栏；崩溃场景由侧栏自己的父进程看护兜底。
     if (state.workspace) {
-      try {killSidebarForTui(state.workspace);} catch {}
+      try {killSidebarForTui(state.workspace, sidebarOwner);} catch {}
     }
     const windowInfo = sidebarWindow.current;
-    if (windowInfo) {
-      try {closeSidebarWindowForTui(windowInfo.host, windowInfo.windowId);} catch {}
+    if (windowInfo && !readSidebarLink(state.workspace, sidebarOwner)?.hasSelection) {
+      try {closeSidebarWindowForTui(windowInfo.host, windowInfo.windowId, sidebarOwner);} catch {}
     }
-    void client.shutdown().then(() => exit()).catch(error => {
+    void client.shutdown().then(() => onDetach ? onDetach() : exit()).catch(error => {
       notice(`退出时发生错误：${String(error)}`);
       exit(error instanceof Error ? error : new Error(String(error)));
     });
@@ -677,9 +883,20 @@ export function App({client, attach = false, initialState = emptyState, windowSi
   shutdownRef.current = shutdown;
   const requestShutdown = () => {
     if (closing.current) return;
-    if (attach) {shutdown(); return;}
+    handoffRef.current = null; setHandoff(null); taskConnection.cancel();
     const goal = goalRef.current;
     const running = Boolean(activeRun.current) || ['running', 'waiting_approval', 'stopping'].includes(state.phase);
+    const unsavedFollowups = followupDraftDirty.current || followups.writable && Boolean(followups.problem);
+    if ((unsavedFollowups || followups.items.length && !followups.persisted) && (attach || !running && !goal?.active)) {
+      followups.pause('准备退出，待办保留');
+      setQuitPrompt({index: 0, options: [
+        {label: '返回查看后续消息', action: () => followups.show()},
+        {label: unsavedFollowups ? '退出并放弃未保存的待办修改' : `${attach ? '断开' : '退出'}并丢弃 ${followups.items.length} 条待办（仅本次窗口）`, action: shutdown},
+        {label: '取消关闭', action: () => {}},
+      ]});
+      return;
+    }
+    if (attach) {shutdown(); return;}
     if (!running && !goal?.active) {shutdown(); return;}
     const options: {label: string; action: () => void; disabled?: boolean}[] = [];
     if (goal?.active) {
@@ -724,7 +941,33 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       },
     });
     options.push({label: '取消关闭', action: () => setQuitPrompt(null)});
+    if (followups.count || unsavedFollowups) {
+      followups.pause('准备退出，待办保留');
+      for (const option of options.slice(0, -1)) option.label += unsavedFollowups ? ' · 放弃未保存的待办修改' : followups.persisted ? ' · 待办已保存' : ` · 丢弃 ${followups.items.length} 条待办`;
+    }
     setQuitPrompt({options, index: 0});
+  };
+  const connectSelectedTask = (taskId: string, stop = false) => {
+    const target = {workspace: state.workspace, sessionId: state.sessionId, taskId};
+    if (activeRun.current || goalRef.current?.active) {setHandoff({target, stop, mode: 'choose'}); if (!navigation.open) navigation.show(); return;}
+    followups.pause('接入任务期间暂停，待办保留');
+    void taskConnection.connect(target, stop);
+  };
+  const prepareHandoff = (stopCurrent: boolean) => {
+    if (!handoff) return;
+    followups.pause('等待接入任务，待办保留');
+    if (goalRef.current?.active) {
+      const paused = {...goalRef.current, active: false, pausedReason: 'user_stopped'};
+      goalRef.current = paused; setGoal(paused);
+    }
+    if (!activeRun.current) {setHandoff(null); void taskConnection.connect(handoff.target, handoff.stop); return;}
+    const waiting = {...handoff, mode: 'wait' as const}; handoffRef.current = waiting; setHandoff(waiting);
+    if (stopCurrent) try {
+      controlRequests.current.set(client.cancel(activeRun.current), 'cancel'); dispatch({type: 'cancel'});
+    } catch (error) {handoffRef.current = null; setHandoff(null); notice(`停止当前运行未送达：${String(error)}；未切换任务`);}
+  };
+  const cancelHandoff = () => {
+    handoffRef.current = null; setHandoff(null); taskConnection.cancel();
   };
   const navigate = (target: number) => {
     const current = viewport.current;
@@ -734,10 +977,97 @@ export function App({client, attach = false, initialState = emptyState, windowSi
     else setScroll({follow: next === current.maximum, top: next});
   };
   const moveReading = (delta: number) => navigate(viewport.current.top + delta);
+  const selectApproval = (action: ApprovalAction) => {
+    if (!state.approval) return;
+    const expanded = action === 'session' || action === 'workspace' ? true : action === 'once' || action === 'deny' ? false : approvalExpanded;
+    setApprovalMore(expanded ? state.approval.id : null);
+    setApprovalSelection({id: state.approval.id, decision: action});
+    const label = approvalButtons(decisions, state.approval.tool, expanded, columns).find(button => button.action === action)?.label;
+    setFeedback(`已选择：${label}；Enter 确认`);
+  };
+  const activateApproval = (action: ApprovalAction) => {
+    const approval = latestState.current.approval;
+    if (!approval || approval.id !== state.approval?.id || terminalTooSmall || quitting || quitPrompt || answeredApprovals.current.has(approval.id)) return;
+    if (action === 'more' || action === 'back') {
+      setApprovalMore(action === 'more' ? approval.id : null);
+      setApprovalSelection({id: approval.id, decision: null});
+      setOverlayScroll({key: overlayKey, top: 0}); setFeedback('');
+      return;
+    }
+    if (!decisions.includes(action)) return;
+    try {
+      const id = client.approve(approval.id, action);
+      controlRequests.current.set(id, 'approval');
+      answeredApprovals.current.add(approval.id);
+      setApprovalSelection(null); setFeedback('审批已发送，等待后端确认'); dispatch({type: 'approval_sent'});
+    } catch (error) {reportError(`审批响应未送达：${String(error)}`);}
+  };
   useTranscriptMouse({
-    onScroll: delta => {setSelection(null); moveReading(delta);},
+    onPointer: event => {
+      if (followupRows && !quitPrompt) {
+        const hit = followupTargets.current.find(target => event.row >= target.top && event.row <= target.bottom && event.column >= target.left && event.column <= target.right);
+        const key = `${columns}:${rows}:${followups.items.map(item => item.id).join()}:${hit?.action}`;
+        if (event.type === 'press' && event.button === 0) followupPress.current = hit ? key : null;
+        else if (event.type === 'release') {const pressed = followupPress.current; followupPress.current = null; if (hit && pressed === key) {if (hit.action === 'parent') requestShutdown(); else if (hit.action === 'tasks') navigation.show(); else followups.show(); return true;}}
+        else followupPress.current = null;
+        if (hit) return true;
+      }
+      if ((!overlayKey || historyVisible) && !terminalTooSmall && !quitting && !quitPrompt) {
+        const cell = event.column - selectionBody.left;
+        const line = event.row >= selectionBody.top && event.row <= selectionBody.bottom ? lines[top + event.row - selectionBody.top] : undefined;
+        const action = line?.inspectionActions?.find(action => cell >= action.left && cell <= action.right);
+        const current = inspectionTargets.current.find(target => event.row >= target.top && event.row <= target.bottom && event.column >= target.left && event.column <= target.right)?.action;
+        const hit = current ? {entryId: null, page: current} : action && line?.entryId !== undefined ? {entryId: line.entryId, page: action.page} : null;
+        const key = `${columns}:${rows}:${top}:${inspectionSelection?.id ?? ''}:${historyVisible ? history.cursor ?? 'first' : 'closed'}`;
+        if (event.type === 'wheel' || event.type === 'drag' || event.button !== 0) inspectionPress.current = null;
+        else if (event.type === 'press') {inspectionPress.current = hit ? {...hit, key} : null; if (hit) return true;}
+        else if (event.type === 'release') {
+          const pressed = inspectionPress.current; inspectionPress.current = null;
+          if (hit && pressed?.key === key && pressed.entryId === hit.entryId && pressed.page === hit.page) {
+            if (hit.page === 'focus') showFocusedInspection();
+            else if (hit.page === 'current') inspectCurrent();
+            else if (hit.page === 'history') {history.show(); setOverlayScroll({key: 'inspection-history', top: 0});}
+            else if (hit.page === 'back') history.close();
+            else if (hit.page === 'retry') history.retry();
+            else if (hit.page === 'older' || hit.page === 'newer') {history[hit.page](); setOverlayScroll({key: 'inspection-history', top: 0});}
+            else if (hit.entryId !== null) inspectResult(hit.entryId, hit.page);
+          }
+          if (pressed || hit) return true;
+        }
+      } else inspectionPress.current = null;
+      if (!state.approval && revision.mode && !terminalTooSmall && !quitting && !quitPrompt) {
+        const layout = `${overlayKey}:${columns}:${rows}:${revision.buttons.map(button => button.action).join(',')}`;
+        const hit = revisionTargets.current.find(target => event.row >= target.top && event.row <= target.bottom && event.column >= target.left && event.column <= target.right);
+        if (event.type === 'wheel' || event.type === 'drag' || event.button !== 0) {revisionPress.current = null; return false;}
+        if (event.type === 'press') {
+          revisionPress.current = hit ? {layout, action: hit.action} : null;
+          if (hit) revision.select(hit.action);
+          else if (revision.mode === 'edit') revision.select(null);
+          return Boolean(hit);
+        }
+        const pressed = revisionPress.current; revisionPress.current = null;
+        if (pressed && pressed.layout === layout && pressed.action === hit?.action) revision.activate(hit.action);
+        return Boolean(pressed || hit);
+      }
+      revisionPress.current = null;
+      if (!state.approval || terminalTooSmall || quitting || quitPrompt) {approvalPress.current = null; return false;}
+      const hit = approvalTargets.current.find(target => approvalChoices.some(button => button.action === target.action) &&
+        event.row >= target.top && event.row <= target.bottom && event.column >= target.left && event.column <= target.right);
+      if (event.type === 'wheel' || event.type === 'drag') {approvalPress.current = null; return false;}
+      if (event.button !== 0) {approvalPress.current = null; return false;}
+      if (event.type === 'press') {
+        approvalPress.current = hit ? {layout: approvalLayout, action: hit.action} : null;
+        if (hit) selectApproval(hit.action);
+        return Boolean(hit);
+      }
+      const pressed = approvalPress.current;
+      approvalPress.current = null;
+      if (pressed && pressed.layout === approvalLayout && pressed.action === hit?.action) activateApproval(hit.action);
+      return Boolean(pressed || hit);
+    },
+    onScroll: delta => {if (revision.mode !== 'edit') {setSelection(null); moveReading(delta);}},
     top: headerRows + compactRows + 1, bottom: headerRows + compactRows + paneRows, left: 1, right: readerColumns,
-    body: selectionBody,
+    body: revision.mode === 'edit' ? undefined : selectionBody,
     onDragStart: point => {
       const start = toSelectionPoint(point.row, point.column);
       dragAnchor.current = start;
@@ -755,11 +1085,17 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       setSelection(chosen);
       copySelection(chosen);
     },
-    enabled: !quitting && rows >= 11 && columns >= 24,
+    enabled: surfaceActive && !inspectionVisible && !followupsVisible && !navigationVisible && !quitting && rows >= 11 && columns >= 24,
   });
   const openTool = () => {if (chosenTool) {setDetail(chosenTool.id); setOverlayScroll({key: `tool-${chosenTool.id}`, top: 0});}};
   const openContext = () => {setDetail(null); setContextSelection(null); setContextOpen(true); setOverlayScroll({key: 'context', top: 0});};
   const copyTarget = (): [string, string] | null => {
+    if (revision.mode === 'history' && !state.approval) {
+      const entry = revision.history?.records[revision.history.index];
+      if (entry) return [entry.feedback, '修订反馈'];
+    }
+    if (revision.mode && revision.record && !state.approval) return [revision.record.draft, '修订反馈'];
+    if (review.focused && review.body && !state.approval) return [review.bodyText, '当前计划正文页'];
     if (detailEntry) {
       const args = detailEntry.call ? `参数：\n${JSON.stringify(detailEntry.call.args, null, 2)}` : '';
       const output = detailEntry.output ? `输出：\n${detailEntry.output}` : '';
@@ -1038,6 +1374,7 @@ export function App({client, attach = false, initialState = emptyState, windowSi
   useEffect(() => {setSelection(null); dragAnchor.current = null;}, [overlayKey]);
 
   useInput((keyInput, key) => {
+    if (!surfaceActive) return;
     if (key.eventType === 'release') return;
     if (quitPrompt) {
       const options = quitPrompt.options;
@@ -1065,11 +1402,10 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       if (/^[1-9]$/.test(keyInput ?? '')) {choose(Number(keyInput) - 1); return;}
       return;
     }
-    if (key.ctrl && keyInput === 'q') {requestShutdown(); return;}
-    if (key.ctrl && keyInput === 'y') {copyCurrent(); return;}
-    if (key.ctrl && keyInput === 'g') {openSidebarPanel(); return;}
+    if (key.ctrl && keyInput === 'q') {setInspectionFocused(false); requestShutdown(); return;}
     if (key.ctrl && keyInput === 'c') {
-      if (attach) {notice('attach 模式：Ctrl+Q 断开连接，worker 会继续运行。'); return;}
+      setInspectionFocused(false);
+      if (attach) {notice(state.attachOffline ? '离线只读：Ctrl+Q 退出结果查看。' : 'attach 模式：Ctrl+Q 断开连接，worker 会继续运行。'); return;}
       if (activeRun.current && state.phase !== 'stopping') {
         try {
           const id = client.cancel(activeRun.current);
@@ -1078,6 +1414,88 @@ export function App({client, attach = false, initialState = emptyState, windowSi
           dispatch({type: 'notice', text: '停止请求已发送，等待后端确认…'});
         } catch (error) {reportError(`取消请求未送达：${String(error)}`);}
       } else if (!state.activeId) requestShutdown();
+      return;
+    }
+    if (inspectionVisible || followupsVisible || navigationVisible || terminalTooSmall) return;
+    if (key.ctrl && keyInput === 'y') {copyCurrent(); return;}
+    if (key.ctrl && keyInput === 'g') {openSidebarPanel(); return;}
+    if (state.approval) {
+      if (key.ctrl && keyInput === 'r') {
+        setApprovalSelection(approvalFocused ? null : {id: state.approval.id, decision: null});
+        setFeedback('');
+        return;
+      }
+      if (key.escape) {setApprovalSelection(null); setApprovalMore(null); setFeedback(''); return;}
+      if (!approvalFocused) return;
+      if (key.return && !key.ctrl && !key.meta) {
+        const decision = approvalSelection?.decision;
+        if (!decision) {setFeedback('先选择授权范围，再按 Enter 确认'); return;}
+        activateApproval(decision);
+        return;
+      }
+      const move = key.downArrow || key.rightArrow || key.tab && !key.shift ? 1 : key.upArrow || key.leftArrow || key.tab && key.shift ? -1 : 0;
+      const index = approvalChoices.findIndex(button => button.action === approvalSelection?.decision);
+      if (!key.ctrl && !key.meta && move) {
+        const next = index < 0 ? move > 0 ? 0 : approvalChoices.length - 1 : index + move;
+        if (key.tab && (next < 0 || next >= approvalChoices.length)) {setApprovalSelection(null); setFeedback(''); return;}
+        const button = approvalChoices[(next + approvalChoices.length) % approvalChoices.length];
+        if (button) selectApproval(button.action);
+        return;
+      }
+      const decision = !key.ctrl && !key.meta ? approvalKeys[keyInput.toLowerCase()] : undefined;
+      if (decision && decisions.includes(decision)) {
+        selectApproval(decision);
+        return;
+      }
+    }
+    if (historyVisible) {
+      if (key.tab && history.records.length) {
+        const index = historyIndex === null ? 0 : (historyIndex + (key.shift ? -1 : 1) + history.records.length) % history.records.length;
+        setHistoryIndex(index);
+        const line = lines.findIndex(line => line.entryId === -index - 1);
+        setOverlayScroll({key: 'inspection-history', top: Math.max(0, Math.min(maximum, line))}); return;
+      }
+      if (key.return && historyIndex !== null) {inspectResult(-historyIndex - 1, 'verification'); return;}
+      if (key.escape) {history.close(); return;}
+      if (key.leftArrow || key.rightArrow) {if (key.rightArrow) history.older(); else history.newer(); return;}
+      if (key.upArrow || key.downArrow) {moveReading(key.downArrow ? 1 : -1); return;}
+      if (key.pageUp || key.pageDown) {moveReading((key.pageDown ? 1 : -1) * Math.max(1, bodyRows - 1)); return;}
+      return;
+    }
+    if (revision.mode && !state.approval) {
+      if (revision.mode === 'history') {
+        if (key.upArrow || key.downArrow) {revision.historyMove(key.downArrow ? 1 : -1); return;}
+        if (key.pageUp || key.pageDown) {revision.historyPage(key.pageDown ? 1 : -1); return;}
+      }
+      if (key.escape) {if (revision.mode === 'edit' && revision.selected) revision.select(null); else if (revision.mode === 'confirm') revision.activate('edit'); else revision.close(); return;}
+      if (key.tab) {if (revision.mode !== 'edit' || revision.selected) revision.move(key.shift ? -1 : 1); return;}
+      if (revision.mode === 'edit' && !revision.selected) return;
+      if (key.leftArrow || key.rightArrow) {revision.move(key.rightArrow ? 1 : -1); return;}
+      if (key.return && !key.ctrl && !key.meta) {if (revision.selected) revision.activate(revision.selected); else setFeedback('Tab 选择动作，再按 Enter 确认'); return;}
+      if (key.upArrow || key.downArrow) {moveReading(key.downArrow ? 1 : -1); return;}
+      if (key.pageUp || key.pageDown) {moveReading((key.pageDown ? 1 : -1) * Math.max(1, bodyRows - 1)); return;}
+      return;
+    }
+    if (!state.approval && review.card && key.ctrl && keyInput === 'r') {
+      review.focus(); setReading(false); setContextOpen(false); setDetail(null); setPlanOpen(false);
+      setOverlayScroll({key: 'review', top: 0}); setFeedback('');
+      return;
+    }
+    if (review.focused && !state.approval) {
+      if (key.escape) {review.blur(); setFeedback(''); return;}
+      if (review.body) {
+        if (key.leftArrow || key.rightArrow) {review.page(key.rightArrow ? 1 : -1); return;}
+        if (!key.ctrl && !key.meta && keyInput === 'a') {review.actions(); return;}
+        if (key.pageUp || key.pageDown) {moveReading((key.pageDown ? 1 : -1) * Math.max(1, bodyRows - 1)); return;}
+        if (key.upArrow || key.downArrow) {moveReading(key.downArrow ? 1 : -1); return;}
+        if (key.home || key.end) {navigate(key.end ? viewport.current.maximum : 0); return;}
+        return;
+      }
+      if (key.return && !key.ctrl && !key.meta) {review.confirm(); return;}
+      if (key.leftArrow || key.rightArrow) {review.cycle(key.rightArrow ? 1 : -1); return;}
+      if (!key.ctrl && !key.meta) {
+        review.select(keyInput.toLowerCase(), key.downArrow || key.tab && !key.shift ? 1 : key.upArrow || key.tab && key.shift ? -1 : 0);
+      }
       return;
     }
     if (planOpen && key.return) {
@@ -1156,6 +1574,22 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       notice('输入新的计划目标后回车提交修订（生成新 draft 版本）。');
       return;
     }
+    if (planOpen && !key.ctrl && !key.meta && keyInput === 'r') {
+      setPlanOpen(false);
+      setInput('/plan request-changes ');
+      notice('输入对计划的反馈后回车，请求按反馈修改。');
+      return;
+    }
+    if (planOpen && !key.ctrl && !key.meta && keyInput === 'm') {
+      if (state.phase !== 'idle' || activeRun.current) {notice('当前有运行中任务；结束后再查看完整审阅稿。'); return;}
+      try {
+        const id = client.command('plan', {action: 'markdown'});
+        activeRun.current = id;
+        dispatch({type: 'begin_command', id, command: 'plan'});
+        setPlanOpen(false);
+      } catch (error) {notice(`完整审阅稿查询未送达：${String(error)}`);}
+      return;
+    }
     if (key.pageUp) {moveReading(-Math.max(1, bodyRows - 1)); return;}
     if (key.pageDown) {moveReading(Math.max(1, bodyRows - 1)); return;}
     if (key.ctrl && (keyInput === 'p' || keyInput === 'n')) {moveReading(keyInput === 'p' ? -1 : 1); return;}
@@ -1203,14 +1637,7 @@ export function App({client, attach = false, initialState = emptyState, windowSi
     if (key.escape && !state.approval && detailEntry) {setDetail(null); return;}
     if (key.escape && reading && !state.approval) {setReading(false); return;}
     if (reading && keyInput === ' ' && !state.approval && !detailEntry) {moveReading(Math.max(1, bodyRows - 1)); return;}
-    if (state.approval) {
-      const decision = approvalKeys[keyInput.toLowerCase()];
-      if (!quitting && !key.ctrl && !key.meta && decision && decisions.includes(decision) && answeredApproval.current !== state.approval.id) {
-        try {client.approve(state.approval.id, decision); answeredApproval.current = state.approval.id; setFeedback(''); dispatch({type: 'approval_sent'});}
-        catch (error) {reportError(`审批响应未送达：${String(error)}`);}
-      }
-      return;
-    }
+    if (state.approval) return;
     if (key.ctrl && keyInput === 'k') {contextOpen ? setContextOpen(false) : openContext(); return;}
     if (contextOpen) {
       if (key.leftArrow || key.rightArrow || keyInput === 'l') {
@@ -1232,44 +1659,65 @@ export function App({client, attach = false, initialState = emptyState, windowSi
     }
   });
 
+  const rejectBusyCommand = () => {
+    if (state.phase === 'idle' && !activeRun.current) return false;
+    notice('未执行：当前任务运行中；草稿保留，结束后重试。');
+    return true;
+  };
   const submit = (value: string) => {
     const text = value.trim();
     if (!text || quitting) return;
+    if (state.attachOffline && !/^\/(?:inspections|sidebar(?: split| quick| window)?|context|copy|help(?: .*)?|theme(?: .*)?|session|quit|exit)$/.test(text)) {
+      notice('离线结果只读；可查看历史结果，草稿已保留。'); return;
+    }
     setSelection(null);
+    const unavailable = commandUnavailable(text, {...commandContext, busy: state.phase !== 'idle' || Boolean(activeRun.current)});
+    if (unavailable) {notice(`未执行：${unavailable}；草稿保留。`); return;}
+    const definition = commandDefinition(text);
+    if (definition?.required) {
+      setInput(text + ' ');
+      setFeedback(`请补充参数 · 用法：${text} ${definition.usage}`);
+      setFeedbackTone('info');
+      return;
+    }
     if (text === '/quit' || text === '/exit') {setInput(''); requestShutdown(); return;}
+    if (text === '/followup') {setInput(''); followups.show(); return;}
+    if ((text === '/task' || text === '/tasks') && navigationAvailable) {setInput(''); navigation.show(); return;}
     if (text === '/context') {setInput(''); openContext(); return;}
     if (text === '/copy') {setInput(''); copyCurrent(); return;}
     if (text === '/sidebar setup') {setInput(''); setupSidebarConfig(); return;}
     if (text === '/sidebar split') {setInput(''); openSidebarPanel('split'); return;}
     if (text === '/sidebar quick') {setInput(''); openSidebarPanel('quick'); return;}
     if (text === '/sidebar window') {setInput(''); openSidebarPanel('window'); return;}
+    if (text === '/inspections') {setInput(''); history.show(); setOverlayScroll({key: 'inspection-history', top: 0}); return;}
     if (text === '/sidebar') {setInput(''); openSidebarPanel(); return;}
     if (text === '/project' || text.startsWith('/project ')) {setInput(''); projectCommand(text.slice('/project'.length)); return;}
     if (text === '/about' || text.startsWith('/about ')) {setInput(''); aboutCommand(text.slice('/about'.length)); return;}
-    if (text === '/goal' || text.startsWith('/goal ')) {setInput(''); handleGoalCommand(text.slice('/goal'.length).trim()); return;}
-    if (text === '/help') {
-      setInput('');
-      notice('Enter 发送（运行中提交纠偏，下一次模型请求生效）；Ctrl+J 换行；输入焦点下 ↑↓ 编辑或浏览输入历史。滚轮 / 触控板在对话区回看；PgUp/PgDn 翻页，Ctrl+P/N 或 Ctrl+↑/↓ 逐行。Ctrl+R 切换阅读 / 输入焦点，阅读时 ↑↓ 滚动、空格下一页，Esc 回输入。Ctrl+Home/End 到首尾，End 恢复跟随最新；鼠标在对话区拖选，松开即复制所选文本。Tab 选择工具，Ctrl+O 查看全文。Ctrl+K 或 /context 查看上下文分区，←/→ 回放本轮快照，l 跟随最新，Esc 返回。Ctrl+Y 或 /copy 复制最近回复、工具详情或审批预览；Ctrl+G 或 /sidebar 打开右侧 Git 变更侧栏（Ghostty；Terminal 为独立窗口）；/sidebar window 独立窗口；/project 查看项目背景（add/remove/source）；/about 查看个人偏好（add/propose/edit/triggers/confirm/disable/enable/remove/on/off）；Ctrl+C 取消当前操作，空闲时退出；Ctrl+Q 退出。审批时 y 单次、s 精确规则、p 工作区、n 拒绝，以面板选项为准。\n/goal <目标> 目标模式（长任务自动续段，/goal stop 停止，/goal resume 恢复）；/resume 显式续做已保存任务；/permissions 查看授权，/permissions reset 撤销；/evidence 查看最近一轮验收证据；/trace [H] 观测摘要；/queue 计划队列；/priority TID N 调整队列优先级；/plan card 审批卡；/autonomy ask|edits|workspace|full 切换授权档位；/cost 会话花费；/tools 可用工具；/diff 工作区差异；/mcp 服务状态；/skills 技能菜单（↑↓ 选择，Tab 补全，Enter 执行；refresh 重扫，activate NAME 激活，unload NAME 卸载）；/followup TEXT 排队后续消息，本轮结束后自动继续；/session 会话路径；/sidebar 在窗口内右侧分屏（跟随窗口尺寸）；/sidebar quick 屏幕右侧 quick terminal（不挤占 TUI）；/sidebar setup 写入 Ghostty 右侧配置；/theme system|light|dark 主题。');
-      return;
+    if (text === '/goal' || text.startsWith('/goal ')) {
+      const rest = text.slice('/goal'.length).trim();
+      if (rest && rest !== 'stop' && rejectBusyCommand()) return;
+      setInput(''); handleGoalCommand(rest); return;
+    }
+    if (text === '/help' || text.startsWith('/help ')) {
+      setInput(''); notice(commandHelp(text.slice('/help'.length))); return;
     }
     if (text.startsWith('/theme')) {
       setInput('');
       const choice = text.split(/\s+/)[1];
-      if (choice === 'system' || choice === 'light' || choice === 'dark') {setTheme(choice); notice(`主题已切换：${choice}`);}
-      else notice(`当前主题：${theme}；终端颜色：${['无色', '16 色', '256 色', '真彩色'][terminalColorLevel()]}。用法：/theme system|light|dark`);
+      if (choice === 'system' || choice === 'light' || choice === 'dark') {setTheme(choice); announce(`主题已切换：${choice}`);}
+      else announce(`当前主题：${theme}；终端颜色：${['无色', '16 色', '256 色', '真彩色'][terminalColorLevel()]}。用法：/theme system|light|dark`);
       return;
     }
     if (text === '/session') {setInput(''); notice(`会话：${state.sessionId || '待连接'}\n${state.sessionPath || '后端尚未提供会话路径。'}`); return;}
     let followupText: string | null = null;
     if (text.split(/\s+/, 1)[0] === '/followup') {
       const rest = text.slice('/followup'.length).trim();
-      if (!rest) {setInput(''); notice('用法：/followup <文本>；运行中排队，本轮结束后自动发送，空闲时直接提交。'); return;}
       if (state.phase === 'running' && activeRun.current) {
         if (state.activeCommand && state.activeCommand !== 'resume') {
           notice('命令执行中，结束后再发送');
           return;
         }
-        followups.current.push(rest);
+        if (!followups.add(rest)) {notice('后续消息未保存，草稿保留；打开 /followup 查看原因'); return;}
         setInput('');
         notice(`已排队为后续消息：${rest}`);
         return;
@@ -1277,19 +1725,20 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       followupText = rest;
     }
     if (text.startsWith('/autonomy')) {
-      setInput('');
       const level = text.slice('/autonomy'.length).trim();
       if (!level) {
+        setInput('');
         const current = state.autonomy ? `${state.autonomy} · ${AUTONOMY_LABELS[state.autonomy as AutonomyLevel] ?? state.autonomyLabel}` : '未知';
         notice(`当前授权档位：${current}\n用法：/autonomy ask|edits|workspace|full（ask 每次询问；edits 自动改文件；workspace 工作区自动；full 包含网络）`);
         return;
       }
       if (!AUTONOMY_LEVELS.includes(level as AutonomyLevel)) {notice('用法：/autonomy ask|edits|workspace|full'); return;}
-      if (state.phase !== 'idle' || activeRun.current) return;
+      if (rejectBusyCommand()) return;
       try {
         const id = client.command('autonomy', {level: level as AutonomyLevel});
         activeRun.current = id;
         dispatch({type: 'begin_command', id, command: 'autonomy'});
+        setInput('');
         setFeedback('');
       } catch (error) {reportError(`授权档位未送达：${String(error)}`);}
       return;
@@ -1309,23 +1758,12 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       if (!requested) {notice('当前会话没有可 attach 的 task；先运行 /task 查看。'); return;}
       const fake = state.provider === 'fake' || state.sessionPurpose === 'test' ? ' --fake' : '';
       if (parsed.now) {
-        try {
-          const args = ['--attach-task', requested, '--session', state.sessionId, '--workspace', state.workspace];
-          if (fake) args.push('--fake');
-          // 等旧 TUI 退出、终端恢复后再启动新 TUI，避免两个进程同时抢 stdin
-          // 导致 setRawMode/read EIO。
-          const child = spawn('/bin/sh',
-            ['-c', 'sleep 0.8; exec "$0" "$@"', './run_ink.sh', ...args],
-            {...backendLaunchOptions(), stdio: 'inherit'});
-          child.unref();
-          notice('正在重启为 attach 模式…');
-          setTimeout(() => exit(), 100);
-        } catch (error) {
-          notice(`启动 attach TUI 失败：${String(error)}`);
-        }
+        if (attach) {notice('已在任务接入中；请先返回原会话再选择任务'); return;}
+        if (!navigation.open) navigation.show();
+        connectSelectedTask(requested);
         return;
       }
-      notice(`运行以下命令连接后台任务：\n./run_ink.sh --attach-task ${requested} --session ${state.sessionId} --workspace ${state.workspace}${fake}\n或用 /attach now 直接重启进入。`);
+      notice(`运行以下命令连接后台任务：\n./run_ink.sh --attach-task ${requested} --session ${state.sessionId} --workspace ${state.workspace}${fake}\n或用 /attach now 在当前工作台接入；原草稿保留。`);
       return;
     }
     if (text === '/merge' || text.startsWith('/merge ')) {
@@ -1361,7 +1799,7 @@ export function App({client, attach = false, initialState = emptyState, windowSi
     }
     const command = skillCommand ? 'skills' : backendCommands[text];
     if (command) {
-      if (state.phase !== 'idle' || activeRun.current) return;
+      if (rejectBusyCommand()) return;
       try {
         const id = client.command(command, skillArgs);
         activeRun.current = id;
@@ -1370,7 +1808,67 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       } catch (error) {reportError(`操作未送达：${String(error)}`);}
       return;
     }
+    const planModeCommand = /^\/plan\s+(on|off|status)$/.exec(text);
+    if (planModeCommand) {
+      const action = planModeCommand[1] === 'on' ? 'mode-on' : planModeCommand[1] === 'off' ? 'mode-off' : 'mode-status';
+      if (commandContext.planModeControl) {
+        if (modeRequest.current) {notice('默认模式请求确认中；草稿保留。'); return;}
+        try {
+          const id = client.command('plan', {action});
+          const timer = setTimeout(() => {
+            if (modeRequest.current?.id !== id) return;
+            modeRequest.current = null;
+            setFeedback('默认模式结果待确认；草稿保留，用 /plan status 查询'); setFeedbackTone('error');
+          }, 15_000);
+          modeRequest.current = {id, draft: input, timer};
+          modeRequestIds.current.add(id);
+          setFeedback('默认模式请求已发送，等待确认；当前任务模式不变'); setFeedbackTone('info');
+        } catch (error) {notice(`默认模式请求未送达：${String(error)}；草稿保留。`);}
+        return;
+      }
+      if (rejectBusyCommand()) return;
+      try {
+        const id = client.command('plan', {action});
+        activeRun.current = id;
+        dispatch({type: 'begin_command', id, command: 'plan'});
+        setInput('');
+        setFeedback('');
+      } catch (error) {notice(`计划模式操作未送达：${String(error)}`);}
+      return;
+    }
+    if (text === '/plan dismiss' || text === '/plan markdown') {
+      if (rejectBusyCommand()) return;
+      const action = text === '/plan dismiss' ? 'dismiss' : 'markdown';
+      try {
+        const id = client.command('plan', {action});
+        activeRun.current = id;
+        dispatch({type: 'begin_command', id, command: 'plan'});
+        setPlanOpen(false);
+        setInput('');
+        setFeedback('');
+      } catch (error) {notice(`计划操作未送达：${String(error)}`);}
+      return;
+    }
+    const planRequestChanges = /^\/plan\s+request-changes(?:\s+([\s\S]+))?$/.exec(text);
+    if (planRequestChanges) {
+      const feedback = (planRequestChanges[1] ?? '').trim();
+      if (!feedback) {notice('用法：/plan request-changes <反馈>；反馈不能为空。'); return;}
+      if (rejectBusyCommand()) return;
+      try {
+        const id = client.command('plan', {action: 'request-changes', feedback});
+        activeRun.current = id;
+        dispatch({type: 'begin_command', id, command: 'plan'});
+        setPlanOpen(false);
+        setInput('');
+        setFeedback('');
+      } catch (error) {notice(`计划反馈未送达：${String(error)}`);}
+      return;
+    }
     if (text === '/plan' || text === '/plan all') {
+      if (client.capabilities?.().includes('plan-review')) {
+        if (review.discover()) {setInput(''); setFeedback('正在查询计划…');}
+        return;
+      }
       setInput('');
       const full = text === '/plan all';
       const rendered = latestPlanText(state.sessionPath, full);
@@ -1387,15 +1885,6 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       setPlanStale(approval.stale === true);
       setPlanOpen(true);
       setOverlayScroll({key: 'plan', top: 0});
-      const summary = planSidebarSummary(state.sessionPath);
-      if (state.workspace) {
-        try {
-          publishSidebarSignal(state.workspace, {
-            signature: `plan:${summary?.version ?? 0}:${summary?.status ?? ''}:${state.entries.length}`,
-            files: agentTouchedFiles(state.entries), active: false, plan: summary ?? undefined,
-          });
-        } catch {}
-      }
       return;
     }
     if (text === '/plan card') {
@@ -1576,6 +2065,11 @@ export function App({client, attach = false, initialState = emptyState, windowSi
     const planMatch = /^\/plan\s+([\s\S]+)$/.exec(text);
     if (planMatch) {
       const prompt = planMatch[1]!.trim();
+      const operation = commandDefinition('/plan ' + prompt.split(/\s+/, 1)[0]);
+      if (operation) {
+        notice(`用法：${operation.command}${operation.usage ? ' ' + operation.usage : ''}；本次未执行，草稿保留。`);
+        return;
+      }
       if (state.phase !== 'idle' || activeRun.current || goalRef.current?.active) {
         notice('当前有运行中任务；结束后再开始新的计划。');
         return;
@@ -1593,24 +2087,25 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       return;
     }
     if (text === '/priority' || text.startsWith('/priority ')) {
-      setInput('');
       const parts = text.split(/\s+/);
       const requested = parts.length === 3 ? Number(parts[2]) : Number.NaN;
       if (parts.length !== 3 || !/^\d+$/.test(parts[2] ?? '') || !Number.isSafeInteger(requested) || requested < 0 || requested > 100) {
         notice('用法：/priority <task_id> <0-100>');
         return;
       }
-      if (state.phase !== 'idle' || activeRun.current) {notice('当前有运行中任务；结束后再调整队列优先级。'); return;}
+      if (rejectBusyCommand()) return;
       try {
         const id = client.command('priority', {task_id: parts[1]!, priority: requested});
         activeRun.current = id;
         dispatch({type: 'begin_command', id, command: 'priority'});
+        setInput('');
         setFeedback(''); setScroll({follow: true, top: 0});
       } catch (error) {reportError(`优先级调整未送达：${String(error)}`);}
       return;
     }
     const traceMatch = /^\/trace(?:\s+(\S+))?$/.exec(text);
     if (traceMatch) {
+      if (rejectBusyCommand()) return;
       if (state.phase === 'idle' && !activeRun.current) {
         const raw = traceMatch[1];
         const hours = raw === undefined ? undefined : Number(raw);
@@ -1685,7 +2180,7 @@ export function App({client, attach = false, initialState = emptyState, windowSi
       } catch (error) {reportError(`纠偏未送达：${String(error)}`);}
       return;
     }
-    if (state.phase !== 'idle' || activeRun.current) return;
+    if (rejectBusyCommand()) return;
     if (goalRef.current?.active) {notice('目标模式进行中；先 /goal stop 再开始新任务。'); return;}
     const task = followupText ?? text;
     try {
@@ -1701,9 +2196,20 @@ export function App({client, attach = false, initialState = emptyState, windowSi
   const position = `${Math.min(top + 1, lines.length)}–${Math.min(top + bodyRows, lines.length)}/${lines.length}`;
   const doneText = state.lastVerified === false ? '完成待验证' : state.lastVerified === true ? '已完成 · 已验证' : '任务完成';
   const goalTitle = goal?.active ? `目标模式 · ${goalLabel(goal)} · ` : '';
-  const paneTitle = goalTitle + (state.approval ? `等待审批 · ${position}` : contextOpen ? `上下文分区 · ${position}` : planOpen ? `计划 · ${position}` : detailEntry ? `工具详情 · ${position}` : isEmpty ? '工作台首页 · 输入任务开始' : `对话 · ${reading ? '阅读焦点 · ' : ''}${scroll.follow ? '跟随最新' : `回看 · 下方 ${maximum-top} 行`} · ${position}`);
+  const runModeLabel = state.runMode === 'act' ? '执行' : state.runMode === 'chat' ? '仅对话' : state.runMode === 'plan' ? '只读规划' : state.runMode === 'goal' ? '目标执行' : null;
+  const modePending = state.planMode.pending && state.planMode.wanted !== null && state.planMode.wanted !== state.planMode.active;
+  const nextPlan = modePending ? state.planMode.wanted : state.planMode.active;
+  const compactModeLabel = runModeLabel?.replace('仅对话', '对话').replace('只读规划', '规划').replace('目标执行', '目标');
+  const nextModeTitle = columns < 60 ? `下次${nextPlan ? '规划' : '执行'}${modePending ? '待生效' : ''}` : `下次：${nextPlan ? '只读规划' : '执行'}${modePending ? '（待生效）' : ''}`;
+  const planModeTitle = state.phase === 'closed' ? '' :
+    columns < 60 && state.activeId && compactModeLabel && modePending ? `${compactModeLabel}中 · 结束后${nextPlan ? '规划' : '执行'} · ` :
+      (state.activeId && runModeLabel ? `${columns < 60 ? '本次' + compactModeLabel : '本次：' + runModeLabel} · ` : !state.activeId && state.planModeKnown && state.planMode.active ? '计划模式 · ' : '') +
+      (state.planModeKnown ? nextModeTitle + ' · ' : '');
+  const restoredIdle = state.resumed && !state.hasStartedRun && state.phase === 'idle';
+  const paneTitle = historyVisible ? `历史结果 · 第 ${history.previous.length + 1} 页 · ${position}` : state.approval ? `等待审批 · ${approvalFocused ? '审批焦点' : '草稿焦点'} · ${position}` : revision.mode === 'history' ? `修订记录 · 第 ${(revision.history?.previous.length ?? 0) + 1} 页 · ${revision.history?.records.length ? revision.history.index + 1 : 0}/${revision.history?.records.length ?? 0}` : revision.mode ? `修订 v${revision.record?.target.plan_version} · ${revision.mode === 'confirm' ? '确认反馈' : '修订状态'} · ${position}` : review.focused ? `计划 v${review.card?.target?.plan_version} · ${review.body ? `正文 ${review.pageNumber}${review.lastPage ? '末页' : '页'} · ${position}` : '审阅焦点'}` : planModeTitle + goalTitle + (contextOpen ? `上下文分区 · ${position}` : planOpen ? `计划 · ${position}` : detailEntry ? `工具详情 · ${position}` : isEmpty ? '工作台首页 · 输入任务开始' : `对话 · ${reading ? '阅读焦点 · ' : ''}${scroll.follow ? '跟随最新' : `回看 · 下方 ${maximum-top} 行`} · ${position}`);
   const goalHint = goal ? `${goalStatusText(goal)} · ` : '';
-  const hint = goalHint + (state.approval ? `${approvalHint} · 滚轮/PgUp/PgDn 翻页 · Ctrl+C 取消` : contextOpen ? '←/→ 选快照 · l 最新 · ↑↓/滚轮 翻阅 · Esc 返回' : planOpen ? '↑↓ 选择 · s步骤 · t改标题 · k改类型 · c审批卡 · v版本 · d比较 · a验收 · e修订 · b后台 · y批准 · n拒绝 · Enter执行 · PgUp/PgDn · Esc 返回' : detailEntry ? '滚轮/↑↓ 翻阅 · Home/End 首尾 · Esc 返回' :
+  const planModeHint = state.planMode.active && state.phase === 'idle' ? (columns < 60 ? '/plan off 退出计划 · ' : '下次普通输入只读规划 · /plan off 退出 · ') : '';
+  const hint = historyVisible ? 'Tab选结果 Enter验证 ←→翻页 Esc返回' : state.approval ? (approvalFocused ? 'Enter确认 Esc草稿 Ctrl+C停止' : '点击按钮 / Tab选择 · Ctrl+C停止') : revision.mode === 'history' ? '↑↓记录 PgUp/Dn翻页 Tab动作 Esc返回' : revision.mode ? (revision.mode === 'edit' ? 'Enter下一步 Ctrl+J换行 Esc返回' : '点击/Tab选择 Enter确认 Esc返回') : review.focused ? (review.body ? (columns < 60 ? '←前页 →后页 a动作 Esc草稿' : '←前页 →后页 · ↑↓滚动 · Ctrl+Y复制本页 · a动作 Esc草稿') : columns < 60 ? '↑↓选择 Enter确认 Esc草稿' : '↑↓选择 Enter确认 Esc草稿 · ←→切换计划') : review.card ? 'Ctrl+R审阅 · Ctrl+C停止 · Ctrl+Q退出' : planModeHint + goalHint + (contextOpen ? '←/→ 选快照 · l 最新 · ↑↓/滚轮 翻阅 · Esc 返回' : planOpen ? '↑↓ 选择 · s步骤 · t改标题 · k改类型 · c审批卡 · v版本 · d比较 · a验收 · e修订 · r提反馈 · m审阅稿 · b后台 · y批准 · n拒绝 · Enter执行 · PgUp/PgDn · Esc 返回' : detailEntry ? '滚轮/↑↓ 翻阅 · Home/End 首尾 · Esc 返回' :
     reading ? '阅读焦点：↑↓滚动  空格翻页  End最新  Esc输入  Ctrl+Q退出' :
       state.phase === 'running' ? (columns < 60 ? 'Enter 纠偏 · /followup 排队 · Ctrl+C 停止' : 'Enter 提交纠偏  /followup 文本 排队后续  Ctrl+C 停止  Ctrl+Q 退出') :
         state.lastStatus === 'done' ? (columns < 60 ? `${doneText} · /evidence 核对 · /resume 续做` : `${doneText}  /evidence 证据  /resume 续做  /copy 复制回复  Ctrl+Q 退出`) :
@@ -1716,48 +2222,107 @@ export function App({client, attach = false, initialState = emptyState, windowSi
             : (columns < 60 ? '任务已暂停 · /resume 续做' : '任务已暂停  /resume 续做  /context 查看进度  Ctrl+Q 退出')) :
         isEmpty ? (columns < 60 ? '输入任务开始 · Ctrl+Q退出 · /help' : '直接描述任务开始  /help 命令  Ctrl+K 上下文  Ctrl+Q 退出') :
         columns < 60 ? 'Ctrl+K上下文 · Ctrl+Q退出 · /help' : '拖选复制  Ctrl+R阅读  Ctrl+K上下文  Ctrl+Y复制回复  Ctrl+Q退出');
-  const composerDisabled = quitting || state.phase === 'starting' || state.phase === 'stopping' || state.phase === 'waiting_approval' || state.phase === 'closed';
-  const composerPlaceholder = state.approval ? '审批面板已聚焦，请选择授权范围' : contextOpen ? '上下文详情已聚焦，Esc 返回输入' : detailEntry ? '工具详情已聚焦，Esc 返回输入' : reading ? '正在阅读历史，Esc 返回输入' :
+  const composerDisabled = Boolean(submissionBlock);
+  const composerPlaceholder = state.approval ? (approvalFocused ? '审批已聚焦 · Enter 确认 · Esc 草稿' : '草稿可编辑 · 点击按钮或 Tab 选择') : revision.mode ? '普通草稿已保留 · 返回后继续编辑' : review.focused ? '计划审阅已聚焦 · Esc 返回草稿' : contextOpen ? '上下文详情已聚焦，Esc 返回输入' : detailEntry ? '工具详情已聚焦，Esc 返回输入' : reading ? '正在阅读历史，Esc 返回输入' :
     state.phase === 'closed' ? '可以回看已有记录，退出后重新启动' : state.phase === 'starting' ? '可以先写下任务目标与约束' : state.phase === 'stopping' ? '正在停止 · 收到停止结果后可发送' :
       state.phase === 'running' ? '运行中：Enter 提交纠偏，/followup 文本排队后续' :
         state.lastStatus === 'done' ? `${doneText} · 输入新任务，或 /resume 续做` :
         state.lastStatus === 'cancelled' ? '已取消 · 核对修改后输入新任务，或 /resume 续做' :
         state.lastStatus === 'error' ? '运行失败 · 输入新任务，或 /resume 重试' :
         state.lastStatus === 'stopped' ? '任务已暂停 · 输入新任务，或 /resume 续做' : '描述任务，或输入 / 查看命令';
-  const effectivePlaceholder = goal?.active ? `目标模式 · ${goalLabel(goal)} · 输入纠偏，/goal stop` : composerPlaceholder;
+  const effectivePlaceholder = state.approval ? composerPlaceholder : goal?.active ? `目标模式 · ${goalLabel(goal)} · 输入纠偏，/goal stop` : restoredIdle ? (columns < 60 ? '已恢复，尚未运行' : '会话已恢复，尚未运行 · 请重新输入未发送的草稿') : state.planMode.active && state.phase === 'idle' ? '计划模式：普通输入以只读规划运行 · /plan off 退出' : composerPlaceholder;
   const unavailableHint = state.phase === 'closed' ? '连接已断开 · Ctrl+Q 退出后重启' : state.phase === 'starting' ? '可编辑草稿 · 后端就绪后可发送' :
     state.phase === 'stopping' ? '正在停止 · 收到停止结果后可发送' : undefined;
   // PM/UX: 完成/错误/暂停/取消后给出下一步引导，减少用户困惑。
 
-  if (rows < 11 || columns < 24) return <Box width={columns} height={rows} backgroundColor={palette.background} flexDirection="column" overflow="hidden">
+  if (terminalTooSmall && quitPrompt && !taskConnection.connection) return <Box width={columns} height={rows} backgroundColor={palette.background} flexDirection="column" overflow="hidden">
+    <Text color={palette.warning}>{fitText('↑↓选择 Enter确认 Esc返回', columns)}</Text>
+    {quitPrompt.options.slice(Math.max(0, quitPrompt.index - rows + 2), Math.max(0, quitPrompt.index - rows + 2) + Math.max(1, rows - 1)).map(option =>
+      <Text key={option.label} color={option.disabled ? palette.secondary : palette.foreground}>{fitText(`${option === quitPrompt.options[quitPrompt.index] ? '› ' : '  '}${option.label}`, columns)}</Text>)}
+  </Box>;
+  if (terminalTooSmall && !taskConnection.connection) return <Box width={columns} height={rows} backgroundColor={palette.background} flexDirection="column" overflow="hidden">
     <Text color={palette.foreground} bold>{fitText('mini-harness', columns)}</Text>
-    {rows > 1 ? <Text color={palette.foreground}>{fitText('请将终端调整到至少 24×11', columns)}</Text> : null}
-    {rows > 2 ? <Text color={palette.secondary}>{fitText(state.approval ? `${approvalHint} Ctrl+C取消` : 'Ctrl+Q 退出', columns)}</Text> : null}
+    {rows > 1 ? <Text color={palette.foreground}>{fitText(`至少 ${minimumColumns}×${minimumRows} · 请调大窗口`, columns)}</Text> : null}
+    {rows > 2 ? <Text color={palette.secondary}>{fitText(state.approval ? 'Ctrl+C 停止' : 'Ctrl+Q 退出', columns)}</Text> : null}
+    {rows > 3 && state.approval ? <Text color={palette.secondary}>{fitText('Ctrl+Q 退出', columns)}</Text> : null}
   </Box>;
 
-  return <Box flexDirection="column" width={columns} height={rows} backgroundColor={palette.background} overflow="hidden">
+  return <><Box display={surfaceActive ? 'flex' : 'none'} flexDirection="column"><Box display={inspectionVisible || followupsVisible || navigationVisible ? 'none' : 'flex'} flexDirection="column" width={columns} height={rows} backgroundColor={palette.background} overflow="hidden">
     <AgentHeader state={state} columns={columns} height={headerRows} palette={palette}/>
     {compactRows ? <StatusPanel state={state} columns={columns} height={compactRows} palette={palette}/> : null}
-    <Box flexDirection="row" width={columns} height={paneRows} flexShrink={0}>
-      <ReadingPane title={paneTitle} lines={lines} top={top} height={paneRows} columns={readerColumns} palette={palette} overlay={readerFocused} selection={selection}/>
+    <Box display={compactQuit ? 'none' : 'flex'} flexDirection="row" width={columns} height={paneRows} flexShrink={0}>
+      {revision.mode === 'edit' && revision.record && !state.approval ? <Box width={readerColumns} height={paneRows} paddingX={2} paddingY={1} flexShrink={0} flexDirection="column">
+        <Text color={palette.accent} bold>{fitText(`修订反馈 · v${revision.record.target.plan_version} · ${[...revision.record.draft.trim()].length}/4000 字`, readerColumns - 4)}</Text>
+        <Text color={palette.secondary}>{fitText(revision.record.objective.replace(/\s+/g, ' '), readerColumns - 4)}</Text>
+        <Composer value={revision.record.draft} onChange={revision.change} onSubmit={revision.preview} history={[]}
+          focused={surfaceActive && !inspectionVisible && !followupsVisible && !navigationVisible && !revision.selected && !quitting} placeholder="写下希望修改的地方" columns={bodyColumns} maxRows={Math.max(1, paneRows - 4)}
+          onTab={backwards => revision.move(backwards ? -1 : 1)} accentColor={palette.accent} foregroundColor={palette.foreground} secondaryColor={palette.secondary}/>
+      </Box> : <ReadingPane title={paneTitle} lines={lines} top={top} height={paneRows} columns={readerColumns} palette={palette} overlay={readerFocused} selection={selection}/>}
       {sidebar ? <><Box width={1}/><StatusPanel state={state} columns={32} height={paneRows} palette={palette}/></> : null}
     </Box>
+    {!compactQuit && state.approval ? <ApprovalActions buttons={approvalChoices} selected={approvalFocused ? approvalSelection?.decision ?? null : null}
+      columns={columns} height={approvalRows} palette={palette} targets={approvalTargets}/> : null}
+    {!compactQuit && revisionRows ? <ActionButtons buttons={revision.buttons} selected={revision.selected} columns={columns} height={revisionRows} palette={palette} targets={revisionTargets}/> : null}
+    {!compactQuit && inspectionRows ? <ActionButtons buttons={inspectionButtons} selected={null}
+      columns={columns} height={inspectionRows} palette={palette} targets={inspectionTargets}/> : null}
+    {!compactQuit && followupRows ? <Box height={1} width={columns} flexShrink={0}>
+      <ActionButtons buttons={followupButtons} selected={null}
+        columns={followupButtonsWidth} height={1} palette={palette} targets={followupTargets}/>
+      <Text color={followups.paused || followups.problem ? palette.warning : palette.secondary}>{fitText(followups.problem || followups.paused || (followups.count ? '成功后按序继续' : onDetach ? '原草稿保留' : '查看本会话任务'), Math.max(1, columns - followupButtonsWidth))}</Text>
+    </Box> : null}
     {quitPrompt ? <Box flexDirection="column" backgroundColor={palette.surfaces.warning} height={Math.max(composerRows + 2, quitPrompt.options.length + 3)} width={columns} paddingX={2} paddingY={1} flexShrink={0}>
       <Text color={palette.foreground} bold>退出选项（↑↓ 选择 · Enter 确认 · Esc 取消）</Text>
       {quitPrompt.options.map((option, index) => <Text key={option.label} color={option.disabled ? palette.secondary : index === quitPrompt.index ? palette.warning : palette.foreground}>
-        {index === quitPrompt.index ? '› ' : '  '}{index + 1}. {option.label}
+        {fitText(`${index === quitPrompt.index ? '› ' : '  '}${index + 1}. ${option.label}`, compactQuit ? columns - 4 : columns)}
       </Text>)}
-    </Box> : <Box backgroundColor={state.approval ? palette.surfaces.warning : readerFocused ? palette.surface : palette.focus} height={composerRows + 2} width={columns} paddingX={2} paddingY={1} flexShrink={0}>
-      <Composer value={input} onChange={text => {setMenuIndex(0); setInput(text);}} onSubmit={submit} history={history} disabled={composerDisabled} disabledHint={unavailableHint} focused={!readerFocused && !quitting} placeholder={effectivePlaceholder} columns={Math.max(1, columns - 4)} maxRows={composerRows} accentColor={palette.accent} warningColor={palette.warning} foregroundColor={palette.foreground} secondaryColor={palette.secondary}
+    </Box> : null}
+    <Box display={quitPrompt ? 'none' : 'flex'} backgroundColor={state.approval ? palette.surfaces.warning : readerFocused ? palette.surface : palette.focus} height={composerRows + composerPadding * 2} width={columns} paddingX={2} paddingY={composerPadding} flexShrink={0}>
+      <Composer value={input} initialCursor={initialDraft?.cursor} onDraftChange={onDraftChange} appendRevision={draftAppendRevision} onChange={text => {setMenuIndex(0); setInput(text);}} onSubmit={submit} onSubmitBlocked={() => setFeedback(`未发送：${submissionBlock}，草稿保留`)} history={inputHistory} disabled={composerDisabled} disabledHint={unavailableHint} focused={surfaceActive && !quitPrompt && !inspectionVisible && !followupsVisible && !navigationVisible && !readerFocused && !quitting} placeholder={effectivePlaceholder} columns={Math.max(1, columns - 4)} maxRows={composerRows} accentColor={palette.accent} warningColor={palette.warning} foregroundColor={palette.foreground} secondaryColor={palette.secondary}
+        onTab={state.approval ? backwards => {const button = backwards ? approvalChoices.at(-1) : approvalChoices[0]; if (button) selectApproval(button.action);} : undefined}
         menu={menuRows ? {
           count: menuMatches.length,
           index: menuPosition,
+          unavailable: menuUnavailable[menuMatches[menuPosition] ?? ''],
           onMove: delta => setMenuIndex(position => (position + delta + menuMatches.length) % menuMatches.length),
-          onAccept: () => {const next = menuMatches[menuPosition]; setMenuIndex(0); setInput(next);},
+          onAccept: execute => {
+            const next = menuMatches[menuPosition]; setMenuIndex(0);
+            if (execute) {submit(next); return;}
+            const expand = commandDefinition(next)?.required || commandMatches(next + ' ').length > 0;
+            setInput(next + (expand ? ' ' : ''));
+          },
         } : undefined}/>
-    </Box>}
-    {menuRows ? <CommandMenu matches={menuMatches} index={menuPosition} rows={menuRows} columns={columns} accentColor={palette.accent} foregroundColor={palette.foreground} secondaryColor={palette.secondary} surfaceColor={palette.surface} descriptions={skillMenu?.descriptions}/> : null}
-    <Text color={state.error || state.phase === 'closed' || (feedback && feedbackTone === 'error') ? palette.error : state.approval ? palette.warning : palette.foreground}>{fitText(feedback || `${phase}${resultReason(state.lastResult) ? ` · ${resultReason(state.lastResult)}` : ''}${metricsText(state) ? `  ·  ${metricsText(state)}` : ''}`, columns)}</Text>
-    <Text color={palette.secondary}>{fitText(hint, columns)}</Text>
-  </Box>;
+    </Box>
+    {menuRows ? <CommandMenu matches={menuMatches} index={menuPosition} rows={menuRows} columns={columns} accentColor={palette.accent} foregroundColor={palette.foreground} secondaryColor={palette.secondary} surfaceColor={palette.surface} descriptions={skillMenu?.descriptions} unavailable={menuUnavailable}/> : null}
+    {inspectionInline ? <Box height={1} width={columns}>
+      <ActionButtons buttons={inspectionButtons} selected={null} columns={columns < 48 ? 10 : 14} height={1} palette={palette} targets={inspectionTargets}/>
+      <Text color={feedback && feedbackTone === 'error' ? palette.error : palette.foreground}>{fitText(feedback || `${phase}${resultReason(state.lastResult) ? ` · ${resultReason(state.lastResult)}` : ''}${metricsText(state) ? `  ·  ${metricsText(state)}` : ''}`, Math.max(1, columns - (columns < 48 ? 10 : 14)))}</Text>
+    </Box> : <Text color={state.error || state.phase === 'closed' || (feedback && feedbackTone === 'error') ? palette.error : state.approval ? palette.warning : palette.foreground}>{fitText(feedback || `${phase}${resultReason(state.lastResult) ? ` · ${resultReason(state.lastResult)}` : ''}${metricsText(state) ? `  ·  ${metricsText(state)}` : ''}`, columns)}</Text>}
+    <Text color={palette.secondary}>{fitText(onDetach && !readerFocused ? '任务草稿本窗口保留 · 返回原会话' : restoredIdle && columns < 60 && !readerFocused ? '未发送草稿需重输 · /resume 续做' : hint, columns)}</Text>
+  </Box>
+    {navigation.open ? <Box display={navigationVisible ? 'flex' : 'none'}><TaskNavigationPanel navigation={navigation} columns={columns} rows={rows} palette={palette}
+      active={navigationVisible} onConnect={!attach ? connectSelectedTask : undefined} connecting={taskConnection.pending || handoff?.mode === 'wait'} onCancel={cancelHandoff}
+      handoff={handoff?.mode === 'choose'} onHandoff={prepareHandoff}
+      message={taskConnection.problem}
+      onReturn={() => {if (taskConnection.pending) taskConnection.cancel(); navigation.close();}}
+      status={handoff ? handoff.mode === 'choose' ? '当前仍有运行，请选择接入方式' : '等待当前运行收尾，待办已暂停' : taskConnection.pending ? '正在确认所选任务连接…' : taskConnection.problem || (state.approval ? '待审批 · 返回主区处理' : state.activeId ? '当前任务仍运行 · Ctrl+C 停止' : '查看不执行 · Esc 返回草稿')}
+      onInspect={taskId => {if (taskConnection.pending) taskConnection.cancel(); navigation.close(); history.show(taskId); setOverlayScroll({key: 'inspection-history', top: 0});}}/></Box> : null}
+    {followups.open ? <Box display={followupsVisible ? 'flex' : 'none'}><FollowupPanel queue={followups} columns={columns} rows={rows} palette={palette} active={followupsVisible}
+      blocked={submissionBlock || (state.attachOffline ? '离线只读，不能继续执行' : goal?.active ? '目标模式进行中' : undefined)}
+      status={state.approval ? '待审批 · 返回主区处理' : state.activeId ? '当前任务仍运行 · Ctrl+C 停止' :
+        followups.inflight ? '请求已记录 · 请先核对历史结果' : '待办尚未发送 · Esc 返回草稿'}
+      onInspect={() => {followups.close(); history.show();}}
+      onDirtyChange={dirty => {followupDraftDirty.current = dirty;}}
+      onResume={() => {if (followups.resume()) startQueuedFollowup();}}/></Box> : null}
+    {inspectionMounted && state.workspace ? <Box display={inspectionVisible ? 'flex' : 'none'}>
+      <SidebarApp workspace={state.workspace} owner={sidebarOwner} theme={theme} size={{columns, rows}}
+        active={inspectionVisible} copyText={copyText} readPlanPage={(target, cursor) => sidebarRequestsRef.current.readPage(target, cursor)} embedded={{
+          status: state.approval ? '待审批 · 返回处理' : state.attachOffline ? '离线只读' : state.phase === 'running' ? '任务运行中 · Ctrl+C 停止' : 'Esc 返回 · 草稿已保留',
+          onReturn: () => setInspectionFocused(false),
+          onCompanion: () => {openSidebarPanel(); setInspectionFocused(false);},
+        }}/>
+    </Box> : null}
+  </Box>{taskConnection.connection ? <App key={taskConnection.connection.target.taskId} client={taskConnection.connection.client} attach active={active}
+    initialDraft={taskConnection.draft} onDraftChange={taskConnection.saveDraft} onDetach={taskConnection.returned} stopOnConnect={taskConnection.connection.stop}
+    windowSize={{columns, rows}} initialTheme={theme} copyText={copyText} profilePath={profilePath} userProfilePath={userProfilePath}
+    launchSidebar={launchSidebar} setupSidebar={setupSidebar} publishSidebarSignal={publishSidebarSignal} autoObserve={false}/> : null}</>;
 }

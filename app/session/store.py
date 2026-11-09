@@ -334,6 +334,17 @@ class SessionStore:
             messages = restored
         return messages
 
+    def context_revision(self) -> tuple:
+        """检测其他连接更新的消息、快照或状态。"""
+        revision = []
+        for path in (self.events_path, self.state_path):
+            try:
+                info = path.stat()
+                revision.append((info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns))
+            except FileNotFoundError:
+                revision.append(None)
+        return tuple(revision)
+
     def save_state(self, state: TaskState) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
         payload = json.dumps(

@@ -51,6 +51,19 @@ def test_ledger_rejects_unknown_and_invalid_transitions():
         ledger.add_evidence("s1", kind="bogus", ref="x")
 
 
+def test_denied_work_cannot_complete_a_step_until_successful_evidence_exists():
+    plan = _plan()
+    ledger = StepLedger.from_plan(plan)
+    ledger.start_step("s1")
+    ledger.add_evidence("s1", kind="read", ref="README.md", ok=False)
+    with pytest.raises(ExecutionError, match="step_evidence_missing"):
+        ledger.complete_step(plan, "s1")
+    assert not ledger.can_execute_step(plan, "s2")
+    ledger.add_evidence("s1", kind="read", ref="README.md", ok=True)
+    ledger.complete_step(plan, "s1")
+    assert ledger.can_execute_step(plan, "s2")
+
+
 def test_deviation_blocks_completion():
     plan = _plan()
     ledger = StepLedger.from_plan(plan)

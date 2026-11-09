@@ -43,6 +43,14 @@ test('agentTouchedFiles ignores uncertain tool results', () => {
   assert.deepEqual(agentTouchedFiles(entries), []);
 });
 
+test('recent successful writes lead the order and pending calls do not count', () => {
+  const entries = [entry(1, 'edit_file', {path: 'b.ts'}), entry(2, 'edit_file', {path: 'a.ts'}),
+    entry(3, 'edit_file', {path: 'b.ts'}), entry(4, 'write_file', {path: 'pending.ts'}, {ok: undefined})];
+  assert.deepEqual(agentTouchedFiles(entries), ['b.ts', 'a.ts']);
+  entries.push(entry(5, 'edit_file', {path: 'a.ts'}));
+  assert.deepEqual(agentTouchedFiles(entries), ['a.ts', 'b.ts']);
+});
+
 
 test('only files from the latest run are marked', () => {
   const entries: Entry[] = [

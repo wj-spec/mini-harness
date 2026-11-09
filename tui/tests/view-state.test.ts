@@ -1,12 +1,118 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {initialState, reduceView} from '../src/view-state.js';
-import type {ServerEvent} from '../src/protocol.js';
+import type {PlanReviewResult, PlanRevisionResult, ServerEvent} from '../src/protocol.js';
 import {contextSnapshot, loadedContextSnapshot} from './context-fixture.js';
 
 const call = {id: 'read-1', name: 'read_file', args: {path: 'hello.py'}};
+
+
+test('revision results cannot change the bound source, task, segment or confirmed artifact', () => {
+  const source = {session_id: 's', plan_task_id: 'plan-task', plan_id: 'plan', plan_version: 1, plan_hash: 'a'.repeat(64)};
+  const receipt: PlanRevisionResult = {target: source, feedback: 'update', revision_id: 'b'.repeat(64), result_target: null,
+    outcome: 'running', code: null, message: 'running', task: {task_id: 'revision-task', status: 'running', segment: 2, run_id: 'r2', run_started: true}};
+  let state = reduceView({...initialState, sessionId: 's'}, {type: 'begin', id: 'r2', text: 'revise', revision: receipt});
+  const original = state.inspection;
+  for (const wrong of [
+    {...receipt, target: {...source, session_id: 'other'}}, {...receipt, target: {...source, plan_hash: 'c'.repeat(64)}},
+    {...receipt, revision_id: 'c'.repeat(64)}, {...receipt, task: {...receipt.task!, task_id: 'other'}},
+    {...receipt, task: {...receipt.task!, segment: 1}}, {...receipt, task: {...receipt.task!, run_id: 'r1'}},
+    {...receipt, result_target: {...source, plan_version: 3}},
+  ]) {
+    state = reduceView(state, {type: 'revision_receipt', result: wrong}); assert.deepEqual(state.inspection, original);
+  }
+  const produced = {...source, plan_version: 2, plan_hash: 'd'.repeat(64)};
+  const submitted = {...receipt, outcome: 'submitted' as const, result_target: produced, task: {...receipt.task!, run_started: false, status: 'completed'}};
+  state = reduceView(state, {type: 'revision_receipt', result: submitted});
+  const confirmed = state.inspection;
+  state = reduceView(state, {type: 'revision_receipt', result: receipt}); assert.deepEqual(state.inspection, confirmed);
+  state = reduceView(state, {type: 'revision_receipt', result: {...submitted, result_target: {...produced, plan_hash: 'e'.repeat(64)}}});
+  assert.deepEqual(state.inspection, confirmed); assert.equal(state.inspectionPlan?.relation, 'revision-result');
+  assert.deepEqual(state.inspectionPlan?.target, produced);
+  state = reduceView(state, {type: 'event', event: {v: 1, type: 'done', id: 'r2', result}});
+  const snapshot = state.entries.find(entry => entry.inspection)?.inspection;
+  assert.deepEqual(snapshot?.revision, confirmed?.revision);
+  state = reduceView(state, {type: 'begin', id: 'next', text: 'next'});
+  state = reduceView(state, {type: 'revision_receipt', result: submitted});
+  assert.equal(state.inspection?.scope.requestId, 'next'); assert.equal(state.inspectionPlan, null);
+  assert.deepEqual(state.entries.find(entry => entry.inspection)?.inspection?.plan?.target, produced);
+});
+
+test('completed result retains its own inspection facts after the next run starts', () => {
+  let state = reduceView({...initialState, workspace: '/repo', sessionId: 's'}, {type: 'begin', id: 'old', text: '原任务'});
+  const send = (value: Record<string, unknown>) => {state = reduceView(state, {type: 'event', event: {v: 1, id: 'old', ...value} as ServerEvent});};
+  send({type: 'tool_result', call: {id: 'write', name: 'write_file', args: {path: 'old.ts'}}, ok: true, output: 'written'});
+  send({type: 'tool_result', call: {id: 'verify', name: 'bash', args: {command: 'old-test', verification: true}}, ok: true,
+    output: 'failed old check', execution: {status: 'failed', exit_code: 2}});
+  send({type: 'done', result: {text: '未完成', status: 'stopped', stop_reason: 'verification_failed', run_id: 'trace-old',
+    steps: 2, usage: {}, cost_usd: 0, verified: false}});
+  const snapshot = state.entries.find(entry => entry.inspection)?.inspection;
+  assert.ok(snapshot);
+  assert.equal(snapshot.scope.requestId, 'old'); assert.equal(snapshot.scope.traceRunId, 'trace-old');
+  assert.equal(snapshot.scope.objective, '原任务'); assert.deepEqual(snapshot.files, ['old.ts']);
+  assert.equal(snapshot.verification.verified, false); assert.equal(snapshot.verification.commands[0]?.execution?.exit_code, 2);
+  assert.equal(snapshot.plan, null);
+  state = reduceView(state, {type: 'begin', id: 'new', text: '新任务'});
+  assert.equal(state.inspection?.scope.requestId, 'new');
+  assert.deepEqual(state.entries.find(entry => entry.inspection)?.inspection, snapshot);
+  state = reduceView(state, {type: 'event', event: {v: 1, type: 'closed', id: null}});
+  const disconnected = state.entries.find(entry => entry.inspection?.scope.requestId === 'new')?.inspection;
+  assert.equal(disconnected?.scope.status, 'unknown'); assert.equal(disconnected?.verification.verified, null);
+});
+
+test('a late plan receipt enriches only its original result and a later query or disconnect cannot erase it', () => {
+  let state = reduceView({...initialState, workspace: '/repo', sessionId: 's'}, {type: 'begin', id: 'plan-run', text: '生成计划'});
+  state = reduceView(state, {type: 'event', event: {v: 1, type: 'task_state', id: 'plan-run', task: {
+    task_id: 't-plan', kind: 'run', status: 'completed', segment: 1, objective: '生成计划', goal_id: null, updated_at: ''}}});
+  state = reduceView(state, {type: 'event', event: {v: 1, type: 'done', id: 'plan-run', result: {text: '', status: 'stopped',
+    stop_reason: 'plan_submitted', steps: 1, usage: {}, cost_usd: 0, run_id: 'trace-plan'}}});
+  const review: PlanReviewResult = {outcome: 'ready', target: {session_id: 's', plan_task_id: 't-plan', plan_id: 'p1', plan_version: 1, plan_hash: 'a'.repeat(64)},
+    replacement_target: null, code: null, message: '计划已生成', launch: null, body_page: '', next_cursor: null, available_actions: ['approve-execute'],
+    summary: {objective: '原计划', status: 'proposed', executable: true, step_count: 1, criterion_count: 0, question_count: 0}};
+  state = reduceView(state, {type: 'review_card', result: review});
+  const snapshot = state.entries.find(entry => entry.inspection)?.inspection;
+  assert.deepEqual(snapshot?.plan?.target, review.target);
+  assert.equal(snapshot?.plan?.relation, 'planning');
+  state = reduceView(state, {type: 'review_card', result: {...review, target: {...review.target!, plan_task_id: 'other', plan_id: 'p-other'}}});
+  state = reduceView(state, {type: 'event', event: {v: 1, type: 'closed', id: null}});
+  assert.deepEqual(state.entries.find(entry => entry.inspection)?.inspection, snapshot);
+});
 const result = {text: '# 结果\n已读取。', status: 'done' as const, steps: 2, usage: {}, cost_usd: 0, run_id: 'internal', stop_reason: ''};
 const event = (type: string, fields: Record<string, unknown> = {}) => ({v: 1, type, id: 'run-1', ...fields}) as ServerEvent;
+
+test('restored history and task hints do not invent an inspected run', () => {
+  let state = reduceView(initialState, {type: 'event', event: event('ready', {id: null, workspace: '/repo', model: 'fake', session_id: 'restored',
+    resumed: true, capabilities: [], tasks: [{task_id: 't-old', kind: 'run', status: 'completed', worker_status: null, stale: false}]})});
+  state = reduceView(state, {type: 'event', event: event('history_message', {id: null, message: {role: 'user', content: '历史任务'}})});
+  assert.equal(state.inspection, null);
+  state = reduceView(state, {type: 'event', event: event('task_snapshot', {id: null, task: {task_id: 't-old', kind: 'run', status: 'paused', segment: 3,
+    run_id: null, objective: '明确 attach 的任务', goal_id: null, worktree: null}, approvals: []})});
+  assert.equal(state.inspection?.scope.status, 'restored');
+  assert.equal(state.inspection?.scope.taskId, 't-old');
+  assert.equal(state.inspection?.scope.traceRunId, null);
+  assert.equal(state.inspection?.result, null);
+});
+
+test('inspection retains exact completed evidence through queries and marks disconnection as unknown', () => {
+  let state = reduceView(initialState, {type: 'begin', id: 'run-1', text: '工作'});
+  const task = {task_id: 't-1', kind: 'run', status: 'running', segment: 2, objective: '工作', goal_id: null, updated_at: 'now'};
+  state = reduceView(state, {type: 'event', event: event('task_state', {task})});
+  state = reduceView(state, {type: 'event', event: event('task_state', {task: {...task, task_id: 't-wrong'}})});
+  assert.equal(state.inspection?.scope.taskId, 't-1');
+  state = reduceView(state, {type: 'event', event: event('task_state', {task: {...task, segment: 1}})});
+  assert.equal(state.inspection?.scope.segment, 2);
+  state = reduceView(state, {type: 'event', event: event('done', {result: {...result, verified: false}})});
+  const inspection = state.inspection;
+  state = reduceView(state, {type: 'begin_command', id: 'query', command: 'cost'});
+  state = reduceView(state, {type: 'event', event: event('command_result', {id: 'query', command: 'cost', text: '费用'})});
+  assert.equal(state.inspection, inspection);
+  assert.equal(state.inspection?.result?.verified, false);
+  state = reduceView(state, {type: 'begin', id: 'run-2', text: '新任务'});
+  state = reduceView(state, {type: 'event', event: event('closed', {id: null})});
+  assert.equal(state.inspection?.scope.status, 'unknown');
+  assert.equal(state.inspection?.result, null);
+  assert.equal(state.inspection?.scope.taskId, null);
+});
 
 test('done surfaces the harness delivery receipt as a separate notice', () => {
   let state = reduceView(initialState, {type: 'begin', id: 'run-1', text: 'work'});
@@ -320,4 +426,20 @@ test('restored history and stale events do not set an active model state; discon
   state = reduceView(state, {type: 'event', event: event('closed', {id: null})});
   assert.equal(state.activity, null);
   assert.equal(state.error, 'backend_exit: backend gone');
+});
+
+test('session plan mode follows plan_mode frames and defaults to inactive', () => {
+  assert.deepEqual(initialState.planMode, {active: false, pending: false, wanted: null});
+  let state = reduceView(initialState, {type: 'event', event: event('ready', {id: null, workspace: '/repo', model: 'm', session_id: 's', capabilities: ['tasks']})});
+  assert.deepEqual(state.planMode, {active: false, pending: false, wanted: null});
+  state = reduceView(state, {type: 'event', event: event('plan_mode', {id: null, mode: {active: false, pending: true, wanted: true}})});
+  assert.deepEqual(state.planMode, {active: false, pending: true, wanted: true});
+  state = reduceView(state, {type: 'event', event: event('plan_mode', {id: null, mode: {active: true, pending: false, wanted: true}})});
+  assert.deepEqual(state.planMode, {active: true, pending: false, wanted: true});
+  const running = reduceView(state, {type: 'begin', id: 'run-1', text: '规划'});
+  assert.deepEqual(running.planMode, {active: true, pending: false, wanted: true});
+  const completed = reduceView(running, {type: 'event', event: event('done', {result})});
+  assert.deepEqual(completed.planMode, {active: true, pending: false, wanted: true});
+  const off = reduceView(completed, {type: 'event', event: event('plan_mode', {id: null, mode: {active: false, pending: false, wanted: false}})});
+  assert.deepEqual(off.planMode, {active: false, pending: false, wanted: false});
 });

@@ -1,4 +1,5 @@
-import {spawnSync} from 'node:child_process';
+import {execFile, spawnSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
 
 /** 侧栏只读 git 查询：固定参数、不经 shell、不写工作区。 */
 export type FileStatus = 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'conflicted';
@@ -30,7 +31,7 @@ export type StatusResult =
   | {ok: true; status: WorkspaceStatus}
   | {ok: false; reason: 'not-git' | 'git-missing' | 'error'; message: string};
 export type DiffResult =
-  | {ok: true; text: string; truncated: boolean}
+  | {ok: true; text: string; truncated: boolean; revision?: string}
   | {ok: false; message: string};
 
 export const DEFAULT_TIMEOUT_MS = 2000;
@@ -66,6 +67,21 @@ export function runGit(args: readonly string[], options: {cwd: string; timeoutMs
   }
 }
 
+/** 与同步查询共享限制，侧栏刷新不占用输入事件循环。 */
+export function runGitAsync(args: readonly string[], options: {cwd: string; timeoutMs?: number; maxBuffer?: number}): Promise<GitRunResult> {
+  return new Promise(resolve => {
+    execFile('git', [...args], {
+      cwd: options.cwd, encoding: 'utf8', timeout: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+      maxBuffer: options.maxBuffer ?? DEFAULT_MAX_BUFFER,
+      env: {...process.env, LC_ALL: 'C', GIT_OPTIONAL_LOCKS: '0'},
+    }, (error, stdout, stderr) => resolve({
+      status: error ? typeof error.code === 'number' ? error.code : null : 0,
+      stdout, stderr,
+      error: error && (error.killed || typeof error.code !== 'number') ? error.message : undefined,
+    }));
+  });
+}
+
 export function numstatArgs(hasHead: boolean): string[] {
   const head = hasHead ? ['HEAD'] : [];
   return ['-c', 'core.quotepath=false', '--no-optional-locks', 'diff', ...head,
@@ -73,7 +89,7 @@ export function numstatArgs(hasHead: boolean): string[] {
 }
 
 export function diffArgs(file: ChangedFile, hasHead: boolean): string[] {
-  if (file.status === 'untracked') {
+  if (file.status === 'untracked' || (!hasHead && file.status === 'added')) {
     return ['-c', 'core.quotepath=false', '--no-optional-locks', 'diff', '--no-index',
       '--no-color', '--no-ext-diff', '-U3', '--', '/dev/null', file.path];
   }
@@ -191,8 +207,7 @@ export function mergeCounts(files: ChangedFile[], counts: Map<string, {additions
   });
 }
 
-export function readWorkspaceStatus(root: string, run: GitRunner = runGit): StatusResult {
-  const status = run(STATUS_ARGS, {cwd: root});
+function decodeStatus(root: string, status: GitRunResult): StatusResult {
   if (status.error) {
     if (/ENOENT|not found/iu.test(status.error)) return {ok: false, reason: 'git-missing', message: '未找到 git 命令'};
     return {ok: false, reason: 'error', message: `git status 失败：${clip(status.error)}`};
@@ -203,14 +218,35 @@ export function readWorkspaceStatus(root: string, run: GitRunner = runGit): Stat
   if (status.status !== 0) {
     return {ok: false, reason: 'error', message: `git status 退出码 ${status.status ?? '未知'}：${clip(status.stderr)}`};
   }
-  const statusValue = parsePorcelainV2(status.stdout, root);
+  return {ok: true, status: parsePorcelainV2(status.stdout, root)};
+}
+
+export function readWorkspaceStatus(root: string, run: GitRunner = runGit): StatusResult {
+  const result = decodeStatus(root, run(STATUS_ARGS, {cwd: root}));
+  if (!result.ok) return result;
+  const statusValue = result.status;
   const counts = run(numstatArgs(statusValue.head !== null), {cwd: root});
   if (counts.status === 0 && counts.stdout) statusValue.files = mergeCounts(statusValue.files, parseNumstat(counts.stdout));
   return {ok: true, status: statusValue};
 }
 
+export async function readWorkspaceStatusAsync(root: string): Promise<StatusResult> {
+  const result = decodeStatus(root, await runGitAsync(STATUS_ARGS, {cwd: root}));
+  if (!result.ok) return result;
+  const counts = await runGitAsync(numstatArgs(result.status.head !== null), {cwd: root});
+  if (counts.status === 0 && counts.stdout) result.status.files = mergeCounts(result.status.files, parseNumstat(counts.stdout));
+  return result;
+}
+
 export function readFileDiff(root: string, file: ChangedFile, hasHead = true, run: GitRunner = runGit): DiffResult {
-  const result = run(diffArgs(file, hasHead), {cwd: root, maxBuffer: DEFAULT_MAX_BUFFER});
+  return decodeDiff(run(diffArgs(file, hasHead), {cwd: root, maxBuffer: DEFAULT_MAX_BUFFER}));
+}
+
+export async function readFileDiffAsync(root: string, file: ChangedFile, hasHead = true): Promise<DiffResult> {
+  return decodeDiff(await runGitAsync(diffArgs(file, hasHead), {cwd: root, maxBuffer: DEFAULT_MAX_BUFFER}));
+}
+
+function decodeDiff(result: GitRunResult): DiffResult {
   if (result.error) return {ok: false, message: `读取 diff 失败：${clip(result.error)}`};
   // --no-index 在存在差异时返回 1，属于正常结果。
   if (result.status !== 0 && result.status !== 1) {
@@ -227,7 +263,7 @@ export function readFileDiff(root: string, file: ChangedFile, hasHead = true, ru
     text = `${text.slice(0, MAX_DIFF_CHARS)}\n… diff 已截断（超过 ${MAX_DIFF_CHARS} 字符）`;
     truncated = true;
   }
-  return {ok: true, text, truncated};
+  return {ok: true, text, truncated, revision: createHash('sha256').update(result.stdout).digest('hex')};
 }
 
 export function statusLetter(file: ChangedFile): 'M' | 'A' | 'D' | 'R' | 'U' | '?' | 'C' {

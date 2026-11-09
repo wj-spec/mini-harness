@@ -25,7 +25,8 @@ export function patchPaths(patch: string): string[] {
 }
 
 /** 本轮 Agent 实际成功写过的文件；用于侧栏高亮与跟随。 */
-export function agentTouchedFiles(entries: Entry[]): string[] {
+export function agentTouchedFiles(entries: Entry[], requestId?: string | null): string[] {
+  if (requestId === null) return [];
   const files: string[] = [];
   const seen = new Set<string>();
   const add = (value: unknown) => {
@@ -36,13 +37,14 @@ export function agentTouchedFiles(entries: Entry[]): string[] {
     files.push(normalized);
   };
   const latestRun = [...entries].reverse().find(entry => entry.kind === 'tool' && entry.runId)?.runId;
-  for (const entry of entries) {
-    if (entry.kind !== 'tool' || entry.ok === false || entry.uncertain) continue;
-    if (latestRun && entry.runId && entry.runId !== latestRun) continue;
+  for (const entry of [...entries].reverse()) {
+    if (entry.kind !== 'tool' || entry.ok !== true || entry.uncertain) continue;
+    if (requestId !== undefined && entry.runId !== requestId) continue;
+    if (requestId === undefined && latestRun && entry.runId && entry.runId !== latestRun) continue;
     const name = entry.call?.name;
     const args = entry.call?.args ?? {};
     if (name === 'write_file' || name === 'edit_file') add(args.path);
     if (name === 'apply_patch' && typeof args.patch === 'string') for (const item of patchPaths(args.patch)) add(item);
   }
-  return files.slice(-200);
+  return files.slice(0, 200);
 }

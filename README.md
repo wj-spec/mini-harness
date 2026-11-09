@@ -13,7 +13,7 @@
 
 *React/Ink 工作台（左）与只读 Git 变更侧栏（右）；顶部是产品标识像素猫 Mini。截图为 2026-10-26 的当前版本，点击可查看原图。*
 
-> 状态：单 Agent 编码流程已可用（W1–W5 真实验收完成）；前后台 Plan、只读子 Agent、后台 goal worker、验收失败自动修复、worktree→merge→重验均通过真实模型 P1（suite 六模式 deepseek-flash/chat 各 6/6）；只读 CLI/观测（tasks/plans/plan-card/acceptance/approvals/evidence/trace-summary/bench-history）齐备；真实 TUI 终端渲染键路仍待人工验收（[10 分钟清单](docs/specs/manual-acceptance-tui-quick.md)）；最新进度见[工作台里程碑](docs/MILESTONES.md)、[P0 收束报告](docs/specs/p0-closure-report.md) 与 [真实 P1 记录](docs/specs/real-p1-plan-smoke-2026-11-07.md)。
+> 状态：单 Agent 编码流程已可用（W1–W5 真实验收完成）；前后台 Plan（含会话级 `/plan on|off`、审阅三态、Markdown 审阅稿、可配置规划提示词与 `submit_plan` 最终门禁）、只读子 Agent、后台 goal worker、验收失败自动修复、worktree→merge→重验均通过真实模型 P1（suite 六模式 deepseek-flash/chat 各 6/6）；只读 CLI/观测（tasks/plans/plan-card/acceptance/approvals/evidence/trace-summary/bench-history）齐备；真实 TUI 终端渲染键路仍待人工验收（[10 分钟清单](docs/specs/manual-acceptance-tui-quick.md)）；最新进度见[工作台里程碑](docs/MILESTONES.md)、[P0 收束报告](docs/specs/p0-closure-report.md) 与 [真实 P1 记录](docs/specs/real-p1-plan-smoke-2026-11-07.md)。
 
 ## 项目简介
 
@@ -36,8 +36,9 @@ Agent 执行的步骤一多，最终回答就不足以说明它依据了什么�
 | 过程控制 | 运行中纠偏、排队后续任务、取消与超时回收；重复调用 / 重复读取 / 无产物进展的空转护栏；交互单轮默认 30 分钟；完成守卫：动作任务的“完成”必须有覆盖最后一次改动的成功验证，否则只标 `verified=false`；结束状态区分「本轮结束 · 已验证 / 待验证」；可选 `VIBE_LLM_AUDITOR=1` 启用全新上下文的 LLM 只读审计（默认关闭，额外一次模型调用）；开启后默认要求契约反查 `aligned`，可用 `VIBE_CONTRACT_BACKCHECK=0` 放宽 unknown |
 | 上下文 | 1M 上下文窗口、预算分区、80% 主动压缩、原文 offload + `recall` 回取、请求前上下文快照与 `/context` |
 | 会话与恢复 | JSONL 会话与原始消息、崩溃对账、交付回执、显式 `/resume` 续做同一任务；每轮写入 `.vibe/sessions/<id>/rounds/` 账本（文件变动前后 hash、验证记录、审计结论），`/evidence` 查看最近一轮证据摘要，不复制文件正文 |
+| 任务导航 | 点击「任务」或 `/tasks` 选择完整目标、状态、待审批数与准确历史；可在工作台内接入所选 worker、审批或停止，返回各自草稿/光标。下一次运行接入已保存的最新上下文，同会话已有运行时拒绝抢写并保留输入。旧会话切换与真人完整验收仍待完成，见 [P8 验证](openspec/changes/implement-improve-workbench-ux-p8/verification.md) |
 | 长任务 | `/goal` 目标模式：资源受限停止后自动续段（默认 8 段 / 4 小时）；目标状态写入会话目录，重启 / `--continue` 后恢复为暂停态，需 `/goal resume` 显式续段；完成未验证时暂停而不是标记完成；已确认 criteria 由 harness 执行可信命令（失败暂停）；`--prepare-plan-task`/`--run-plan-queue` 支持计划任务串行/跨会话/跨工作区排队 |
-| 后台 / 计划 / 子 Agent | `/chat` `/act` `/plan`（schema、审批、执行门禁、step 证据、验收命令、失败自动修复、合并后重验）；前后台 Plan 与 `/explore` 只读子 Agent 已通过真实模型 P1（deepseek-flash/chat，suite 六模式 6/6）；P2 委派支持 opt-in 只读 `delegate`；后台 worker、`--tasks`、`--attach`、`--stop`、`--pause-task`；计划队列 `--prepare-plan-task`/`--run-plan-queue`（跨会话/跨工作区、并行、priority、dry-run）与 TUI `/queue`（查看）/`/priority`（调整）；计划编辑支持目标/步骤标题/类型/文件范围/依赖（环检测）与完整审批卡（约束/验收/验证命令/门禁/hash）；CLI `--explore PROMPT` 只读子 Agent；本地通知 `/notifications` + 可选外部 webhook；只读 CLI `--tasks/--plans/--acceptance/--notifications/--approvals/--evidence/--trace-summary`；TUI `/trace [H]` 观测摘要 |
+| 后台 / 计划 / 子 Agent | `/chat` `/act` `/plan`（schema、审批、执行门禁、step 证据、验收命令、失败自动修复、合并后重验）；计划模式支持会话级开关（`/plan on|off|status`，下一条普通消息自动走 plan profile）、计划提示词注入、`submit_plan` 成功后终止规划 run、审阅三态（批准/要求修改/关闭）与 Markdown 审阅稿；前后台 Plan 与 `/explore` 只读子 Agent 已通过真实模型 P1（deepseek-flash/chat，suite 六模式 6/6）；P2 委派支持 opt-in 只读 `delegate`；后台 worker、`--tasks`、`--attach`、`--stop`、`--pause-task`；计划队列 `--prepare-plan-task`/`--run-plan-queue`（跨会话/跨工作区、并行、priority、dry-run）与 TUI `/queue`（查看）/`/priority`（调整）；计划编辑支持目标/步骤标题/类型/文件范围/依赖（环检测）与完整审批卡（约束/验收/验证命令/门禁/hash）；CLI `--explore PROMPT` 只读子 Agent；本地通知 `/notifications` + 可选外部 webhook；只读 CLI `--tasks/--plans/--acceptance/--notifications/--approvals/--evidence/--trace-summary`；TUI `/trace [H]` 观测摘要 |
 | 工作台 | 全屏 Ink、Markdown 阅读、多行输入与历史、拖选复制、Git 变更侧栏、像素猫 Mini 首屏；`--doctor` 首用环境自检（待审批/events 软上限/stale worktree/benchmark 回归/真实模型报告）；`./scripts/verify_all.sh` 一键验收；审批面板标题显示层级；`/trace [H]`、`/queue`、`/priority`、`/plan card` 等只读视图 |
 | 个性化 | 项目背景 `/project`（查看、增删、改来源）与个人偏好 `/about`（确认、编辑、触发词、相关性注入、导出/审计）：均带来源，下一次任务生效；W6 v2 未证明收益，保持显式可管理，不扩 P5 |
 
@@ -87,6 +88,10 @@ flowchart TD
 4. **长任务分段落，而不是放宽边界。** `/goal` 只在运行段因资源限制停止时自动续段，遇到无进展、上下文窗口、错误或取消则暂停；每段仍走普通 run 的审批、工具与会话边界。目标状态随会话保存，重启后恢复为暂停态，必须显式续段，避免自动消耗预算。
 
 模块地图、一次任务的事件序列、逐项机制与工程取舍见 [Harness 技术方案](docs/HARNESS.md)。
+
+Plan 反馈修订的持久任务与恢复位于 [plan_revision.py](app/runtime/plan_revision.py)；Ink 卡片反馈、准确版本修订与重开恢复已接通，真实验收状态见 [P4 验证记录](openspec/changes/implement-improve-workbench-ux-p4/verification.md)。按请求保存的检查事实与只读分页位于 [inspection.py](app/runtime/inspection.py)，主工作台已接通“历史结果”分页与重开后的准确检查；独立 attach 已支持绑定任务的历史/准确计划及离线只读，worktree 的当前 diff 与附回也按保存来源读取；内嵌专注检查已接通，完整真人验收待完成，见 [P6 验证记录](openspec/changes/implement-improve-workbench-ux-p6/verification.md#内嵌专注检查2026-11-09)。
+
+主区可点击“专注检查”（窄屏“检查”）阅读同一对象的变更、计划与验证，返回保留草稿/光标。详见 [P6 专注检查记录](openspec/changes/implement-improve-workbench-ux-p6/verification.md#内嵌专注检查2026-11-09)。
 
 ## 工程验证
 
@@ -184,6 +189,7 @@ npm --prefix tui test       # TypeScript / Ink 测试
 | [长任务 / 后台 / 进阶模式讨论](docs/design/long-horizon/README.md) | 长任务、后台任务与 `/plan` 等进阶模式的分块设计讨论（9 + 6 块）及子 Agent 结合方式 |
 | [工作台里程碑](docs/MILESTONES.md) | W0–W7 的验收条件、真实运行证据与当前状态 |
 | [建设方向](docs/roadmap.md) | 长期方向、阶段取舍与界面 / 全栈学习路径 |
+| [Agent 实验台规划](openspec/roadmaps/build-agent-lab/roadmap.md) | 观测、运行版本、SWE-bench / Terminal-Bench 主基准及回归闭环；含设计、验收与开发规范（规划，未实施） |
 | [文件规划](docs/STRUCTURE.md) | 目录职责、依赖方向与新增文件约定 |
 | [完成守卫与环境审计](docs/specs/verified-completion.md) | 完成判定、文件变动账本、轮次记录与只读审计的行为/边界 |
 | [任务运行时基础](docs/specs/task-runtime.md) | TaskRecord/TaskStore 的数据模型、状态机、原子写、恢复与测试口径（P0 基础切片） |
@@ -211,6 +217,7 @@ npm --prefix tui test       # TypeScript / Ink 测试
 | [Plan/SubAgent 验收结果](docs/specs/manual-acceptance-16-results.md) | 2026-11-07：真实模型 Plan/SubAgent 自动化结果、TC-16 映射、剩余 TUI 键路 |
 | [TUI 终端快速验收](docs/specs/manual-acceptance-tui-quick.md) | 真实终端 10 分钟走完启动/审批/Plan 覆盖层/explore/后台/队列/attach/侧栏的可见效果与手感 |
 | [待用户拍板事项](docs/specs/open-decisions.md) | 模型自发委派、文件集并行写、真实 TUI 人工验收、跨机器观测：现状/选项/推荐 |
+| [OTel 集中观测规格](docs/specs/otel-observability.md) | M0–M3 分阶段（离线导出、进程内 span/metrics、worker/subagent 关联）与 M4+ 生产化；默认关闭、隐私分级、待拍板项（未实现） |
 | [真实模型 Plan P1 冒烟](docs/specs/real-p1-plan-smoke-2026-11-07.md) | 2026-11-07 deepseek-flash/chat：计划生成、多步执行、审批帧、验收 acceptance=true；重复样本与剩余 TUI 人工验收记录 |
 | [真实 P1 验收脚本](scripts/real_p1_acceptance.py) | 一键真实模型 Plan 生成→批准→执行（前台/`--background`）→审批→验收 + `/explore`，输出 JSON 报告 |
 | [只读子 Agent P0](docs/specs/subagent-runner.md) | harness 内部只读 runner、结构化结果、无审批/写/执行 |

@@ -180,8 +180,20 @@ def main() -> int:
                 until(lambda: prompt in terminal(), "composer text")
                 os.write(master, b"\r")
 
-            until(lambda: "审批 › mcp_start" in terminal(), "MCP startup approval")
-            os.write(master, b"y")
+            def focus_approval():
+                offset = len(raw)
+                os.write(master, b"\x12")
+                until(lambda: "审批焦点" in raw[offset:].decode("utf-8", errors="replace"), "approval focus")
+
+            def confirm_approval(key):
+                offset = len(raw)
+                os.write(master, key)
+                until(lambda: "已选择" in raw[offset:].decode("utf-8", errors="replace"), "approval choice")
+                os.write(master, b"\r")
+
+            until(lambda: re.search(r"审批 · (?:[^\r\n]* · )?mcp_start", terminal()), "MCP startup approval")
+            focus_approval()
+            confirm_approval(b"y")
             until(lambda: "MCP 初始化完成：8 个工具" in terminal(), "MCP ready")
             send_task("Run the local fixture browser checks, then report observed results.")
             sessions = workspace / ".vibe/sessions"
@@ -200,13 +212,15 @@ def main() -> int:
                     break
                 def approval_visible(c=call):
                     screen = terminal()
-                    screen = screen[screen.rfind("审批 › "):]
-                    return screen.startswith("审批 › " + c["name"]) and "y 允许一次 / n 拒绝" in screen
+                    screen = screen[screen.rfind("审批 · "):]
+                    return (re.match(r"审批 · (?:[^\r\n]* · )?" + re.escape(c["name"]), screen)
+                            and "y 允许一次 / n 拒绝" in screen)
 
                 until(lambda c=call: any(e.get("type") == "tool_start" and e.get("tool_call_id") == c["id"]
                                          for e in rows(trace_path))
                       and approval_visible(),
                       f"once-only approval {call['remote']}")
+                focus_approval()
                 if index == 0:
                     for key in (b"s", b"p"):
                         os.write(master, key)
@@ -216,7 +230,7 @@ def main() -> int:
                         assert not any(e.get("type") in {"approval", "tool_end"}
                                        and e.get("tool_call_id") == call["id"] for e in rows(trace_path))
                         scope_checks.append(key.decode())
-                os.write(master, b"n" if index == 4 else b"y")
+                confirm_approval(b"n" if index == 4 else b"y")
                 until(lambda c=call: any(e.get("type") == "tool_end" and e.get("tool_call_id") == c["id"]
                                          for e in rows(trace_path)), f"result {call['remote']}")
             until(lambda: len([e for e in rows(trace_path) if e.get("type") == "run_end"]) == 2, "completed runs")

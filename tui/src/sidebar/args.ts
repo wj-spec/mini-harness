@@ -1,10 +1,14 @@
 import type {ThemeName} from '../theme.js';
+import {validOwner, type SidebarOwner} from './channel.js';
+import type {SidebarMode} from './host.js';
 
 export type SidebarOptions = {
   workspace: string;
   theme: ThemeName;
   refreshMs: number;
   parentPid: number | null;
+  owner?: SidebarOwner;
+  hostMode?: SidebarMode;
 };
 
 export const SIDEBAR_HELP = `mini-harness 变更侧栏
@@ -15,6 +19,8 @@ export const SIDEBAR_HELP = `mini-harness 变更侧栏
   --theme NAME       system | light | dark（默认 system）
   --refresh-ms N     轮询间隔毫秒，0 表示只在启动和按键时刷新（默认 1000）
   --parent-pid N     主工作台进程号；工作台退出后侧栏自动退出（由工作台传入）
+  --instance-id ID   绑定主工作台实例（须与 --parent-pid 一起使用）
+  --host-mode MODE  split | quick | window（由工作台传入）
   --help             显示帮助
 
 只读：侧栏只执行固定参数的 git status / git diff，不写工作区、不联网、不经过 shell。
@@ -24,8 +30,20 @@ export const SIDEBAR_HELP = `mini-harness 变更侧栏
 
 export function parseSidebarArgs(args: readonly string[], cwd = process.cwd()): SidebarOptions {
   const options: SidebarOptions = {workspace: cwd, theme: 'system', refreshMs: 1000, parentPid: null};
+  let instanceId: string | undefined;
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!;
+    if (arg === '--instance-id') {
+      instanceId = args[++index];
+      if (!validOwner({instanceId, parentPid: 1})) throw new Error('--instance-id 需要有效 UUID');
+      continue;
+    }
+    if (arg === '--host-mode') {
+      const mode = args[++index];
+      if (mode !== 'split' && mode !== 'quick' && mode !== 'window') throw new Error('--host-mode 只接受 split、quick 或 window');
+      options.hostMode = mode;
+      continue;
+    }
     if (arg === '--workspace') {
       const value = args[index + 1];
       if (!value) throw new Error('--workspace 需要路径');
@@ -55,6 +73,10 @@ export function parseSidebarArgs(args: readonly string[], cwd = process.cwd()): 
       continue;
     }
     throw new Error(`未知参数：${arg}`);
+  }
+  if (instanceId) {
+    if (!options.parentPid) throw new Error('--instance-id 需要同时指定 --parent-pid');
+    options.owner = {instanceId, parentPid: options.parentPid};
   }
   return options;
 }

@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
 from app import __main__ as entrypoint
 from app.config import Config
-from app.runtime.plan import Plan, approve_plan, propose_plan
+from app.runtime.plan import Plan, approve_plan, content_hash, propose_plan
 from app.runtime.plan_execution import StepLedger, save_ledger
 from app.runtime.tasks import TaskStore
 from app.session.store import SessionStore
@@ -70,16 +72,58 @@ def test_prepare_plan_task_creates_bound_task(repo, monkeypatch, capsys):
     assert task.status == "created"
     assert task.kind == "run" and task.mode == "act"
     assert task.plan_id == "pl-queue" and task.plan_version == 1
+    assert task.parent_id == plan.task_id
+
+
+@pytest.mark.skipif(GIT is None, reason="git required")
+def test_prepare_plan_task_excludes_a_revision_until_metadata_is_saved(repo, monkeypatch, capsys):
+    session, plan = _approve_empty_plan(repo)
+    ref = {'session_id': session.id, 'plan_task_id': plan.task_id, 'plan_id': plan.plan_id,
+           'plan_version': plan.version, 'plan_hash': content_hash(plan)}
+    script = '''
+import json, sys
+from app.runtime.plan_revision import PlanRevision
+from app.runtime.task_runtime import TaskRuntime
+from app.runtime.tasks import TaskStore
+store = TaskStore(sys.argv[1])
+runtime = TaskRuntime(store, workspace=sys.argv[2])
+result = PlanRevision(store.root, session_id=store.root.name, task_runtime=runtime).request(
+    json.loads(sys.argv[3]), 'Check empty files', 'competing-revision')
+print(json.dumps(result.receipt))
+'''
+    replace = os.replace
+    observed = []
+
+    def observe_save(source, destination, *args, **kwargs):
+        if Path(destination).name == 'meta.json' and json.loads(Path(source).read_text())['mode'] == 'act':
+            child = subprocess.run([sys.executable, '-c', script, str(session.root), str(repo), json.dumps(ref)],
+                                   cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True, timeout=10)
+            assert child.returncode == 0, child.stderr
+            observed.append(json.loads(child.stdout))
+        return replace(source, destination, *args, **kwargs)
+
+    monkeypatch.setattr(os, 'replace', observe_save)
+    monkeypatch.setattr(entrypoint.Config, 'from_env', lambda: Config(workspace=repo))
+    monkeypatch.setattr(sys, 'argv', ['vibe', '--prepare-plan-task', '--session', session.id,
+                                    '--workspace', str(repo), '--fake'])
+    entrypoint.main()
+    result = json.loads(capsys.readouterr().out)
+    assert len(observed) == 1 and observed[0]['code'] == 'lock_busy'
+    assert observed[0]['task'] is None
+    assert TaskStore(session.root).get(result['task_id']).parent_id == plan.task_id
+    assert len(TaskStore(session.root).list()) == 2
 
 
 @pytest.mark.skipif(GIT is None, reason="git required")
 def test_run_plan_queue_completes_prepared_task(repo, monkeypatch, capsys):
     session, plan = _approve_empty_plan(repo)
     store = TaskStore(session.root)
-    task = store.create(kind="run", objective=plan.objective, workspace=str(repo),
-                        mode="act", plan_id=plan.plan_id, plan_version=plan.version,
-                        session_id=session.id)
     monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=repo))
+    monkeypatch.setattr(sys, "argv", ["vibe", "--prepare-plan-task", "--session", session.id,
+                                      "--workspace", str(repo), "--fake"])
+    entrypoint.main()
+    prepared = json.loads(capsys.readouterr().out)
+    task = store.get(prepared['task_id'])
     monkeypatch.setattr(sys, "argv", ["vibe", "--run-plan-queue", "--session", session.id,
                                       "--workspace", str(repo), "--fake"])
     entrypoint.main()

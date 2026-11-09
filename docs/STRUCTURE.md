@@ -42,6 +42,10 @@ mini-harness/
       summarize.py      # LLM 摘要 HTTP 适配器 + 确定性回退
       tasks.py          # TaskRecord/TaskStore：任务身份、状态机、原子写、恢复（P0 基础）
       task_runtime.py   # TaskRuntime：stdio run.task、goal 任务生命周期、task_state payload
+      task_navigation.py # 当前会话任务只读目录、分页、控制可用性与 worker/审批事实（P8）
+      plan_revision.py  # PlanRevision：持久反馈修订、准确任务绑定、只读查询与显式续做（P4）
+      inspection.py     # 检查记录：请求/任务/计划绑定、命令事实、原子保存与只读分页（P6）
+      attach_inspection.py # attach 任务范围只读查询与离线身份（不持有执行器）
       supervise.py      # WorkerSupervisor：worker.json/心跳/判死/--tasks（P0a）
       worker.py         # 后台 worker：独立 stdio 子进程 + ctrl.sock + attach + worker.log（P0b）
       goals.py          # GoalRecord v2：目标状态/迁移/段账本同步（P0）
@@ -66,6 +70,7 @@ mini-harness/
       sandbox_proxy.py  # 沙箱网络白名单代理
     session/            # 会话、证据与审计
       store.py          # JSONL 事件、state 投影、轮次账本、--continue、崩溃对账
+      writer.py         # stdio 运行/启动恢复共用进程锁，拒绝同会话并行执行
       trace.py          # TraceRecorder / Pricing
       audit.py          # 只读环境审计：git 基线、文件 hash、完整性结论
       auditor.py        # 可选 LLM 只读审计：全新上下文 + 只读工具子集
@@ -102,6 +107,14 @@ mini-harness/
       backend-launch.ts # 交互后端与只读会话列表共用启动环境
       protocol.ts       # JSONL v1 类型与运行时校验
       app.tsx           # 阅读焦点、滚动、输入、审批与取消
+      use-plan-review.ts # 准确计划卡、请求归属、显式决策、分页与未知结果恢复
+      use-task-navigation.ts # 任务目录请求、作用域和迟到回执管理
+      use-task-connection.ts # 接入/取消生命周期与按任务隔离的窗口内草稿
+      task-navigation-panel.tsx # 按任务身份选择、完整目标/状态与历史入口
+      use-followups.ts # 后续待办、恢复暂停与已发请求追踪
+      followup-store.ts # 会话队列原子保存、范围校验与单写者占用
+      followup-panel.tsx # 后续正文阅读、独立编辑与可点击动作
+      use-inspection-history.ts # 只读历史结果分页、身份校验、失败保页与请求生命周期
       approval-view.ts  # 审批预览的层级解析与标题（T0–T4 前置显示）
       view-state.ts     # 实际活动、最终状态、完整消息与工具记录
       mascot.tsx       # 彩色像素猫 Mini 的 sprite 与半格渲染
@@ -119,17 +132,19 @@ mini-harness/
       terminal-colors.ts # 与 Ink 共用颜色能力及禁色规则
       composer.tsx      # 多行草稿、输入历史、光标与粘贴
       editor.ts         # grapheme 编辑和终端单元格宽度
-      sidebar/          # 独立 Git 变更侧栏（Ghostty split/quick、Terminal 独立窗口）
+      sidebar/          # 共用检查阅读器与独立 Git 侧栏（Ghostty split/quick、Terminal 独立窗口）
         cli.tsx         # 参数、终端标题、渲染与信号清理
         app.tsx         # 变更列表、diff、跟随与键盘交互
         agent-activity.ts # 从工具记录提取 Agent 成功改过的文件（含 apply_patch diff 头）
         signal.ts       # TUI → 侧栏的 workspace 信号文件（版本/文件/active）
         git.ts          # 只读 git status / diff / numstat 与解析
+        file-source.ts  # 读取前复核来源目录身份与 Git 根，拒绝回退主项目
         diff.ts         # unified diff 分类、宽字符换行
         state.ts        # 选中、跟随、焦点与滚动（纯函数）
         host.ts         # Ghostty 1.3+ AppleScript、quick/split、quick terminal 位置预检与降级
         launch.ts       # 工作台到侧栏入口的路径、启动、/sidebar setup 与退出联动
         args.ts         # 侧栏 CLI 参数（workspace/theme/refresh/parent-pid）
+        lease.ts        # 启动/实例占用、进程存活判断与按代次释放
         lifecycle.ts    # 父进程看护、侧栏 PID/终端尺寸登记与终止
         split-ratio.ts  # 读取侧栏列宽并把 Ghostty split 校准到 70/30
 
@@ -160,7 +175,14 @@ mini-harness/
     test_app_layout.py
     test_task_store.py
     test_task_runtime.py
+    test_plan_revision.py # 修订持久化、冲突、崩溃与显式恢复的公共接口回归
+    test_inspection_records.py # 检查记录归属、未知结果、分页、损坏与保存恢复
+    test_inspection_file_source.py # 实际工具目录、旧记录来源未知与 attach worktree 身份
     test_stdio_tasks.py
+    test_stdio_task_navigation.py # 审批中查询、范围隔离、坏记录和零写入
+    test_cli_session_recovery.py # worker/前台重开保护、双进程互斥、正常结束与强退恢复
+    test_stdio_session_sync.py # 下一模型请求接入后台结果/快照/状态，同会话并行运行拒绝
+    test_stdio_inspections.py # 历史查询不占执行、帧上限、错误隔离与参数边界
     test_supervise.py
     test_cli_tasks.py
     test_worker.py
@@ -234,6 +256,10 @@ mini-harness/
       open-decisions.md                     # 待用户拍板事项（委派/并行写/人工验收/集中观测）
     design/             # 未来方向的分块讨论（长任务/后台/进阶模式/子 Agent），拍板后收敛为 spec
     history/            # 旧 M1–M8 模块建设计划
+
+  openspec/
+    roadmaps/           # 跨多个变更的设计、阶段计划与执行记录；规划不代表已实施
+      build-agent-lab/   # Agent 实验台：design.md / roadmap.md / task-log.md
 
   archive/              # 历史草稿，不 import
     loop_v1.py
@@ -322,3 +348,9 @@ stdio 后端与 eval 都调用 `app.runtime.agent.Agent.run()`。Ink 通过本�
 - 类：`PascalCase`
 - 工具：动词开头（`read_file` / `write_file` / `edit_file` / `grep` / `bash`）
 - 事件：`XxxEvent` 或 `Xxx`（现有 `TextDelta` / `ToolCallsReady` / `StreamError`）
+
+`tui/tests/focused-inspection.test.tsx` 覆盖内嵌检查的准确分页、草稿/光标、旧结果停止目标、审批提示与选区附回。
+
+`tui/tests/sidebar-launch-concurrency.test.ts` 通过实际 Node 进程验证启动竞争、独立 split 与强制结束后的并发恢复；宿主动作使用假 runner。
+
+`tui/tests/followup-app.test.tsx` 从公开 App 覆盖后续待办的失败暂停、编辑/撤回/继续、断线、退出、审批与中文草稿。`followup-persistence.test.tsx` 覆盖会话重开、单写者接入、发送未知、坏文件/写失败、范围隔离与目录替换；BackendClient 测试核对预分配请求 ID 的实际传输。

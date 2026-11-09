@@ -78,6 +78,22 @@ def test_attach_existing_goal_task(runtime):
     assert [segment.run_id for segment in segments] == ["run-1", "run-2"]
 
 
+@pytest.mark.parametrize("stored_id,stored_version,requested_id,requested_version", [
+    ("plan-a", 1, "plan-a", 2), (None, None, "plan-a", 1),
+    ("plan-a", None, "plan-a", 1), ("plan-a", 1, "plan-b", 1),
+])
+def test_attach_rejects_a_different_plan_binding(runtime, stored_id, stored_version,
+                                                requested_id, requested_version):
+    task = runtime.store.create(kind="run", mode="act", objective="执行计划",
+                                workspace=runtime.workspace, plan_id=stored_id, plan_version=stored_version)
+    with pytest.raises(TaskRuntimeError, match="plan"):
+        runtime.prepare_run("run-1", {"kind": "run", "mode": "act", "task_id": task.task_id,
+                                      "plan_id": requested_id, "plan_version": requested_version})
+    assert runtime.store.get(task.task_id).status == "created"
+    assert not runtime.store.get(task.task_id).segments
+    assert not (runtime.store.task_dir(task.task_id) / "lock").exists()
+
+
 def test_attach_rejects_workspace_and_session_mismatch(runtime, tmp_path):
     other_workspace = tmp_path / "other"
     other_workspace.mkdir()

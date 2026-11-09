@@ -298,6 +298,7 @@ class Agent:
         on_round: Callable[[dict], None] | None = None,
         llm_auditor: Callable[[AuditRequest], Awaitable[dict]] | None = None,
         tool_gate: Callable[[Any], str | None] | None = None,
+        stop_after_tools: tuple[str, ...] | frozenset[str] = (),
     ):
         if require_tool_use and not tools_enabled:
             raise ValueError("require_tool_use requires tools_enabled=True")
@@ -310,6 +311,8 @@ class Agent:
         self.state = state
         self.approval = approval
         self.tool_gate = tool_gate
+        # 成功调用后立即收尾的工具（如 plan run 的 submit_plan）。
+        self.stop_after_tools = frozenset(stop_after_tools or ())
         if approval is not None and hasattr(approval, "tier_resolver"):
             approval.tier_resolver = self._tool_tier
         self.permission_policy = PermissionPolicy()
@@ -533,6 +536,17 @@ class Agent:
     def _adopt_history(self, history: list[Message] | None) -> list[Message]:
         """恢复历史时补齐工具调用配对：每个 tool_call 都要有结果或未执行说明。"""
         return ensure_tool_pairing(skill_history_view(list(history or [])))
+
+    def restore_context(self, history: list[Message], state: TaskState | None) -> None:
+        """空闲时接入其他连接已保存的上下文。"""
+        self.history = self._adopt_history(history)
+        if state is not None:
+            if self.state is None:
+                self.state = state
+            else:
+                vars(self.state).update(vars(state))
+            self.tools.state = self.state
+        self.tools.mark_restored()
 
     def _tool_tier(self, call: ToolCall) -> str:
         """审批层级：MCP 启动按本地执行层，其余按工具声明风险，可被用户策略覆盖。"""
@@ -1405,6 +1419,12 @@ class Agent:
                 "tool", str(output), name=call.name, tool_call_id=call.id, execution=execution,
             )
             self._record_message(run, tool_message)
+            if ok and call.name in self.stop_after_tools:
+                self._skip_tools(run, calls[call_index + 1:], "terminal_tool")
+                return self._finish(
+                    run, self._terminal_tool_text(call, str(output)), step, "done",
+                    "plan_submitted" if call.name == "submit_plan" else "terminal_tool",
+                )
             if run.gate_hits >= 2:
                 return self._finish(run, "done", step, "done")
             if run.cancel is not None and run.cancel.is_set():
@@ -1810,6 +1830,13 @@ class Agent:
             ))
             run.recorder.event("tool_not_executed", tool=call.name,
                                tool_call_id=call.id, reason=reason)
+
+    @staticmethod
+    def _terminal_tool_text(call: ToolCall, output: str) -> str:
+        text = output.strip()
+        if call.name == "submit_plan":
+            return text or "plan submitted"
+        return text or f"{call.name} completed"
 
     def _pause_progress(
         self, run: _RunContext, step: int, text: str = "", calls: list[ToolCall] | None = None,

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from copy import deepcopy
 import json
 import os
 import re
@@ -115,12 +116,13 @@ async def _generate_plan(config: Config, workspace: Path, session: SessionStore,
         return None, None
     plan_file = session.root / "tasks" / plan_task_id / "plan" / "plan.v1.json"
     loaded = load_plan(plan_file)
+    expected = deepcopy(loaded)
     loaded.acceptance_criteria = [{"id": "ac1", "text": "验收命令成功", "confirmed": True}]
     loaded.verification_plan = [{"id": "v1", "covers": ["ac1"], "command": verify_command,
                                  "source": "plan_approval"}]
     if adjust is not None:
         adjust(loaded)
-    save_plan(session.root / "tasks" / plan_task_id, loaded)
+    save_plan(session.root / "tasks" / plan_task_id, loaded, expected=expected)
     approve_plan(session.root / "tasks" / plan_task_id, load_plan(plan_file), approved_by="smoke")
     return plan_task_id, json.loads(plan_file.read_text(encoding="utf-8"))
 

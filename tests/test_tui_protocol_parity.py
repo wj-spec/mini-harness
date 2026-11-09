@@ -27,8 +27,15 @@ def test_backend_command_sets_match():
 
 
 def test_every_backend_command_has_description_entry():
-    source = PROTOCOL_TS.read_text(encoding="utf-8")
-    command_descriptions = source[source.index("export const COMMAND_DESCRIPTIONS"):]
+    source = (REPO_ROOT / "tui" / "src" / "commands.ts").read_text(encoding="utf-8")
+    descriptions = {}
+    for line in source.splitlines():
+        entry = re.search(r"command: '([^']+)'.*?description: '([^']+)'", line)
+        if entry:
+            descriptions[entry[1]] = entry[2].strip()
+            aliases = re.search(r"aliases: \[([^\]]*)\]", line)
+            if aliases:
+                descriptions.update((alias, entry[2].strip()) for alias in re.findall(r"'([^']+)'", aliases[1]))
     for command in sorted(_tui_backend_commands()):
         aliases = {f"/{command}", f"/{command.replace('_', ' ')}"}
-        assert any(f"'{alias}'" in command_descriptions for alias in aliases), command
+        assert any(descriptions.get(alias) for alias in aliases), command

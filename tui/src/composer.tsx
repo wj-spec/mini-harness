@@ -1,12 +1,17 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {Box, Text, measureElement, useCursor, useInput, usePaste, type DOMElement} from 'ink';
 import {clipCells, editText, graphemes, lineBoundary, moveVertical, wrapEditor} from './editor.js';
-import {COMMAND_COMPLETIONS} from './protocol.js';
+import {commandDefinition, commandMatches} from './commands.js';
 
 type ComposerProps = {
   value: string;
+  initialCursor?: number;
+  onDraftChange?: (draft: {value: string; cursor: number}) => void;
+  appendRevision?: number;
   onChange: (value: string) => void;
   onSubmit: (value: string) => void;
+  onSubmitBlocked?: () => void;
+  onTab?: (backwards: boolean) => void;
   history: string[];
   disabled?: boolean;
   focused?: boolean;
@@ -18,26 +23,33 @@ type ComposerProps = {
   foregroundColor?: string;
   secondaryColor?: string;
   disabledHint?: string;
-  menu?: {count: number; index: number; onMove: (delta: number) => void; onAccept: () => void};
+  menu?: {count: number; index: number; unavailable?: string; onMove: (delta: number) => void; onAccept: (submit: boolean) => void};
 };
 
-const commands: readonly string[] = COMMAND_COMPLETIONS;
+function ComposerCursor({x, y}: {x: number; y: number}) {
+  const {setCursorPosition} = useCursor();
+  setCursorPosition({x, y});
+  return null;
+}
 
-export function Composer({value, onChange, onSubmit, history, disabled = false, focused = true, placeholder = '输入任务，开始一次编码', columns, maxRows = 3, accentColor, warningColor, foregroundColor, secondaryColor, disabledHint, menu}: ComposerProps) {
-  const [cursor, setCursorState] = useState(() => graphemes(value).length);
+export function Composer({value, initialCursor, onDraftChange, appendRevision = 0, onChange, onSubmit, onSubmitBlocked, onTab, history, disabled = false, focused = true, placeholder = '输入任务，开始一次编码', columns, maxRows = 3, accentColor, warningColor, foregroundColor, secondaryColor, disabledHint, menu}: ComposerProps) {
+  const [cursor, setCursorState] = useState(() => Math.max(0, Math.min(initialCursor ?? graphemes(value).length, graphemes(value).length)));
+  useEffect(() => {onDraftChange?.({value, cursor});}, [value, cursor, onDraftChange]);
   const draft = useRef({value, cursor});
   const [, renderSubmission] = useState(0);
   const previous = useRef(value);
+  const appended = useRef(appendRevision);
   const navigation = useRef<{index: number; draft: string; cursor: number} | null>(null);
   const box = useRef<DOMElement>(null);
   const [origin, setOrigin] = useState({x: 0, y: 0});
-  const {setCursorPosition} = useCursor();
   const height = Math.max(1, maxRows);
   const width = Math.max(4, columns);
 
   if (value !== previous.current) {
+    const preserve = appended.current !== appendRevision && value.startsWith(previous.current);
+    appended.current = appendRevision;
     previous.current = value;
-    const nextCursor = graphemes(value).length;
+    const nextCursor = preserve ? cursor : graphemes(value).length;
     draft.current = {value, cursor: nextCursor};
     navigation.current = null;
     if (cursor !== nextCursor) setCursorState(nextCursor);
@@ -75,6 +87,7 @@ export function Composer({value, onChange, onSubmit, history, disabled = false, 
   };
 
   useInput((input, key) => {
+    if (!focused) return;
     const {value, cursor} = draft.current;
     if (key.eventType === 'release' || key.super || key.hyper || key.meta || key.escape || key.pageUp || key.pageDown) return;
     if (key.ctrl) {
@@ -89,17 +102,20 @@ export function Composer({value, onChange, onSubmit, history, disabled = false, 
     }
     if (key.return) {
       if (key.shift) insert('\n');
-      else if (!disabled && value.trim()) {
-        onSubmit(value);
+      else if (value.trim()) {
+        if (disabled) onSubmitBlocked?.();
+        else if (menu) menu.onAccept(true);
+        else onSubmit(value);
         renderSubmission(count => count + 1);
       }
       return;
     }
     if (input === '\n') {insert('\n'); return;}
     if (key.tab) {
-      if (menu) {menu.onAccept(); return;}
+      if (onTab) {onTab(key.shift); return;}
+      if (menu) {menu.onAccept(false); return;}
       if (value.startsWith('/') && !value.includes('\n')) {
-        const matches = commands.filter(command => command.startsWith(value));
+        const matches = commandMatches(value);
         const completion = matches.length === 1 ? matches[0] : matches[0] && matches.every(command => command === matches[0] || command.startsWith(matches[0] + ' ')) ? matches[0] : undefined;
         if (completion) update(completion, completion.length);
       }
@@ -123,15 +139,20 @@ export function Composer({value, onChange, onSubmit, history, disabled = false, 
       return;
     }
     if (input) insert(input);
-  }, {isActive: focused});
-  usePaste(insert, {isActive: focused});
+  });
+  usePaste(text => {if (focused) insert(text);});
 
   const wrapped = wrapEditor(value, cursor, width - 3);
-  const matches = value.startsWith('/') && !value.includes('\n') ? commands.filter(command => command.startsWith(value)) : [];
+  const matches = commandMatches(value);
+  const definition = commandDefinition(value.trim());
   let hint = '';
-  if (value === '/resume' || value === '/continue') hint = '继续已保存任务 · 开启新一轮预算，先核对进度';
-  else if (matches.length) hint = menu ? `↑↓ 选择 · Tab 填充 · ${menu.index + 1}/${menu.count}` : `${matches.join('  ')} · Tab 补全`;
+  if (onTab) hint = focused ? '草稿可编辑 · Tab 选择按钮' : '草稿保留 · Esc 返回编辑';
+  else if (menu?.unavailable) hint = `${menu.unavailable} · Tab 可填充`;
   else if (focused && disabled) hint = disabledHint ?? '草稿可编辑 · 当前操作结束后可发送';
+  else if (value === '/resume' || value === '/continue') hint = '继续已保存任务 · 开启新一轮预算，先核对进度';
+  else if (menu) hint = `↑↓ 选择 · Enter 确认 · Tab 填充 · ${menu.index + 1}/${menu.count}`;
+  else if (definition?.required) hint = `填写参数：${definition.command} ${definition.usage}`;
+  else if (matches.length) hint = `${matches.join('  ')} · Tab 补全`;
   const needsPosition = wrapped.rows.length > height;
   const showHint = height > 1 && Boolean(hint || needsPosition);
   const visibleHeight = height - (showHint ? 1 : 0);
@@ -139,8 +160,6 @@ export function Composer({value, onChange, onSubmit, history, disabled = false, 
   const positionHint = wrapped.rows.length > visibleHeight ? `${start > 0 ? '↑ ' : ''}${start + 1}–${Math.min(start + visibleHeight, wrapped.rows.length)}/${wrapped.rows.length} 行${start + visibleHeight < wrapped.rows.length ? ' ↓' : ''}` : '';
   const status = [positionHint, hint].filter(Boolean).join(' · ');
   const visible = wrapped.rows.slice(start, start + visibleHeight);
-
-  setCursorPosition(focused ? {x: origin.x + 2 + wrapped.cursorColumn, y: origin.y + wrapped.cursorRow - start} : undefined);
 
   useEffect(() => {
     if (box.current) {
@@ -150,6 +169,7 @@ export function Composer({value, onChange, onSubmit, history, disabled = false, 
   });
 
   return <Box ref={box} flexDirection="column" height={height} width={width} flexShrink={0}>
+    {focused ? <ComposerCursor x={origin.x + 2 + wrapped.cursorColumn} y={origin.y + wrapped.cursorRow - start}/> : null}
     {Array.from({length: visibleHeight}, (_, index) => {
       const row = visible[index];
       const active = focused && wrapped.cursorRow === start + index;

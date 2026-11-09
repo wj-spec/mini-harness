@@ -43,14 +43,14 @@ export function selectedIndex(state: SidebarState): number {
 /**
  * 应用一次工作区快照：
  * - 跟随开启时，自动选到签名发生变化的文件（本轮 agent 或外部改动）；
- * - 选中文件消失时退到第一个文件；
+ * - 固定阅读时保留消失的对象，由阅读快照显示过期提示；
  * - 选中变化时重置 diff 滚动，其余情况保留用户位置。
  */
 export function applyWorkspace(state: SidebarState, status: WorkspaceStatus): SidebarState {
   const previous = new Map(state.files.map(file => [file.path, fileSignature(file)]));
   const signature = filesSignature(status.files);
   let selected = state.selected;
-  if (selected !== null && !status.files.some(file => file.path === selected)) selected = null;
+  if (state.follow && selected !== null && !status.files.some(file => file.path === selected)) selected = null;
   if (state.follow) {
     const changed = status.files.find(file => previous.get(file.path) !== fileSignature(file));
     if (changed) selected = changed.path;
@@ -91,7 +91,7 @@ export function toggleFocus(state: SidebarState): SidebarState {
 
 export function scrollDiff(state: SidebarState, delta: number, maximum: number): SidebarState {
   const limit = Math.max(0, maximum);
-  return {...state, diffScroll: Math.max(0, Math.min(limit, state.diffScroll + delta))};
+  return {...state, follow: false, diffScroll: Math.max(0, Math.min(limit, state.diffScroll + delta))};
 }
 
 export function clampDiffScroll(state: SidebarState, maximum: number): SidebarState {

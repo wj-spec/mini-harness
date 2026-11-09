@@ -629,6 +629,9 @@ def test_permissions_text_lists_policy_rules(tmp_path):
         harness.send("command", "c2", command="permissions_reset")
         reset = await harness.until("command_result", "c2")
         assert reset["autonomy"] == agent.autonomy
+        assert "已撤销当前工作区的本进程授权" in reset["text"]
+        assert "授权档位和持久策略保持不变" in reset["text"]
+        assert "- [project] bash prefix=rm → once" in reset["text"]
         await harness.close()
 
     asyncio.run(scenario())
@@ -712,3 +715,56 @@ def test_approval_rule_context_reports_tier_and_matched_rule(tmp_path):
     unmatched = approval_rule_context(agent, ToolCall("read_file", {"path": "a.txt"}))
     assert unmatched["tier"] == "read"
     assert "rule" not in unmatched
+
+
+def test_run_inspection_restores_actual_commands_without_reusing_the_next_request(tmp_path, monkeypatch):
+    from app.runtime.inspection import InspectionStore
+    monkeypatch.setenv('VIBE_TASK_RUNTIME', '0')
+    session = SessionStore.new(tmp_path, 'fake')
+    agent = Agent(FakeProvider([
+        Response(tool_calls=[ToolCall('write_file', {'path': '.vibe/inspection-demo.txt', 'content': 'demo'}, id='write')]),
+        Response(tool_calls=[ToolCall('bash', {'command': 'exit 2', 'verification': True}, id='check')]),
+        'finished', 'next response',
+    ]), ToolRegistry(tmp_path), approval=ApprovalGate(), completion_guard=False)
+
+    async def scenario():
+        harness = Harness(agent, Config(workspace=tmp_path), session=session)
+        await harness.until('ready')
+        harness.send('run', 'old-request', text='原任务')
+        for index in range(2):
+            approval = await harness.until('approval_request', 'old-request')
+            harness.send('approval', f'allow-{index}', approval_id=approval['approval_id'], decision='once')
+        done = await harness.until('done', 'old-request')
+        harness.send('run', 'new-request', text='下一任务')
+        await harness.until('done', 'new-request')
+        await harness.close()
+        store = InspectionStore(session.root, tmp_path)
+        old = store.read('old-request')
+        assert old is not None
+        assert old['scope']['traceRunId'] == done['result']['run_id']
+        assert old['scope']['objective'] == '原任务'
+        assert old['files'] == ['.vibe/inspection-demo.txt']
+        assert old['verification']['commands'][0]['execution'] == {'status': 'failed', 'exit_code': 2}
+        assert store.read('new-request')['verification']['commands'] == []
+        assert store.read('new-request')['files'] == []
+    asyncio.run(scenario())
+
+
+def test_inspection_save_failure_is_visible_without_changing_tool_approval(tmp_path, monkeypatch):
+    monkeypatch.setenv('VIBE_TASK_RUNTIME', '0')
+    session = SessionStore.new(tmp_path, 'fake')
+    original_replace = os.replace
+    def fail_inspections(source, destination):
+        if Path(destination).parent.name == 'inspections':
+            raise OSError('inspection disk failure')
+        return original_replace(source, destination)
+    monkeypatch.setattr(os, 'replace', fail_inspections)
+    async def scenario():
+        harness = Harness(agent_for(tmp_path, ['done']), Config(workspace=tmp_path), session=session)
+        await harness.until('ready')
+        harness.send('run', 'no-evidence', text='read only')
+        done = await harness.until('done', 'no-evidence')
+        assert done['result']['status'] == 'done'
+        assert any(event['type'] == 'notice' and '检查记录未保存' in event['message'] for event in harness.events)
+        await harness.close()
+    asyncio.run(scenario())

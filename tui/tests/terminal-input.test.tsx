@@ -3,7 +3,8 @@ import {test} from 'node:test';
 import {PassThrough, Writable} from 'node:stream';
 import {setTimeout as pause} from 'node:timers/promises';
 import React from 'react';
-import {render, Text, useInput, usePaste} from 'ink';
+import {Box, render, Text, useInput, usePaste} from 'ink';
+import {Composer} from '../src/composer.js';
 import {createTerminalInput} from '../src/terminal-input.js';
 import {useTranscriptMouse} from '../src/use-transcript-scroll.js';
 
@@ -14,6 +15,24 @@ function terminalSource() {
   const stream = Object.assign(new PassThrough(), {isTTY: true, setRawMode(enabled: boolean) {raw.push(enabled);}, ref() {refs += 1;}, unref() {unrefs += 1;}});
   return {stream, raw, refs: () => refs, unrefs: () => unrefs};
 }
+
+test('an unfocused draft below the active feedback editor cannot hide the terminal cursor', async () => {
+  const {stream} = terminalSource();
+  const stdin = createTerminalInput(stream);
+  let output = '';
+  const stdout = Object.assign(new Writable({write(chunk, _encoding, done) {output += chunk.toString(); done();}}), {isTTY: true, columns: 80, rows: 24});
+  const editor = (focused: boolean, value: string) => <Composer focused={focused} value={value} onChange={() => {}} onSubmit={() => {}} history={[]} columns={60}/>;
+  const view = render(<Box flexDirection="column">{editor(true, '修订反馈')}{editor(false, '普通草稿')}</Box>,
+    {stdin, stdout, stderr: stdout, patchConsole: false, exitOnCtrlC: false, kittyKeyboard: {mode: 'disabled'}});
+  try {
+    await pause(60);
+    assert.equal([...output.matchAll(/\u001b\[\?25([hl])/g)].at(-1)?.[1], 'h', 'active feedback keeps native IME cursor visible');
+    output = '';
+    view.rerender(<Box flexDirection="column">{editor(false, '修订反馈')}{editor(false, '普通草稿')}</Box>);
+    await pause(60);
+    assert.equal([...output.matchAll(/\u001b\[\?25([hl])/g)].at(-1)?.[1], 'l');
+  } finally {view.unmount(); view.cleanup(); stdin.dispose(); stream.destroy(); stdout.destroy();}
+});
 
 test('terminal wrapper preserves ordinary UTF-8 bytes, keys and text adjacent to mouse reports', async () => {
   const {stream} = terminalSource();

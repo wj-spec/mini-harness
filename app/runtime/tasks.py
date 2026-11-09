@@ -14,6 +14,8 @@ import re
 import secrets
 import shutil
 import socket
+import stat
+import tempfile
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -349,6 +351,11 @@ class TaskStore:
             raise TaskCorrupt("task directory is a symlink")
         return directory
 
+    @staticmethod
+    def reserve_task_id() -> str:
+        """生成候选身份；调用者必须先持久化凭据再创建任务。"""
+        return _new_task_id()
+
     def create(
         self,
         *,
@@ -364,6 +371,8 @@ class TaskStore:
         plan_version: int | None = None,
         priority: int = 0,
         session_id: str | None = None,
+        reserved_id: str | None = None,
+        creation: dict[str, Any] | None = None,
     ) -> TaskRecord:
         if kind not in TASK_KINDS:
             raise ValueError("invalid task kind")
@@ -383,13 +392,26 @@ class TaskStore:
         if not isinstance(priority, int) or isinstance(priority, bool) or priority < 0 or priority > 100:
             raise ValueError("priority must be an integer between 0 and 100")
 
+        if (reserved_id is None) != (creation is None):
+            raise ValueError("reserved_id and creation are required together")
+        if reserved_id is not None:
+            _validate_task_id(reserved_id)
+            if (not isinstance(creation, dict) or set(creation) != {"key", "target"}
+                    or not isinstance(creation.get("key"), str)
+                    or not re.fullmatch(r"[0-9a-f]{64}", creation["key"])
+                    or not isinstance(creation.get("target"), dict)):
+                raise ValueError("invalid task creation credential")
+            creation = json.loads(json.dumps(creation, ensure_ascii=False))
+
         self.tasks_root.mkdir(parents=True, exist_ok=True)
         for _ in range(8):
-            task_id = _new_task_id()
-            directory = self.tasks_root / task_id
+            task_id = reserved_id or _new_task_id()
+            directory = self.task_dir(task_id)
             try:
                 directory.mkdir()
             except FileExistsError:
+                if reserved_id is not None:
+                    raise TaskCorrupt("reserved task directory already exists")
                 continue
             break
         else:  # pragma: no cover - 极小概率
@@ -414,13 +436,15 @@ class TaskStore:
             approval_policy=approval_policy,
             created_at=now,
             updated_at=now,
+            extra={"creation": creation} if creation is not None else {},
         )
         try:
             self._write_meta(record)
             self.append_event(task_id, "task_created", data={"kind": kind, "mode": mode})
         except Exception:
-            # 创建失败不留下半成品任务目录
-            shutil.rmtree(directory, ignore_errors=True)
+            # 普通创建清理半成品；预留创建保留恢复证据。
+            if reserved_id is None:
+                shutil.rmtree(directory, ignore_errors=True)
             raise
         return record
 
@@ -677,6 +701,10 @@ class TaskStore:
             self.append_event(
                 record.task_id, "lock_stale_recovered", data={"lock": lock},
             )
+            for segment in record.segments:
+                if segment.status == "running":
+                    self.end_segment(record.task_id, run_id=segment.run_id,
+                                     status="interrupted", stop_reason="stale_lock")
             recovered.append(
                 self.transition(
                     record.task_id, "interrupted",
@@ -684,6 +712,40 @@ class TaskStore:
                 )
             )
         return recovered
+
+    def recover_preparation(self, task_id: str, *, expected_segments: int = 0) -> TaskRecord:
+        """恢复未落段的准备，保留已关闭历史；调用者须证明退出或准备失败。"""
+        record = self.get(task_id)
+        if (type(expected_segments) is not int or expected_segments < 0
+                or len(record.segments) != expected_segments
+                or any(segment.status == "running" for segment in record.segments)
+                or (record.status == "paused" and expected_segments == 0)
+                or record.status not in {"created", "running", "interrupted", "paused"}):
+            raise TaskBusy("task has execution evidence or cannot recover preparation")
+        path = self.task_dir(task_id) / "lock"
+        if path.is_symlink():
+            raise TaskCorrupt("task lock is a symlink")
+        if path.exists():
+            try:
+                if not stat.S_ISREG(path.lstat().st_mode):
+                    raise TaskCorrupt("task lock is not a regular file")
+                with path.open("rb") as handle:
+                    raw = handle.read(4097)
+                if len(raw) > 4096:
+                    raise TaskCorrupt("task lock exceeds limit")
+                payload = json.loads(raw)
+            except (OSError, ValueError, RecursionError) as exc:
+                raise TaskCorrupt("invalid task lock") from exc
+            if (not isinstance(payload, dict) or payload.get("task_id") != task_id
+                    or not isinstance(payload.get("pid"), int) or isinstance(payload["pid"], bool)
+                    or payload["pid"] <= 0 or not isinstance(payload.get("host"), str)):
+                raise TaskCorrupt("invalid task lock owner")
+            if payload["host"] != socket.gethostname() or _pid_alive(payload["pid"]):
+                raise TaskBusy("task preparation is still owned")
+            self.release_lock(task_id)
+        if record.status == "running":
+            record = self.transition(task_id, "interrupted", reason="preparation_recovered")
+        return record
 
     # ---- 内部工具 ----
 
@@ -710,18 +772,29 @@ class TaskStore:
         directory = self.task_dir(record.task_id)
         directory.mkdir(parents=True, exist_ok=True)
         target = directory / "meta.json"
-        temporary = directory / "meta.json.tmp"
+        initial = not target.exists()
+        temporary = None
         try:
-            temporary.write_text(
-                json.dumps(record.to_dict(), ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
+            fd, name = tempfile.mkstemp(prefix=".meta-", suffix=".tmp", dir=directory)
+            temporary = Path(name)
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(record.to_dict(), handle, ensure_ascii=False, indent=2)
+                handle.flush()
+                os.fsync(handle.fileno())
             os.replace(temporary, target)
+            if os.name == "posix":
+                for parent in (directory, directory.parent) if initial else (directory,):
+                    directory_fd = os.open(parent, os.O_RDONLY)
+                    try:
+                        os.fsync(directory_fd)
+                    finally:
+                        os.close(directory_fd)
         except OSError as exc:
             raise TaskIOError(str(exc)) from exc
         finally:
             try:
-                temporary.unlink(missing_ok=True)
+                if temporary is not None:
+                    temporary.unlink(missing_ok=True)
             except OSError:
                 pass
 

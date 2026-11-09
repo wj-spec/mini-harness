@@ -223,6 +223,12 @@ def test_worker_uses_git_worktree_when_available(tmp_path):
     worktree = repo / ".vibe" / "worktrees" / task.task_id
     assert worktree.is_dir()
     assert (store.task_dir(task.task_id) / "worktree.json").is_file()
+    from app.runtime.inspection import InspectionStore
+    saved = InspectionStore(session.root, repo).page()['records']
+    assert len(saved) == 1
+    assert saved[0]['scope']['taskId'] == task.task_id
+    assert saved[0]['fileSource']['root'] == str(worktree.resolve())
+    assert saved[0]['fileSource']['identity'] == f'{worktree.stat().st_dev}:{worktree.stat().st_ino}'
     assert not (repo / ".vibe" / "workspace.lock").exists()
     meta = json.loads((store.task_dir(task.task_id) / "meta.json").read_text(encoding="utf-8"))
     assert meta["status"] == "completed"

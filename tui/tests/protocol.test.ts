@@ -1,7 +1,94 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {MAX_FRAME_BYTES, parseServerEvent, validateClientArgs, validateTraceArgs, validatePriorityArgs} from '../src/protocol.js';
+import {MAX_FRAME_BYTES, parseServerEvent, validateClientArgs, validatePlanArgs, validateTraceArgs, validatePriorityArgs} from '../src/protocol.js';
 import {contextSnapshot, loadedContextSnapshot} from './context-fixture.js';
+
+const reviewTarget = {session_id: 'session-1', plan_task_id: 't-20261108-000000-abcdef',
+  plan_id: 'plan-1', plan_version: 1, plan_hash: 'a'.repeat(64)};
+const reviewFrame = {v: 1, type: 'plan_review', id: 'review-1', target: reviewTarget,
+  outcome: 'ready', code: null, message: '计划已读取', replacement_target: null, launch: null,
+  summary: {objective: '修复输入', status: 'proposed', executable: false, step_count: 2, criterion_count: 1, question_count: 0},
+  body_page: '计划正文', next_cursor: null, available_actions: ['approve-execute', 'approve-only', 'dismiss']};
+
+test('revision protocol binds feedback, observed segment and returned plan version', () => {
+  for (const action of ['request-changes', 'query-revision', 'resume-revision']) {
+    validatePlanArgs({action, target: reviewTarget, feedback: '检查空文件',
+      ...(action === 'resume-revision' ? {expected_segment: 1} : {})});
+  }
+  const task = {task_id: 't-20261108-010000-abcdef', run_id: 'revise', segment: 1, status: 'running', run_started: true};
+  const frame = {v: 1, type: 'plan_revision', id: 'revise', target: reviewTarget, feedback: '检查空文件',
+    revision_id: 'b'.repeat(64), outcome: 'running', code: null, message: '修订中', task, result_target: null};
+  assert.equal(parseServerEvent(JSON.stringify(frame)).type, 'plan_revision');
+  const output = {...reviewTarget, plan_version: 2, plan_hash: 'c'.repeat(64)};
+  const finished = {...frame, outcome: 'submitted', task: {...task, status: 'completed', run_started: false}, result_target: output};
+  assert.equal(parseServerEvent(JSON.stringify(finished)).type, 'plan_revision');
+  assert.equal(parseServerEvent(JSON.stringify({...frame, outcome: 'incomplete', code: 'revision_not_submitted',
+    task: {...task, status: 'paused', run_started: false}})).type, 'plan_revision');
+  for (const args of [
+    {action: 'query-revision', feedback: '检查'},
+    {action: 'request-changes', target: reviewTarget, feedback: '字'.repeat(4001)},
+    {action: 'resume-revision', target: reviewTarget, feedback: '检查', expected_segment: true},
+    {action: 'resume-revision', target: reviewTarget, feedback: '检查'},
+  ]) assert.throws(() => validatePlanArgs(args));
+  for (const invalid of [
+    {...frame, id: 'wrong-run'}, {...frame, task: {...task, segment: 0}},
+    {...finished, result_target: {...output, plan_version: 3}},
+    {...finished, result_target: {...output, plan_task_id: 't-20261108-020000-abcdef'}},
+    {...finished, result_target: null}, {...frame, outcome: 'absent'},
+  ]) assert.throws(() => parseServerEvent(JSON.stringify(invalid)));
+});
+
+test('revision history protocol accepts only bounded read-only records from the displayed plan family', () => {
+  validatePlanArgs({action: 'list-revisions', target: reviewTarget});
+  validatePlanArgs({action: 'list-revisions', target: reviewTarget, cursor: 'b'.repeat(64)});
+  const record = {target: reviewTarget, feedback: '找回反馈', revision_id: 'b'.repeat(64), outcome: 'paused',
+    code: null, message: '已暂停', result_target: null,
+    task: {task_id: 't-20261108-010000-abcdef', run_id: 'original-run', segment: 1, status: 'paused', run_started: false}};
+  const frame = {v: 1, type: 'plan_revision_history', id: 'history', target: {...reviewTarget, plan_version: 2},
+    records: [record], next_cursor: null, code: null, message: '已读取修订记录'};
+  assert.equal(parseServerEvent(JSON.stringify(frame)).type, 'plan_revision_history');
+  for (const invalid of [
+    {...frame, records: [{...record, target: {...reviewTarget, plan_id: 'other'}}]},
+    {...frame, records: [{...record, task: {...record.task, status: 'running', run_id: 'history', run_started: true}, outcome: 'running'}]},
+    {...frame, records: Array(11).fill(record)}, {...frame, records: [record, record]},
+    {...frame, next_cursor: '../escape'}, {...frame, code: 'error'},
+  ]) assert.throws(() => parseServerEvent(JSON.stringify(invalid)));
+  for (const args of [{action: 'list-revisions'}, {action: 'list-revisions', target: reviewTarget, feedback: 'x'},
+    {action: 'list-revisions', target: reviewTarget, cursor: '../escape'}]) assert.throws(() => validatePlanArgs(args));
+});
+
+test('plan review protocol binds actions and distinguishes pending from launched', () => {
+  for (const args of [{action: 'review'}, {action: 'review', target: reviewTarget, cursor: 0},
+    {action: 'approve-execute', target: reviewTarget}, {action: 'approve', target: reviewTarget},
+    {action: 'dismiss', target: reviewTarget}]) {
+    assert.doesNotThrow(() => validatePlanArgs(args));
+  }
+  assert.equal(parseServerEvent(JSON.stringify(reviewFrame)).type, 'plan_review');
+  const pending = {...reviewFrame, outcome: 'approved_not_started', launch: {
+    task_id: 't-20261108-000001-fedcba', run_id: null, segment: 0, status: 'reserved', run_started: false}};
+  assert.equal(parseServerEvent(JSON.stringify(pending)).type, 'plan_review');
+  const started = {...reviewFrame, outcome: 'launched', available_actions: [], launch: {
+    task_id: 't-20261108-000001-fedcba', run_id: 'review-1', segment: 1, status: 'running', run_started: true}};
+  assert.equal(parseServerEvent(JSON.stringify(started)).type, 'plan_review');
+  assert.equal(parseServerEvent(JSON.stringify({...started, id: 'reopened',
+    launch: {...started.launch, run_started: false}})).type, 'plan_review');
+  for (const args of [{action: 'approve-execute'}, {action: 'review', target: null},
+    {action: 'review', cursor: -1}, {action: 'review', cursor: 1},
+    {action: 'approve', target: reviewTarget, cursor: 0}, {action: 'reject', target: reviewTarget},
+    {action: 'review', target: {...reviewTarget, plan_version: true}},
+    {action: 'review', target: {...reviewTarget, plan_hash: 'bad'}}]) {
+    assert.throws(() => validatePlanArgs(args), JSON.stringify(args));
+  }
+  for (const frame of [
+    {...reviewFrame, target: null}, {...reviewFrame, launch: started.launch},
+    {...reviewFrame, next_cursor: -1}, {...reviewFrame, available_actions: ['execute']},
+    {...pending, launch: {...pending.launch, run_started: true}},
+    {...started, launch: {...started.launch, run_id: null}},
+    {...started, launch: {...started.launch, segment: 0}},
+    {...started, id: 'another-request'},
+    {...started, outcome: 'unavailable', code: 'busy'},
+  ]) assert.throws(() => parseServerEvent(JSON.stringify(frame)), JSON.stringify(frame));
+});
 
 test('accepts startup context independently of model requests and only zero startup usage', () => {
   const snapshot = loadedContextSnapshot();
@@ -256,9 +343,11 @@ test('accepts task_state snapshots only when well-formed', () => {
     objective: '目标', goal_id: null, updated_at: '2026-11-03T12:00:00+00:00'};
   const frame = (change: Record<string, unknown> = {}) => JSON.stringify({v: 1, type: 'task_state', id: 'run-1', task: {...task, ...change}});
   assert.equal(parseServerEvent(frame()).type, 'task_state');
+  const withMode = parseServerEvent(frame({mode: 'chat'}));
+  assert.ok(withMode.type === 'task_state' && withMode.task.mode === 'chat');
   for (const change of [
     {task_id: ''}, {kind: 1}, {status: null}, {segment: -1}, {segment: 1.5},
-    {objective: null}, {goal_id: 1}, {updated_at: null},
+    {objective: null}, {goal_id: 1}, {updated_at: null}, {mode: 1},
   ]) {
     assert.throws(() => parseServerEvent(frame(change)));
   }
@@ -320,4 +409,35 @@ test('validatePriorityArgs accepts valid payload and rejects others', () => {
     {task_id: 't-1', priority: '9'}, {priority: 9}, {task_id: 't-1', priority: 9, extra: 1}]) {
     assert.throws(() => validatePriorityArgs(bad), /priority 参数/);
   }
+});
+
+
+test('accepts plan_mode frames and rejects malformed mode state', () => {
+  const frame = (mode: unknown = {active: true, pending: false, wanted: true}) => JSON.stringify({v: 1, type: 'plan_mode', id: null, mode});
+  assert.equal(parseServerEvent(frame()).type, 'plan_mode');
+  const event = parseServerEvent(frame({active: false, pending: true, wanted: null}));
+  assert.deepEqual(event.type === 'plan_mode' && event.mode, {active: false, pending: true, wanted: null});
+  for (const [mode, id] of [
+    [{active: true, pending: false}, null],
+    [{active: true, pending: false, wanted: 'yes'}, null],
+    [{active: 'true', pending: false, wanted: true}, null],
+    [{active: true, pending: false, wanted: true, extra: 1}, null],
+    [{active: true, pending: false, wanted: true}, 'run-1'],
+    [null, null],
+  ] as const) {
+    assert.throws(() => parseServerEvent(JSON.stringify({v: 1, type: 'plan_mode', id, mode})));
+  }
+});
+
+test('validatePlanArgs accepts mode and review actions with non-empty feedback only', () => {
+  for (const args of [
+    {}, {action: 'list'}, {action: 'mode-on'}, {action: 'mode-off'}, {action: 'mode-status'},
+    {action: 'dismiss'}, {action: 'markdown'}, {action: 'request-changes', feedback: '补充失败路径测试'},
+  ]) assert.doesNotThrow(() => validatePlanArgs(args));
+  for (const bad of [
+    {action: 'mode-toggle'}, {action: 'request-changes'},
+    {action: 'request-changes', feedback: ''}, {action: 'request-changes', feedback: '   '},
+    {action: 'request-changes', feedback: 1}, {action: 'markdown', feedback: '多余'},
+    {action: 'list', feedback: 'x'}, {action: 'markdown', extra: true},
+  ]) assert.throws(() => validatePlanArgs(bad), /plan 参数/);
 });

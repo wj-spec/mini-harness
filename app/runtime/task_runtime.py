@@ -107,6 +107,29 @@ class TaskRuntime:
         if not self.enabled:
             raise TaskRuntimeDisabled("task runtime is disabled")
         parsed = _validate_meta(meta)
+        record = self.store.get(parsed['task_id']) if parsed.get('task_id') else None
+        mode = record.mode if record is not None else parsed['mode']
+        plan_id = record.plan_id if record is not None else parsed.get('plan_id')
+        version = record.plan_version if record is not None else parsed.get('plan_version')
+        if mode != 'plan' and plan_id:
+            from app.runtime.plan import PlanError, content_hash, find_plan, plan_lock
+            from app.runtime.plan_revision import PlanRevision
+
+            found = find_plan(self.store.root, plan_id, version)
+            if found is not None:
+                directory, plan = found
+                try:
+                    with plan_lock(directory, require_process_lock=True):
+                        ref = {'session_id': self.store.root.name, 'plan_task_id': plan.task_id,
+                               'plan_id': plan.plan_id, 'plan_version': plan.version, 'plan_hash': content_hash(plan)}
+                        PlanRevision(self.store.root, session_id=self.store.root.name,
+                                     task_runtime=self).guard_review(ref)
+                        return self._prepare_run(request_id, parsed)
+                except PlanError as exc:
+                    raise TaskRuntimeError(f'{exc.code}: {exc}') from exc
+        return self._prepare_run(request_id, parsed)
+
+    def _prepare_run(self, request_id, parsed):
         task_id = parsed.get("task_id")
         if task_id:
             record = self._attach(task_id, parsed)
@@ -256,8 +279,10 @@ class TaskRuntime:
             raise TaskRuntimeError("attached task must be kind=goal/run")
         if record.mode != parsed["mode"]:
             raise TaskRuntimeError("attached task mode mismatch")
-        if parsed.get("plan_id") and record.plan_id and parsed["plan_id"] != record.plan_id:
+        if "plan_id" in parsed and parsed["plan_id"] != record.plan_id:
             raise TaskRuntimeError("attached task plan_id mismatch")
+        if "plan_version" in parsed and parsed["plan_version"] != record.plan_version:
+            raise TaskRuntimeError("attached task plan_version mismatch")
         if record.session_id != self.store.root.name:
             raise TaskRuntimeError("task belongs to a different session")
         if Path(record.workspace).resolve() != Path(self.workspace):

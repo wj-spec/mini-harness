@@ -6,6 +6,7 @@ import asyncio
 import json
 import os
 import socket
+import pytest
 
 from app.config import Config
 from app.providers.fake import FakeProvider
@@ -786,8 +787,9 @@ def test_plan_mode_submit_plan_notifies(tmp_path, monkeypatch):
 def test_plan_prepare_background_creates_task(tmp_path, monkeypatch):
     monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
     session = SessionStore.new(tmp_path, "fake", purpose="user")
-    task_id = "t-20261106-000000-abcdef"
-    task_dir = session.root / "tasks" / task_id
+    store = TaskStore(session.root)
+    task_id = store.create(kind="run", mode="plan", objective="后台计划", workspace=str(tmp_path)).task_id
+    task_dir = store.task_dir(task_id)
     from app.runtime.plan import Plan, approve_plan, propose_plan
     plan = Plan.from_dict({"schema_version": 1, "plan_id": "pl-bg", "task_id": task_id,
                            "objective": "后台计划", "steps": [{"step_id": "s1", "title": "读"}]})
@@ -807,6 +809,7 @@ def test_plan_prepare_background_creates_task(tmp_path, monkeypatch):
         assert first_id in again["text"]
         bg = [task for task in TaskStore(session.root).list(status="created") if task.plan_id == "pl-bg"]
         assert len(bg) == 1 and bg[0].task_id == first_id and bg[0].mode == "act"
+        assert bg[0].parent_id == task_id
         await harness.close()
 
     asyncio.run(scenario())
@@ -1442,6 +1445,48 @@ def _goal_with_acceptance(tmp_path, command):
     return session, task
 
 
+@pytest.mark.parametrize("command,decision,execution", [
+    ("printf passed", "once", {"status": "succeeded", "exit_code": 0}),
+    ("printf failed; exit 2", "once", {"status": "failed", "exit_code": 2}),
+    ("touch blocked.txt", "deny", {"status": "unknown", "exit_code": None}),
+])
+def test_acceptance_publishes_scoped_execution_facts(tmp_path, monkeypatch, command, decision, execution):
+    monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
+    monkeypatch.setenv("VIBE_AUTONOMY", "ask")
+    session, task = _goal_with_acceptance(tmp_path, command)
+
+    async def scenario():
+        harness = Harness(_agent(tmp_path, script=("完成",)), Config(workspace=tmp_path), session)
+        try:
+            await harness.until("ready")
+            harness.send("run", "acceptance-run", text="检查目标", task={"kind": "goal", "task_id": task.task_id, "objective": "检查目标"})
+            approval = await harness.until("approval_request", "acceptance-run")
+            assert not (tmp_path / "blocked.txt").exists()
+            harness.send("approval", "answer", approval_id=approval["approval_id"], decision=decision)
+            await harness.until("done", "acceptance-run")
+            results = [event for event in harness.events if event["type"] == "tool_result"]
+            assert len(results) == 1
+            assert results[0]["id"] == "acceptance-run"
+            assert results[0]["call"]["args"]["command"] == command
+            assert results[0]["call"]["args"]["verification"] is True
+            assert results[0]["execution"] == execution
+            assert results[0]["ok"] is (execution["status"] == "succeeded")
+            from app.runtime.inspection import InspectionStore
+            saved = InspectionStore(session.root, tmp_path).read('acceptance-run')
+            assert saved['scope']['taskId'] == task.task_id and saved['scope']['segment'] == 1
+            actual, = saved['verification']['commands']
+            assert actual['command'] == command and actual['verification'] is True
+            assert actual['execution'] == execution and actual['pending'] is False
+            assert actual['output'] == results[0]['output']
+            if decision == "deny":
+                assert "approval_denied" in results[0]["output"]
+                assert not (tmp_path / "blocked.txt").exists()
+        finally:
+            await harness.close()
+
+    asyncio.run(scenario())
+
+
 def test_goal_acceptance_verifies_and_completes(tmp_path, monkeypatch):
     monkeypatch.setenv("VIBE_TASK_RUNTIME", "1")
     monkeypatch.setenv("VIBE_AUTONOMY", "full")
@@ -1605,7 +1650,7 @@ def test_stdio_rejects_malformed_frames_and_stays_responsive(tmp_path, monkeypat
         "not json",
         json.dumps([1, 2, 3]),
         json.dumps({"v": 2, "type": "command", "id": "bad-v", "command": "tasks"}),
-        json.dumps({"v": 1, "type": "command", "id": "f-extra-args", "command": "tasks", "args": {}}),
+        json.dumps({"v": 1, "type": "command", "id": "f-extra-args", "command": "tasks", "args": {"foreign": True}}),
         json.dumps({"v": 1, "type": "command", "id": "f-unknown", "command": "totally-unknown"}),
         json.dumps({"v": 1, "type": "run", "id": "f-empty-run", "text": "   "}),
         json.dumps({"v": 1, "type": "command", "id": "f-null-args", "command": "trace", "args": None}),

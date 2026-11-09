@@ -41,9 +41,10 @@ Enter 发送任务；Ctrl+J 换行（终端支持时也可用 Shift+Enter）。
 Ctrl+R 切换阅读与输入；阅读时 ↑↓ 滚动，Esc 回输入。
 Ctrl+P / Ctrl+N 逐行；Ctrl+Home / Ctrl+End 到首尾并跟随最新。
 终端支持时，按住 Shift 拖选文字。
-Tab 选择工具（输入 / 时补全命令）；Ctrl+O 查看工具详情；Escape 返回。
+输入 / 按中文或前缀查找命令；↑↓ 选择，Enter 确认，Tab 只填充；缺少参数时先填写。
+Tab 选择工具；Ctrl+O 查看工具详情；Escape 返回。
 Ctrl+K 随时查看上下文分区；←/→ 回放本轮快照，l 跟随最新，Esc 返回。
-审批时 y 允许一次，s 记住精确规则（当前进程），p 工作区授权，n 拒绝。
+审批时 Ctrl+R 进入审批；y 单次、s 精确规则、p 工作区、n 拒绝仅选择，Enter 确认；Esc 返回草稿。
 具体选项由后端决定；MCP 启动与工具调用不提供工作区授权。
 Ctrl+C 取消任务或 MCP 初始化，空闲时退出；Ctrl+Q 退出。
 
@@ -53,7 +54,7 @@ Ctrl+C 取消任务或 MCP 初始化，空闲时退出；Ctrl+Q 退出。
   /tools                        查看可用工具
   /resume                       继续已保存的任务
   /permissions                  查看当前授权规则
-  /permissions reset            清除当前进程授权规则
+  /permissions reset            清除本进程授权（档位和持久策略不变）
   /evidence                     查看最近一轮验收证据（verified/审计/改动 hash）
   /autonomy [LEVEL]             查看或切换授权档位：ask|edits|workspace|full
   /diff                         查看实际 Git 改动（执行前审批）
@@ -65,7 +66,7 @@ Ctrl+C 取消任务或 MCP 初始化，空闲时退出；Ctrl+Q 退出。
   /skills [refresh|activate NAME|unload NAME]  技能菜单与生命周期（↑↓ 选择，Tab 补全）
   /goal <目标> | /goal stop | /goal resume   目标模式：长任务自动续段
   /session                      查看当前会话路径
-  /followup TEXT                运行中排队为后续消息，结束后自动继续
+  /followup [TEXT]              查看/编辑后续消息；成功后续发，失败暂停
   /copy                         复制最近回复、工具详情或审批预览（Ctrl+Y）
   /project                     查看项目背景；/project add 文本、/project remove 序号、/project source 序号 来源
   /about                       查看个人偏好；/about add/propose/observe/edit/triggers/confirm/disable/enable/remove/on/off

@@ -4,6 +4,7 @@ import {visibleText} from '../markdown.js';
 /** 侧栏 diff 渲染：把 git unified diff 转成可着色、可按终端列宽换行的行。 */
 export type DiffKind = 'meta' | 'hunk' | 'add' | 'del' | 'context' | 'note';
 export type DiffLine = {kind: DiffKind; text: string};
+export type WrappedDiffLine = DiffLine & {sourceLine: number; offset: number};
 
 const graphemes: Intl.Segmenter = new Intl.Segmenter(undefined, {granularity: 'grapheme'});
 const META_PREFIXES = ['diff --git ', 'index ', '--- ', '+++ ', 'new file mode ', 'deleted file mode ',
@@ -32,28 +33,43 @@ export function diffStats(lines: DiffLine[]): {additions: number; deletions: num
 }
 
 /** 按显示宽度换行；返回的行都不超过 columns 列，供可视窗口切片。 */
-export function wrapDiffLines(lines: DiffLine[], columns: number): DiffLine[] {
+export function wrapDiffLines(lines: DiffLine[], columns: number): WrappedDiffLine[] {
   const width = Math.max(1, columns);
-  const output: DiffLine[] = [];
-  for (const line of lines) {
-    if (!line.text) {output.push(line); continue;}
+  const output: WrappedDiffLine[] = [];
+  const widths = new Map<string, number>();
+  for (const [sourceLine, line] of lines.entries()) {
+    if (!line.text) {output.push({...line, sourceLine, offset: 0}); continue;}
+    if (/^[\x20-\x7e]+$/u.test(line.text)) {
+      for (let offset = 0; offset < line.text.length; offset += width) output.push({...line, text: line.text.slice(offset, offset + width), sourceLine, offset});
+      continue;
+    }
     let current = '';
     let currentWidth = 0;
+    let offset = 0;
+    let consumed = 0;
     for (const {segment} of graphemes.segment(line.text)) {
-      const size = stringWidth(segment);
+      let size = widths.get(segment);
+      if (size === undefined) {
+        size = stringWidth(segment);
+        if (widths.size < 1024) widths.set(segment, size);
+      }
       if (current && currentWidth + size > width) {
-        output.push({kind: line.kind, text: current});
+        output.push({kind: line.kind, text: current, sourceLine, offset});
         current = '';
         currentWidth = 0;
+        offset = consumed;
       }
       if (size > width) {
-        output.push({kind: line.kind, text: segment});
+        output.push({kind: line.kind, text: segment, sourceLine, offset: consumed});
+        consumed += segment.length;
+        offset = consumed;
         continue;
       }
       current += segment;
       currentWidth += size;
+      consumed += segment.length;
     }
-    if (current) output.push({kind: line.kind, text: current});
+    if (current) output.push({kind: line.kind, text: current, sourceLine, offset});
   }
   return output;
 }

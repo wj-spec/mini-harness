@@ -157,7 +157,7 @@ Terminal B：
 
 1. 输入 `/attach now` 进入 attach；
 2. attach 后应显示待审批（write_file `.vibe/fake-demo.txt`）；
-3. 按 `y`（允许一次）；
+3. 按 `Ctrl+R` 进入审批，`y` 选择允许一次，`Enter` 确认；
 4. 预期 worker 继续执行并完成任务；
 5. 退出 TUI。
 
@@ -389,3 +389,42 @@ rm -rf "$WS" /tmp/vibe-nongit
 | TC-09 non-git | `test_worker.py::test_worker_rejects_non_git_without_opt_in` |
 
 人工验收重点是：**真实 pty 终端下的 TUI 渲染/键盘/审批面板/attach 切换**，以及 worker 在真实交互中的可观察性。
+
+
+### TC-附加：P6 历史与离线阅读（2026-11-09，真人待验收）
+
+1. 按前文运行并 attach 同一 fake 任务；在 worker 仍运行时打开“历史结果”，列表只出现绑定任务。
+2. 选择有保存记录的“计划”或“验证”，核对原版本或原命令；输入中文草稿并将光标移到中间。
+3. 等 worker 正常结束，界面应转为“离线只读”；普通文字 Enter 不创建新运行，草稿与光标保持。继续打开历史仍能读取。
+4. Ctrl+Q 退出，再使用相同 `--workspace / --session / --attach-task` 命令重开，即使 socket 已移除也能查看已有记录；无记录时明确报错。
+5. 对比 task 的 segments 数量及 trace 的模型调用数，读取前后应不变；断线时没有最终结果的条目应保持未知。
+
+工程证据见 [P6 attach 记录](../../openspec/changes/implement-improve-workbench-ux-p6/verification.md#attach-任务范围与离线检查2026-11-09)。这组步骤尚无真人回执；worktree 来源与 diff 已有工程验证，完整真人旅程仍待验收。
+
+
+### TC-附加：worktree 同名文件与引用（2026-11-09，真人待验收）
+
+1. 在有 worktree 修改结果的任务中选“历史结果 → 变更”，应显示“任务目录”，文件详情中的来源应为该任务 worktree。
+2. 对照主项目与 worktree 的同名文件，确认侧栏只显示所选来源的当前 diff；返回主区当前结果时切回对应目录。
+3. 拖选 diff 并附回中文草稿，引用应包含来源目录，已有草稿/光标保留；不要将工作树当前 diff 视为历史 diff。
+4. 仅在可丢弃测试工作树且 worker 已退出时检查清理后的记录：变更页明确来源不可用，计划/验证仍可读，不显示主项目的同名文件。
+
+工程证据见 [文件来源记录](../../openspec/changes/implement-improve-workbench-ux-p6/verification.md#worktree-文件来源与-diff-路由2026-11-09)。此处继续保留真人状态。
+
+### TC-附加：内嵌专注检查（2026-11-09，真人待验收）
+
+1. 在 attach 的历史结果中选择变更/计划/验证；主区点击“专注检查”，所选任务、计划版本或验证命令应保持一致。
+2. 中文草稿中间移动光标后进入检查，拖选内容附回，再用“返回草稿”或 Esc 返回继续输入；不应自动运行或改变当前控制目标。
+3. 缩到 32×12 检查“检查 / 历史 / 当前”与“返回草稿”；计划分页/阅读位置应保留。worker 结束后的离线查看仍不可执行。
+4. 另在正在运行的会话检查旧结果，审批出现只提示返回处理；Ctrl+C 仍停止当前运行。
+
+工程验证见 [专注检查记录](../../openspec/changes/implement-improve-workbench-ux-p6/verification.md#内嵌专注检查2026-11-09)；本节不代替真人回执。
+
+### TC-附加：Ghostty 启动竞争（2026-11-09，原生/真人待验收）
+
+1. 同一工作区启动两个会话，分别打开 split；每个 pane 应跟随各自会话，退出其中一个不能关闭另一个。
+2. 两会话近乎同时请求 quick terminal：一个打开，另一个提示正在打开或被占用；再次操作不能把前一会话的 quick 替换成另一会话。
+3. 从启动命令复制同一个 parent-pid/instance-id，再开一次侧栏：应提示已有侧栏并退出；原窗口的文件选择和附回仍工作。
+4. 关闭原侧栏后可重开；进程异常结束后也可重开。保留选区的侧栏随原主区退出后的行为仍需核对。
+
+进程/PTY 工程证据见 [启动竞争记录](../../openspec/changes/implement-improve-workbench-ux-p6/verification.md#侧栏启动竞争与重复登记2026-11-09)。本轮 Computer Use 被工具安全限制拒绝访问 Ghostty，不能据此勾选原生验收。

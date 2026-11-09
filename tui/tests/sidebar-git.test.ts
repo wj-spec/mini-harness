@@ -141,3 +141,14 @@ test('status letters and counts cover added, deleted and untracked files', () =>
   assert.equal(statusLetter({...base, path: 'r', status: 'renamed'}), 'R');
   assert.equal(changeCounts({...base, path: 'x', status: 'modified', additions: 4, deletions: 1}), '+4 -1');
 });
+
+test('changes beyond the displayed truncation have a different content identity', () => {
+  const file: ChangedFile = {path: 'huge.txt', status: 'modified', index: '.', worktree: 'M', additions: 3000, deletions: 0, staged: false};
+  const prefix = '+same\n'.repeat(MAX_DIFF_LINES + 10);
+  const a = readFileDiff('/repo', file, true, () => ({status: 0, stdout: prefix + '+before', stderr: ''}));
+  const b = readFileDiff('/repo', file, true, () => ({status: 0, stdout: prefix + '+after!', stderr: ''}));
+  assert.ok(a.ok && b.ok);
+  assert.equal(a.text, b.text);
+  assert.ok('revision' in a && 'revision' in b);
+  assert.notEqual(a.revision, b.revision);
+});

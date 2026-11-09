@@ -256,3 +256,9 @@ class TaskStore:
 - **与 GoalRecord 的边界**：`goal_id` 只是引用；GoalRecord 的 schema/双写由 05 决定。
 - **API 形态**：P0 先 Python 内部类；是否暴露为 CLI/协议命令由 integration spec 决定。
 - **是否支持 queued**：P0 保留状态但无调度器；如果 02 决定不用 queued，可向后兼容地不产生该状态。
+
+## 13 预留任务身份（2026-11-08）
+
+为计划审阅的一次初始启动，TaskStore 支持 reserve_task_id，以及 create 的成对 reserved_id/creation 参数。调用者先持久化预留身份；首份 meta 同时写入 creation 的 key 与 target。预留目录已存在或创建部分失败时不改用随机 ID、不删除现场；领域层校验凭据后决定复用或需核对。普通 create 保持原用法。
+
+meta 写入使用独占临时文件、内容 fsync、replace 与 POSIX 目录 fsync。recover_preparation 只处理无任何 segment 的 created/running/interrupted；调用者须证明启动者已退出或准备明确失败，且 Task 锁须不存在或确认为本机已死亡 owner。异机、存活、损坏或非普通锁文件均拒绝；不按超时抢锁。TaskRuntime attach 若显式给出 plan_id/version，须与存储记录相等。计划恢复策略与验证见 [P3 设计](../../openspec/changes/implement-improve-workbench-ux-p3/design.md)。

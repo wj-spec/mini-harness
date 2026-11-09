@@ -19,6 +19,10 @@ app/
     summarize.py         # LLM 摘要 HTTP 适配器（原 app/summarize.py）
     tasks.py             # TaskRecord/TaskStore：任务身份/状态机/原子写/恢复（P0 基础）
     task_runtime.py      # TaskRuntime：stdio run.task、goal 生命周期、task_state（接入层）
+    task_navigation.py   # 任务只读目录、范围校验、分页与接入/停止可用事实
+    inspection.py        # 按请求保存检查事实、实际文件目录/身份、准确计划绑定与只读分页
+    attach_inspection.py # attach 绑定任务的历史/准确计划只读查询与离线身份
+    plan_revision.py     # 准确来源/反馈、持久修订任务、查询/续做与执行互斥（P4，stdio 已接线）
     supervise.py         # WorkerSupervisor：worker.json/心跳/判死/--tasks 只读视图（P0a）
     worker.py            # 后台 worker/attach：独立 stdio 子进程、ctrl.sock、worker.log（P0b）
     goals.py             # GoalRecord v2：目标状态/迁移/段账本同步（P0）
@@ -41,6 +45,7 @@ app/
   session/               # 会话、证据与审计
     __init__.py
     store.py             # JSONL 会话、state 投影、轮次账本（原 app/session.py）
+    writer.py            # 会话运行与启动恢复共用的进程写锁，退出自动释放
     trace.py             # trace / usage / cost
     audit.py             # 只读环境审计
     auditor.py           # 可选 LLM 只读审计

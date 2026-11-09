@@ -1,6 +1,8 @@
 import {spawnSync} from 'node:child_process';
 import {existsSync} from 'node:fs';
 import path from 'node:path';
+import {validOwner, type SidebarOwner} from './channel.js';
+import {claimSidebarLease} from './lease.js';
 
 /** Ghostty 1.3+ 与 macOS Terminal 的 AppleScript 入口。 */
 export const SIDEBAR_TITLE = 'mini-harness sidebar';
@@ -15,6 +17,8 @@ export type RunResult = {status: number | null; stdout: string; stderr: string; 
 export type Runner = (command: string, args: string[], options: {timeoutMs: number}) => RunResult;
 
 export type OpenSidebarOptions = {
+  owner?: SidebarOwner;
+  sourceTty?: string;
   workspace: string;
   cliPath: string;
   nodePath?: string;
@@ -46,10 +50,19 @@ export function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
-export function sidebarCommand(options: {workspace: string; cliPath: string; nodePath?: string; parentPid?: number}): string {
+export function sidebarTitle(owner?: SidebarOwner, mode?: SidebarMode): string {
+  if (owner && !validOwner(owner)) throw new Error('Invalid sidebar owner');
+  return `${SIDEBAR_TITLE}${owner ? ` [${owner.instanceId}:${owner.parentPid}]` : ''}${mode ? ` [${mode}]` : ''}`;
+}
+
+export function sidebarCommand(options: {workspace: string; cliPath: string; nodePath?: string; parentPid?: number; owner?: SidebarOwner; mode?: SidebarMode}): string {
   const node = options.nodePath ?? 'node';
-  const parent = options.parentPid ? ` --parent-pid ${options.parentPid}` : '';
-  return `cd ${shellQuote(options.workspace)} && exec ${shellQuote(node)} ${shellQuote(options.cliPath)} --workspace ${shellQuote(options.workspace)}${parent}`;
+  if (options.owner) sidebarTitle(options.owner);
+  const parentPid = options.owner?.parentPid ?? options.parentPid;
+  const parent = parentPid ? ` --parent-pid ${parentPid}` : '';
+  const instance = options.owner ? ` --instance-id ${options.owner.instanceId}` : '';
+  const mode = options.mode ? ` --host-mode ${options.mode}` : '';
+  return `cd ${shellQuote(options.workspace)} && exec ${shellQuote(node)} ${shellQuote(options.cliPath)} --workspace ${shellQuote(options.workspace)}${parent}${instance}${mode}`;
 }
 
 /** 找到 Ghostty 命令行二进制；找不到时跳过配置预检，保持旧行为。 */
@@ -87,21 +100,37 @@ function appleScriptString(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
+function sourceTerminal(owner?: SidebarOwner, sourceTty?: string): string {
+  if (!owner) return '  set target to focused terminal of selected tab of front window';
+  const fallback = sourceTty && /^\/dev\/tty[\w]+$/u.test(sourceTty)
+    ? `\n  if (count of sourceHits) is not 1 then set sourceHits to (every terminal whose tty is "${sourceTty}")` : '';
+  return `  set sourceHits to (every terminal whose pid is ${owner.parentPid})${fallback}
+  if (count of sourceHits) is not 1 then return "source-missing"
+  set target to item 1 of sourceHits`;
+}
+
 /**
  * 打开或切换 Ghostty 右侧 quick terminal：
  * 1) 已存在标题匹配的侧栏终端时只切换显隐；
  * 2) 否则打开 quick terminal，等待新终端出现后注入启动命令。
  */
-export function ghosttyScript(command: string): string {
-  return `set sidebarTitle to "${SIDEBAR_TITLE}"
+export function ghosttyScript(command: string, owner?: SidebarOwner, sourceTty?: string): string {
+  const ownedQuick = owner ? `    if name of (item 1 of sidebarHits) does not end with "[quick]" then
+      focus (item 1 of sidebarHits)
+      return "focused"
+    end if\n` : '';
+  const conflict = owner ? `  set quickHits to (every terminal whose name contains "${SIDEBAR_TITLE}" and name ends with "[quick]")
+  set legacyHits to (every terminal whose name is "${SIDEBAR_TITLE}")
+  if (count of quickHits) > 0 or (count of legacyHits) > 0 then return "occupied"\n` : '';
+  return `set sidebarTitle to "${sidebarTitle(owner)}"
 tell application "Ghostty"
   set sidebarHits to (every terminal whose name contains sidebarTitle)
   if (count of sidebarHits) > 0 then
-    if not (perform action "toggle_quick_terminal" on (item 1 of sidebarHits)) then return "action-failed"
+${ownedQuick}    if not (perform action "toggle_quick_terminal" on (item 1 of sidebarHits)) then return "action-failed"
     return "toggled"
   end if
+${conflict}${sourceTerminal(owner, sourceTty)}
   set beforeIds to id of every terminal
-  set target to focused terminal of selected tab of front window
   if not (perform action "toggle_quick_terminal" on target) then return "action-failed"
   set newTerminal to missing value
   repeat 15 times
@@ -115,7 +144,7 @@ tell application "Ghostty"
     if newTerminal is not missing value then exit repeat
   end repeat
   if newTerminal is missing value then return "opened"
-  delay 0.5
+${owner ? `  set name override of newTerminal to "${sidebarTitle(owner, 'quick')}"\n` : ''}  delay 0.5
   input text "${appleScriptString(command)}" to newTerminal
   send key "enter" to newTerminal
   return "started"
@@ -152,12 +181,12 @@ function unsupported(message: string, command: string): LaunchResult {
  * 在同一个 Ghostty 窗口内右侧分屏。split 属于窗口布局，会跟随窗口尺寸；
  * 代价是主 TUI 的可视宽度减少。
  */
-export function splitScript(command: string, workspace: string, initialPixels = 0): string {
+export function splitScript(command: string, workspace: string, initialPixels = 0, owner?: SidebarOwner, sourceTty?: string): string {
   const initial = Math.max(0, Math.round(initialPixels));
   const initialResize = initial > 0
     ? `  delay 0.05\n  perform action "resize_split:right,${initial}" on newTerminal\n`
     : '';
-  return `set sidebarTitle to "${SIDEBAR_TITLE}"
+  return `set sidebarTitle to "${sidebarTitle(owner)}"
 tell application "Ghostty"
   set sidebarHits to (every terminal whose name contains sidebarTitle)
   if (count of sidebarHits) > 0 then
@@ -166,9 +195,9 @@ tell application "Ghostty"
   end if
   set cfg to new surface configuration
   set initial working directory of cfg to "${appleScriptString(workspace)}"
-  set target to focused terminal of selected tab of front window
+${sourceTerminal(owner, sourceTty)}
   set newTerminal to split target direction right with configuration cfg
-${initialResize}  delay 0.6
+${owner ? `  set name override of newTerminal to "${sidebarTitle(owner, 'split')}"\n` : ''}${initialResize}  delay 0.6
   input text "${appleScriptString(command)}" to newTerminal
   send key "enter" to newTerminal
   focus target
@@ -176,11 +205,11 @@ ${initialResize}  delay 0.6
 end tell`;
 }
 
-export function resizeSplitScript(direction: 'left' | 'right', pixels: number): string {
+export function resizeSplitScript(direction: 'left' | 'right', pixels: number, owner?: SidebarOwner): string {
   const amount = Math.max(1, Math.round(pixels));
   return `tell application "Ghostty"
-  set sidebarHits to (every terminal whose name contains "${SIDEBAR_TITLE}")
-  if (count of sidebarHits) = 0 then return "missing"
+  set sidebarHits to (every terminal whose name contains "${sidebarTitle(owner, owner ? 'split' : undefined)}")
+  if (count of sidebarHits) is not 1 then return "missing"
   if not (perform action "resize_split:${direction},${amount}" on (item 1 of sidebarHits)) then return "action-failed"
   return "ok"
 end tell`;
@@ -188,6 +217,7 @@ end tell`;
 
 /** 调整 split 分隔条，把侧栏缩到约 30% / 主 TUI 70%。 */
 export function resizeSidebarSplit(direction: 'left' | 'right', pixels: number, options: {
+  owner?: SidebarOwner;
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
   run?: Runner;
@@ -197,13 +227,13 @@ export function resizeSidebarSplit(direction: 'left' | 'right', pixels: number, 
   const env = options.env ?? process.env;
   if (platform !== 'darwin' || detectHost(env) !== 'ghostty') return false;
   const run = options.run ?? defaultRunner;
-  const result = run(SIDEBAR_COMMAND, ['-e', resizeSplitScript(direction, pixels)], {timeoutMs: options.timeoutMs ?? 3000});
+  const result = run(SIDEBAR_COMMAND, ['-e', resizeSplitScript(direction, pixels, options.owner)], {timeoutMs: options.timeoutMs ?? 3000});
   return result.status === 0 && lastLine(result.stdout) === 'ok';
 }
 
 /** Ghostty 独立窗口模式：新建窗口运行侧栏，窗口位置由用户手动摆放。 */
-export function ghosttyWindowScript(command: string, workspace: string): string {
-  return `set sidebarTitle to "${SIDEBAR_TITLE}"
+export function ghosttyWindowScript(command: string, workspace: string, owner?: SidebarOwner): string {
+  return `set sidebarTitle to "${sidebarTitle(owner)}"
 tell application "Ghostty"
   set sidebarHits to (every terminal whose name contains sidebarTitle)
   if (count of sidebarHits) > 0 then
@@ -214,13 +244,13 @@ tell application "Ghostty"
   set initial working directory of cfg to "${appleScriptString(workspace)}"
   set initial input of cfg to "${appleScriptString(command)}" & return
   set newWin to new window with configuration cfg
-  return "started:" & ((id of newWin) as text)
+${owner ? `  set name override of focused terminal of selected tab of newWin to "${sidebarTitle(owner, 'window')}"\n` : ''}  return "started:" & ((id of newWin) as text)
 end tell`;
 }
 
 /** macOS Terminal 独立窗口：新建窗口并尽量放在当前 TUI 窗口右侧、同高。 */
-export function terminalWindowScript(command: string): string {
-  return `set sidebarTitle to "${SIDEBAR_TITLE}"
+export function terminalWindowScript(command: string, owner?: SidebarOwner): string {
+  return `set sidebarTitle to "${sidebarTitle(owner)}"
 tell application "Terminal"
   activate
   set sidebarHits to (every window whose name contains sidebarTitle)
@@ -228,6 +258,7 @@ tell application "Terminal"
     set index of (item 1 of sidebarHits) to 1
     return "focused"
   end if
+  set tuiWindow to window 1
   set tuiBounds to bounds of window 1
   set leftX to item 1 of tuiBounds
   set topY to item 2 of tuiBounds
@@ -238,7 +269,7 @@ tell application "Terminal"
   do script ":"
   set newWindow to window 1
   if (id of newWindow) = (id of tuiWindow) then return "unexpected-tab"
-  set bounds of newWindow to {rightX, topY, rightX + sidebarWidth, bottomY}
+${owner ? `  set custom title of selected tab of newWindow to "${sidebarTitle(owner, 'window')}"\n` : ''}  set bounds of newWindow to {rightX, topY, rightX + sidebarWidth, bottomY}
   do script "${appleScriptString(command)}" in newWindow
   set index of tuiWindow to 1
   return "started:" & ((id of newWindow) as text)
@@ -246,18 +277,23 @@ end tell`;
 }
 
 /** 关闭独立窗口模式留下的窗口；split/quick 不需要。 */
-export function closeWindowScript(host: TerminalHost, windowId: string): string | null {
+export function closeWindowScript(host: TerminalHost, windowId: string, owner?: SidebarOwner): string | null {
+  const ownership = owner ? ` and name contains "${sidebarTitle(owner, 'window')}"` : '';
   if (host === 'terminal' && /^\d+$/u.test(windowId)) {
     return `tell application "Terminal"
-  set matches to (every window whose id is ${windowId})
-  if (count of matches) > 0 then close (item 1 of matches)
+  set matches to (every window whose id is ${windowId}${ownership})
+  if (count of matches) is not 1 then return "missing"
+  set targetWindow to item 1 of matches
+${owner ? '  if (count of tabs of targetWindow) is not 1 then return "expanded"\n' : ''}  close targetWindow
   return "closed"
 end tell`;
   }
   if (host === 'ghostty') {
     return `tell application "Ghostty"
-  set matches to (every window whose id is "${appleScriptString(windowId)}")
-  if (count of matches) > 0 then close (item 1 of matches)
+  set matches to (every window whose id is "${appleScriptString(windowId)}"${ownership})
+  if (count of matches) is not 1 then return "missing"
+  set targetWindow to item 1 of matches
+${owner ? '  if (count of tabs of targetWindow) is not 1 or (count of terminals of targetWindow) is not 1 then return "expanded"\n' : ''}  close targetWindow
   return "closed"
 end tell`;
   }
@@ -265,12 +301,13 @@ end tell`;
 }
 
 export function closeSidebarWindow(host: TerminalHost, windowId: string, options: {
+  owner?: SidebarOwner;
   env?: NodeJS.ProcessEnv; platform?: NodeJS.Platform; run?: Runner; timeoutMs?: number;
 } = {}): boolean {
   const platform = options.platform ?? process.platform;
   const env = options.env ?? process.env;
   if (platform !== 'darwin' || detectHost(env) === 'unknown') return false;
-  const script = closeWindowScript(host, windowId);
+  const script = closeWindowScript(host, windowId, options.owner);
   if (!script) return false;
   const run = options.run ?? defaultRunner;
   const result = run(SIDEBAR_COMMAND, ['-e', script], {timeoutMs: options.timeoutMs ?? 3000});
@@ -313,6 +350,9 @@ function mapQuickMarker(marker: string, command: string): LaunchResult {
     case 'started': return {outcome: 'started', message: '已打开右侧 Git 变更侧栏（Ghostty quick terminal；不跟随窗口尺寸，需要跟随用 /sidebar split 或直接用 /sidebar 默认分屏）', command};
     case 'toggled': return {outcome: 'toggled', message: '已切换右侧 quick terminal 侧栏', command};
     case 'opened': return {outcome: 'opened', message: `已打开 quick terminal；请在其中运行：${command}`, command};
+    case 'focused': return {outcome: 'focused', command, message: '已聚焦此工作台的侧栏'};
+    case 'source-missing': return {outcome: 'failed', command, message: '未找到此工作台的来源终端；请在原终端重试，或使用 /sidebar window'};
+    case 'occupied': return {outcome: 'failed', command, message: 'quick terminal 已被另一侧栏占用；请使用 /sidebar split 或 /sidebar window'};
     case 'action-failed': return {outcome: 'failed', command, message: 'Ghostty 无法切换 quick terminal；请确认版本 ≥ 1.3 且未设置 macos-applescript = false'};
     default: return {outcome: 'failed', command, message: `侧栏启动结果未知：${marker || '空输出'}`};
   }
@@ -322,6 +362,7 @@ function mapSplitMarker(marker: string, command: string): LaunchResult {
   switch (marker) {
     case 'started': return {outcome: 'started', message: '已在当前窗口右侧打开 Git 变更侧栏（split，会跟随窗口尺寸；TUI 可用宽度会减少）', command};
     case 'focused': return {outcome: 'focused', message: '已聚焦右侧 Git 变更侧栏', command};
+    case 'source-missing': return {outcome: 'failed', command, message: '未找到此工作台的来源终端；请在原终端重试，或使用 /sidebar window'};
     default: return {outcome: 'failed', command, message: `侧栏启动结果未知：${marker || '空输出'}`};
   }
 }
@@ -348,12 +389,20 @@ export function readFontSize(run: Runner, env: NodeJS.ProcessEnv = process.env, 
 }
 
 export function openSidebar(options: OpenSidebarOptions): LaunchResult {
-  const command = sidebarCommand(options);
+  const host = detectHost(options.env ?? process.env);
+  if (!options.owner || (options.platform ?? process.platform) !== 'darwin' || host === 'unknown') return launchSidebar(options);
+  const lease = claimSidebarLease(JSON.stringify(['launch', path.resolve(options.workspace), options.owner.instanceId, options.owner.parentPid]));
+  if (!lease) return {outcome: 'failed', host, message: '此工作台正在打开侧栏；请等待后再重试'};
+  try {return launchSidebar(options);} finally {lease.release();}
+}
+
+function launchSidebar(options: OpenSidebarOptions): LaunchResult {
   const mode: SidebarMode = options.mode ?? 'quick';
+  const host = detectHost(options.env ?? process.env);
+  const command = sidebarCommand({...options, mode: host === 'terminal' ? 'window' : mode});
   const platform = options.platform ?? process.platform;
   if (platform !== 'darwin') return unsupported(`当前平台暂不支持自动打开侧栏；请手动运行：${command}`, command);
   const env = options.env ?? process.env;
-  const host = detectHost(env);
   if (host === 'unknown') {
     return unsupported(`当前终端不支持自动打开侧栏（Ghostty 或 macOS Terminal）；请手动运行：${command}`, command);
   }
@@ -361,7 +410,7 @@ export function openSidebar(options: OpenSidebarOptions): LaunchResult {
   const timeoutMs = options.timeoutMs ?? 10_000;
   // Terminal 没有 split/quick：统一用独立窗口，并尽量放到右侧。
   if (mode === 'window' || host === 'terminal') {
-    const script = host === 'terminal' ? terminalWindowScript(command) : ghosttyWindowScript(command, options.workspace);
+    const script = host === 'terminal' ? terminalWindowScript(command, options.owner) : ghosttyWindowScript(command, options.workspace, options.owner);
     const result = run(SIDEBAR_COMMAND, ['-e', script], {timeoutMs});
     const failure = launchFailure(result, command);
     if (failure) {
@@ -376,8 +425,8 @@ export function openSidebar(options: OpenSidebarOptions): LaunchResult {
     const initialPixels = options.totalColumns
       ? Math.max(0, Math.round(options.totalColumns * 0.2 * readFontSize(run, env, options.ghosttyBinary) * 0.6))
       : 0;
-    const result = run(SIDEBAR_COMMAND, ['-e', splitScript(command, options.workspace, initialPixels)], {timeoutMs});
-    return launchFailure(result, command) ?? mapSplitMarker(lastLine(result.stdout), command);
+    const result = run(SIDEBAR_COMMAND, ['-e', splitScript(command, options.workspace, initialPixels, options.owner, options.sourceTty)], {timeoutMs});
+    return {...(launchFailure(result, command) ?? mapSplitMarker(lastLine(result.stdout), command)), host};
   }
   const quickTerminal = checkQuickTerminalPosition({env, run, binary: options.ghosttyBinary});
   if (quickTerminal.checked && !quickTerminal.ok) {
@@ -388,6 +437,10 @@ export function openSidebar(options: OpenSidebarOptions): LaunchResult {
       message: `Ghostty quick terminal 当前在${where}（quick-terminal-position=${quickTerminal.position ?? '未配置，默认 top'}），quick 侧栏不会出现在右侧。输入 /sidebar setup 写入右侧配置，然后完全退出并重启 Ghostty，再执行 /sidebar quick；如果只是想让侧栏跟随窗口尺寸，直接用默认的 /sidebar（窗口内分屏，无需配置）。`,
     };
   }
-  const result = run(SIDEBAR_COMMAND, ['-e', ghosttyScript(command)], {timeoutMs});
-  return launchFailure(result, command) ?? mapQuickMarker(lastLine(result.stdout), command);
+  const lease = claimSidebarLease('ghostty-quick-launch');
+  if (!lease) return {outcome: 'failed', command, host, message: '另一个工作台正在打开 quick terminal；请稍后重试或使用 /sidebar split'};
+  try {
+    const result = run(SIDEBAR_COMMAND, ['-e', ghosttyScript(command, options.owner, options.sourceTty)], {timeoutMs});
+    return {...(launchFailure(result, command) ?? mapQuickMarker(lastLine(result.stdout), command)), host};
+  } finally {lease.release();}
 }

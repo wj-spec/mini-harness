@@ -159,7 +159,7 @@ def test_cancelling_initial_snapshot_cleans_up_stdio_startup(tmp_path):
                 await task
             assert agent.approval.handler is previous_handler
             assert manager.closed
-            assert [event["type"] for event in events] == ["ready", "closed"]
+            assert [event["type"] for event in events] == ["ready", "plan_mode", "closed"]
             assert not (asyncio.all_tasks() - baseline)
             assert all(signal.getsignal(sig) is previous for sig, previous in signals.items())
             assert agent.provider.seen == []

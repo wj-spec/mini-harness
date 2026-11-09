@@ -19,7 +19,7 @@ export function buildSkillMenu(input: string, skills: readonly SkillInfo[]): Ski
 
   let entries: {command: string; description: string}[];
   if (trimmed === '/skills' || input === '/skills') {
-    entries = skills.map(skill => wanted(skill.active ? 'unload' : 'activate', skill));
+    entries = [{command: '/skills', description: '查看技能列表'}, ...skills.map(skill => wanted(skill.active ? 'unload' : 'activate', skill))];
   } else if (input.startsWith('/skills activate')) {
     entries = skills.map(skill => wanted('activate', skill));
   } else if (input.startsWith('/skills unload')) {

@@ -33,6 +33,131 @@ function observer(client:BackendClient) {
   }};
 }
 
+test('selected task connection waits for exact scope and replays its snapshot without closing the original backend', async () => {
+  const snapshot = {v: 1, type: 'task_snapshot', id: null, task: {task_id: 't-selected', kind: 'run', status: 'running', segment: 1,
+    run_id: 'selected-run', objective: '原任务', goal_id: null, mode: 'act', plan_id: null, plan_version: null, worktree: null}, approvals: []};
+  const f = await fixture(`import readline from 'node:readline';
+const attached = process.argv.includes('--attach');
+console.log(JSON.stringify(${JSON.stringify({...ready, capabilities: ['attach', 'cancel']})}));
+if (attached) setTimeout(() => console.log(JSON.stringify(${JSON.stringify(snapshot)})), 60);
+readline.createInterface({input:process.stdin}).on('line', line => {
+ const r=JSON.parse(line);
+ if(r.type==='shutdown'){console.log(JSON.stringify({v:1,type:'closed',id:r.id}));process.exit(0);}
+ console.log(JSON.stringify({v:1,type:'notice',id:null,message:JSON.stringify({request:r,args:process.argv.slice(2)})}));
+});`);
+  await writeFile(path.join(f.root, 'run_vibe.sh'), `#!/bin/sh\nexec '${process.execPath.replaceAll("'", "'\\''")}' "$(dirname "$0")/fixture.mjs" "$@"\n`);
+  const client = createBackendClient({repoRoot: f.root, args: ['--fake', '--continue', '--workspace', '/old'], shutdownTimeoutMs: 500});
+  const state = observer(client);
+  try {
+    client.start(); await state.wait(event => event.type === 'ready');
+    const connection = client as BackendClient & {connectTask(target: {workspace: string; sessionId: string; taskId: string}, signal?: AbortSignal): Promise<BackendClient>};
+    const attached = await connection.connectTask({workspace: '/tmp', sessionId: 'test', taskId: 't-selected'});
+    const selected = observer(attached);
+    assert.deepEqual(await selected.wait(event => event.type === 'task_snapshot'), snapshot);
+    attached.cancel('selected-run');
+    const receipt = await selected.wait(event => event.type === 'notice');
+    assert.equal(receipt.type, 'notice');
+    if (receipt.type !== 'notice') return;
+    const received = JSON.parse(receipt.message);
+    assert.deepEqual(received.args, ['--attach', '--task-id', 't-selected', '--session', 'test', '--mode', 'control', '--fake', '--workspace', '/tmp']);
+    assert.equal(received.request.target, 'selected-run');
+    assert.equal(state.events.some(event => event.type === 'closed'), false);
+    await client.shutdown();
+    await selected.wait(event => event.type === 'closed');
+  } finally {await client.shutdown(); await f.close();}
+});
+
+test('failed or cancelled task handshakes close only the candidate process and leave the original usable', async () => {
+  const f = await fixture(`import readline from 'node:readline';import {appendFileSync} from 'node:fs';
+const attached=process.argv.includes('--attach');
+if(attached)appendFileSync('attached-pids',String(process.pid)+String.fromCharCode(10));
+if(process.argv.includes('t-denied')){console.error('attach denied: another controller is attached');process.exit(2);}
+console.log(JSON.stringify(${JSON.stringify({...ready, capabilities: ['attach']})}));
+if(attached && !process.argv.includes('t-slow'))console.log(JSON.stringify({v:1,type:'task_snapshot',id:null,task:{task_id:'t-actual',kind:'run',status:'paused',segment:0,run_id:null,objective:'原任务',goal_id:null,mode:'act',plan_id:null,plan_version:null,worktree:null},approvals:[]}));
+readline.createInterface({input:process.stdin}).on('line',line=>{const r=JSON.parse(line);
+if(r.type==='shutdown'){console.log(JSON.stringify({v:1,type:'closed',id:r.id}));process.exit(0);}
+console.log(JSON.stringify({v:1,type:'notice',id:null,message:r.text||'ok'}));});`);
+  await writeFile(path.join(f.root, 'run_vibe.sh'), `#!/bin/sh\nexec '${process.execPath.replaceAll("'", "'\\''")}' "$(dirname "$0")/fixture.mjs" "$@"\n`);
+  const client = createBackendClient({repoRoot: f.root, shutdownTimeoutMs: 500}); const state = observer(client);
+  try {
+    client.start(); await state.wait(e => e.type === 'ready');
+    await assert.rejects(client.connectTask!({workspace: '/foreign', sessionId: 'test', taskId: 't-actual'}), /工作区或会话不匹配/);
+    await assert.rejects(client.connectTask!({workspace: '/tmp', sessionId: 'test', taskId: 't-wrong'}), /任务不匹配/);
+    await assert.rejects(client.connectTask!({workspace: '/tmp', sessionId: 'test', taskId: 't-denied'}), /another controller is attached/);
+    const abort = new AbortController();
+    const waiting = assert.rejects(client.connectTask!({workspace: '/tmp', sessionId: 'test', taskId: 't-slow'}, abort.signal), /取消/);
+    setTimeout(() => abort.abort(), 80); await waiting;
+    client.run('原会话仍可用'); await state.wait(e => e.type === 'notice' && e.message === '原会话仍可用');
+    assert.equal(state.events.some(e => e.type === 'closed'), false);
+    for (const pid of (await readFile(path.join(f.root, 'attached-pids'), 'utf8')).trim().split('\n').map(Number)) {
+      assert.throws(() => process.kill(pid, 0), {code: 'ESRCH'});
+    }
+  } finally {await client.shutdown(); await f.close();}
+});
+
+test('run transports a preallocated request identity unchanged', async () => {
+  const f = await fixture(`import readline from 'node:readline';
+console.log(JSON.stringify(${JSON.stringify(ready)}));
+readline.createInterface({input:process.stdin}).on('line', line => {
+  const r = JSON.parse(line);
+  if (r.type === 'shutdown') {console.log(JSON.stringify({v:1,type:'closed',id:r.id}));process.exit(0);}
+  console.log(JSON.stringify({v:1,type:'notice',id:null,message:JSON.stringify(r)}));
+});`);
+  const client = createBackendClient({repoRoot: f.root}); const state = observer(client);
+  try {
+    client.start(); await state.wait(event => event.type === 'ready');
+    const prepared = '34929261-f6e4-42f6-8d5e-378a2509d109';
+    const run = client.run as (text: string, task: undefined, requestId: string) => string;
+    assert.equal(run('已保存的后续消息', undefined, prepared), prepared);
+    const received = await state.wait(event => event.type === 'notice');
+    assert.deepEqual(received.type === 'notice' && JSON.parse(received.message), {v: 1, type: 'run', id: prepared, text: '已保存的后续消息'});
+  } finally {await client.shutdown(); await f.close();}
+});
+
+test('task navigation transports a structured page independently of run commands', async () => {
+  const row = {task_id: 't-selected', objective: '检查旧任务', kind: 'run', mode: 'act', status: 'paused', priority: 0,
+    created_at: '2026-11-09T00:00:00Z', updated_at: '2026-11-09T00:01:00Z', worker: null, worker_error: null, pending_approvals: 0};
+  const f = await fixture(`import readline from 'node:readline';
+console.log(JSON.stringify(${JSON.stringify({...ready, capabilities: ['task-navigation']})}));
+readline.createInterface({input:process.stdin}).on('line', line => {
+  const r = JSON.parse(line);
+  if (r.type === 'shutdown') {console.log(JSON.stringify({v:1,type:'closed',id:r.id}));process.exit(0);}
+  const row = ${JSON.stringify(row)};
+  if (!r.args || Object.keys(r.args).length) row.objective = '参数缺失';
+  if (r.args?.cursor === 'unicode') {row.objective = '🙂'.repeat(4000); row.worker_error = '🙂'.repeat(500);}
+  console.log(JSON.stringify({v:1,type:'task_catalog',id:r.id,workspace:'/tmp',session_id:'test',records:[row],next_cursor:null,skipped:0,problems:[]}));
+});`);
+  const client = createBackendClient({repoRoot: f.root}); const state = observer(client);
+  try {
+    client.start(); await state.wait(event => event.type === 'ready');
+    const id = client.command('tasks', {});
+    const result = await state.wait(event => event.type === 'task_catalog' && event.id === id);
+    assert.equal(result.type === 'task_catalog' && result.records[0]!.objective, '检查旧任务');
+    const unicodeId = client.command('tasks', {cursor: 'unicode'});
+    const unicode = await state.wait(event => event.type === 'error' || event.type === 'task_catalog' && event.id === unicodeId);
+    assert.ok(unicode.type === 'task_catalog'); assert.equal(unicode.records[0]!.objective, '🙂'.repeat(4000));
+  } finally {await client.shutdown(); await f.close();}
+});
+
+test('offline attach transport sends only history or exact plan reads and shutdown', async () => {
+  const f = await fixture(`import readline from 'node:readline';
+console.log(JSON.stringify(${JSON.stringify({...ready, capabilities: ['attach', 'attach-offline', 'inspection-history', 'plan-review']})}));
+readline.createInterface({input:process.stdin}).on('line', line => {
+  const r = JSON.parse(line);
+  if (r.type === 'shutdown') {console.log(JSON.stringify({v:1,type:'closed',id:r.id}));process.exit(0);}
+  console.log(JSON.stringify({v:1,type:'notice',id:null,message:JSON.stringify(r)}));
+});`);
+  const client = createBackendClient({repoRoot: f.root}); const state = observer(client);
+  try {
+    client.start(); await state.wait(event => event.type === 'ready');
+    for (const send of [() => client.run('不能运行'), () => client.cancel('run'), () => client.steer('run', '纠偏'),
+      () => client.command('resume'), () => client.command('plan', {action: 'mode-on'})]) assert.throws(send, /离线/);
+    const id = client.command('inspections', {task_id: 'bound-task'});
+    await state.wait(event => event.type === 'notice' && event.message.includes(id));
+    assert.equal(state.events.filter(event => event.type === 'notice').length, 1);
+  } finally {await client.shutdown(); await f.close();}
+});
+
 test('transport accepts fragmented UTF-8 and completes graceful shutdown', async()=>{
   const f=await fixture(`import readline from 'node:readline';
 const bytes=Buffer.from(JSON.stringify(${JSON.stringify(ready)})+'\\n'+JSON.stringify({v:1,type:'text_delta',id:'r',delta:'中文'})+'\\n');
@@ -91,11 +216,12 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
     const text='中文 $(touch should-not-run) ; `hello`';const id=client.run(text);
     const approval=await state.wait(event=>event.type==='approval_request');
     assert.equal(approval.type==='approval_request'&&approval.preview,text);
-    client.approve('approval-1','once');await state.wait(event=>event.type==='approval_resolved');
+    const responseId=client.approve('approval-1','once');await state.wait(event=>event.type==='approval_resolved');
     client.cancel(id);await state.wait(event=>event.type==='ack'&&event.action==='cancel');
     await client.shutdown();
     const requests=(await readFile(path.join(f.root,'requests.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line));
     assert.deepEqual(requests.map(request=>request.type),['run','approval','cancel','shutdown']);
+    assert.equal(requests[1].id,responseId);
     assert.equal(new Set(requests.map(request=>request.id)).size,4);
     assert.ok(requests.every(request=>request.v===1));
     assert.equal(requests[2].target,id);
@@ -531,6 +657,26 @@ test('actual FastMCP startup is approved through Node and its process exits on s
   }finally{await client.shutdown();if(alive()&&pid)process.kill(pid,'SIGKILL');await f.close();}
 });
 
+test('revision commands require the separate backend capability', async () => {
+  const f = await fixture(`import readline from 'node:readline';
+console.log(JSON.stringify(${JSON.stringify({...ready, capabilities: ['plan-review', 'tasks']})}));
+readline.createInterface({input:process.stdin}).on('line',line=>{const request=JSON.parse(line);
+if(request.type==='shutdown'){console.log(JSON.stringify({v:1,type:'closed',id:request.id}));process.exit(0);}});`);
+  const client = createBackendClient({repoRoot: f.root, shutdownTimeoutMs: 500});
+  const state = observer(client);
+  try {
+    client.start(); await state.wait(event => event.type === 'ready');
+    assert.throws(() => client.command('plan', {action: 'request-changes', feedback: '检查空文件', target: {
+      session_id: 'test', plan_task_id: 't-20261108-000000-abcdef', plan_id: 'plan-1',
+      plan_version: 1, plan_hash: 'a'.repeat(64),
+    }}), /不支持.*修订/);
+    assert.throws(() => client.command('plan', {action: 'list-revisions', target: {
+      session_id: 'test', plan_task_id: 't-20261108-000000-abcdef', plan_id: 'plan-1',
+      plan_version: 1, plan_hash: 'a'.repeat(64),
+    }}), /不支持.*修订记录/);
+  } finally {await client.shutdown(); await f.close();}
+});
+
 test('explore notification and plan commands forward their args', async()=>{
   const f = await fixture(`import readline from 'node:readline';import {appendFileSync} from 'node:fs';
 console.log(JSON.stringify(${JSON.stringify(ready)}));
@@ -543,10 +689,18 @@ if(request.type==='shutdown'){console.log(JSON.stringify({v:1,type:'closed',id:r
   const state = observer(client);
   try {
     client.start(); await state.wait(event=>event.type==='ready');
+    assert.throws(() => client.command('plan', {action: 'review'}), /不支持/);
+    assert.throws(() => client.command('plan', {action: 'approve-execute', target: {
+      session_id: 'test', plan_task_id: 't-20261108-000000-abcdef', plan_id: 'plan-1',
+      plan_version: 1, plan_hash: 'a'.repeat(64),
+    }}), /不支持/);
     const ids = [
       client.command('explore', {prompt: 'read'}),
       client.command('notifications', {kind: 'plan_acceptance'}),
       client.command('plan', {action: 'list'}),
+      client.command('plan', {action: 'mode-on'}),
+      client.command('plan', {action: 'request-changes', feedback: '补充失败路径测试'}),
+      client.command('plan', {action: 'markdown'}),
     ];
     for (const id of ids) await state.wait(event=>event.type==='command_result'&&event.id===id);
     await client.shutdown();
@@ -554,5 +708,30 @@ if(request.type==='shutdown'){console.log(JSON.stringify({v:1,type:'closed',id:r
     assert.deepEqual(requests[0].args, {prompt: 'read'});
     assert.deepEqual(requests[1].args, {kind: 'plan_acceptance'});
     assert.deepEqual(requests[2].args, {action: 'list'});
+    assert.deepEqual(requests[3].args, {action: 'mode-on'});
+    assert.deepEqual(requests[4].args, {action: 'request-changes', feedback: '补充失败路径测试'});
+    assert.deepEqual(requests[5].args, {action: 'markdown'});
   } finally {await client.shutdown(); await f.close();}
+});
+
+test('plan_mode frames are forwarded and replayed to late subscribers', async()=>{
+  const f=await fixture(`import readline from 'node:readline';
+console.log(JSON.stringify(${JSON.stringify(ready)}));
+console.log(JSON.stringify({v:1,type:'plan_mode',id:null,mode:{active:true,pending:false,wanted:true}}));
+readline.createInterface({input:process.stdin}).on('line',line=>{const request=JSON.parse(line); if(request.type==='shutdown'){console.log(JSON.stringify({v:1,type:'closed',id:request.id}));process.exit(0);}});`);
+  const client=createBackendClient({repoRoot:f.root,shutdownTimeoutMs:500});
+  try{
+    client.start();
+    const live=observer(client);
+    const liveMode=await live.wait(event=>event.type==='plan_mode');
+    assert.ok(liveMode.type==='plan_mode');
+    assert.deepEqual(liveMode.mode,{active:true,pending:false,wanted:true});
+    const late=observer(client);
+    const replayed=await late.wait(event=>event.type==='plan_mode');
+    assert.ok(replayed.type==='plan_mode');
+    assert.deepEqual(replayed.mode,{active:true,pending:false,wanted:true});
+    assert.deepEqual(late.events.filter(event=>event.type==='ready').length,1);
+    const view=late.events.reduce((state,event)=>reduceView(state,{type:'event',event}),initialState);
+    assert.deepEqual(view.planMode,{active:true,pending:false,wanted:true});
+  }finally{await client.shutdown();await f.close();}
 });

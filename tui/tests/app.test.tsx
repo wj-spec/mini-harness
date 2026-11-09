@@ -12,6 +12,8 @@ import type {RunTaskMeta, ServerEvent} from '../src/protocol.js';
 import {initialState, type ViewState} from '../src/view-state.js';
 import stringWidth from 'string-width';
 import {contextSnapshot, loadedContextSnapshot} from './context-fixture.js';
+import {readSidebarSignal, writeSidebarSignal, type SidebarSignalInput} from '../src/sidebar/signal.js';
+import {validOwner} from '../src/sidebar/channel.js';
 
 class MockClient {
   listeners = new Set<(event: ServerEvent) => void>();
@@ -34,7 +36,7 @@ class MockClient {
   capabilities() {return this.capabilityList;}
   cancel(id: string) {if (this.sendError) throw new Error('backend disconnected'); this.cancellations.push(id); return `cancel-${this.cancellations.length}`;}
   steer(target: string, text: string) {if (this.sendError) throw new Error('backend disconnected'); this.steers.push({target, text}); return `steer-${this.steers.length}`;}
-  approve(id: string, decision: 'once' | 'session' | 'workspace' | 'deny') {if (this.sendError) throw new Error('backend disconnected'); this.approvals.push([id, decision]);}
+  approve(id: string, decision: 'once' | 'session' | 'workspace' | 'deny') {if (this.sendError) throw new Error('backend disconnected'); this.approvals.push([id, decision]); return `approve-${this.approvals.length}`;}
   command(command: string, args?: Record<string, unknown>) {if (this.sendError) throw new Error('backend disconnected'); this.commands.push(command); this.commandArgs.push(args); return `command-${this.commands.length}`;}
   async shutdown() {this.shutdowns += 1;}
   emit(event: Record<string, unknown>) {
@@ -43,6 +45,138 @@ class MockClient {
 }
 
 afterEach(cleanup);
+
+const runningTask = (mode: string) => ({task_id: 't-one', kind: 'run', status: 'running', mode, segment: 1,
+  objective: '修复标题', goal_id: null, updated_at: ''});
+
+test('clicking an earlier result selects its evidence without changing the active run or Chinese draft', async () => {
+  const client = new MockClient(); const signals: SidebarSignalInput[] = []; let launches = 0;
+  const view = render(<App client={client as unknown as BackendClient} windowSize={{columns: 100, rows: 40}}
+    publishSidebarSignal={(_root, signal) => signals.push(signal)}
+    launchSidebar={() => {launches++; return {outcome: 'started', message: '已打开绑定侧栏'};}}/>);
+  await pause(20); client.emit({type: 'ready', workspace: '/tmp/repo', model: 'fake', session_id: 'test', capabilities: []});
+  client.emit({type: 'status', phase: 'idle'}); await pause(20);
+  await enter(view.stdin, '检查旧结果');
+  client.emit({type: 'tool_result', id: 'run-1', call: {id: 'check', name: 'bash', args: {command: 'old-test', verification: true}},
+    ok: true, output: 'old failure', execution: {status: 'failed', exit_code: 2}});
+  client.emit({type: 'done', id: 'run-1', result: {text: '旧结果未通过', status: 'done', steps: 1, usage: {}, cost_usd: 0,
+    run_id: 'trace-old', stop_reason: '', verified: false}});
+  await pause(35); await enter(view.stdin, '继续新任务');
+  view.stdin.write('中文草稿'); await pause(25); view.stdin.write('\u001b[D'); await pause(20);
+  await clickButton(view.stdin, view.lastFrame()!, '验证');
+  assert.equal(launches, 1);
+  const selectedDeadline = Date.now() + 1500;
+  while (signals.at(-1)?.run?.requestId !== 'run-1' && Date.now() < selectedDeadline) await pause(10);
+  assert.equal(signals.at(-1)?.run?.requestId, 'run-1');
+  assert.equal(signals.at(-1)?.verification?.commands[0]?.execution?.exit_code, 2);
+  assert.match(view.lastFrame()!, /中文草稿/);
+  view.stdin.write('\u000f'); await pause(25);
+  assert.doesNotMatch(view.lastFrame()!, /\[ 回到当前 \]/);
+  view.stdin.write('\u001b'); await pause(25);
+  view.stdin.write('中'); await pause(20); assert.match(view.lastFrame()!, /中文草中稿/);
+  view.stdin.write('\u0003'); await pause(20); assert.deepEqual(client.cancellations, ['run-2']);
+  await clickButton(view.stdin, view.lastFrame()!, '回到当前');
+  const currentDeadline = Date.now() + 1500;
+  while (signals.at(-1)?.run?.requestId !== 'run-2' && Date.now() < currentDeadline) await pause(10);
+  assert.equal(signals.at(-1)?.run?.requestId, 'run-2');
+  assert.deepEqual(signals.at(-1)?.verification?.commands, []);
+  assert.deepEqual(client.approvals, []); assert.deepEqual(client.commands, []);
+});
+
+test('an already selected result receives its own late plan receipt without adopting another result', async () => {
+  const client = new MockClient(); client.capabilityList = ['plan-review'];
+  const signals: SidebarSignalInput[] = [];
+  const view = render(<App client={client as unknown as BackendClient} windowSize={{columns: 100, rows: 40}}
+    publishSidebarSignal={(_root, signal) => signals.push(signal)}
+    launchSidebar={() => ({outcome: 'started', message: '已打开绑定侧栏'})}/>);
+  await pause(20); client.emit({type: 'ready', workspace: '/tmp/repo', model: 'fake', session_id: 'test', capabilities: ['plan-review']});
+  client.emit({type: 'status', phase: 'idle'}); await pause(20);
+  await enter(view.stdin, '生成计划');
+  client.emit({type: 'task_state', id: 'run-1', task: {...runningTask('plan'), task_id: 't-plan'}});
+  client.emit({type: 'done', id: 'run-1', result: {text: '计划已提交', status: 'done', steps: 1, usage: {}, cost_usd: 0,
+    run_id: 'trace-plan', stop_reason: 'plan_submitted'}});
+  await pause(35); await clickButton(view.stdin, view.lastFrame()!, '计划');
+  const selectedDeadline = Date.now() + 1500;
+  while (signals.at(-1)?.navigation?.mode !== 'result' && Date.now() < selectedDeadline) await pause(10);
+  assert.equal(signals.at(-1)?.navigation?.mode, 'result');
+  assert.equal(signals.at(-1)?.plan, undefined);
+  const navigation = signals.at(-1)?.navigation;
+  const target = {session_id: 'test', plan_task_id: 't-plan', plan_id: 'p1', plan_version: 1, plan_hash: 'a'.repeat(64)};
+  const receipt = {type: 'plan_review', outcome: 'ready', target, replacement_target: null, code: null, message: '计划已生成',
+    launch: null, body_page: '', next_cursor: null, available_actions: ['approve-execute'],
+    summary: {objective: '原计划', status: 'proposed', executable: true, step_count: 1, criterion_count: 0, question_count: 0}};
+  client.emit({...receipt, id: 'command-1'});
+  const receiptDeadline = Date.now() + 1500;
+  while (!signals.at(-1)?.plan && Date.now() < receiptDeadline) await pause(10);
+  assert.deepEqual(signals.at(-1)?.plan?.target, target);
+  assert.deepEqual(signals.at(-1)?.navigation, navigation);
+  await enter(view.stdin, '/plan');
+  client.emit({...receipt, id: 'command-2', target: {...target, plan_task_id: 'another-task', plan_id: 'another-plan'}});
+  await pause(30);
+  assert.deepEqual(signals.at(-1)?.plan?.target, target);
+  assert.equal(signals.at(-1)?.run?.requestId, 'run-1');
+});
+
+test('sidebar verification preserves command facts rather than inferring success from output text', async () => {
+  const client = new MockClient();
+  const signals: SidebarSignalInput[] = [];
+  const view = render(<App client={client as unknown as BackendClient} publishSidebarSignal={(_workspace, signal) => signals.push(signal)}/>);
+  await pause(20);
+  client.emit({type: 'ready', workspace: '/tmp/repo', model: 'fake', session_id: 'test', capabilities: []});
+  client.emit({type: 'status', phase: 'idle'}); await pause(20);
+  await enter(view.stdin, '检查修改');
+  client.emit({type: 'tool_result', id: 'run-1', call: {id: 'test-1', name: 'bash', args: {command: 'npm test', verification: true}},
+    ok: true, output: 'ALL TESTS PASSED', execution: {status: 'failed', exit_code: 2}});
+  client.emit({type: 'done', id: 'run-1', result: {text: '完成', status: 'stopped', steps: 1, usage: {}, cost_usd: 0,
+    run_id: 'trace-check', stop_reason: 'verification_failed', verified: false,
+    completion: {allowed: false, codes: ['verification_failed'], messages: ['验证命令未通过']}}});
+  const deadline = Date.now() + 1500;
+  while (signals.at(-1)?.run?.status !== 'finished' && Date.now() < deadline) await pause(10);
+  assert.deepEqual(JSON.parse(JSON.stringify(signals.at(-1))).verification, {
+    requestId: 'run-1', status: 'stopped', stopReason: 'verification_failed', verified: false,
+    completionAllowed: false, completionMessages: ['验证命令未通过'], omittedCommands: 0,
+    commands: [{id: 'test-1', command: 'npm test', verification: true, pending: false, ok: true,
+      execution: {status: 'failed', exit_code: 2}, output: 'ALL TESTS PASSED', truncated: false}],
+  });
+  await enter(view.stdin, '下一任务');
+  const next = JSON.parse(JSON.stringify(signals.at(-1))).verification;
+  assert.equal(next.requestId, 'run-2'); assert.equal(next.verified, null);
+  assert.deepEqual(next.commands, []);
+  client.emit({type: 'tool_result', id: 'run-2', call: {id: 'long', name: 'bash', args: {command: 'echo ' + '中'.repeat(1100)}},
+    ok: true, output: '文'.repeat(2500), execution: {status: 'succeeded', exit_code: 0}});
+  const outputDeadline = Date.now() + 1500;
+  while (signals.at(-1)?.verification?.commands[0]?.id !== 'long' && Date.now() < outputDeadline) await pause(10);
+  const clipped = JSON.parse(JSON.stringify(signals.at(-1))).verification.commands[0];
+  assert.match(clipped.command, /已截断/);
+  assert.ok(clipped.command.length <= 1000);
+  assert.equal(clipped.output.length, 2000); assert.equal(clipped.truncated, true);
+});
+
+test('sidebar scope follows the accepted task segment and clears prior files before the next task writes', async () => {
+  const client = new MockClient();
+  const signals: SidebarSignalInput[] = [];
+  const view = render(<App client={client as unknown as BackendClient} publishSidebarSignal={(_workspace, signal) => signals.push(signal)}/>);
+  await pause(20);
+  client.emit({type: 'ready', workspace: '/tmp/repo', model: 'fake', session_id: 'test', capabilities: []});
+  client.emit({type: 'status', phase: 'idle'}); await pause(20);
+  await enter(view.stdin, '修改第一个文件');
+  client.emit({type: 'task_state', id: 'run-1', task: {task_id: 't-first', kind: 'run', status: 'running', segment: 2, objective: '修改第一个文件', goal_id: null, updated_at: 'now'}});
+  client.emit({type: 'tool_result', id: 'run-1', call: {id: 'c1', name: 'write_file', args: {path: 'first.ts'}}, ok: true, output: 'written'});
+  client.emit({type: 'done', id: 'run-1', result: {text: '完成', status: 'done', steps: 1, usage: {}, cost_usd: 0, run_id: 'trace-first', stop_reason: ''}});
+  const deadline = Date.now() + 1500;
+  while (signals.at(-1)?.run?.status !== 'finished' && Date.now() < deadline) await pause(10);
+  assert.deepEqual(signals.at(-1)?.files, ['first.ts'], JSON.stringify(signals.at(-1)));
+  assert.deepEqual(signals.at(-1)?.run, {requestId: 'run-1', traceRunId: 'trace-first', taskId: 't-first', segment: 2,
+    taskStatus: 'running', status: 'finished', objective: '修改第一个文件'});
+  await enter(view.stdin, '第二个只读任务');
+  assert.deepEqual(signals.at(-1)?.files, [], 'a new task must not retain previous writes before any new tool result');
+  assert.equal(signals.at(-1)?.run?.requestId, 'run-2');
+  assert.equal(signals.at(-1)?.run?.taskId, null);
+  client.emit({type: 'task_state', id: 'run-1', task: {task_id: 't-first', kind: 'run', status: 'completed', segment: 2, objective: 'old', goal_id: null, updated_at: 'later'}});
+  await pause(20);
+  assert.equal(signals.at(-1)?.run?.taskId, null, 'a delayed task state cannot bind a new request');
+  view.unmount();
+});
 
 async function mount(copyText?: (text: string) => string | null, initialState?: ViewState, windowSize?: {columns: number; rows: number}, profilePath?: string, userProfilePath?: string) {
   const client = new MockClient();
@@ -60,6 +194,204 @@ async function enter(stdin: {write(value: string): void}, text: string) {
   stdin.write('\r');
   await pause(25);
 }
+
+async function approve(stdin: {write(value: string): void}, key: string) {
+  stdin.write('\u0012');
+  await pause(20);
+  stdin.write(key);
+  await pause(20);
+  stdin.write('\r');
+  await pause(20);
+}
+
+function buttonPoint(frame: string, label: string) {
+  const lines = frame.split('\n');
+  const row = lines.findIndex(line => line.includes(`[ ${label} ]`) || line.includes(`› ${label} ‹`));
+  assert.ok(row >= 0, `missing button ${label}\n${frame}`);
+  return {row: row + 1, column: stringWidth(lines[row]!.slice(0, lines[row]!.indexOf(label))) + 1};
+}
+
+async function clickButton(stdin: {write(value: string): void}, frame: string, label: string) {
+  const {row, column} = buttonPoint(frame, label);
+  stdin.write(`\u001b[<0;${column};${row}M`);
+  stdin.write(`\u001b[<0;${column};${row}m`);
+  await pause(25);
+}
+
+test('clicking the visible approval button sends once and preserves the Chinese draft and cursor', async () => {
+  const {client, stdin, lastFrame} = await mount(undefined, undefined, {columns: 80, rows: 24});
+  await enter(stdin, 'write file');
+  stdin.write('中文草稿');
+  await pause(20);
+  stdin.write('\u001b[D');
+  await pause(20);
+  client.emit({type: 'approval_request', id: 'run-1', approval_id: 'click-once',
+    call: {id: 'tool', name: 'write_file', args: {}}, preview: 'write a.txt',
+    decisions: ['once', 'session', 'workspace', 'deny']});
+  await pause(25);
+  const frame = lastFrame() ?? '';
+  assert.match(frame, /更多授权/);
+  assert.doesNotMatch(frame, /精确规则|工作区授权/);
+  await clickButton(stdin, frame, '允许本次写入');
+  await clickButton(stdin, frame, '允许本次写入');
+  assert.deepEqual(client.approvals, [['click-once', 'once']]);
+  assert.match(lastFrame() ?? '', /审批已发送.*等待后端确认/);
+  stdin.write('保留');
+  await pause(20);
+  assert.match(lastFrame() ?? '', /中文草保留稿/);
+});
+
+test('Tab enters visible approval actions without completing a slash draft and arrows choose denial', async () => {
+  const {client, stdin, lastFrame} = await mount(undefined, undefined, {columns: 80, rows: 24});
+  await enter(stdin, 'work');
+  stdin.write('/autono');
+  await pause(20);
+  client.emit({type: 'approval_request', id: 'run-1', approval_id: 'tab-deny',
+    call: {id: 'tool', name: 'bash', args: {}}, preview: 'python check.py', decisions: ['once', 'deny']});
+  await pause(20);
+  stdin.write('\t');
+  await pause(20);
+  assert.match(lastFrame() ?? '', /› 允许本次命令 ‹/);
+  assert.doesNotMatch(lastFrame() ?? '', /\/autonomy/);
+  assert.deepEqual(client.approvals, []);
+  stdin.write('\u001b[C');
+  await pause(20);
+  assert.match(lastFrame() ?? '', /› 拒绝 ‹/);
+  stdin.write('\r');
+  await pause(20);
+  assert.deepEqual(client.approvals, [['tab-deny', 'deny']]);
+  assert.match(lastFrame() ?? '', /\/autono/);
+});
+
+for (const [columns, rows] of [[32, 12], [80, 24], [120, 40]]) {
+  test(`clickable approval scopes fit ${columns}x${rows} and denial needs no keyboard focus`, async () => {
+    const client = new MockClient();
+    const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} windowSize={{columns, rows}}
+      initialState={{...initialState, phase: 'waiting_approval', activeId: 'run-1', approval: {
+        id: 'scopes', tool: 'write_file', call: {id: 'tool', name: 'write_file', args: {}}, preview: '中文路径/file.txt',
+        decisions: ['once', 'session', 'workspace', 'deny']}}}/>);
+    await pause(25);
+    await clickButton(stdin, lastFrame() ?? '', columns < 60 ? '更多' : '更多授权…');
+    assert.deepEqual(client.approvals, []);
+    const expanded = lastFrame() ?? '';
+    assert.match(expanded, /精确规则/);
+    buttonPoint(expanded, columns < 60 ? '规则' : '记住精确规则');
+    buttonPoint(expanded, columns < 60 ? '工作区' : '授权此工作区');
+    assert.ok(expanded.split('\n').length <= rows);
+    assert.ok(expanded.split('\n').every(line => stringWidth(line) <= columns));
+    assert.match(expanded, /Ctrl\+C/);
+    await clickButton(stdin, expanded, '返回');
+    await clickButton(stdin, lastFrame() ?? '', '拒绝');
+    assert.deepEqual(client.approvals, [['scopes', 'deny']]);
+  });
+}
+
+test('a newly rendered denial button never grants the previous expanded authorization scope', async () => {
+  const client = new MockClient();
+  const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}
+    initialState={{...initialState, phase: 'waiting_approval', activeId: 'run-1', approval: {
+      id: 'rapid-scope', tool: 'write_file', call: {id: 'tool', name: 'write_file', args: {}}, preview: 'file',
+      decisions: ['once', 'session', 'workspace', 'deny']}}}/>);
+  const click = async (label: string) => {
+    const deadline = Date.now() + 1500;
+    while (!lastFrame()?.includes(`[ ${label} ]`) && Date.now() < deadline) await pause(0);
+    const {column, row} = buttonPoint(lastFrame()!, label);
+    stdin.write(`\u001b[<0;${column};${row}M\u001b[<0;${column};${row}m`);
+  };
+  await click('更多授权…'); await click('返回'); await click('拒绝');
+  const deadline = Date.now() + 1500;
+  while (!client.approvals.length && Date.now() < deadline) await pause(5);
+  assert.deepEqual(client.approvals, [['rapid-scope', 'deny']]);
+});
+
+test('more authorization shows only backend scopes and clicking the rule grants that scope once', async () => {
+  const {client, stdin, lastFrame} = await mount(undefined, undefined, {columns: 80, rows: 24});
+  client.emit({type: 'status', id: 'startup', phase: 'starting'});
+  client.emit({type: 'approval_request', id: 'startup', approval_id: 'mcp-buttons',
+    call: {id: 'tool', name: 'mcp_start', args: {}}, preview: '启动本地服务', decisions: ['once', 'session', 'deny']});
+  await pause(25);
+  await clickButton(stdin, lastFrame() ?? '', '更多授权…');
+  assert.match(lastFrame() ?? '', /本进程内记住同一工作区/);
+  assert.doesNotMatch(lastFrame() ?? '', /授权此工作区/);
+  const frame = lastFrame() ?? '';
+  await clickButton(stdin, frame, '记住精确规则');
+  await clickButton(stdin, frame, '记住精确规则');
+  assert.deepEqual(client.approvals, [['mcp-buttons', 'session']]);
+});
+
+test('Tab and Shift+Tab return from approval actions to the same draft without sending', async () => {
+  const {client, stdin, lastFrame} = await mount(undefined, undefined, {columns: 80, rows: 24});
+  await enter(stdin, 'work');
+  stdin.write('草稿');
+  await pause(20);
+  client.emit({type: 'approval_request', id: 'run-1', approval_id: 'focus-cycle',
+    call: {id: 'tool', name: 'bash', args: {}}, preview: 'check', decisions: ['once', 'deny']});
+  await pause(20);
+  for (let i = 0; i < 3; i++) {stdin.write('\t'); await pause(20);}
+  stdin.write('继续');
+  await pause(20);
+  assert.match(lastFrame() ?? '', /草稿继续/);
+  stdin.write('\u001b[Z');
+  await pause(20);
+  assert.match(lastFrame() ?? '', /› 拒绝 ‹/);
+  stdin.write('\u001b');
+  await pause(20);
+  stdin.write('保留');
+  await pause(20);
+  assert.match(lastFrame() ?? '', /草稿继续保留/);
+  assert.deepEqual(client.approvals, []);
+});
+
+test('approval buttons ignore pasted reports, drags, outside releases and a press on an expired request', async () => {
+  const {client, stdin, lastFrame} = await mount(undefined, undefined, {columns: 80, rows: 24});
+  await enter(stdin, 'work');
+  const request = (id: string) => client.emit({type: 'approval_request', id: 'run-1', approval_id: id,
+    call: {id: 'tool', name: 'bash', args: {}}, preview: 'check', decisions: ['once', 'deny']});
+  request('old');
+  await pause(25);
+  const {column, row} = buttonPoint(lastFrame() ?? '', '允许本次命令');
+  const press = `\u001b[<0;${column};${row}M`, release = `\u001b[<0;${column};${row}m`;
+  stdin.write(`\u001b[200~${press}${release}\u001b[201~`);
+  await pause(20);
+  stdin.write(press + `\u001b[<0;79;${row}m`);
+  await pause(20);
+  stdin.write(press + `\u001b[<32;${column};${row}M` + release);
+  await pause(20);
+  stdin.write(release);
+  await pause(20);
+  assert.deepEqual(client.approvals, []);
+  stdin.write(press);
+  await pause(20);
+  request('new');
+  await pause(25);
+  stdin.write(release);
+  await pause(20);
+  assert.deepEqual(client.approvals, []);
+  await clickButton(stdin, lastFrame() ?? '', '拒绝');
+  assert.deepEqual(client.approvals, [['new', 'deny']]);
+});
+
+test('a pressed approval shows focus and resizing cancels its pending click', async () => {
+  const client = new MockClient();
+  const state: ViewState = {...initialState, phase: 'waiting_approval', activeId: 'run-1', approval: {
+    id: 'resize', tool: 'write_file', call: {id: 'tool', name: 'write_file', args: {}}, preview: 'write file', decisions: ['once', 'deny']}};
+  const {stdin, lastFrame, rerender} = render(<App client={client as unknown as BackendClient}
+    initialState={state} windowSize={{columns: 80, rows: 24}}/>);
+  await pause(25);
+  const point = buttonPoint(lastFrame() ?? '', '允许本次写入');
+  stdin.write(`\u001b[<0;${point.column};${point.row}M`);
+  await pause(25);
+  assert.match(lastFrame() ?? '', /› 允许本次写入 ‹/);
+  assert.deepEqual(client.approvals, []);
+  rerender(<App client={client as unknown as BackendClient} initialState={state} windowSize={{columns: 32, rows: 12}}/>);
+  await pause(25);
+  const resized = buttonPoint(lastFrame() ?? '', '允许本次');
+  stdin.write(`\u001b[<0;${resized.column};${resized.row}m`);
+  await pause(25);
+  assert.deepEqual(client.approvals, []);
+  await clickButton(stdin, lastFrame() ?? '', '拒绝');
+  assert.deepEqual(client.approvals, [['resize', 'deny']]);
+});
 
 function completed(id: string, status: 'done' | 'cancelled' = 'done') {
   return {type: 'done', id, result: {text: '', steps: 1, status, usage: {}, cost_usd: 0, run_id: id, stop_reason: ''}};
@@ -218,6 +550,32 @@ test('shows busy state and backend errors without submitting another task', asyn
   assert.match(lastFrame() ?? '', /后端已断开/);
 });
 
+test('approval arrival preserves typing until the user focuses, selects and confirms a scope', async () => {
+  const {client, stdin, lastFrame} = await mount();
+  await enter(stdin, 'write file');
+  stdin.write('草稿');
+  await pause(20);
+  client.emit({type: 'approval_request', id: 'run-1', approval_id: 'approval-focus',
+    call: {id: 'tool-focus', name: 'write_file', args: {}}, preview: 'write a.txt',
+    decisions: ['once', 'session', 'workspace', 'deny']});
+  await pause(20);
+  for (const key of ['y', 's', 'p', 'n']) {
+    stdin.write(key);
+    await pause(15);
+  }
+  assert.deepEqual(client.approvals, []);
+  assert.match(lastFrame() ?? '', /草稿yspn/);
+  stdin.write('\u0012');
+  await pause(20);
+  stdin.write('s');
+  await pause(20);
+  assert.deepEqual(client.approvals, []);
+  stdin.write('\r');
+  await pause(20);
+  assert.deepEqual(client.approvals, [['approval-focus', 'session']]);
+  assert.match(lastFrame() ?? '', /草稿yspn/);
+});
+
 test('shows complete approval preview and clears a denied request', async () => {
   const {client, stdin, lastFrame, frames} = await mount();
   await enter(stdin, 'write file');
@@ -225,13 +583,181 @@ test('shows complete approval preview and clears a denied request', async () => 
   await pause(20);
   assert.match(lastFrame() ?? '', /等待审批/);
   assert.match(frames.join('\n'), /PREVIEW_END/);
-  stdin.write('n');
-  await pause(20);
+  await approve(stdin, 'n');
   assert.deepEqual(client.approvals, [['approval-1', 'deny']]);
   assert.doesNotMatch(lastFrame() ?? '', /y 允许一次/);
   client.emit({type: 'approval_resolved', id: 'run-1', approval_id: 'approval-1', decision: 'deny'});
   await pause(20);
   assert.doesNotMatch(lastFrame() ?? '', /y 允许一次/);
+});
+
+test('approval selection is bound to its request and a duplicate request cannot be approved twice', async () => {
+  const {client, stdin, lastFrame} = await mount();
+  await enter(stdin, 'work');
+  const request = (id: string) => ({type: 'approval_request', id: 'run-1', approval_id: id,
+    call: {id: 'tool', name: 'write_file', args: {}}, preview: id, decisions: ['once', 'session', 'deny']});
+  client.emit(request('old'));
+  await pause(20);
+  stdin.write('\u0012');
+  await pause(20);
+  stdin.write('s');
+  await pause(20);
+  client.emit(request('new'));
+  await pause(20);
+  assert.doesNotMatch(lastFrame() ?? '', /已选择/);
+  stdin.write('\r');
+  await pause(20);
+  assert.deepEqual(client.approvals, []);
+  stdin.write('\u0012');
+  await pause(20);
+  stdin.write('s');
+  await pause(20);
+  stdin.write('\r');
+  stdin.write('\r');
+  await pause(20);
+  client.emit(request('new'));
+  await pause(20);
+  stdin.write('\u0012');
+  await pause(20);
+  stdin.write('s');
+  await pause(20);
+  stdin.write('\r');
+  await pause(20);
+  assert.deepEqual(client.approvals, [['new', 'session']]);
+});
+
+test('asynchronous approval rejection stays visible with a safe recovery action', async () => {
+  const {client, stdin, lastFrame} = await mount();
+  await enter(stdin, 'work');
+  client.emit({type: 'approval_request', id: 'run-1', approval_id: 'expired',
+    call: {id: 'tool', name: 'write_file', args: {}}, preview: 'write'});
+  await pause(20);
+  await approve(stdin, 'y');
+  assert.match(lastFrame() ?? '', /审批已发送.*等待后端确认/);
+  client.emit({type: 'error', id: 'approve-1', code: 'approval_mismatch', message: 'already resolved'});
+  await pause(20);
+  assert.match(lastFrame() ?? '', /审批未生效/);
+  assert.match(lastFrame() ?? '', /Ctrl\+C/);
+  stdin.write('\u0003');
+  await pause(20);
+  assert.deepEqual(client.cancellations, ['run-1']);
+});
+
+test('an older answered approval cannot reopen after the next one has been answered', async () => {
+  const {client, stdin, lastFrame} = await mount();
+  await enter(stdin, 'work');
+  const request = (id: string) => ({type: 'approval_request', id: 'run-1', approval_id: id,
+    call: {id: 'tool', name: 'write_file', args: {}}, preview: id});
+  for (const id of ['first', 'second']) {
+    client.emit(request(id));
+    await pause(20);
+    await approve(stdin, 'n');
+  }
+  client.emit(request('first'));
+  await pause(20);
+  assert.doesNotMatch(lastFrame() ?? '', /等待审批/);
+  assert.deepEqual(client.approvals, [['first', 'deny'], ['second', 'deny']]);
+});
+
+for (const outcome of ['done', 'closed'] as const) {
+  test(`approval send feedback does not hide the final ${outcome} outcome`, async () => {
+    const {client, stdin, lastFrame} = await mount();
+    await enter(stdin, 'work');
+    client.emit({type: 'approval_request', id: 'run-1', approval_id: 'a',
+      call: {id: 'tool', name: 'write_file', args: {}}, preview: 'write'});
+    await pause(20);
+    await approve(stdin, 'y');
+    if (outcome === 'done') {
+      client.emit({type: 'ack', id: 'approve-1', action: 'approval'});
+      client.emit(completed('run-1'));
+    } else client.emit({type: 'closed'});
+    await pause(20);
+    assert.doesNotMatch(lastFrame() ?? '', /等待后端确认|等待执行结果/);
+    if (outcome === 'closed') assert.match(lastFrame() ?? '', /审批结果未知/);
+  });
+}
+
+test('approval navigation requires a choice, Escape restores editing, and expiry clears the choice', async () => {
+  const {client, stdin, lastFrame} = await mount();
+  await enter(stdin, 'work');
+  stdin.write('草稿');
+  await pause(20);
+  client.emit({type: 'approval_request', id: 'run-1', approval_id: 'expiring',
+    call: {id: 't', name: 'write_file', args: {}}, preview: 'change', decisions: ['once', 'deny']});
+  await pause(20);
+  stdin.write('\u0012');
+  await pause(20);
+  stdin.write('\r');
+  await pause(20);
+  assert.deepEqual(client.approvals, []);
+  assert.match(lastFrame() ?? '', /先选择/);
+  stdin.write('\u001b[B');
+  await pause(20);
+  assert.match(lastFrame() ?? '', /已选择.*允许本次/);
+  stdin.write('\u001b');
+  await pause(20);
+  stdin.write('y');
+  await pause(20);
+  assert.match(lastFrame() ?? '', /草稿y/);
+  assert.deepEqual(client.approvals, []);
+  stdin.write('\u0012');
+  await pause(20);
+  stdin.write('y');
+  await pause(20);
+  client.emit({type: 'approval_resolved', id: 'run-1', approval_id: 'expiring', decision: 'deny'});
+  await pause(20);
+  stdin.write('\r');
+  await pause(20);
+  assert.deepEqual(client.approvals, []);
+});
+
+for (const [columns, rows] of [[32, 12], [80, 24], [120, 40]]) {
+  test(`approval actions stay visible above plan and goal hints at ${columns}x${rows}`, async () => {
+    const client = new MockClient();
+    const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient}
+      windowSize={{columns: columns!, rows: rows!}}
+      initialState={{...initialState, phase: 'idle', planMode: {...initialState.planMode, active: true}}}/>);
+    await pause(20);
+    await enter(stdin, `/goal ${'很长的目标标题与约束'.repeat(10)}`);
+    client.emit({type: 'approval_request', id: 'run-1', approval_id: 'a',
+      call: {id: 't', name: 'write_file', args: {}}, preview: '这是一段很长的审批预览，需要保留拒绝与停止入口。',
+      decisions: ['once', 'session', 'workspace', 'deny']});
+    await pause(20);
+    let footer = (lastFrame() ?? '').split('\n').slice(-2).join('\n');
+    assert.match(lastFrame() ?? '', /›\s+草稿可编辑/);
+    buttonPoint(lastFrame() ?? '', columns! < 60 ? '允许本次' : '允许本次写入');
+    buttonPoint(lastFrame() ?? '', '拒绝');
+    buttonPoint(lastFrame() ?? '', columns! < 60 ? '更多' : '更多授权…');
+    assert.match(footer, /Tab/);
+    assert.match(footer, /Ctrl\+C/);
+    stdin.write('\u0012');
+    await pause(20);
+    footer = (lastFrame() ?? '').split('\n').slice(-3).join('\n');
+    assert.match(footer, /Enter/);
+    assert.match(footer, /Esc/);
+    assert.match(footer, /Ctrl\+C/);
+    assert.ok((lastFrame() ?? '').split('\n').length <= rows!);
+    assert.ok((lastFrame() ?? '').split('\n').every(line => stringWidth(line) <= columns!));
+  });
+}
+
+test('an undersized terminal offers safe exit without enabling approval actions', async () => {
+  const client = new MockClient();
+  const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient}
+    windowSize={{columns: 24, rows: 11}} initialState={{...initialState, phase: 'waiting_approval', activeId: 'r',
+      approval: {id: 'a', tool: 'write_file', call: {id: 't', name: 'write_file', args: {}}, preview: 'change', decisions: ['once', 'deny']}}}/>);
+  await pause(20);
+  await approve(stdin, 'y');
+  assert.deepEqual(client.approvals, []);
+  assert.match(lastFrame() ?? '', /32×12/);
+  assert.match(lastFrame() ?? '', /Ctrl\+C/);
+  stdin.write('\u0011');
+  await pause(20);
+  assert.match(lastFrame() ?? '', /停止任务并退出/);
+  assert.match(lastFrame() ?? '', /Enter/);
+  stdin.write('\u001b');
+  await pause(20);
+  assert.deepEqual(client.approvals, []);
 });
 
 test('Ctrl+C requests cancellation and waits for terminal result', async () => {
@@ -389,8 +915,7 @@ test('restoration keeps submitted text as a draft until initial status arrives',
   client.emit({type: 'approval_request', id: 'startup', approval_id: 'startup-race', call: {id: 'start-mcp', name: 'mcp_start', args: {}}, preview: '启动服务', decisions: ['once', 'session', 'deny']});
   await pause(20);
   assert.match(lastFrame() ?? '', /等待审批/);
-  stdin.write('n');
-  await pause(20);
+  await approve(stdin, 'n');
   assert.deepEqual(client.approvals, [['startup-race', 'deny']]);
   client.emit({type: 'approval_resolved', id: 'startup', approval_id: 'startup-race', decision: 'deny'});
   client.emit({type: 'status', phase: 'idle'});
@@ -488,6 +1013,48 @@ test('wheel events outside the conversation do not move its reading position', a
   assert.match(lastFrame() ?? '', /scroll-line-89/);
 });
 
+test('a short workbench shows twelve transcript lines while retaining context and a three-line draft', async () => {
+  const client = new MockClient();
+  const state: ViewState = {...initialState, phase: 'idle', workspace: '/repo', model: 'fake',
+    contextSnapshots: [loadedContextSnapshot()], entries: [{id: 0, kind: 'assistant',
+      text: Array.from({length: 80}, (_, i) => `review-line-${i}`).join('\n')}]};
+  const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} initialState={state} windowSize={{columns: 80, rows: 24}}/>);
+  await pause(20);
+  const frame = lastFrame() ?? '';
+  assert.ok(frame.split('\n').filter(line => line.includes('review-line-')).length >= 12, frame);
+  assert.match(frame, /当前上下文.*50\/900.*S20 M0 T30 H0/);
+  assert.ok((frame.match(/就绪/g) ?? []).length <= 2, 'avoid a third duplicate status');
+  stdin.write('\u001b[200~第一行草稿\n第二行草稿\n第三行草稿\u001b[201~'); await pause(20);
+  for (const draft of ['第一行草稿', '第二行草稿', '第三行草稿']) assert.match(lastFrame() ?? '', new RegExp(draft));
+  stdin.write('\u000b'); await pause(20);
+  assert.match(lastFrame() ?? '', /基础上下文已装载/);
+  stdin.write('\u001b'); await pause(20);
+  assert.match(lastFrame() ?? '', /第三行草稿/);
+  assert.ok((lastFrame() ?? '').split('\n').filter(line => line.includes('review-line-')).length >= 12);
+  assert.ok((lastFrame() ?? '').split('\n').length <= 24);
+  assert.ok((lastFrame() ?? '').split('\n').every(line => stringWidth(line) <= 80));
+  assert.deepEqual(client.runs, []);
+});
+
+for (const [columns, rows] of [[80, 24], [32, 12]]) {
+  test(`exit choices remain fully visible at ${columns}x${rows} and Escape restores the draft`, async () => {
+    const {client, stdin, lastFrame} = await mount(undefined, undefined, {columns, rows});
+    await enter(stdin, 'task');
+    stdin.write('保留退出前的草稿'); await pause(20);
+    stdin.write('\u001b[D'); await pause(20);
+    stdin.write('\u0011'); await pause(20);
+    for (const label of ['等待完成', '停止任务并退出', '取消关闭']) assert.match(lastFrame() ?? '', new RegExp(label));
+    assert.ok((lastFrame() ?? '').split('\n').length <= rows);
+    assert.ok((lastFrame() ?? '').split('\n').every(line => stringWidth(line) <= columns));
+    stdin.write('\u001b'); await pause(20);
+    assert.match(lastFrame() ?? '', /保留退出前的草稿/);
+    stdin.write('中'); await pause(20);
+    assert.match(lastFrame() ?? '', /保留退出前的草中稿/);
+    assert.deepEqual(client.cancellations, []);
+    assert.equal(client.shutdowns, 0);
+  });
+}
+
 for (const [columns, rows] of [[80, 24], [120, 40], [48, 18], [32, 12]]) {
   test(`workbench fits ${columns}x${rows} with task input and readable navigation`, async () => {
     const client = new MockClient();
@@ -528,8 +1095,7 @@ test('disconnection during cancel or approval stays visible without crashing the
   assert.match(frames.join('\n'), /取消请求未送达/);
   client.emit({type: 'approval_request', id: 'run-1', approval_id: 'approval-1', call: {id: 'tool-1', name: 'write_file', args: {}}, preview: 'write a.txt'});
   await pause(20);
-  stdin.write('y');
-  await pause(20);
+  await approve(stdin, 'y');
   assert.match(frames.join('\n'), /审批响应未送达/);
   assert.equal(client.approvals.length, 0);
 });
@@ -553,10 +1119,12 @@ test('approval ignores pasted y and keeps full preview pageable at narrow dimens
   const preview = ['PREVIEW_START', ...Array.from({length: 50}, (_, i) => `preview-${i}`), 'PREVIEW_END'].join('\n');
   const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 32, rows: 12}} initialState={{...initialState, phase: 'waiting_approval', activeId: 'run-1', approval: {id: 'approval-1', tool: 'write_file', call: {id: 't1', name: 'write_file', args: {}}, preview}}}/>);
   await pause(30);
-  assert.match(lastFrame() ?? '', /y 允许一次 \/ n 拒绝/);
+  assert.match(lastFrame() ?? '', /\[ 允许本次 \] \[ 拒绝 \]/);
   stdin.write('\u001b[200~y\u001b[201~');
   await pause(25);
   assert.equal(client.approvals.length, 0);
+  stdin.write('\u0012');
+  await pause(20);
   stdin.write('\u001b[F');
   await pause(25);
   assert.match(lastFrame() ?? '', /PREVIEW_END/);
@@ -564,6 +1132,8 @@ test('approval ignores pasted y and keeps full preview pageable at narrow dimens
   assert.ok(lines.length <= 12);
   assert.ok(lines.every(line => stringWidth(line) <= 32));
   stdin.write('n');
+  await pause(20);
+  stdin.write('\r');
   await pause(25);
   assert.deepEqual(client.approvals, [['approval-1', 'deny']]);
 });
@@ -603,16 +1173,82 @@ test('slash opens a scrollable command menu without overflowing the frame', asyn
   let frame = lastFrame() ?? '';
   assert.match(frame, /› \/help/);
   assert.match(frame, /查看操作帮助/);
-  assert.match(frame, /↑↓ 选择 · Tab 填充 · 1\/38/);
+  assert.match(frame, /↑↓ 选择 · Enter 确认 · Tab 填充 · 1\/\d+/);
   assert.ok(frame.split('\n').length <= 24);
   for (const line of frame.split('\n')) assert.ok(stringWidth(line) <= 80, line);
   stdin.write('\u001b[B');
   await pause(15);
-  assert.match(lastFrame() ?? '', /2\/38/);
+  assert.match(lastFrame() ?? '', /2\/\d+/);
   stdin.write('\t');
   await pause(15);
   frame = lastFrame() ?? '';
-  assert.match(frame, /\/resume {2,}继续已保存的任务/);
+  assert.match(frame, /\/context {2,}查看 · 查看上下文与预算/);
+});
+
+test('Chinese command intent accepts the visible operation and reaches its existing handler', async () => {
+  const {client, stdin, lastFrame} = await mount(undefined, undefined, {columns: 80, rows: 24});
+  stdin.write('/查看改动'); await pause(25);
+  assert.match(lastFrame() ?? '', /\/diff/);
+  stdin.write('\r'); await pause(25);
+  assert.deepEqual(client.commands, ['diff']);
+  assert.deepEqual(client.runs, []);
+  assert.doesNotMatch(lastFrame() ?? '', /未知命令/);
+});
+
+test('accepting a parameter command keeps a draft until its Chinese task is supplied', async () => {
+  const {client, stdin, lastFrame} = await mount(undefined, undefined, {columns: 80, rows: 24});
+  client.capabilityList = ['tasks'];
+  await enter(stdin, '/ac');
+  assert.match(lastFrame() ?? '', /\/act <任务描述>/);
+  assert.deepEqual(client.runs, []); assert.deepEqual(client.commands, []);
+  await enter(stdin, '修复中文标题');
+  assert.deepEqual(client.runs, ['修复中文标题']);
+  assert.equal(client.runTasks[0]?.mode, 'act');
+});
+
+for (const command of ['/plan diff', '/plan  diff']) test(`bare ${command} requests parameters instead of generating a new plan`, async () => {
+  const {client, stdin, lastFrame} = await mount(undefined, undefined, {columns: 32, rows: 12});
+  client.capabilityList = ['tasks'];
+  await enter(stdin, command);
+  assert.deepEqual(client.runs, []); assert.deepEqual(client.commands, []);
+  assert.match(lastFrame() ?? '', /\/plan\s+diff/);
+  assert.doesNotMatch(lastFrame() ?? '', /未知命令/);
+  await enter(stdin, '1 2');
+  assert.deepEqual(client.commands, ['plan']);
+  assert.deepEqual(client.commandArgs, [{action: 'diff', version_a: 1, version_b: 2}]);
+});
+
+test('topic help describes the same operations as the menu without dispatching a task', async () => {
+  const {client, stdin, lastFrame} = await mount(undefined, undefined, {columns: 80, rows: 24});
+  await enter(stdin, '/help context');
+  assert.match(lastFrame() ?? '', /用法：\/context/);
+  assert.match(lastFrame() ?? '', /查看上下文与预算/);
+  await enter(stdin, '/help tools');
+  assert.match(lastFrame() ?? '', /查看可用工具目录/);
+  assert.doesNotMatch(lastFrame() ?? '', /工具调用统计|未知命令/);
+  assert.deepEqual(client.commands, []); assert.deepEqual(client.runs, []);
+});
+
+test('incomplete or invalid reserved plan commands never fall through to a model task', async () => {
+  const {client, stdin, lastFrame} = await mount(undefined, undefined, {columns: 80, rows: 24});
+  client.capabilityList = ['tasks'];
+  for (const command of ['/plan diff 1', '/plan diff invalid 2', '/plan edit-step s1', '/plan off extra']) {
+    stdin.write('\u0015'); await pause(15);
+    await enter(stdin, command);
+    assert.deepEqual(client.runs, [], command); assert.deepEqual(client.commands, [], command);
+    assert.match(lastFrame() ?? '', /用法/);
+    assert.ok(lastFrame()?.includes(command));
+  }
+});
+
+test('Tab expands a command family without executing its first action', async () => {
+  const {client, stdin, lastFrame} = await mount(undefined, undefined, {columns: 80, rows: 24});
+  stdin.write('/plan'); await pause(20); stdin.write('\t'); await pause(20);
+  assert.match(lastFrame() ?? '', /\/plan on/);
+  assert.deepEqual(client.commands, []); assert.deepEqual(client.runs, []);
+  stdin.write('\u001b[B'); await pause(15); stdin.write('\r'); await pause(20);
+  assert.deepEqual(client.commands, ['plan']);
+  assert.deepEqual(client.commandArgs, [{action: 'mode-off'}]);
 });
 
 test('skills lifecycle commands use backend management and display results without running a task', async () => {
@@ -654,13 +1290,18 @@ test('startup approvals support exact rules and ignore forbidden workspace scope
   client.emit({type: 'status', id: 'startup', phase: 'starting'});
   client.emit({type: 'approval_request', id: 'startup', approval_id: 'mcp-start', call: {id: 'call-start', name: 'mcp_start', args: {command: 'local-server'}}, preview: '启动本地 MCP 服务', decisions: ['once', 'session', 'deny']});
   await pause(20);
-  assert.match(lastFrame() ?? '', /精确规则/);
-  assert.doesNotMatch(lastFrame() ?? '', /p 工作区/);
+  assert.match(lastFrame() ?? '', /更多授权/);
+  assert.doesNotMatch(lastFrame() ?? '', /授权此工作区/);
+  stdin.write('\u0012');
+  await pause(20);
   stdin.write('p');
   await pause(20);
   assert.deepEqual(client.approvals, []);
   stdin.write('s');
   stdin.write('s');
+  await pause(20);
+  assert.deepEqual(client.approvals, []);
+  stdin.write('\r');
   await pause(20);
   assert.deepEqual(client.approvals, [['mcp-start', 'session']]);
   client.emit({type: 'approval_resolved', id: 'startup', approval_id: 'mcp-start', decision: 'session'});
@@ -674,10 +1315,17 @@ test('all native approval choices remain discoverable at 32 columns and workspac
   const client = new MockClient();
   const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 32, rows: 12}} initialState={{...initialState, phase: 'waiting_approval', activeId: 'run-1', approval: {id: 'native-approval', tool: 'write_file', call: {id: 't1', name: 'write_file', args: {}}, preview: 'write new.txt', decisions: ['once', 'session', 'workspace', 'deny']}}}/>);
   await pause(20);
-  const hint = (lastFrame() ?? '').split('\n').at(-1) ?? '';
-  assert.match(hint, /y.*s.*p.*n/);
+  buttonPoint(lastFrame() ?? '', '更多');
+  stdin.write('\u0012');
+  await pause(20);
   stdin.write('p');
   stdin.write('p');
+  await pause(20);
+  assert.match(lastFrame() ?? '', /› 工作区 ‹/);
+  assert.match(lastFrame() ?? '', /仅本进程有效/);
+  assert.deepEqual(client.approvals, []);
+  stdin.write('\r');
+  stdin.write('\r');
   await pause(20);
   assert.deepEqual(client.approvals, [['native-approval', 'workspace']]);
 });
@@ -705,8 +1353,7 @@ test('permissions and diff share the backend gate and render command responses d
   assert.deepEqual(client.commands, ['permissions_reset', 'diff']);
   client.emit({type: 'approval_request', id: 'command-2', approval_id: 'diff-preview', call: {id: 'diff-1', name: 'bash', args: {command: 'git diff'}}, preview: '查看工作区差异', decisions: ['once', 'session', 'workspace', 'deny']});
   await pause(20);
-  stdin.write('n');
-  await pause(20);
+  await approve(stdin, 'n');
   assert.deepEqual(client.approvals, [['diff-preview', 'deny']]);
   client.emit({type: 'command_result', id: 'command-2', command: 'diff', text: '已拒绝，未执行命令'});
   await pause(20);
@@ -777,7 +1424,7 @@ test('late cancel error after the run finished does not mark the run as failed',
   assert.match(lastFrame() ?? '', /已取消/);
 });
 
-test('cancelling a run drops queued follow-ups with a visible notice', async () => {
+test('cancelling a run retains queued follow-ups and keeps them paused during another task', async () => {
   const {client, stdin, lastFrame} = await mount();
   await enter(stdin, 'first task');
   await enter(stdin, '/followup 迟到的后续');
@@ -785,11 +1432,16 @@ test('cancelling a run drops queued follow-ups with a visible notice', async () 
   await pause(20);
   client.emit(completed('run-1', 'cancelled'));
   await pause(20);
-  assert.match(lastFrame() ?? '', /已取消，1 条排队消息已丢弃/);
+  assert.match(lastFrame() ?? '', /待办保留/);
+  assert.match(lastFrame() ?? '', /后续 1/);
   assert.deepEqual(client.runs, ['first task']);
   await enter(stdin, 'second task');
   await pause(20);
   assert.deepEqual(client.runs, ['first task', 'second task']);
+  client.emit(completed('run-2'));
+  await pause(20);
+  assert.deepEqual(client.runs, ['first task', 'second task']);
+  assert.match(lastFrame() ?? '', /后续 1/);
 });
 
 test('automatic follow-up start keeps the draft the user is still editing', async () => {
@@ -805,12 +1457,17 @@ test('automatic follow-up start keeps the draft the user is still editing', asyn
 });
 
 test('/followup during a backend command is refused instead of being queued', async () => {
-  const {client, stdin, lastFrame} = await mount();
+  const {client, stdin, lastFrame} = await mount(undefined, undefined, {columns: 80, rows: 24});
   await enter(stdin, '/diff');
   assert.deepEqual(client.commands, ['diff']);
-  await enter(stdin, '/followup 迟到的后续');
+  stdin.write('/followup'); await pause(20);
+  assert.match(lastFrame() ?? '', /暂不可用.*命令执行中/);
+  await enter(stdin, ' 迟到的后续');
   assert.match(lastFrame() ?? '', /命令执行中，结束后再发送/);
   assert.deepEqual(client.runs, []);
+  client.emit({type: 'command_result', id: 'command-1', command: 'diff', text: '无改动'}); await pause(20);
+  assert.deepEqual(client.runs, []);
+  assert.match(lastFrame() ?? '', /› \/followup 迟到的后续/);
 });
 
 test('/followup queues messages while running and starts them in FIFO order after each done', async () => {
@@ -898,6 +1555,41 @@ test('Ctrl+Y copies the latest assistant reply', async () => {
   await pause(25);
   assert.deepEqual(copies, ['最终回答：已修复。']);
   assert.match(lastFrame() ?? '', /已复制最近回复：\d+ 字符（pbcopy）/);
+});
+
+for (const copied of [true, false]) {
+  test(`copy ${copied ? 'success' : 'failure'} preserves the reading anchor, focus and draft`, async () => {
+    const state: ViewState = {...initialState, phase: 'idle', entries: [{id: 1, kind: 'assistant',
+      text: Array.from({length: 90}, (_, i) => `stable-line-${i}`).join('\n')}], nextEntry: 2};
+    const {stdin, lastFrame} = await mount(() => copied ? 'pbcopy' : null, state, {columns: 80, rows: 24});
+    stdin.write('保留的草稿');
+    await pause(20);
+    stdin.write('\u0012');
+    await pause(20);
+    stdin.write('\u001b[5~');
+    await pause(20);
+    const anchor = (lastFrame() ?? '').match(/stable-line-\d+/)?.[0];
+    assert.ok(anchor);
+    stdin.write('\u0019');
+    await pause(25);
+    assert.equal((lastFrame() ?? '').match(/stable-line-\d+/)?.[0], anchor);
+    assert.match(lastFrame() ?? '', /阅读焦点/);
+    assert.match(lastFrame() ?? '', /保留的草稿/);
+    assert.match((lastFrame() ?? '').split('\n').slice(-2).join('\n'), copied ? /已复制/ : /复制失败/);
+  });
+}
+
+test('theme feedback leaves a scrolled conversation in place', async () => {
+  const state: ViewState = {...initialState, phase: 'idle', entries: [{id: 1, kind: 'assistant',
+    text: Array.from({length: 90}, (_, i) => `theme-line-${i}`).join('\n')}], nextEntry: 2};
+  const {stdin, lastFrame} = await mount(undefined, state, {columns: 80, rows: 24});
+  stdin.write('\u001b[5~');
+  await pause(20);
+  const anchor = (lastFrame() ?? '').match(/theme-line-\d+/)?.[0];
+  assert.ok(anchor);
+  await enter(stdin, '/theme light');
+  assert.equal((lastFrame() ?? '').match(/theme-line-\d+/)?.[0], anchor);
+  assert.match((lastFrame() ?? '').split('\n').slice(-2).join('\n'), /主题已切换/);
 });
 
 test('/copy copies the latest assistant reply too', async () => {
@@ -1057,6 +1749,32 @@ test('manages user preferences from the workbench', async () => {
   }
 });
 
+test('workbenches publish and launch the same unique owner and unmount only removes their own signal', async () => {
+  const workspace = await mkdtemp(path.join(tmpdir(), 'sidebar-app-owners-'));
+  const signals: SidebarSignalInput[] = [];
+  const launches: unknown[][] = [];
+  const publish = (root: string, input: SidebarSignalInput) => {signals.push(input); writeSidebarSignal(root, input);};
+  const props = {windowSize: {columns: 80, rows: 24}, publishSidebarSignal: publish};
+  const a = render(<App {...props} client={new MockClient() as unknown as BackendClient}
+    initialState={{...initialState, phase: 'idle', workspace, sessionId: 'a'}}
+    launchSidebar={(...args) => {launches.push(args); return {outcome: 'started', message: 'opened'};}}/>);
+  await pause(20);
+  const ownerA = signals.at(-1)?.owner;
+  const b = render(<App {...props} client={new MockClient() as unknown as BackendClient}
+    initialState={{...initialState, phase: 'idle', workspace, sessionId: 'b'}}/>);
+  try {
+    await pause(20); const ownerB = signals.at(-1)?.owner;
+    assert.ok(validOwner(ownerA) && validOwner(ownerB));
+    assert.notEqual(ownerA.instanceId, ownerB.instanceId);
+    await enter(a.stdin, '/sidebar');
+    assert.deepEqual(launches[0]?.[3], ownerA);
+    assert.equal(readSidebarSignal(workspace, ownerA)?.scope?.sessionId, 'a');
+    a.unmount(); await pause(20);
+    assert.equal(readSidebarSignal(workspace, ownerA), null);
+    assert.equal(readSidebarSignal(workspace, ownerB)?.scope?.sessionId, 'b');
+  } finally {a.unmount(); b.unmount(); await rm(workspace, {recursive: true, force: true});}
+});
+
 test('/sidebar opens the right-hand Git sidebar through the injected launcher', async () => {
   const calls: string[] = [];
   const client = new MockClient();
@@ -1150,12 +1868,12 @@ test('the TUI publishes agent-touched files so the sidebar can refresh and mark 
   const published: {workspace: string; files: string[]}[] = [];
   const client = new MockClient();
   const patch = ['diff --git a/src/a.ts b/src/a.ts', '--- a/src/a.ts', '+++ b/src/a.ts', '@@ -1 +1 @@', '-old', '+new'].join('\n');
-  render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}
-    initialState={{...initialState, phase: 'idle', workspace: '/repo', model: 'fake', entries: [
-      {id: 0, kind: 'tool', text: 'edited', call: {id: 'c1', name: 'edit_file', args: {path: 'tui/src/app.tsx'}}, ok: true, output: 'edited', runId: 'run-1'},
-      {id: 1, kind: 'tool', text: 'patched', call: {id: 'c2', name: 'apply_patch', args: {patch}}, ok: true, output: 'applied', runId: 'run-1'},
-    ]}}
+  const {stdin} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}
+    initialState={{...initialState, phase: 'idle', workspace: '/repo', model: 'fake'}}
     publishSidebarSignal={(workspace, signal) => {published.push({workspace, files: signal.files});}}/>);
+  await pause(20); await enter(stdin, '修改文件');
+  client.emit({type: 'tool_result', id: 'run-1', call: {id: 'c1', name: 'edit_file', args: {path: 'tui/src/app.tsx'}}, ok: true, output: 'edited'});
+  client.emit({type: 'tool_result', id: 'run-1', call: {id: 'c2', name: 'apply_patch', args: {patch}}, ok: true, output: 'applied'});
   await pause(40);
   const latest = published.at(-1);
   assert.equal(latest?.workspace, '/repo');
@@ -1163,7 +1881,7 @@ test('the TUI publishes agent-touched files so the sidebar can refresh and mark 
   assert.ok(latest?.files.includes('src/a.ts'));
 });
 
-test('typing /skills opens a scrollable menu and Tab completes a skill action', async () => {
+test('skills defaults to listing and activates only the explicitly selected skill', async () => {
   const client = new MockClient();
   const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 100, rows: 30}}/>);
   await pause(20);
@@ -1176,15 +1894,20 @@ test('typing /skills opens a scrollable menu and Tab completes a skill action', 
   stdin.write('/skills');
   await pause(25);
   assert.match(lastFrame() ?? '', /\/skills activate ponytail/);
-  assert.match(lastFrame() ?? '', /↑↓ 选择 · Tab 填充/);
+  assert.match(lastFrame() ?? '', /↑↓ 选择 · Enter 确认 · Tab 填充/);
+  stdin.write('\r'); await pause(25);
+  assert.deepEqual(client.commandArgs, [{action: 'list'}]);
+  client.emit({type: 'command_result', id: 'command-1', command: 'skills', text: '技能列表'});
+  await pause(20); stdin.write('/skills'); await pause(20);
+  stdin.write('\u001b[B'); await pause(15);
   stdin.write('\u001b[B');
   await pause(15);
   stdin.write('\t');
   await pause(20);
   stdin.write('\r');
   await pause(30);
-  assert.deepEqual(client.commands, ['skills']);
-  assert.deepEqual(client.commandArgs, [{action: 'activate', name: 'tdd'}]);
+  assert.deepEqual(client.commands, ['skills', 'skills']);
+  assert.deepEqual(client.commandArgs, [{action: 'list'}, {action: 'activate', name: 'tdd'}]);
 });
 
 
@@ -1534,6 +2257,96 @@ test('verified completion is distinguished from unverified completion', async ()
   assert.match(frame, /授权 edits · 自动改文件/);
 });
 
+test('command menu explains a busy operation before Enter and re-enables it after completion', async () => {
+  const {client, stdin, lastFrame} = await mount(undefined, undefined, {columns: 80, rows: 24});
+  await enter(stdin, 'work');
+  stdin.write('/查看改动'); await pause(20);
+  assert.match(lastFrame() ?? '', /\/diff.*暂不可用.*运行中/);
+  stdin.write('\r'); await pause(20);
+  assert.deepEqual(client.commands, []);
+  assert.match(lastFrame() ?? '', /› \/查看改动/);
+  assert.match(lastFrame() ?? '', /未执行.*草稿保留/);
+  stdin.write('\u0015'); await pause(15);
+  await enter(stdin, '/help tools');
+  assert.match(lastFrame() ?? '', /查看可用工具目录/);
+  assert.deepEqual(client.runs, ['work']);
+  stdin.write('/查看改动'); await pause(20);
+  client.emit({type: 'done', id: 'run-1', result: {status: 'done', text: '完成'}}); await pause(20);
+  assert.match(lastFrame() ?? '', /\/diff.*查看工作区改动/);
+  stdin.write('\r'); await pause(20);
+  assert.deepEqual(client.commands, ['diff']);
+  assert.deepEqual(client.steers, []);
+});
+
+test('task-mode commands explain missing backend support before accepting a candidate', async () => {
+  const {client, stdin, lastFrame} = await mount(undefined, undefined, {columns: 80, rows: 24});
+  stdin.write('/ac'); await pause(20);
+  assert.match(lastFrame() ?? '', /暂不可用.*未启用任务运行时/);
+  stdin.write('\r'); await pause(20);
+  assert.match(lastFrame() ?? '', /› \/ac/);
+  assert.deepEqual(client.runs, []); assert.deepEqual(client.commands, []);
+  client.capabilityList = ['tasks'];
+  client.emit({type: 'status', phase: 'idle'}); await pause(20);
+  stdin.write('\r'); await pause(20);
+  assert.match(lastFrame() ?? '', /请补充参数.*\/act/);
+  await enter(stdin, '修复标题');
+  assert.deepEqual(client.runs, ['修复标题']);
+  assert.equal(client.runTasks[0]?.mode, 'act');
+});
+
+test('disconnected resume shows a connection explanation instead of an executable budget hint', async () => {
+  const {client, stdin, lastFrame} = await mount(undefined, undefined, {columns: 80, rows: 24});
+  client.emit({type: 'closed'}); await pause(20);
+  stdin.write('/resume'); await pause(20);
+  assert.match(lastFrame() ?? '', /暂不可用.*连接已断开/);
+  assert.doesNotMatch(lastFrame() ?? '', /开启新一轮预算/);
+  stdin.write('\r'); await pause(20);
+  assert.deepEqual(client.commands, []); assert.deepEqual(client.runs, []);
+  assert.match(lastFrame() ?? '', /未发送.*连接已断开.*草稿保留/);
+});
+
+for (const command of ['/autonomy edits', '/cost', '/trace 24', '/plan on', '/priority task-1 50']) {
+  test(`busy command preserves the draft and reports rejection: ${command}`, async () => {
+    const {client, stdin, lastFrame} = await mount();
+    await enter(stdin, 'work');
+    await enter(stdin, command);
+    assert.deepEqual(client.commands, []);
+    assert.ok((lastFrame() ?? '').includes(`› ${command}`));
+    assert.match(lastFrame() ?? '', /未执行.*运行中/);
+    assert.deepEqual(client.steers, []);
+  });
+}
+
+for (const phase of ['starting', 'stopping', 'waiting_approval', 'closed'] as const) {
+  test(`disabled submission explains ${phase} and preserves editable draft`, async () => {
+    const client = new MockClient();
+    const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient}
+      windowSize={{columns: 80, rows: 24}} initialState={{...initialState, phase}}/>);
+    await pause(20);
+    stdin.write('/autonomy edits'); await pause(20);
+    const reason = {starting: '后端尚未就绪', stopping: '正在停止', waiting_approval: '等待审批', closed: '连接已断开'}[phase];
+    assert.ok((lastFrame() ?? '').includes(`暂不可用 · ${reason}`));
+    stdin.write('\r'); await pause(25);
+    assert.deepEqual(client.commands, []);
+    assert.ok((lastFrame() ?? '').includes('› /autonomy edits'));
+    assert.match(lastFrame() ?? '', /未发送.*草稿保留/);
+    stdin.write('x');
+    await pause(20);
+    assert.ok((lastFrame() ?? '').includes('› /autonomy editsx'));
+  });
+}
+
+for (const command of ['/autonomy edits', '/plan on', '/plan dismiss', '/plan request-changes simplify', '/priority task-1 50']) {
+  test(`failed command send preserves the draft: ${command}`, async () => {
+    const {client, stdin, lastFrame} = await mount();
+    client.sendError = true;
+    await enter(stdin, command);
+    assert.deepEqual(client.commands, []);
+    assert.ok((lastFrame() ?? '').includes(`› ${command}`));
+    assert.match(lastFrame() ?? '', /未送达/);
+  });
+}
+
 test('/evidence and /autonomy reach the backend and sync the autonomy badge', async () => {
   const client = new MockClient();
   const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}/>);
@@ -1647,6 +2460,7 @@ test('/explore sends a read-only subagent command', async () => {
 });
 
 test('/plan submits a plan-mode run and /plan renders the latest artifact', async () => {
+  const sidebarSignals: SidebarSignalInput[] = [];
   const dir = await mkdtemp(path.join(tmpdir(), 'mini-harness-plan-view-'));
   try {
     const taskDir = path.join(dir, 'tasks', 't-20261103-120000-abcdef', 'plan');
@@ -1663,7 +2477,8 @@ test('/plan submits a plan-mode run and /plan renders the latest artifact', asyn
     }));
     const client = new MockClient();
     client.capabilityList = ['tasks', 'modes'];
-    const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}/>);
+    const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}
+      publishSidebarSignal={(_workspace, signal) => sidebarSignals.push(signal)}/>);
     await pause(20);
     client.emit({type: 'ready', workspace: '/tmp/repo', model: 'fake', session_id: 'test',
       session_path: dir, capabilities: ['tasks', 'modes']});
@@ -1673,6 +2488,7 @@ test('/plan submits a plan-mode run and /plan renders the latest artifact', asyn
     assert.match(lastFrame() ?? '', /修复问题/);
     assert.match(lastFrame() ?? '', /候选/);
     assert.match(lastFrame() ?? '', /in_progress/);
+    assert.ok(sidebarSignals.every(signal => signal.plan === undefined), 'legacy latest-by-time data cannot establish a scoped sidebar plan');
     stdin.write('\u001b');
     await pause(20);
     await enter(stdin, '/plan all');
@@ -2395,4 +3211,210 @@ test('/plan card sends approval card command', async () => {
   await pause(20);
   await enter(stdin, '/plan card');
   assert.deepEqual(client.commandArgs.at(-1), {action: 'card'});
+});
+
+
+for (const [input, expected] of [
+  ['/plan on', {action: 'mode-on'}],
+  ['/plan off', {action: 'mode-off'}],
+  ['/plan status', {action: 'mode-status'}],
+  ['/plan dismiss', {action: 'dismiss'}],
+  ['/plan markdown', {action: 'markdown'}],
+] as const) {
+  test(`${input} forwards the plan mode action without starting a plan run`, async () => {
+    const {client, stdin} = await mount();
+    await enter(stdin, input);
+    assert.equal(client.commands.at(-1), 'plan');
+    assert.deepEqual(client.commandArgs.at(-1), expected);
+    assert.deepEqual(client.runs, []);
+  });
+}
+
+test('/plan request-changes requires feedback and forwards it to the backend', async () => {
+  const {client, stdin, lastFrame} = await mount();
+  await enter(stdin, '/plan request-changes');
+  assert.match(lastFrame() ?? '', /用法：\/plan request-changes/);
+  assert.equal(client.commands.length, 0);
+  assert.match(lastFrame() ?? '', /› \/plan request-changes/);
+  await enter(stdin, ' 补充失败路径测试');
+  assert.equal(client.commands.at(-1), 'plan');
+  assert.deepEqual(client.commandArgs.at(-1), {action: 'request-changes', feedback: '补充失败路径测试'});
+});
+
+test('one-off act displays the actual run mode separately from the next default', async () => {
+  const {client, stdin, lastFrame} = await mount(undefined, undefined, {columns: 80, rows: 24});
+  client.capabilityList = ['tasks'];
+  client.emit({type: 'plan_mode', mode: {active: true, pending: false, wanted: null}}); await pause(20);
+  await enter(stdin, '/act 修复标题');
+  client.emit({type: 'task_state', id: 'run-1', task: {task_id: 't-one', kind: 'run', status: 'running', mode: 'act',
+    segment: 1, objective: '修复标题', goal_id: null, updated_at: ''}}); await pause(20);
+  assert.match(lastFrame() ?? '', /本次：执行.*下次：只读规划/);
+  client.emit({type: 'task_state', id: 'other-run', task: runningTask('chat')}); await pause(20);
+  assert.match(lastFrame() ?? '', /本次：执行/);
+  client.emit({type: 'task_state', id: 'run-1', task: runningTask('constructor')}); await pause(20);
+  assert.doesNotMatch(lastFrame() ?? '', /本次：|function|计划模式 ·/);
+  client.emit(completed('run-1')); await pause(20);
+  client.emit({type: 'task_state', id: 'run-1', task: runningTask('act')}); await pause(20);
+  assert.doesNotMatch(lastFrame() ?? '', /本次：执行/);
+  assert.match(lastFrame() ?? '', /下次：只读规划/);
+  assert.equal(client.runTasks[0]?.mode, 'act');
+  assert.deepEqual(client.commands, []);
+});
+
+test('changing the next default during a run waits for the backend and keeps the cancellation target', async () => {
+  const {client, stdin, lastFrame} = await mount(undefined, undefined, {columns: 80, rows: 24});
+  client.capabilityList = ['tasks', 'plan-mode-control'];
+  client.emit({type: 'plan_mode', mode: {active: true, pending: false, wanted: null}}); await pause(20);
+  await enter(stdin, '/act 修复标题');
+  client.emit({type: 'task_state', id: 'run-1', task: runningTask('act')}); await pause(20);
+  await enter(stdin, '/plan off');
+  assert.deepEqual(client.commandArgs, [{action: 'mode-off'}]);
+  assert.match(lastFrame() ?? '', /本次：执行.*下次：只读规划/);
+  assert.match(lastFrame() ?? '', /› \/plan off/);
+  stdin.write('\u0015'); await pause(15); stdin.write('新的中文草稿'); await pause(15);
+  client.emit({type: 'plan_mode', mode: {active: true, pending: true, wanted: false}});
+  client.emit({type: 'command_result', id: 'command-1', command: 'plan', text: '默认模式将在当前运行结束后生效'}); await pause(20);
+  assert.match(lastFrame() ?? '', /本次：执行.*下次：执行.*待生效/);
+  assert.match(lastFrame() ?? '', /新的中文草稿/);
+  stdin.write('\u0003'); await pause(20);
+  assert.deepEqual(client.cancellations, ['run-1']);
+  client.emit({type: 'plan_mode', mode: {active: false, pending: false, wanted: null}});
+  client.emit(completed('run-1', 'cancelled')); await pause(20);
+  assert.doesNotMatch(lastFrame() ?? '', /本次：执行|下次：执行（待生效）/);
+  assert.match(lastFrame() ?? '', /新的中文草稿/);
+  assert.deepEqual(client.runs, ['修复标题']);
+});
+
+for (const code of ['default_mode_unavailable', 'session_busy', 'session_unavailable']) {
+test(`a task rejected before starting restores its input and leaves the UI idle: ${code}`, async () => {
+  const {client, stdin, lastFrame} = await mount(undefined, undefined, {columns: 80, rows: 24});
+  await enter(stdin, '保留这份中文任务');
+  client.emit({type: 'error', id: 'run-1', code, message: '任务未启动，请核对会话后重试'}); await pause(20);
+  assert.match(lastFrame() ?? '', /› 保留这份中文任务/);
+  assert.doesNotMatch(lastFrame() ?? '', /Enter 提交纠偏/);
+  assert.equal(client.runs.length, 1);
+  stdin.write('\u0015'); await pause(20); await enter(stdin, '/cost');
+  assert.deepEqual(client.commands, ['cost']);
+});
+}
+
+test('session plan mode state is visible in the pane title and hint', async () => {
+  const {client, lastFrame} = await mount(undefined, undefined, {columns: 120, rows: 40});
+  assert.doesNotMatch(lastFrame() ?? '', /计划模式/);
+  client.emit({type: 'plan_mode', mode: {active: false, pending: true, wanted: true}});
+  await pause(25);
+  assert.match(lastFrame() ?? '', /下次：只读规划（待生效）/);
+  client.emit({type: 'plan_mode', mode: {active: true, pending: false, wanted: true}});
+  await pause(25);
+  assert.match(lastFrame() ?? '', /计划模式/);
+  assert.match(lastFrame() ?? '', /只读规划/);
+  assert.match(lastFrame() ?? '', /\/plan off/);
+  assert.doesNotMatch(lastFrame() ?? '', /下次：只读规划（待生效）/);
+  client.emit({type: 'plan_mode', mode: {active: false, pending: false, wanted: false}});
+  await pause(25);
+  assert.doesNotMatch(lastFrame() ?? '', /计划模式/);
+});
+
+test('restored session explains its next mode and unsent draft without starting a task', async () => {
+  const {client, lastFrame} = await mount(undefined, undefined, {columns: 80, rows: 24});
+  client.emit({type: 'ready', workspace: '/repo', model: 'fake', session_id: 'restored', capabilities: [], resumed: true});
+  client.emit({type: 'plan_mode', mode: {active: true, pending: false, wanted: null}});
+  client.emit({type: 'status', phase: 'idle'}); await pause(25);
+  assert.match(lastFrame() ?? '', /会话已恢复，尚未运行/);
+  assert.match(lastFrame() ?? '', /请重新输入未发送的草稿/);
+  assert.match(lastFrame() ?? '', /下次：只读规划/);
+  assert.deepEqual(client.runs, []); assert.deepEqual(client.commands, []);
+});
+
+test('mode display waits for state and ignores late confirmation after disconnect', async () => {
+  const {client, stdin, lastFrame} = await mount(undefined, undefined, {columns: 80, rows: 24});
+  client.capabilityList = ['tasks', 'plan-mode-control'];
+  assert.doesNotMatch(lastFrame() ?? '', /下次：/);
+  await enter(stdin, '/plan on');
+  client.emit({type: 'closed'}); await pause(20);
+  client.emit({type: 'plan_mode', mode: {active: true, pending: false, wanted: null}});
+  client.emit({type: 'command_result', id: 'command-1', command: 'plan', text: '计划模式已开启'}); await pause(20);
+  assert.match(lastFrame() ?? '', /结果待确认/);
+  assert.match(lastFrame() ?? '', /› \/plan on/);
+  assert.doesNotMatch(lastFrame() ?? '', /下次：|计划模式已开启/);
+  assert.deepEqual(client.runs, []);
+});
+
+test('an unknown mode result can be queried and its late error cannot replace the new result', async () => {
+  const {client, stdin, lastFrame} = await mount(undefined, undefined, {columns: 80, rows: 24});
+  client.capabilityList = ['tasks', 'plan-mode-control'];
+  await enter(stdin, '/plan on');
+  await pause(15_050);
+  assert.match(lastFrame() ?? '', /结果待确认/);
+  assert.match(lastFrame() ?? '', /› \/plan on/);
+  stdin.write('\u0015'); await pause(15); await enter(stdin, '/plan status');
+  client.emit({type: 'error', id: 'command-1', code: 'plan_mode_error', message: '迟到的旧错误'}); await pause(20);
+  assert.doesNotMatch(lastFrame() ?? '', /迟到的旧错误/);
+  assert.match(lastFrame() ?? '', /› \/plan status/);
+  client.emit({type: 'plan_mode', mode: {active: true, pending: false, wanted: null}});
+  client.emit({type: 'command_result', id: 'command-2', command: 'plan', text: '已查询当前模式'}); await pause(20);
+  assert.match(lastFrame() ?? '', /下次：只读规划/);
+  assert.doesNotMatch(lastFrame() ?? '', /› \/plan status/);
+  assert.deepEqual(client.runs, []);
+});
+
+test('a narrow terminal distinguishes current mode, queued default and restored input', async () => {
+  const {client, stdin, lastFrame, unmount} = await mount(undefined, undefined, {columns: 32, rows: 12});
+  client.capabilityList = ['tasks'];
+  await enter(stdin, '/act 修复');
+  client.emit({type: 'task_state', id: 'run-1', task: runningTask('act')});
+  client.emit({type: 'plan_mode', mode: {active: false, pending: true, wanted: true}}); await pause(20);
+  assert.match(lastFrame() ?? '', /执行中 · 结束后规划/);
+  client.emit(completed('run-1'));
+  unmount();
+  const restored = await mount(undefined, undefined, {columns: 32, rows: 12});
+  restored.client.emit({type: 'ready', workspace: '/repo', model: 'fake', session_id: 'restored', capabilities: [], resumed: true});
+  restored.client.emit({type: 'plan_mode', mode: {active: true, pending: false, wanted: null}});
+  restored.client.emit({type: 'status', phase: 'idle'}); await pause(20);
+  const frame = restored.lastFrame() ?? '';
+  assert.match(frame, /下次规划/);
+  assert.match(frame, /已恢复，尚未运行/);
+  assert.match(frame, /未发送草稿需重输/);
+  assert.ok(frame.split('\n').length <= 12);
+  assert.ok(frame.split('\n').every(line => stringWidth(line) <= 32));
+});
+
+test('plan overlay r prefills request-changes feedback and m sends markdown review', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'mini-harness-plan-review-keys-'));
+  try {
+    const taskDir = path.join(dir, 'tasks', 't-20261103-120000-abcdef', 'plan');
+    await mkdir(taskDir, {recursive: true});
+    await writeFile(path.join(taskDir, 'plan.v1.json'), JSON.stringify({
+      schema_version: 1, plan_id: 'pl-review', task_id: 't-20261103-120000-abcdef',
+      version: 1, status: 'proposed', objective: '待审阅计划', acceptance_criteria: [],
+      steps: [{step_id: 's1', title: '读代码', kind: 'read'}],
+    }));
+    const client = new MockClient();
+    client.capabilityList = ['tasks'];
+    const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}/>);
+    await pause(20);
+    client.emit({type: 'ready', workspace: '/tmp/repo', model: 'fake', session_id: 'test',
+      session_path: dir, capabilities: ['tasks']});
+    client.emit({type: 'status', phase: 'idle'});
+    await pause(20);
+    await enter(stdin, '/plan');
+    assert.match(lastFrame() ?? '', /r提反馈/);
+    assert.match(lastFrame() ?? '', /m审阅稿/);
+    stdin.write('r');
+    await pause(30);
+    assert.match(lastFrame() ?? '', /\/plan request-changes/);
+    await enter(stdin, '补充失败路径测试');
+    assert.equal(client.commands.at(-1), 'plan');
+    assert.deepEqual(client.commandArgs.at(-1), {action: 'request-changes', feedback: '补充失败路径测试'});
+    client.emit({type: 'command_result', id: 'command-1', command: 'plan', text: '已提交反馈'});
+    client.emit({type: 'status', phase: 'idle'});
+    await pause(20);
+    await enter(stdin, '/plan');
+    stdin.write('m');
+    await pause(30);
+    assert.equal(client.commands.at(-1), 'plan');
+    assert.deepEqual(client.commandArgs.at(-1), {action: 'markdown'});
+  } finally {
+    await rm(dir, {recursive: true, force: true});
+  }
 });

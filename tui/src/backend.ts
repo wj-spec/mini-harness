@@ -1,20 +1,24 @@
 import {spawn, type ChildProcessWithoutNullStreams} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import {StringDecoder} from 'node:string_decoder';
+import {validateTaskCatalogArgs, type TaskCatalogArgs} from './protocol.js';
 import {backendCommand, backendLaunchOptions} from './backend-launch.js';
-import {BACKEND_COMMANDS, MAX_FRAME_BYTES, parseServerEvent, validateAutonomyArgs, validateClientArgs, validateExploreArgs, validateNotificationsArgs, validatePlanArgs, validateSkillsArgs, validateTraceArgs, validatePriorityArgs, type ApprovalDecision, type AutonomyCommandArgs, type BackendCommand, type ClientRequest, type CommandArgs, type ExploreCommandArgs, type NotificationsCommandArgs, type PlanCommandArgs, type RunTaskMeta, type ServerEvent, type SkillsCommandArgs, type TraceCommandArgs, type PriorityCommandArgs} from './protocol.js';
+import {BACKEND_COMMANDS, MAX_FRAME_BYTES, parseServerEvent, validateAutonomyArgs, validateClientArgs, validateExploreArgs, validateNotificationsArgs, validatePlanArgs, validateInspectionArgs, type InspectionHistoryArgs, validateSkillsArgs, validateTraceArgs, validatePriorityArgs, type ApprovalDecision, type AutonomyCommandArgs, type BackendCommand, type ClientRequest, type CommandArgs, type ExploreCommandArgs, type NotificationsCommandArgs, type PlanCommandArgs, type RunTaskMeta, type ServerEvent, type SkillsCommandArgs, type TraceCommandArgs, type PriorityCommandArgs} from './protocol.js';
 
 export interface BackendClient {
   subscribe(listener: (event: ServerEvent) => void): () => void;
   capabilities?(): readonly string[];
-  run(text: string, task?: RunTaskMeta): string;
+  run(text: string, task?: RunTaskMeta, requestId?: string): string;
   command(command: BackendCommand, args?: CommandArgs): string;
   cancel(target: string): string;
   steer(target: string, text: string): string;
-  approve(approvalId: string, decision: ApprovalDecision): void;
+  approve(approvalId: string, decision: ApprovalDecision): string;
   shutdown(): Promise<void>;
   start(): void;
+  connectTask?(target: TaskConnectionTarget, signal?: AbortSignal): Promise<BackendClient>;
 }
+
+export interface TaskConnectionTarget {workspace: string; sessionId: string; taskId: string}
 
 export interface AttachOptions {
   taskId: string;
@@ -61,6 +65,9 @@ export function createBackendClient(options: BackendOptions = {}): BackendClient
   let historyTruncated = false;
   let latestStatus: ServerEvent | undefined;
   let startupStatus: ServerEvent | undefined;
+  let latestPlanMode: ServerEvent | undefined;
+  let latestTaskSnapshot: ServerEvent | undefined;
+  const connections = new Set<BackendClient>();
   let loadedContext: ServerEvent | undefined;
   let loadedMetrics: ServerEvent | undefined;
   let hasStartedRun = false;
@@ -95,6 +102,14 @@ export function createBackendClient(options: BackendOptions = {}): BackendClient
       }
     }
     if (event.type === 'notice' && notices.length < 32) notices.push(event);
+    if (event.type === 'plan_mode') latestPlanMode = event;
+    if (event.type === 'task_snapshot') latestTaskSnapshot = event;
+    if ((event.type === 'plan_review' && event.outcome === 'launched' && event.launch.run_started) ||
+        (event.type === 'plan_revision' && event.task?.run_started)) {
+      hasStartedRun = true;
+      loadedContext = undefined;
+      loadedMetrics = undefined;
+    }
     if (!hasStartedRun && event.type === 'context_snapshot' && event.snapshot.phase === 'loaded') loadedContext = event;
     if (!hasStartedRun && event.type === 'metrics' && event.id === null) loadedMetrics = event;
     if (event.type === 'status') {
@@ -196,6 +211,10 @@ export function createBackendClient(options: BackendOptions = {}): BackendClient
   }
 
   function send(request: ClientRequest, allowShutdown = false) {
+    if (ready?.type === 'ready' && ready.capabilities.includes('attach-offline') && request.type !== 'shutdown' &&
+        !(request.type === 'command' && (request.command === 'inspections' || request.command === 'plan' && request.args?.action === 'review'))) {
+      throw new Error('离线结果只读，不会启动或控制任务');
+    }
     if (!child || exited || child.stdin.destroyed || (shuttingDown && !allowShutdown)) {
       throw new Error('Python 后端未运行');
     }
@@ -230,6 +249,7 @@ export function createBackendClient(options: BackendOptions = {}): BackendClient
     if (shutdownPromise) return shutdownPromise;
     shuttingDown = true;
     shutdownPromise = (async () => {
+      await Promise.all([...connections].map(connection => connection.shutdown()));
       if (!child) {notifyClosed(); return;}
       if (!exited) {
         try {send({v: 1, type: 'shutdown', id: randomUUID()}, true);} catch {/* 已断开则直接回收。 */}
@@ -298,12 +318,55 @@ export function createBackendClient(options: BackendOptions = {}): BackendClient
       listeners.add(listener);
       const diagnostic: ServerEvent | undefined = diagnosticHistory ? {v: 1, type: 'diagnostic', id: null, message: diagnosticHistory} : undefined;
       const truncated: ServerEvent | undefined = historyTruncated ? {v: 1, type: 'notice', id: null, message: '恢复历史显示超过 16 MiB，较早消息已省略；模型仍使用后端保存的上下文。'} : undefined;
-      const previous = [ready, truncated, ...history, ...notices, diagnostic, loadedContext, loadedMetrics, startupStatus !== latestStatus ? startupStatus : undefined,
+      const previous = [ready, latestTaskSnapshot, latestPlanMode, truncated, ...history, ...notices, diagnostic, loadedContext, loadedMetrics, startupStatus !== latestStatus ? startupStatus : undefined,
         latestStatus, ...pendingApprovals.values(), terminalError, terminalClosed].filter((event): event is ServerEvent => event !== undefined);
       if (previous.length) queueMicrotask(() => {
         if (listeners.has(listener)) for (const event of previous) listener(event);
       });
       return () => {listeners.delete(listener);};
+    },
+    async connectTask(target, abortSignal) {
+      if (shuttingDown || abortSignal?.aborted) throw new Error('接入已取消');
+      if (!target.workspace || !/^[-A-Za-z0-9_]{1,128}$/.test(target.sessionId) || !/^t-[-A-Za-z0-9_]{1,126}$/.test(target.taskId)) throw new Error('任务接入身份无效');
+      const attachedArgs: string[] = [];
+      for (let i = 0; i < args.length; i += 1) {
+        if (args[i] === '--workspace' || args[i] === '--session') {i += 1; continue;}
+        if (args[i] !== '--continue') attachedArgs.push(args[i]!);
+      }
+      attachedArgs.push('--workspace', target.workspace);
+      const connection = createBackendClient({...options, args: attachedArgs, attach: {taskId: target.taskId, session: target.sessionId}});
+      connections.add(connection);
+      const untrack = connection.subscribe(event => {if (event.type === 'closed') {connections.delete(connection); untrack();}});
+      try {
+        await new Promise<void>((resolve, reject) => {
+          let scoped = false; let identified = false; let settled = false; let diagnostic = '';
+          const finish = (error?: Error) => {
+            if (settled) return;
+            settled = true; clearTimeout(timer); unsubscribe(); abortSignal?.removeEventListener('abort', abort);
+            if (error) reject(error); else resolve();
+          };
+          const abort = () => finish(new Error('接入已取消，原会话保留'));
+          const timer = setTimeout(() => finish(new Error('任务接入超时，原会话保留')), 10_000);
+          const unsubscribe = connection.subscribe(event => {
+            if (event.type === 'diagnostic') diagnostic = (diagnostic + event.message).slice(-2000);
+            else if (event.type === 'ready') {
+              if (event.workspace !== target.workspace || event.session_id !== target.sessionId || !event.capabilities.includes('attach')) {
+                finish(new Error('接入回执的工作区或会话不匹配')); return;
+              }
+              scoped = true;
+            } else if (event.type === 'task_snapshot') {
+              if (event.task.task_id !== target.taskId) {finish(new Error('接入回执的任务不匹配')); return;}
+              identified = true;
+            } else if (event.type === 'error' || event.type === 'closed') {
+              finish(new Error(diagnostic.trim() || (event.type === 'error' ? event.message : '连接在确认任务前关闭'))); return;
+            }
+            if (scoped && identified) finish();
+          });
+          abortSignal?.addEventListener('abort', abort, {once: true});
+          connection.start();
+        });
+        return connection;
+      } catch (error) {await connection.shutdown(); connections.delete(connection); throw error;}
     },
     start() {
       if (started || shuttingDown) return;
@@ -369,23 +432,45 @@ export function createBackendClient(options: BackendOptions = {}): BackendClient
     capabilities() {
       return ready?.type === 'ready' ? ready.capabilities : [];
     },
-    run(text, task) {
+    run(text, task, requestId) {
       if (!ready) throw new Error('Python 后端尚未就绪');
       if (!text.trim()) throw new Error('任务内容不能为空');
       if (task && !(ready.type === 'ready' && ready.capabilities.includes('tasks'))) {
         throw new Error('Python 后端未启用任务运行时');
       }
-      const id = randomUUID();
+      if (requestId !== undefined && !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(requestId)) throw new Error('请求身份无效');
+      const id = requestId ?? randomUUID();
       send(task ? {v: 1, type: 'run', id, text, task} : {v: 1, type: 'run', id, text});
       return id;
     },
     command(command, args) {
       if (!ready) throw new Error('Python 后端尚未就绪');
       if (!BACKEND_COMMANDS.includes(command)) throw new Error('后端命令无效');
+      if (command === 'inspections' && !(ready.type === 'ready' && ready.capabilities.includes('inspection-history'))) throw new Error('后端不支持历史结果查询');
       if (args !== undefined) {
-        if (command === 'skills') validateSkillsArgs(args);
+        if (command === 'tasks') {
+          if (!(ready.type === 'ready' && ready.capabilities.includes('task-navigation'))) throw new Error('后端不支持任务目录');
+          validateTaskCatalogArgs(args);
+        }
+        else if (command === 'inspections') validateInspectionArgs(args);
+        else if (command === 'skills') validateSkillsArgs(args);
         else if (command === 'autonomy') validateAutonomyArgs(args);
-        else if (command === 'plan') validatePlanArgs(args);
+        else if (command === 'plan') {
+          validatePlanArgs(args);
+          if (args.action === 'list-revisions' &&
+              !(ready.type === 'ready' && ready.capabilities.includes('plan-revision-history'))) {
+            throw new Error('Python 后端不支持计划修订记录，请更新后端');
+          }
+          if ((args.action === 'query-revision' || args.action === 'resume-revision' ||
+              (args.action === 'request-changes' && 'target' in args)) &&
+              !(ready.type === 'ready' && ready.capabilities.includes('plan-revision'))) {
+            throw new Error('Python 后端不支持计划反馈修订，请更新后端');
+          }
+          if (('target' in args || args.action === 'review') &&
+              !(ready.type === 'ready' && ready.capabilities.includes('plan-review'))) {
+            throw new Error('Python 后端不支持准确计划审阅，请使用已有查看命令');
+          }
+        }
         else if (command === 'explore') validateExploreArgs(args);
         else if (command === 'notifications') validateNotificationsArgs(args);
         else if (command === 'trace') validateTraceArgs(args);
@@ -399,6 +484,8 @@ export function createBackendClient(options: BackendOptions = {}): BackendClient
       else if (command === 'notifications') send({v: 1, type: 'command', id, command, ...(args === undefined ? {} : {args: args as NotificationsCommandArgs})});
       else if (command === 'trace') send({v: 1, type: 'command', id, command, ...(args === undefined ? {} : {args: args as TraceCommandArgs})});
       else if (command === 'priority') send({v: 1, type: 'command', id, command, args: args as PriorityCommandArgs});
+      else if (command === 'tasks') send({v: 1, type: 'command', id, command, ...(args === undefined ? {} : {args: args as TaskCatalogArgs})});
+      else if (command === 'inspections') send({v: 1, type: 'command', id, command, ...(args === undefined ? {} : {args: args as InspectionHistoryArgs})});
       else if (command === 'plan') send({v: 1, type: 'command', id, command, ...(args === undefined ? {} : {args: args as PlanCommandArgs})});
       else send({v: 1, type: 'command', id, command});
       return id;
@@ -427,6 +514,7 @@ export function createBackendClient(options: BackendOptions = {}): BackendClient
         send({v: 1, type: 'approval', id, approval_id: approvalId, decision});
       }
       pendingApprovals.delete(approvalId);
+      return id;
     },
     shutdown,
   };

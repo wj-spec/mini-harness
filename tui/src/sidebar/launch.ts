@@ -4,6 +4,7 @@ import path from 'node:path';
 import {closeSidebarWindow, openSidebar, type LaunchResult, type SidebarMode, type TerminalHost} from './host.js';
 import {killLinkedSidebar} from './lifecycle.js';
 import {adjustSidebarSplit} from './split-ratio.js';
+import type {SidebarOwner} from './channel.js';
 
 /** 侧栏入口与主 TUI 同目录构建：dist/src/sidebar/cli.js。 */
 export function sidebarCliPath(argv1: string | undefined = process.argv[1]): string {
@@ -11,8 +12,12 @@ export function sidebarCliPath(argv1: string | undefined = process.argv[1]): str
   return path.resolve(base, 'sidebar', 'cli.js');
 }
 
-export function launchSidebarForTui(workspace: string, mode: SidebarMode = 'split', totalColumns?: number): LaunchResult {
-  return openSidebar({workspace, cliPath: sidebarCliPath(), nodePath: process.execPath, mode, parentPid: process.pid, totalColumns});
+export function launchSidebarForTui(workspace: string, mode: SidebarMode = 'split', totalColumns?: number, owner?: SidebarOwner): LaunchResult {
+  // 包装 shell 可能是前台进程组首进程；TTY 可准确定位同一个 pane。
+  const tty = owner && process.platform === 'darwin'
+    ? spawnSync('/bin/ps', ['-p', String(owner.parentPid), '-o', 'tty='], {encoding: 'utf8', timeout: 1000}).stdout?.trim() : '';
+  const sourceTty = tty && /^tty[\w]+$/u.test(tty) ? `/dev/${tty}` : undefined;
+  return openSidebar({workspace, cliPath: sidebarCliPath(), nodePath: process.execPath, mode, parentPid: process.pid, totalColumns, owner, sourceTty});
 }
 
 /** dist/src/cli.js → 仓库根目录。 */
@@ -42,16 +47,16 @@ export function runSidebarSetup(argv1: string | undefined = process.argv[1]): Se
 }
 
 /** 工作台退出时尽量立即终止同一工作区、同一父进程启动的侧栏。 */
-export function killSidebarForTui(workspace: string): boolean {
-  return killLinkedSidebar(workspace);
+export function killSidebarForTui(workspace: string, owner?: SidebarOwner): boolean {
+  return killLinkedSidebar(workspace, {owner});
 }
 
 /** split 打开后把比例从 Ghostty 默认 50/50 调整到约 70/30。后台执行，不阻塞 TUI。 */
-export function adjustSidebarSplitForTui(workspace: string, totalColumns: number): void {
-  void adjustSidebarSplit({workspace, totalColumns}).catch(() => {});
+export function adjustSidebarSplitForTui(workspace: string, totalColumns: number, owner?: SidebarOwner): void {
+  void adjustSidebarSplit({workspace, totalColumns, owner}).catch(() => {});
 }
 
 /** 退出工作台时关闭独立窗口模式留下的窗口（split/quick 不需要）。 */
-export function closeSidebarWindowForTui(host: TerminalHost, windowId: string): boolean {
-  return closeSidebarWindow(host, windowId);
+export function closeSidebarWindowForTui(host: TerminalHost, windowId: string, owner?: SidebarOwner): boolean {
+  return closeSidebarWindow(host, windowId, {owner});
 }

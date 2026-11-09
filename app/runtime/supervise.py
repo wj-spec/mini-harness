@@ -201,6 +201,30 @@ class WorkerSupervisor:
         self.session_root = Path(session_root)
         self.store = TaskStore(self.session_root)
 
+    def recovery_blocked(self) -> bool:
+        """活跃或无法核对的 worker 记录不能当成崩溃。"""
+        directory = self.store.tasks_root
+        try:
+            if directory.is_symlink():
+                return True
+            if not directory.exists():
+                return False
+            for task_dir in directory.iterdir():
+                if task_dir.is_symlink():
+                    return True
+                if not task_dir.is_dir():
+                    continue
+                worker = read_worker_state(task_dir)
+                if worker is None:
+                    continue
+                if worker.task_id != task_dir.name:
+                    return True
+                if worker.status in ACTIVE_WORKER_STATUSES and (worker.host != socket.gethostname() or pid_alive(worker.pid)):
+                    return True
+        except (OSError, WorkerStateError):
+            return True
+        return False
+
     def snapshot(self) -> list[WorkerSnapshot]:
         snapshots: list[WorkerSnapshot] = []
         for record in self.store.list():

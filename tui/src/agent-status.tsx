@@ -19,6 +19,7 @@ export function autonomyText(state: ViewState): string {
 
 export function agentStatus(state: ViewState): AgentStatus {
   if (state.phase === 'closed') return {label: '后端已断开', detail: '重新启动入口以恢复会话', tone: 'error'};
+  if (state.attachOffline) return {label: '离线只读', detail: '查看已保存的任务结果 · Ctrl+Q 退出', tone: 'accent'};
   if (state.phase === 'stopping') return {label: '正在停止', detail: '等待后端确认停止结果', tone: 'warning'};
   if (state.phase === 'waiting_approval') return {label: '等待审批', detail: `${state.approval?.tool ?? '工具动作'} 等待你确认`, tone: 'warning'};
   if (state.error) return {label: state.phase === 'starting' ? '启动失败' : '运行异常', detail: state.error, tone: 'error'};
@@ -202,6 +203,10 @@ export function StatusPanel({state, columns, height, palette}: {
   const compactContext = compact && snapshot !== undefined;
   const compactInputPrefix = '输入 ';
   const compactComposition = snapshot ? needsContextComposition(snapshot, Math.max(1, available - stringWidth(compactInputPrefix) - 2)) : false;
+  if (height === 1) return <Box width={columns} height={1} paddingX={2} backgroundColor={palette.surface} flexShrink={0} overflow="hidden">
+    <Text color={snapshot?.over_budget ? palette.warning : palette.secondary}>{fitText(snapshot ?
+      `当前上下文 ${compactNumber(snapshot.total_tokens)}/${compactNumber(snapshot.input_capacity)} · ${contextSummarySpans(snapshot).map(span => span.text).join('')}` : status.label, available)}</Text>
+  </Box>;
   const lines: StatusLine[] = compact ? [
     {text: `${status.label}${snapshot?.phase === 'loaded' ? '  |  基础上下文已装载 · 尚未请求模型' : task ? `  |  ${task.text}` : `  |  ${status.detail}`}`, tone: status.tone, bold: true, highlighted: true},
     ...(snapshot ? [

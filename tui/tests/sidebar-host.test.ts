@@ -10,6 +10,69 @@ import {
 } from '../src/sidebar/host.js';
 import {sidebarCliPath} from '../src/sidebar/launch.js';
 
+test('owned launches transport identity and select only the source and owned sidebar', () => {
+  const owner = {instanceId: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa', parentPid: 4242};
+  const scripts: string[] = [];
+  for (const mode of ['split', 'quick', 'window'] as const) {
+    const result = openSidebar({workspace: '/repo', cliPath: '/app/sidebar.js', owner, mode,
+      env: {TERM_PROGRAM: 'ghostty'}, platform: 'darwin', ghosttyBinary: null,
+      run: (_command, args) => {scripts.push(args[1]!); return {status: 0, stdout: mode === 'window' ? 'started:win-1' : 'started', stderr: ''};}});
+    assert.equal(result.host, 'ghostty');
+    assert.match(result.command!, new RegExp(`--instance-id ${owner.instanceId}`, 'u'));
+    assert.match(result.command!, /--parent-pid 4242/u);
+    assert.match(result.command!, new RegExp(`--host-mode ${mode}`, 'u'));
+  }
+  for (const script of scripts) assert.ok(script.includes(`[${owner.instanceId}:4242]`));
+  for (const script of scripts.slice(0, 2)) {
+    assert.match(script, /whose pid is 4242/u);
+    assert.match(script, /source-missing/u);
+    assert.doesNotMatch(script, /focused terminal of selected tab of front window/u);
+  }
+  assert.match(scripts[1]!, /occupied/u);
+});
+
+test('owned host failures explain missing source and occupied quick terminal', () => {
+  const owner = {instanceId: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa', parentPid: 4242};
+  for (const [marker, message] of [['source-missing', /来源/u], ['occupied', /split.*window/u]] as const) {
+    const result = openSidebar({workspace: '/repo', cliPath: '/app/sidebar.js', owner, mode: 'quick',
+      env: {TERM_PROGRAM: 'ghostty'}, platform: 'darwin', ghosttyBinary: null,
+      run: () => ({status: 0, stdout: marker, stderr: ''})});
+    assert.equal(result.outcome, 'failed');
+    assert.match(result.message, message);
+  }
+});
+
+test('owned window cleanup checks ownership as well as the stored window id', () => {
+  const owner = {instanceId: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa', parentPid: 4242};
+  for (const host of ['ghostty', 'terminal'] as const) {
+    let script = '';
+    closeSidebarWindow(host, '42', {owner, env: {TERM_PROGRAM: 'ghostty'}, platform: 'darwin',
+      run: (_command, args) => {script = args[1]!; return {status: 0, stdout: 'missing', stderr: ''};}});
+    assert.ok(script.includes(`[${owner.instanceId}:4242]`));
+    assert.match(script, /name contains/u);
+  }
+});
+
+test('owned split resizing uses only its split and source TTY can identify a wrapper shell', () => {
+  const owner = {instanceId: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa', parentPid: 4242};
+  assert.match(splitScript('echo hello', '/repo', 0, owner, '/dev/ttys016'), /whose tty is "\/dev\/ttys016"/u);
+  assert.doesNotMatch(splitScript('echo hello', '/repo', 0, owner, '/dev/tty"bad'), /whose tty/u);
+  const script = resizeSplitScript('right', 100, owner);
+  assert.ok(script.includes(`[${owner.instanceId}:4242] [split]`));
+  assert.match(script, /is not 1 then return "missing"/u);
+});
+
+test('owned window cleanup refuses expanded windows and reports a missing window accurately', () => {
+  const owner = {instanceId: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa', parentPid: 4242};
+  for (const host of ['terminal', 'ghostty'] as const) {
+    const script = closeWindowScript(host, '42', owner)!;
+    assert.match(script, /if \(count of matches\) is not 1 then return "missing"/u);
+    assert.match(script, /count of tabs of targetWindow/u);
+    assert.match(script, /return "expanded"/u);
+  }
+  assert.match(terminalWindowScript('echo hello', owner), /set custom title of selected tab of newWindow/u);
+});
+
 test('terminal host detection distinguishes Ghostty, Apple Terminal and unknown hosts', () => {
   assert.equal(detectHost({TERM_PROGRAM: 'ghostty'}), 'ghostty');
   assert.equal(detectHost({GHOSTTY_RESOURCES_DIR: '/Applications/Ghostty.app'}), 'ghostty');
@@ -222,6 +285,16 @@ test('generated AppleScript compiles with the macOS scripting compiler', {skip: 
       ['resize', resizeSplitScript('right', 120)],
       ['close', closeWindowScript('terminal', '42')!],
     ];
+    const owner = {instanceId: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa', parentPid: 4242};
+    scripts.push(
+      ['owned-quick', ghosttyScript('echo hello', owner, '/dev/ttys016')],
+      ['owned-split', splitScript('echo hello', '/repo', 10, owner, '/dev/ttys016')],
+      ['owned-window', ghosttyWindowScript('echo hello', '/repo', owner)],
+      ['owned-terminal', terminalWindowScript('echo hello', owner)],
+      ['owned-resize', resizeSplitScript('right', 120, owner)],
+      ['owned-close-ghostty', closeWindowScript('ghostty', 'window-id', owner)!],
+      ['owned-close-terminal', closeWindowScript('terminal', '42', owner)!],
+    );
     for (const [name, script] of scripts) {
       const output = path.join(directory, `${name}.scpt`);
       const result = spawnSync('osacompile', ['-o', output, '-e', script], {encoding: 'utf8'});

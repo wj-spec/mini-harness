@@ -4,6 +4,44 @@ import {randomUUID} from 'node:crypto';
 import {spawn} from 'node:child_process';
 import {isProcessAlive, killLinkedSidebar, readSidebarLink, removeSidebarLink, watchParentPid, writeSidebarLink} from '../src/sidebar/lifecycle.js';
 
+test('closing one workbench leaves the other linked process alive in the same workspace', async () => {
+  const workspace = `/tmp/sidebar-owner-processes-${randomUUID()}`;
+  const a = {instanceId: randomUUID(), parentPid: process.pid};
+  const b = {instanceId: randomUUID(), parentPid: process.pid};
+  const children = [a, b].map(() => spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {stdio: 'ignore'}));
+  try {
+    const first = {pid: children[0]!.pid!, parentPid: process.pid, owner: a};
+    const second = {pid: children[1]!.pid!, parentPid: process.pid, owner: b};
+    writeSidebarLink(workspace, first); writeSidebarLink(workspace, second);
+    const exited = new Promise<boolean>(resolve => children[0]!.once('exit', () => resolve(true)));
+    assert.equal(killLinkedSidebar(workspace, {owner: a}), true);
+    assert.equal(isProcessAlive(children[1]!.pid!), true);
+    assert.equal(await Promise.race([exited, new Promise(resolve => setTimeout(() => resolve(false), 500))]), true);
+    removeSidebarLink(workspace, children[0]!.pid, a);
+    assert.equal(readSidebarLink(workspace, b)?.pid, children[1]!.pid);
+  } finally {
+    for (const child of children) child.kill('SIGKILL');
+    removeSidebarLink(workspace, undefined, a);
+    removeSidebarLink(workspace, undefined, b);
+    removeSidebarLink(workspace);
+  }
+});
+
+test('closing the workbench preserves its sidebar while an excerpt is selected', () => {
+  const workspace = `/tmp/sidebar-selected-${randomUUID()}`;
+  const owner = {instanceId: randomUUID(), parentPid: process.pid};
+  let killed = false;
+  try {
+    const link = {pid: process.pid, parentPid: process.pid, owner, hasSelection: true};
+    writeSidebarLink(workspace, link);
+    assert.equal(killLinkedSidebar(workspace, {owner, kill: () => {killed = true; return true;}}), false);
+    assert.equal(killed, false);
+    const cleared = {...link, hasSelection: false}; writeSidebarLink(workspace, cleared);
+    assert.equal(killLinkedSidebar(workspace, {owner, kill: () => {killed = true; return true;}}), true);
+    assert.equal(killed, true);
+  } finally {removeSidebarLink(workspace, undefined, owner);}
+});
+
 test('process liveness treats ESRCH as gone and EPERM as alive', () => {
   assert.equal(isProcessAlive(process.pid), true);
   assert.equal(isProcessAlive(0), false);

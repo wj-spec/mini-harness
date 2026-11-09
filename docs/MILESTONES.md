@@ -23,6 +23,64 @@
 
 ## 界面迁移与全栈学习切片
 
+**P8 原会话上下文与执行互斥（2026-11-09，实施中）**：返回后下一次模型请求接入最新有效快照、消息和任务状态；同会话其他连接运行时拒绝抢写，普通草稿恢复，持久后续消息退回队列并暂停。启动恢复不改写活跃工具，正常结束或强退后可显式重试。完整 Ink **690/690**、Python **1932 passed / 4 skipped**，实际双进程与 32×12 worker/Ink/Python PTY 通过。旧会话导航和 Ghostty 真人/Owner Review 仍待完成，见 [本批验证](../openspec/changes/implement-improve-workbench-ux-p8/verification.md#原会话上下文与并行执行保护2026-11-09)。
+
+**P8 工作台内接入与停止（2026-11-09，实施中）**：任务目录可直接接入、审批、返回、停止或离线查看，原会话不重启，窗口内两侧草稿与光标分别保留；运行中先明确等待或停止，取消和连接失败保留原会话。完整 Ink **687/687**、Python **1923 passed / 4 skipped**，实际 worker/Ink/Python PTY 的审批写入、返回后继续运行、显式停止、32×12 与离线草稿恢复通过；已修复活跃 worker 工具被误恢复的问题。原会话模型上下文同步/同会话并发写入、旧会话导航与 Ghostty 真人/Owner Review 仍待完成，见 [第二批验证](../openspec/changes/implement-improve-workbench-ux-p8/verification.md#工作台内接入与停止2026-11-09)。
+
+**P8 当前会话任务导航（2026-11-09，实施中）**：点击「任务」可分页选择完整目标、状态与待审批事实，进入所选任务的准确历史；刷新按任务 ID 保留选择，返回保留中文草稿/光标。完整 Ink **679/679**、Python **1918 passed / 4 skipped**，真实 Ink/Python PTY 的翻页、刷新、窄屏与准确历史通过，任务记录未变且零新增模型调用。接入/停止、旧会话切换和 Ghostty 真人/Owner Review 仍待完成，见 [第一批验证](../openspec/changes/implement-improve-workbench-ux-p8/verification.md)。
+
+**P7 持久待办（2026-11-09，实施中）**：后续消息已保存到所属会话，重开默认暂停；同会话单窗口管理，其他窗口只读并可显式接入。发送中断保留请求身份并显示“结果待核对”，不会自动重发；保存失败和未保存编辑保留输入并提示。完整 Ink **670/670**、Python **1915 passed / 4 skipped**，真实 Ink/Python 进程的退出重开、多窗口接入与中断恢复通过；Ghostty 真人完整旅程与 Owner Review 仍待完成。 见 [本批记录](../openspec/changes/implement-improve-workbench-ux-p7/verification.md#持久待办与未知发送恢复2026-11-09)。
+
+**P6 侧栏启动竞争（2026-11-09，实施中）**：侧栏新增启动与实例占用：同一工作台的多模式启动、不同会话的 quick 启动不会同时进入宿主操作；重复 CLI 拒绝覆盖登记，正常退出和强制结束后可重开。完整 Ink 643/643、Python 1915 passed / 4 skipped、八组并发压力与实际 PTY 复验通过；评审补齐路径别名竞争，Ghostty 原生 GUI 因工具安全限制未能核验，真人完整旅程与 Owner Review 仍待完成。见 [验证记录](../openspec/changes/implement-improve-workbench-ux-p6/verification.md#侧栏启动竞争与重复登记2026-11-09)。
+
+**P6 内嵌专注检查（2026-11-09，实施中）**：主区新增可点击的专注检查，与独立侧栏共用变更、准确计划和验证阅读；返回保留草稿/光标、页码与选区。无法自动分屏时，结果入口进入内嵌视图；新审批只提示返回处理，停止仍指向当前运行。全量 Ink 638/638、Python 1915 passed / 4 skipped 与实际终端复验通过；Ghostty 原生、完整真人旅程与 Owner Review 仍待完成，P6 保持实施中。见 [本批证据](../openspec/changes/implement-improve-workbench-ux-p6/verification.md#内嵌专注检查2026-11-09)。
+
+**P6 worktree 文件来源（2026-11-09，实施中）**：检查记录已保存任务实际文件目录，attach 和历史选择据此读取 worktree 的当前 diff；项目与任务中的同名文件不会混用。目录失效或旧记录缺少来源时明确说明，附回选区同时复核来源与版本。实际后台写入、当前/重开侧栏和目录替换拒绝通过；内嵌专注检查、完整真人旅程和 Owner Review 仍待完成，P6 保持实施中。完整 Python 1915 passed / 4 skipped；Ink **633/633** 全量通过。见 [本批证据](../openspec/changes/implement-improve-workbench-ux-p6/verification.md#worktree-文件来源与-diff-路由2026-11-09)。
+
+**P6 attach 只读接入（2026-11-09，实施中）**：独立 attach 已接通绑定任务的历史、准确计划与保存的验证事实；查询不进入执行队列，不广播给其他连接。worker 退出后保留离线只读入口与草稿，无 socket 时可读取已有记录。实际 worker/Ink/侧栏 PTY 通过，读取没有增加模型调用。worktree 文件来源/diff、内嵌专注检查和 Ghostty 真人/Owner Review 仍待完成，P6 保持实施中。完整 Python 1912 passed / 4 skipped；Ink 完整复跑 629/629 通过。见 [本批证据](../openspec/changes/implement-improve-workbench-ux-p6/verification.md#attach-任务范围与离线检查2026-11-09)。
+
+**P6 重开历史结果（2026-11-09，实施中）**：主区“历史结果”与 `/inspections` 可分页选择原运行，进入准确变更/计划/验证；失败保页重试，查询不占执行，旧草稿/光标和当前取消目标保持。完整 Python **1908 passed / 4 skipped**、TUI **624/624**，实际五轮分页、重开侧栏命令/准确 v2、突退未知状态与零模型调用通过；见 [本批证据](../openspec/changes/implement-improve-workbench-ux-p6/verification.md#重开历史结果入口2026-11-09)。独立 attach、内嵌检查与原生 Ghostty/真人/Owner Review 仍待完成，P6 不标完成。
+
+**P6 持久检查记录（2026-11-09，实施中）**：按请求保存命令真实结果、文件路径和准确计划/修订身份，提供只读分页；突然退出不声称完成，损坏/重复身份拒绝读取。完整 Python **1904 passed / 4 skipped**、TUI **618/618**，实际审批、后端突然退出、修订与重开零重复调用通过；见 [本批证据](../openspec/changes/implement-improve-workbench-ux-p6/verification.md#持久检查记录与只读分页2026-11-09)。历史结果界面、独立 attach 和专注检查尚未接通，Ghostty/真人/Owner Review 保留，P6 不标完成。
+
+**P6 修订运行与准确产物关联（2026-11-09，实施中）**：检查区按修订回执关联来源、运行段和新版本，区分“修订来源 / 修订产物”；晚回执补原结果，另一运行和草稿保持。固定阅读点击接入才换到新版，修订不计作执行验收。完整 TUI **618/618**、Python **1891 passed / 4 skipped**，真实后端取消/续做和原生 PTY 通过；见 [本批证据](../openspec/changes/implement-improve-workbench-ux-p6/verification.md#修订运行与准确产物关联2026-11-09)。本批关联仅覆盖当前进程，重开历史/独立 attach、专注检查与真人仍待完成，P6 保持实施中。
+
+**P6 计划跨页选区与版本已读（2026-11-09，实施中）**：计划正文可拖选、续选到下一页，再复制或附回草稿；主区按原计划身份和字符范围重读核对，新版出现时拒绝旧引用并保留选区。diff 可显式标已读/撤销，新内容不继承旧版标记，截断内容不能标为完整已读。完整 TUI **613/613**、Python **1891 passed / 4 skipped**，实际 PTY 跨页附回、中文光标、过期版本拒绝与 32×12 已读操作通过；见 [本批证据](../openspec/changes/implement-improve-workbench-ux-p6/verification.md#计划跨页选区与版本已读2026-11-09)。历史/attach、修订完整关联、内嵌专注检查与 Ghostty 真人仍待完成，P6 不标完成。
+
+**P6 选区附回（2026-11-09，实施中）**：变更/验证正文可拖选、复制或点击附回草稿，核对原请求与内容版本，重复请求不重复追加，已有输入和光标保留。主区退出时保留有选区的侧栏供复制；无选区仍联动退出。完整 TUI **608/608**、Python **1891 passed / 4 skipped**，原生鼠标附回、外部版本拒绝、退出保留与离线重开通过；见 [本批证据](../openspec/changes/implement-improve-workbench-ux-p6/verification.md#选区附回草稿与退出保留2026-11-09)。计划跨页选区、diff 已读、历史/attach、专注检查与真人仍待完成，P6 不标完成。
+
+**P6 主区结果入口（2026-11-09，实施中）**：当前进程内结果可点击变更/计划/验证，按原请求固定证据；新运行继续进行，主区点击“回到当前”接入最新对象。晚到计划补齐原结果，草稿/光标与停止目标保留。完整 TUI **601/601**、Python **1891 passed / 4 skipped**，原生审批、结果导航、跨轮固定和离线重开通过。重开历史/独立 attach、内嵌专注检查、已读/附回与真人仍待完成；见 [本批证据](../openspec/changes/implement-improve-workbench-ux-p6/verification.md#主区结果入口与同轮快照2026-11-09)，P6 不标完成。
+
+**P6 可点击检查页导航（2026-11-09，实施中）**：侧栏常驻变更/计划/验证入口，三页独立保位，隐藏页停用输入；新对象点击“接入”，其他文件活动点击“跟随”。无颜色有选中标记，空页解释原因并接入首份记录。全量 TUI **595/595**、Python **1891 passed / 4 skipped**；两条原生 PTY 覆盖审批/恢复、隐藏旧验证、四页正文与零重复读取。历史结果、修订/独立 attach 完整关联、已读和附回仍待完成，见 [本批证据](../openspec/changes/implement-improve-workbench-ux-p6/verification.md#可点击检查页与独立保位2026-11-09)。
+
+**P6 计划正文与只读请求通道（2026-11-09，实施中）**：侧栏按准确版本分页读取完整计划，支持点击上下页/重试/返回、滚轮阅读及缩放保位；失败保留当前页，新对象显式接入。独立查询不抢主区草稿、审阅卡或当前运行停止目标。全量 TUI **591/591**、Python **1891 passed / 4 skipped**；真实后端读取 900 条中文/emoji 约束，原生 PTY 点击读完四页、32×12 页码可见、零模型调用。历史结果导航、统一入口、修订/独立 attach 结果、已读及附回仍待完成，见 [本批证据](../openspec/changes/implement-improve-workbench-ux-p6/verification.md#计划正文与只读请求通道2026-11-09)。P6 整体与真人验收状态保持。
+
+**P6 固定阅读与验证记录（2026-11-09，实施中）**：计划摘要/验证页打开后固定对象，新结果显式接入；验证页显示当前请求的命令、退出码与输出，支持中文窄栏和缩放保位。真实链路发现并修复 harness 验收结果缺少工具事件，成功/失败/拒绝均有回归，审批门保持。实际主工作台/侧栏 PTY 和离线恢复通过；完整回归与限制见 [固定阅读证据](../openspec/changes/implement-improve-workbench-ux-p6/verification.md#固定阅读与验证记录2026-11-09)。完整计划正文、历史结果导航、已读/附回和真人仍待完成，不标 P6 整体验收。
+
+**P6 运行与计划投影增量（2026-11-09，实施中）**：侧栏按当前请求显示触及文件，分别保存持久任务/运行段与 Agent 追踪 ID；下一任务清空旧标记，费用查询保留当前计划。计划绑定准确版本与哈希，续做不继承上段验证，恢复历史不猜测运行。全量 TUI **579/579**、Python **1888 passed / 4 skipped**，实际计划允许/拒绝集成及主工作台/侧栏/重开 PTY 通过。修订/独立 attach 的完整关联、三类检查页、已读、附回与 Ghostty 真人仍待完成；见 [P6 投影证据](../openspec/changes/implement-improve-workbench-ux-p6/verification.md#运行与计划投影2026-11-09)。以下保留分批记录，不标 P6 整体完成。
+
+**P6 实例隔离增量（2026-11-09，实施中）**：同工作区的主工作台使用独立侧栏信号/登记，启动、标题、校准与清理携带实例；手动侧栏明确未绑定。全量 TUI **574/574**、Python **1888 passed / 4 skipped**，两个实际侧栏 PTY 的文件选择与退出隔离通过；新审批命令也已实际触发写入/命令审批并以鼠标允许/拒绝、审计和中文草稿核对。Ghostty 原生定位/并发启动与真人仍待补验，task/run 范围和结果检查/附回尚未实现；见 [P6 证据](../openspec/changes/implement-improve-workbench-ux-p6/verification.md)，不提升其他阶段或 W0–W7 验收。
+
+**P5 操作入口（2026-11-08，实施中）**：命令查找、参数、帮助与可用原因已接通；当前运行与下次默认模式分开显示，运行中可调整/撤回 pending，恢复不自动运行，默认模式保存失败保留任务输入。全量 TUI **561/561**、Python **1888 passed / 4 skipped**，三尺寸实际 PTY 通过；已补跑并修正跨语言目录检查，早期 Python 复用证据的缺口单列更正。80×24 固定样本正文从 8 行增至 12 行，三尺寸原生鼠标拒绝通过；Ghostty 真人及 Owner Review 仍待完成；见 [P5 证据](../openspec/changes/implement-improve-workbench-ux-p5/verification.md#紧凑布局与原生点击2026-11-08)，不提升整阶段或 W0–W7 验收状态。
+
+**P4 重开恢复与故障补验（2026-11-08，当前）**：已接通修订记录和反馈恢复，并以实际进程验证成功回执丢失后找回原 v2、另一后端发布新版后拒绝旧反馈续做。查询和拒绝不增加模型调用、任务或运行段；新全量 TUI **540/540**。生产代码未变，Python **1885 passed / 4 skipped** 与三尺寸恢复 PTY 沿用前轮证据，源码哈希已核对。未发送反馈仅进程内保存；受控真实模型修订、Ghostty 真人与学习 Review 尚待完成。见 [当前证据](../openspec/changes/implement-improve-workbench-ux-p4/verification.md#实际进程故障恢复补验2026-11-08)。以下保留分批实施记录，不提升 P4 整体或 W0–W7 验收状态。
+
+**P4 卡片反馈增量（2026-11-08）**：已接通来源绑定的反馈编辑、可点击确认、取消/显式续做和准确新版卡片；后台准备持锁复核并创建。新增 1 项 Python、20 项 TUI，冻结全量 **1878 passed / 4 skipped、529/529**；实际 Node→Python 与三种尺寸 PTY 验证新版允许/拒绝和磁盘结果。重开反馈恢复界面、受控真实模型修订与 Ghostty 真人仍待做；新工具审批按钮体验也仍待反馈。详见 [当前切片证据](../openspec/changes/implement-improve-workbench-ux-p4/verification.md#ink-卡片反馈与后台复核2026-11-08)，不提升整阶段或 W0–W7 验收状态。
+
+**最新真人反馈与审批增量（2026-11-08）**：用户确认 P3 生成/阅读/执行/拒绝核心演示无问题，同时认为快捷键审批体验很差。已优先实现鼠标审批按钮、更多授权、Tab/方向键导航和草稿/光标保护；新增 9 项 TUI 回归，全量 TUI **509/509**、Python **1877 passed / 4 skipped**，三种尺寸实际 PTY 允许/拒绝及磁盘核对通过，见 [审批按钮增量](../openspec/changes/implement-improve-workbench-ux-p1/verification.md#审批按钮增量2026-11-08)。P3 真人重开/恢复、新按钮 Ghostty 体验、P2 真人及 Owner 学习 Review 仍待确认；P4 后台排队接线与卡片反馈继续待做，不把本增量记为整阶段完成。
+
+**工作台 UX P1（2026-11-08）**：审批改为显式聚焦、选择、Enter 确认，草稿不再被 y/s/p/n 直接授权；未受理命令保留输入，小屏审批提示与退出可用，reset 明确档位/持久策略不变。Python **1659 passed / 4 skipped**、TUI **452/452**、工具驱动真实 PTY fake 链路通过；评审发现与红绿证据见 [P1 验证记录](../openspec/changes/implement-improve-workbench-ux-p1/verification.md)。用户随后试用 Ghostty 并确认“交互符合预期”，P1 核心交互真人验收通过；原生缩放/候选框交错和 Owner 学习记录待补，不扩展 W1–W7 的验收范围。P2 稳定阅读的复制保位、固定版本/接入、异步刷新与窄栏导航已实现，TUI **471/471**、Python **1659 passed / 4 skipped**、44×18 工具 PTY 通过，详见 [P2 验证记录](../openspec/changes/implement-improve-workbench-ux-p2/verification.md)，真人验收待做；附加浏览器 smoke 与通用 fake eval 的未通过项单列在验证记录。 P3 已完成 runtime 查询/存储恢复及 JSONL/TypeScript 协议与实际运行交接：准确 Ref、一次初始运行、忙碌查询与原取消目标、执行前复核、工具拒绝和重连查询均有证据。最终冻结源码验证为 Python **1795 passed / 4 skipped**、TUI **473/473**；本轮新增 16 项 Python 与 2 项 TUI 用例，早期兼容回归已修复，见 [P3 增量验证](../openspec/changes/implement-improve-workbench-ux-p3/verification.md)。随后已接通 Ink 准确审阅卡、显式确认、正文分页、焦点/草稿与未知结果保护；脚本化 Ink→Python→工具拒绝链路通过，最终 TUI **492/492**、Python **1795 passed / 4 skipped**，实际 PTY 验证状态/草稿，见 P3 增量记录。真实模型与 Ghostty 真人旅程尚待验收，不新增阶段验收完成项。
+
+**P3 验收增量（2026-11-08）**：真实模型已生成计划并由卡片启动原绑定任务，但读取后因 token_budget 暂停，验证命令未执行，完整真实验收未通过。由此补齐重开任务绑定、显式续接步骤、失败证据不能完成、台账损坏停止及验收后最终回执。公开 `VIBE_FAKE_DEMO=plan` 的允许/拒绝/重开工具 PTY 通过；最终 Python **1807 passed / 4 skipped**、TUI **497/497**。P3 Ghostty 真人与修复后真实模型完整旅程待做，P2 真人状态不变，详见 [本轮证据](../openspec/changes/implement-improve-workbench-ux-p3/verification.md#真实样本恢复修复与公开演示2026-11-08)。
+
+**P3 真实模型闭环（2026-11-08，后续增量）**：恢复修复后的受控 message.txt 样本已通过实际 Ink 审阅、写入/验收两次逐次审批、实际命令 exit=0 与完成回执；只产生一个执行任务/运行段。真实 provider 重开被自动审批审查拒绝，改以 fake 离线恢复核验无重复调用。样本发现 submit_plan 缺少 risk schema、编辑步骤误显只读，已在新提案提交边界修复并保留历史哈希；补丁后 Python **1817 passed / 4 skipped**、TUI **497/497**。真实样本发生在该风险提示补丁之前，补丁未另跑收费模型。P3 Ghostty 真人/学习 Review、P2 真人仍待完成；详见 [闭环证据](../openspec/changes/implement-improve-workbench-ux-p3/verification.md#真实模型闭环与风险提示修复2026-11-08)，不新增 W1–W7 验收项。
+
+**P4 版本提交切片（2026-11-08）**：已固定反馈修订的完整设计，并实现后端绑定原快照/反馈后发布同族 v+1 proposed；原版不变、新版不继承审批，支持冲突拒绝与部分保存后的复用/审计。新增 16 项 Python 回归，最终 Python **1833 passed / 4 skipped**、TUI **497/497**。持久修订操作、只读 Agent run 与 Ink 反馈输入尚未接线，现有 request-changes 仍只复制 draft；不标 P4 用户旅程或真实验收完成。P2/P3 真人待确认状态保持，见 [P4 证据](../openspec/changes/implement-improve-workbench-ux-p4/verification.md)。
+
+**P4 持久任务增量（2026-11-08）**：准确来源/反馈绑定、唯一初始任务、只读查询、显式续做和提交回执恢复已实现；真实子进程覆盖并发请求、准备中退出与运行中退出。自审修复遗留 running 段阻止续做、忙碌请求提前恢复写入、回执丢失后的续做及任务范围核对问题。新增 **28 项 Python**，相关 **239/239**；冻结后 Python **1861 passed / 4 skipped**、TUI **497/497**。JSONL、只读 Agent、旧入口统一与 Ink 反馈编辑待做，P4 用户旅程尚未完成；P2/P3 真人与学习 Review 状态保持。详见 [持久修订证据](../openspec/changes/implement-improve-workbench-ux-p4/verification.md#持久修订-runtime-切片2026-11-08)。
+
+**P4 后端闭环增量（2026-11-08）**：JSONL/capability、硬只读 Agent 与旧反馈命令已接通，只有模型提交才发布同族 v+1 proposed；no-submit、取消、原版本变化、禁用工具和超窗均有回归。恢复先复核再加段；旧执行的共用启动边界阻止修订期间执行及旧批准回退。真实 Node→Python 提交、关闭、重开查询只调用一次 fake 模型；这是后端链路证据，不是 Ghostty 真人或真实模型质量验收。新增 **15 项 Python / 3 项 TUI**，相关 **272/272**；冻结后 Python **1876 passed / 4 skipped**、TUI **500/500**。后台排队并发复核、Ink 卡片反馈编辑和 P4 完整旅程仍待完成，详见 [接线证据](../openspec/changes/implement-improve-workbench-ux-p4/verification.md#jsonl-与只读-agent-接线2026-11-08)。
+
 2026-10-20 用户明确把界面开发纳入长期全栈学习。新 TUI 选用 Node.js + TypeScript + React/Ink，保留 Python Agent 后端；默认仍运行 Textual，`run_ink.sh` 为新入口。2026-10-21 用户明确要求：默认入口继续保留 Textual，直到 Ink 的开发与实际体验超越 Textual。功能补齐和测试通过不会自动触发切换。切片服务于 W1–W3 的完成条件，不提升产品里程碑的真实验收状态。
 
 **Ink 复制能力（2026-10-23）**：用户反馈全屏界面里无法复制 Agent 回复。[复制规格](specs/ink-copy.md)：`Ctrl+Y` 或 `/copy`，工具详情打开时复制参数与完整输出、审批打开时复制预览、否则复制最近一条回复；优先本机剪贴板命令（`pbcopy` / `clip` / `wl-copy` / `xclip`），失败回退 OSC 52；单次上限 1 MiB。复制是本地只读操作，不经过审批。首版只有 `Ctrl+Y` / `/copy` 整段复制；用户反馈仍希望像终端一样拖拽选中，因此新增应用内拖选：鼠标模式改为 1002，按下/拖动/松开实时高亮选区，松开复制所选文本（按单元格切片，宽字符整字，可跨行）。自动回归覆盖鼠标解析、单元格选区、剪贴板回退与三种复制目标；真实终端里的拖选与复制效果待用户验收。
@@ -490,3 +548,35 @@ W1–W5 已完成真实验收；W6 v2 三组对照完成，主假设未获支持
 - 真实 TUI 人工键路（本沙箱无 pty，需本地终端按 TC-16 清单执行）；
 - 模型自发委派（设计列为 P2，需用户拍板）；attach 回放子 Agent；
 - 时钟/seed 注入、`agent_version`、真实 5xx 服务端注入；跨任务队列调度。
+
+## 计划模式 P0/P1 增强（2026-11-08）
+
+**用户获得什么**：
+- 会话级 plan mode：`/plan on|off|status`；开启后下一条普通消息自动创建 `mode=plan` 的只读 run，
+  批准计划后自动关闭；TUI 标题/hint/placeholder 显示“计划模式”与 pending 状态。
+- plan run 注入部署方可配置的规划提示词（`VIBE_PLAN_POLICY` / `VIBE_PLAN_POLICY_FILE`）：
+  只读探索、decision-complete 清单、对话同意不算批准、`submit_plan` 必须最后调用；
+  `submit_plan` 成功后规划 run 立即收尾（同批剩余工具记 `not_executed`）。
+- 审阅三态：`approve` / `request-changes`（反馈写入 v+1 draft 的 `review_feedback`）/
+  `dismiss`，以及 `plan markdown` Markdown 审阅稿；draft 可由用户显式批准
+  （stdio 内部先补 `propose_plan`，hash/stale/TTL 语义保留）。
+- 分层：新增 `plan_mode.py`（会话状态）、`plan_policy.py`（提示词）、`plan_review.py`
+  （审阅动作），stdio 只做编排；plan profile 的硬只读工具边界不变。
+- P2 后续方向（工具目录稳定/prompt cache、事件投影与多端 pending、子 Agent/fork 语义、
+  模式抽象）记录到 [roadmap](roadmap.md#计划模式后续方向p22026-11-08-记录)。
+
+**验证证据**：
+- Python 全量 **1663 collected / 1650 passed / 13 skipped**，`./run_tests.sh -q` 退出 0；
+  新增 `tests/test_plan_policy.py`、`test_plan_mode.py`、`test_plan_review.py`、
+  `test_agent_terminal_tool.py`、`test_stdio_plan_mode.py`。
+- TUI `cd tui && npm test`：**427 tests / 426 pass / 1 fail**；唯一失败为
+  `interactive CLI enters and restores the alternate screen`，原因是沙箱
+  `OSError: out of pty devices`，改动前基线（414/415）同样存在；新增 plan_mode 帧、
+  新命令参数、覆盖层 `r`/`m`、标题/hint 状态测试。
+- 本切片为确定性/协议层验证；真实模型 plan 链路沿用 2026-11-07 真实 P1 记录，
+  未在本次重新跑真实 provider。
+
+**已知 UX 债务 / 下一轮优先**：同日复盘发现 `/plan on` 等命令式模式暴露内部状态、
+`request-changes` 不驱动模型修订、批准与执行分离、审阅不是第一类界面对象等；
+缺陷清单、目标交互模型与 P0/P1/P2 落地方案见
+[计划模式 UX 复盘与改进方案](specs/plan-ux.md)。本切片未实现交互重设计。

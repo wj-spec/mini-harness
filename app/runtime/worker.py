@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from app.runtime.approvals import ApprovalError, ApprovalInbox
+from app.runtime.attach_inspection import AttachInspection, task_file_source
 from app.runtime.goals import GoalStore, continue_decision, goal_prompt
 from app.runtime.notifications import notify
 from app.safety.unattended import (
@@ -504,6 +505,8 @@ class Worker:
                 await asyncio.gather(heartbeat_task, return_exceptions=True)
             if server is not None:
                 server.close()
+                for writer in tuple(self.clients):
+                    writer.close()
                 await server.wait_closed()
             try:
                 sock_path.unlink(missing_ok=True)
@@ -861,6 +864,7 @@ class Worker:
     async def _client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         mode = "observe"
         take_control = False
+        inspection = AttachInspection(self.session_root, self.task_id)
         try:
             first = await asyncio.wait_for(reader.readline(), 10)
             if not first:
@@ -879,7 +883,7 @@ class Worker:
                 str(item) for item in handshake.get("capabilities", [])
                 if isinstance(item, str)
             } if isinstance(handshake.get("capabilities", []), list) else set()
-            negotiated = ["task_snapshot", "approval_list", "approval_decide", "control_lease"]
+            negotiated = ["task_snapshot", "approval_list", "approval_decide", "control_lease", "inspection-history", "plan-review"]
             capabilities = capabilities or set()
             if mode not in {"control", "observe"}:
                 await self._send_writer(writer, {
@@ -909,7 +913,7 @@ class Worker:
                 "v": 1, "type": "attach_ok", "id": None, "mode": mode,
                 "capabilities": [item for item in negotiated if item in capabilities],
             })
-            if "task_snapshot" in capabilities:
+            if "task_snapshot" in capabilities and "inspection-history" not in capabilities:
                 await self._send_snapshot(writer)
             events_path = self.task_dir / WORKER_EVENTS_FILE
             async with self.events_lock:
@@ -918,6 +922,8 @@ class Worker:
                     for line in raw_lines:
                         writer.write((line.rstrip("\n") + "\n").encode("utf-8"))
                     await writer.drain()
+                if "task_snapshot" in capabilities and "inspection-history" in capabilities:
+                    await self._send_snapshot(writer)
                 # 回放完成后再加入 live 集合，锁保证回放快照与 live 分界。
                 self.clients.add(writer)
             while True:
@@ -941,6 +947,10 @@ class Worker:
                     continue
                 if frame.get("type") == "approval_list_request":
                     await self._send_approval_list(writer, frame.get("id"))
+                    continue
+                query_result = inspection.handle(frame)
+                if query_result is not None:
+                    await self._send_writer(writer, query_result)
                     continue
                 if mode == "observe":
                     await self._send_writer(writer, {
@@ -1030,6 +1040,7 @@ class Worker:
             pending = []
         await self._send_writer(writer, {
             "v": 1, "type": "task_snapshot", "id": None,
+            "file_source": task_file_source(self.task_dir, self.workspace),
             "task": {
                 "task_id": task.task_id, "kind": task.kind, "status": task.status,
                 "segment": task.segments[-1].segment if task.segments else 0,
@@ -1084,104 +1095,141 @@ def run_worker(session_root: Path, task_id: str, workspace: Path,
         return 130
 
 
+def _inspection_stdout(frame):
+    sys.stdout.write(json.dumps(frame, ensure_ascii=False) + "\n")
+    sys.stdout.flush()
+
+
+async def _offline_attach(inspection, mode):
+    for frame in inspection.bootstrap(offline=True, control=False):
+        _inspection_stdout(frame)
+    if mode == 'observe':
+        _inspection_stdout(inspection.handle({'v': 1, 'type': 'command', 'id': 'attach-history', 'command': 'inspections'}))
+        return 0
+    loop = asyncio.get_running_loop()
+    while line := await loop.run_in_executor(None, sys.stdin.readline):
+        try:
+            frame = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(frame, dict):
+            continue
+        if frame.get('type') == 'shutdown':
+            break
+        result = inspection.handle(frame)
+        _inspection_stdout(result if result is not None else {'v': 1, 'type': 'error', 'id': frame.get('id'),
+            'code': 'attach_readonly', 'message': '离线结果只读，不会启动或控制任务'})
+    return 0
+
+
 async def _attach_async(session_root: Path, task_id: str, *, mode: str = "observe", take_control: bool = False) -> int:
     store = TaskStore(session_root)
     task_dir = store.task_dir(task_id)
+    inspection = AttachInspection(session_root, task_id)
     path = socket_path(task_dir, task_id)
-    if not path.exists():
-        detail = ""
-        try:
-            task = store.get(task_id)
-            state = read_worker_state(task_dir)
-            detail = f" task={task.status} worker={state.status if state else 'none'}"
-        except Exception:
-            pass
-        print(
-            f"worker socket not found: {path}{detail}; "
-            "the worker is not running—rerun --worker for this task before attaching",
-            file=sys.stderr,
-        )
-        return 1
     try:
-        reader, writer = await asyncio.open_unix_connection(str(path))
+        reader, writer = await asyncio.open_unix_connection(str(path), limit=1024 * 1024 + 1)
     except OSError as exc:
-        print(f"cannot attach: {exc}", file=sys.stderr)
+        try:
+            saved = inspection.store.page(task_id=task_id, limit=1)
+            readable = bool(saved['records'] or saved['skipped'])
+        except OSError:
+            readable = False
+        if readable:
+            return await _offline_attach(inspection, mode)
+        print(f"worker socket not found or unavailable: {path}; no saved inspection results: {exc}", file=sys.stderr)
         return 1
-
     try:
         writer.write((json.dumps({
             "v": 1, "type": "attach", "id": f"attach-{uuid.uuid4().hex[:8]}",
             "mode": mode, "take_control": take_control,
-            "capabilities": ["task_snapshot", "approval_list", "approval_decide", "control_lease"],
+            "capabilities": ["task_snapshot", "approval_list", "approval_decide", "control_lease", "inspection-history", "plan-review"],
         }) + "\n").encode("utf-8"))
         await writer.drain()
-        handshake = await asyncio.wait_for(reader.readline(), 5)
-    except (OSError, asyncio.TimeoutError) as exc:
+        reply = json.loads((await asyncio.wait_for(reader.readline(), 5)).decode('utf-8'))
+        if not isinstance(reply, dict) or reply.get('type') != 'attach_ok':
+            print(f"attach denied: {reply.get('message') if isinstance(reply, dict) else 'invalid handshake'}", file=sys.stderr)
+            writer.close()
+            return 2
+    except (OSError, ValueError, asyncio.TimeoutError) as exc:
         print(f"attach handshake failed: {exc}", file=sys.stderr)
         writer.close()
         return 1
-    if not handshake:
-        print("attach handshake closed", file=sys.stderr)
-        writer.close()
-        return 1
-    try:
-        reply = json.loads(handshake.decode("utf-8", errors="replace"))
-    except json.JSONDecodeError:
-        print("attach handshake returned invalid JSON", file=sys.stderr)
-        writer.close()
-        return 1
-    if reply.get("type") == "error":
-        print(f"attach denied: {reply.get('message')}", file=sys.stderr)
-        writer.close()
-        return 2
+    online = True
+    for frame in inspection.bootstrap(offline=False, control=mode == 'control'):
+        _inspection_stdout(frame)
 
-    async def output() -> None:
-        while True:
-            line = await reader.readline()
-            if not line:
-                return
-            sys.stdout.write(line.decode("utf-8", errors="replace"))
-            sys.stdout.flush()
+    def disconnected():
+        nonlocal online
+        if not online:
+            return
+        online = False
+        for frame in inspection.bootstrap(offline=True, control=False):
+            _inspection_stdout(frame)
 
-    async def input_pump() -> None:
+    async def output():
+        try:
+            while line := await reader.readline():
+                try:
+                    frame = json.loads(line)
+                except ValueError:
+                    continue
+                # 主会话身份由 attach 固定，旧 ready/closed 不得重置或关闭检查视图。
+                if isinstance(frame, dict) and frame.get('type') not in {'ready', 'closed'}:
+                    _inspection_stdout(frame)
+        except (ConnectionError, OSError, ValueError):
+            pass
+        disconnected()
+
+    async def input_pump():
         loop = asyncio.get_running_loop()
-        while True:
-            line = await loop.run_in_executor(None, sys.stdin.readline)
-            if not line:
+        while line := await loop.run_in_executor(None, sys.stdin.readline):
+            try:
+                frame = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(frame, dict):
+                continue
+            if frame.get('type') == 'shutdown':
                 return
-            text = line.strip()
-            if not text:
+            result = inspection.handle(frame)
+            if result is not None:
+                _inspection_stdout(result)
+                continue
+            if not online:
+                _inspection_stdout({'v': 1, 'type': 'error', 'id': frame.get('id'), 'code': 'attach_readonly',
+                                    'message': '离线结果只读，不会启动或控制任务'})
                 continue
             try:
-                frame = json.loads(text)
-            except json.JSONDecodeError:
-                frame = None
-            if isinstance(frame, dict) and frame.get("type") == "shutdown":
-                # 这是 TUI 后端关闭 attach 中继的信号；只断开，不传给 worker。
-                return
-            writer.write((text + "\n").encode("utf-8"))
-            await writer.drain()
-
-    try:
-        async def heartbeats() -> None:
-            while True:
-                await asyncio.sleep(10.0)
-                writer.write((json.dumps({
-                    "v": 1, "type": "attach_heartbeat",
-                    "id": f"hb-{uuid.uuid4().hex[:8]}",
-                }) + "\n").encode("utf-8"))
+                writer.write((line.rstrip('\n') + '\n').encode('utf-8'))
                 await writer.drain()
+            except (ConnectionError, OSError):
+                disconnected()
+                _inspection_stdout({'v': 1, 'type': 'error', 'id': frame.get('id'), 'code': 'attach_disconnected',
+                                    'message': '连接已断开，操作结果未确认；未自动重试'})
 
-        tasks = [asyncio.create_task(output())]
-        if mode == "control":
-            tasks.append(asyncio.create_task(input_pump()))
+    async def heartbeats():
+        while online:
+            await asyncio.sleep(10)
+            if not online:
+                break
+            try:
+                writer.write((json.dumps({'v': 1, 'type': 'attach_heartbeat', 'id': f'hb-{uuid.uuid4().hex[:8]}'}) + '\n').encode())
+                await writer.drain()
+            except (ConnectionError, OSError):
+                disconnected()
+
+    tasks = [asyncio.create_task(output())]
+    try:
+        if mode == 'control':
             tasks.append(asyncio.create_task(heartbeats()))
-        await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            await input_pump()
+        else:
+            await tasks[0]
     finally:
-        for task in locals().get("tasks", []):
+        for task in tasks:
             task.cancel()
-        if "tasks" in locals():
-            await asyncio.gather(*tasks, return_exceptions=True)
+        await asyncio.gather(*tasks, return_exceptions=True)
         writer.close()
         try:
             await writer.wait_closed()

@@ -111,6 +111,31 @@ def test_meta_write_is_atomic(store, tmp_path, monkeypatch):
     assert not (store.task_dir(record.task_id) / "meta.json.tmp").exists()
 
 
+def test_task_meta_does_not_follow_an_existing_temporary_symlink(store, tmp_path):
+    record = _create(store, tmp_path)
+    victim = tmp_path / "unrelated.txt"
+    victim.write_text("keep me")
+    temporary = store.task_dir(record.task_id) / "meta.json.tmp"
+    temporary.symlink_to(victim)
+    store.transition(record.task_id, "running")
+    assert victim.read_text() == "keep me"
+    assert temporary.is_symlink()
+    assert store.get(record.task_id).status == "running"
+
+
+def test_task_meta_sync_failure_keeps_the_previous_state(store, tmp_path, monkeypatch):
+    record = _create(store, tmp_path)
+
+    def sync_failed(fd):
+        raise OSError("cannot persist metadata")
+
+    monkeypatch.setattr(os, "fsync", sync_failed)
+    with pytest.raises(TaskIOError, match="persist"):
+        store.transition(record.task_id, "running")
+    assert store.get(record.task_id).status == "created"
+    assert not list(store.task_dir(record.task_id).glob("*.tmp"))
+
+
 def test_corrupt_meta_and_invalid_dirs_are_skipped(store, tmp_path):
     good = _create(store, tmp_path)
     bad = _create(store, tmp_path)
@@ -295,3 +320,24 @@ def test_queue_transitions(store, tmp_path):
     assert queued.status == "queued"
     running = store.transition(record.task_id, "running", reason="run_start")
     assert running.status == "running"
+def test_preparation_recovery_refuses_a_fifo_lock_without_blocking(tmp_path):
+    import os
+    import subprocess
+    import sys
+
+    store = TaskStore(tmp_path / "session")
+    task = store.create(kind="run", objective="恢复准备", workspace=str(tmp_path))
+    os.mkfifo(store.task_dir(task.task_id) / "lock")
+    script = """
+import sys
+from app.runtime.tasks import TaskStore, TaskError
+try:
+    TaskStore(sys.argv[1]).recover_preparation(sys.argv[2])
+except TaskError:
+    raise SystemExit(0)
+raise SystemExit(1)
+"""
+    result = subprocess.run([sys.executable, "-c", script, str(store.root), task.task_id],
+                            capture_output=True, text=True, timeout=2)
+    assert result.returncode == 0, result.stderr
+    assert (store.task_dir(task.task_id) / "lock").exists()

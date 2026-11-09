@@ -12,7 +12,7 @@ const skills: SkillInfo[] = [
 test('skill menu activates inactive skills and unloads active ones', () => {
   const menu = buildSkillMenu('/skills', skills);
   assert.ok(menu);
-  assert.deepEqual(menu.matches, ['/skills activate ponytail', '/skills activate tdd', '/skills unload old']);
+  assert.deepEqual(menu.matches, ['/skills', '/skills activate ponytail', '/skills activate tdd', '/skills unload old']);
   assert.match(menu.descriptions['/skills activate ponytail']!, /精简实现/);
   assert.match(menu.descriptions['/skills unload old']!, /已激活/);
 });

@@ -1,3 +1,5 @@
+import {validInspectionSnapshot, validFileSource, type FileSource, type InspectionSnapshot} from './inspection.js';
+
 export const MAX_FRAME_BYTES = 1024 * 1024;
 
 export interface ToolCall {
@@ -16,28 +18,118 @@ export const AUTONOMY_LABELS: Record<AutonomyLevel, string> = {
   workspace: '工作区自动（写入+执行）',
   full: '完全执行（写入+执行+网络）',
 };
-export const BACKEND_COMMANDS = ['resume', 'permissions', 'permissions_reset', 'cost', 'tools', 'diff', 'mcp', 'skills', 'evidence', 'autonomy', 'tasks', 'approvals', 'plan', 'explore', 'notifications', 'trace', 'priority', 'queue'] as const;
-export const COMMAND_COMPLETIONS = ['/help', '/resume', '/context', '/continue', '/cost', '/tools', '/diff', '/permissions',
-  '/permissions reset', '/mcp', '/skills', '/goal', '/task', '/tasks', '/approvals', '/session', '/theme', '/followup', '/copy', '/project', '/about', '/sidebar', '/sidebar split', '/sidebar quick', '/sidebar window', '/sidebar setup', '/evidence', '/trace', '/priority', '/queue', '/autonomy', '/chat', '/act', '/plan', '/explore', '/notifications', '/quit', '/exit'] as const;
-export const COMMAND_DESCRIPTIONS: Record<string, string> = {
-  '/help': '查看操作帮助', '/resume': '继续已保存的任务', '/context': '查看上下文与预算', '/continue': '同 /resume，继续任务',
-  '/cost': '查看本轮与会话成本', '/tools': '查看工具调用统计', '/diff': '查看工作区改动', '/permissions': '查看审批规则',
-  '/permissions reset': '恢复默认审批规则', '/mcp': '查看 MCP 服务', '/skills': '技能菜单（↑↓ 选择，Tab 补全）', '/goal': '目标模式：长任务自动续段', '/session': '查看会话路径',
-  '/theme': '切换主题', '/followup': '排队后续任务', '/task': '查看当前会话任务与 worker', '/tasks': '查看当前会话任务与 worker', '/approvals': '查看待审批收件箱', '/copy': '复制最近回复', '/project': '管理项目背景',
-  '/about': '管理个人偏好', '/sidebar': '打开右侧变更侧栏', '/sidebar split': '窗口内右侧分屏（跟随窗口）', '/sidebar quick': '屏幕右侧 quick terminal（不挤占）', '/sidebar window': '独立窗口模式（手动摆位）', '/sidebar setup': '写入 Ghostty 右侧配置', '/evidence': '查看最近一轮验收证据', '/trace': '查看会话 trace 观测摘要（可 /trace 24）', '/priority': '调整待运行任务的队列优先级', '/queue': '查看待运行计划任务队列', '/autonomy': '查看或切换授权档位', '/chat': 'chat 模式：只对话不调用工具', '/act': 'act 模式：正常工具执行', '/plan': 'plan 模式：只读规划；无参数查看最近计划', '/explore': '只读子 Agent 探索', '/notifications': '查看后台任务通知', '/quit': '退出', '/exit': '退出',
-};
-export function commandMatches(value: string): string[] {
-  return value.startsWith('/') && !value.includes('\n') ? COMMAND_COMPLETIONS.filter(command => command.startsWith(value)) : [];
-}
+export const BACKEND_COMMANDS = ['resume', 'permissions', 'permissions_reset', 'cost', 'tools', 'diff', 'mcp', 'skills', 'evidence', 'autonomy', 'tasks', 'approvals', 'plan', 'explore', 'notifications', 'trace', 'priority', 'queue', 'inspections', 'sessions'] as const;
+export {COMMAND_COMPLETIONS, COMMAND_DESCRIPTIONS, commandMatches} from './commands.js';
 export type BackendCommand = typeof BACKEND_COMMANDS[number];
 export type SkillsCommandArgs = {action?: 'list' | 'refresh' | 'activate' | 'unload'; name?: string};
+export type InspectionHistoryArgs = {cursor?: string; task_id?: string};
+export type TaskCatalogArgs = {cursor?: string};
+export type SessionCatalogRow = {session_id: string; identity: string; title: string; updated_at: string;
+  message_count: number; preview: string; truncated: boolean};
+export type SessionCatalogPage = {workspace: string; session_id: string; purpose: SessionPurpose; records: SessionCatalogRow[];
+  next_cursor: string | null; skipped: number};
+export function validSessionCatalogPage(value: unknown): value is SessionCatalogPage {
+  const text = (v: unknown, length: number) => typeof v === 'string' && [...v].length <= length;
+  return record(value) && typeof value.workspace === 'string' && validId(value.session_id) &&
+    ['user', 'test'].includes(String(value.purpose)) && (value.next_cursor === null || taskCatalogCursor(value.next_cursor)) &&
+    Number.isSafeInteger(value.skipped) && Number(value.skipped) >= 0 &&
+    Array.isArray(value.records) && value.records.length <= 5 && value.records.every(item => record(item) &&
+      validId(item.session_id) && typeof item.identity === 'string' && /^[0-9a-f]{64}$/.test(item.identity) &&
+      text(item.title, 1000) && text(item.updated_at, 128) && text(item.preview, 6000) &&
+      Number.isSafeInteger(item.message_count) && Number(item.message_count) >= 0 && typeof item.truncated === 'boolean');
+}
+export type TaskCatalogRow = {task_id: string; objective: string; kind: string; mode: string; status: string; priority: number;
+  controls?: {attach: 'live' | 'offline' | null; attach_reason: string | null; stop: boolean; stop_reason: string | null};
+  created_at: string; updated_at: string; pending_approvals: number | null; worker_error: string | null;
+  worker: {status: string; foreign_host: boolean; pid_alive: boolean | null; stale: boolean | null} | null};
+export type TaskCatalogPage = {workspace: string; session_id: string; records: TaskCatalogRow[];
+  next_cursor: string | null; skipped: number; problems: string[]};
+export const taskCatalogCursor = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9_-]{1,512}$/.test(value);
+export function validateTaskCatalogArgs(value: unknown): asserts value is TaskCatalogArgs {
+  if (!record(value) || Object.keys(value).some(key => key !== 'cursor') ||
+      'cursor' in value && !taskCatalogCursor(value.cursor)) throw new Error('任务目录参数无效');
+}
+export function validTaskCatalogPage(value: unknown): value is TaskCatalogPage {
+  const boundedText = (text: unknown, limit: number) => typeof text === 'string' && [...text].length <= limit;
+  const shortText = (text: unknown) => typeof text === 'string' && text.length > 0 && boundedText(text, 64);
+  if (!record(value) || typeof value.workspace !== 'string' || !validId(value.session_id) ||
+      value.next_cursor !== null && !taskCatalogCursor(value.next_cursor) ||
+      !Number.isSafeInteger(value.skipped) || Number(value.skipped) < 0 ||
+      !Array.isArray(value.problems) || value.problems.length > 3 || value.problems.some(text => !boundedText(text, 500)) ||
+      !Array.isArray(value.records) || value.records.length > 5) return false;
+  return value.records.every(item => record(item) && validId(item.task_id) && typeof item.objective === 'string' &&
+    Boolean(item.objective.trim()) && boundedText(item.objective, 4000) &&
+    ['kind', 'mode', 'status', 'created_at', 'updated_at'].every(key => shortText(item[key])) &&
+    Number.isSafeInteger(item.priority) && Number(item.priority) >= 0 && Number(item.priority) <= 100 &&
+    (item.pending_approvals === null || Number.isSafeInteger(item.pending_approvals) && Number(item.pending_approvals) >= 0) &&
+    (item.worker_error === null || boundedText(item.worker_error, 500)) &&
+    (item.controls === undefined || record(item.controls) && [null, 'live', 'offline'].includes(item.controls.attach as string | null) &&
+      typeof item.controls.stop === 'boolean' && (item.controls.attach_reason === null || boundedText(item.controls.attach_reason, 500)) &&
+      (item.controls.stop_reason === null || boundedText(item.controls.stop_reason, 500))) &&
+    (item.worker === null || record(item.worker) && shortText(item.worker.status) && typeof item.worker.foreign_host === 'boolean' &&
+      (item.worker.foreign_host ? item.worker.pid_alive === null && item.worker.stale === null :
+        typeof item.worker.pid_alive === 'boolean' && typeof item.worker.stale === 'boolean'))) &&
+    new Set(value.records.map(item => item.task_id)).size === value.records.length;
+}
+export type InspectionHistoryPage = {workspace: string; session_id: string; task_id?: string; records: InspectionSnapshot[]; next_cursor: string | null; skipped: number};
+export const inspectionCursor = (value: unknown): value is string => typeof value === 'string' && /^\d{20}-[0-9a-f]{64}\.json$/.test(value);
+export function validateInspectionArgs(value: unknown): asserts value is InspectionHistoryArgs {
+  if (!record(value) || Object.keys(value).some(key => !['cursor', 'task_id'].includes(key)) ||
+      value.cursor !== undefined && !inspectionCursor(value.cursor) || value.task_id !== undefined && !validId(value.task_id)) throw new Error('历史查询参数无效');
+}
 export type AutonomyCommandArgs = {level: AutonomyLevel};
-export type PlanCommandArgs = {action?: 'show' | 'list' | 'step' | 'edit-step' | 'diff' | 'acceptance' | 'card' | 'prepare-background' | 'approve' | 'reject' | 'revise'; objective?: string; step_id?: string; title?: string; kind?: 'read' | 'edit' | 'run' | 'verify'; files?: string[]; depends_on?: string[]; version_a?: number; version_b?: number};
+export interface ReviewRef {
+  session_id: string;
+  plan_task_id: string;
+  plan_id: string;
+  plan_version: number;
+  plan_hash: string;
+}
+export function reviewKey(target: ReviewRef): string {
+  return JSON.stringify([target.session_id, target.plan_task_id, target.plan_id, target.plan_version, target.plan_hash]);
+}
+export type ReviewAction = 'approve-execute' | 'approve-only' | 'dismiss';
+export type PlanReviewArgs = {action: 'review'; target?: ReviewRef; cursor?: number}
+  | {action: 'approve-execute' | 'approve' | 'dismiss'; target: ReviewRef};
+export type PlanRevisionArgs = {action: 'request-changes' | 'query-revision'; target: ReviewRef; feedback: string}
+  | {action: 'resume-revision'; target: ReviewRef; feedback: string; expected_segment: number};
+export type PlanRevisionHistoryArgs = {action: 'list-revisions'; target: ReviewRef; cursor?: string};
+export type PlanCommandArgs = PlanReviewArgs | PlanRevisionArgs | PlanRevisionHistoryArgs | {action?: 'show' | 'list' | 'step' | 'edit-step' | 'diff' | 'acceptance' | 'card' | 'prepare-background' | 'approve' | 'reject' | 'revise' | 'mode-on' | 'mode-off' | 'mode-status' | 'request-changes' | 'dismiss' | 'markdown'; objective?: string; step_id?: string; title?: string; kind?: 'read' | 'edit' | 'run' | 'verify'; files?: string[]; depends_on?: string[]; version_a?: number; version_b?: number; feedback?: string};
+
+export interface PlanRevisionResult {
+  outcome: 'absent' | 'pending' | 'running' | 'paused' | 'incomplete' | 'submitted' | 'unavailable';
+  code: string | null; message: string; target: ReviewRef | null; result_target: ReviewRef | null;
+  revision_id: string | null; feedback: string;
+  task: {task_id: string; status: string; segment: number; run_id: string | null; run_started: boolean} | null;
+}
+
+export interface PlanRevisionHistory {
+  target: ReviewRef | null; records: PlanRevisionResult[]; next_cursor: string | null;
+  code: string | null; message: string;
+}
+
+interface ReviewSummary {
+  objective: string; status: string; executable: boolean;
+  step_count: number; criterion_count: number; question_count: number;
+}
+interface ReviewContent {
+  target: ReviewRef | null; replacement_target: ReviewRef | null;
+  code: string | null; message: string; summary: ReviewSummary | null;
+  body_page: string; next_cursor: number | null; available_actions: ReviewAction[];
+}
+export type PlanReviewResult = ReviewContent & (
+  | {outcome: 'ready' | 'approved' | 'dismissed'; target: ReviewRef; summary: ReviewSummary; launch: null}
+  | {outcome: 'unavailable'; code: string; launch: null; available_actions: []}
+  | {outcome: 'approved_not_started'; target: ReviewRef; launch: {
+    task_id: string; run_id: null; segment: 0; status: string; run_started: false}}
+  | {outcome: 'launched'; target: ReviewRef; available_actions: []; launch: {
+    task_id: string; run_id: string; segment: number; status: string; run_started: boolean}}
+);
 export type ExploreCommandArgs = {prompt: string};
 export type NotificationsCommandArgs = {kind?: string};
 export type TraceCommandArgs = {hours?: number};
 export type PriorityCommandArgs = {task_id: string; priority: number};
-export type CommandArgs = SkillsCommandArgs | AutonomyCommandArgs | PlanCommandArgs | ExploreCommandArgs | NotificationsCommandArgs | TraceCommandArgs | PriorityCommandArgs;
+export type CommandArgs = SkillsCommandArgs | AutonomyCommandArgs | PlanCommandArgs | ExploreCommandArgs | NotificationsCommandArgs | TraceCommandArgs | PriorityCommandArgs | InspectionHistoryArgs | TaskCatalogArgs;
 export function validateNotificationsArgs(value: unknown): asserts value is NotificationsCommandArgs {
   if (!record(value) || Object.keys(value).some(key => key !== 'kind') ||
       (value.kind !== undefined && (typeof value.kind !== 'string' || !value.kind.trim()))) {
@@ -66,8 +158,38 @@ export function validateExploreArgs(value: unknown): asserts value is ExploreCom
   }
 }
 export function validatePlanArgs(value: unknown): asserts value is PlanCommandArgs {
-  if (!record(value) || Object.keys(value).some(key => !['action', 'objective', 'step_id', 'title', 'kind', 'files', 'depends_on', 'version_a', 'version_b'].includes(key)) ||
-      (value.action !== undefined && !['show', 'list', 'step', 'edit-step', 'diff', 'acceptance', 'card', 'prepare-background', 'approve', 'reject', 'revise'].includes(String(value.action))) ||
+  if (record(value) && value.action === 'list-revisions') {
+    if (Object.keys(value).some(key => !['action', 'target', 'cursor'].includes(key)) || !reviewRef(value.target) ||
+        ('cursor' in value && (typeof value.cursor !== 'string' || !/^[0-9a-f]{64}$/.test(value.cursor)))) {
+      throw new Error('修订记录需要准确 target 和有效 cursor');
+    }
+    return;
+  }
+  if (record(value) && (value.action === 'query-revision' || value.action === 'resume-revision' ||
+      (value.action === 'request-changes' && 'target' in value))) {
+    const resume = value.action === 'resume-revision';
+    const keys = resume ? ['action', 'target', 'feedback', 'expected_segment'] : ['action', 'target', 'feedback'];
+    if (Object.keys(value).length !== keys.length || Object.keys(value).some(key => !keys.includes(key)) ||
+        !reviewRef(value.target) || typeof value.feedback !== 'string' || !value.feedback.trim() ||
+        Array.from(value.feedback.trim()).length > 4000 ||
+        (resume && (!nonnegativeInteger(value.expected_segment) || value.expected_segment < 1))) {
+      throw new Error('plan 修订需要准确 target、1–4000 字反馈；续做须指定已观察的 segment');
+    }
+    return;
+  }
+  if (record(value) && (value.action === 'review' || value.action === 'approve-execute' || 'target' in value)) {
+    const query = value.action === 'review';
+    const keys = query ? ['action', 'target', 'cursor'] : ['action', 'target'];
+    if (!['review', 'approve-execute', 'approve', 'dismiss'].includes(String(value.action)) ||
+        Object.keys(value).some(key => !keys.includes(key)) ||
+        ((!query || 'target' in value) && !reviewRef(value.target)) ||
+        ('cursor' in value && (!nonnegativeInteger(value.cursor) || (!value.target && value.cursor !== 0)))) {
+      throw new Error('plan 参数无效：审阅动作需要准确 target 和有效 cursor');
+    }
+    return;
+  }
+  if (!record(value) || Object.keys(value).some(key => !['action', 'objective', 'step_id', 'title', 'kind', 'files', 'depends_on', 'version_a', 'version_b', 'feedback'].includes(key)) ||
+      (value.action !== undefined && !['show', 'list', 'step', 'edit-step', 'diff', 'acceptance', 'card', 'prepare-background', 'approve', 'reject', 'revise', 'mode-on', 'mode-off', 'mode-status', 'request-changes', 'dismiss', 'markdown'].includes(String(value.action))) ||
       (value.objective !== undefined && (typeof value.objective !== 'string' || !value.objective.trim())) ||
       (value.step_id !== undefined && (typeof value.step_id !== 'string' || !value.step_id.trim())) ||
       (value.kind !== undefined && !['read', 'edit', 'run', 'verify'].includes(String(value.kind))) ||
@@ -77,10 +199,12 @@ export function validatePlanArgs(value: unknown): asserts value is PlanCommandAr
         value.depends_on.some(item => typeof item !== 'string' || !item.trim()))) ||
       (value.version_a !== undefined && (typeof value.version_a !== 'number' || !Number.isSafeInteger(value.version_a) || value.version_a < 1)) ||
       (value.version_b !== undefined && (typeof value.version_b !== 'number' || !Number.isSafeInteger(value.version_b) || value.version_b < 1)) ||
+      (value.feedback !== undefined && (typeof value.feedback !== 'string' || !value.feedback.trim() || value.action !== 'request-changes')) ||
       (value.action === 'revise' && typeof value.objective !== 'string') ||
       (value.action === 'step' && typeof value.step_id !== 'string') ||
+      (value.action === 'request-changes' && typeof value.feedback !== 'string') ||
       (value.action === 'diff' && (typeof value.version_a !== 'number' || typeof value.version_b !== 'number'))) {
-    throw new Error('plan 参数只允许 action=show|list|step|edit-step|diff|acceptance|approve|reject|revise');
+    throw new Error('plan 参数无效：支持 show|list|step|edit-step|diff|acceptance|card|prepare-background|approve|reject|revise|mode-on|mode-off|mode-status|request-changes|dismiss|markdown');
   }
 }
 export function validateAutonomyArgs(value: unknown): asserts value is AutonomyCommandArgs {
@@ -223,6 +347,9 @@ export interface TaskSnapshot {
   objective: string;
   goal_id: string | null;
   updated_at: string;
+  mode?: string;
+  plan_id?: string | null;
+  plan_version?: number | null;
 }
 
 export interface RunMetrics {
@@ -275,6 +402,12 @@ export interface ContextSnapshot {
   section_deltas: ContextCounts;
 }
 
+export interface PlanModeState {
+  active: boolean;
+  pending: boolean;
+  wanted: boolean | null;
+}
+
 type Envelope<T extends string, P = Record<never, never>> = {
   v: 1;
   type: T;
@@ -282,7 +415,14 @@ type Envelope<T extends string, P = Record<never, never>> = {
 } & P;
 
 export type ServerEvent =
-  | Envelope<'ready', {workspace: string; model: string; session_id: string; capabilities: string[]; provider?: string; session_path?: string; session_purpose?: SessionPurpose; resumed?: boolean; skills?: SkillInfo[]; autonomy?: string; autonomy_label?: string; tasks?: TaskHint[]}>
+  | Envelope<'ready', {workspace: string; model: string; session_id: string; capabilities: string[]; file_source?: FileSource | null; provider?: string; session_path?: string; session_purpose?: SessionPurpose; session_identity?: string; resumed?: boolean; skills?: SkillInfo[]; autonomy?: string; autonomy_label?: string; tasks?: TaskHint[]}>
+  | Envelope<'plan_mode', {mode: PlanModeState}>
+  | Envelope<'plan_review', PlanReviewResult>
+  | Envelope<'plan_revision', PlanRevisionResult>
+  | Envelope<'plan_revision_history', PlanRevisionHistory>
+  | Envelope<'inspection_history', InspectionHistoryPage>
+  | Envelope<'task_catalog', TaskCatalogPage>
+  | Envelope<'session_catalog', SessionCatalogPage>
   | Envelope<'history_message', {message: PersistedMessage}>
   | Envelope<'notice', {message: string}>
   | Envelope<'command_result', {command: BackendCommand; text: string; skills?: SkillInfo[]; autonomy?: string}>
@@ -297,7 +437,7 @@ export type ServerEvent =
   | Envelope<'approval_resolved', {approval_id: string; decision: ApprovalDecision}>
   | Envelope<'done', {result: RunResult}>
   | Envelope<'task_state', {task: TaskSnapshot}>
-  | Envelope<'task_snapshot', {task: AttachTaskSnapshot; approvals: AttachApprovalItem[]}>
+  | Envelope<'task_snapshot', {task: AttachTaskSnapshot; approvals: AttachApprovalItem[]; file_source?: FileSource | null}>
   | Envelope<'approval_list', {approvals: AttachApprovalItem[]}>
   | Envelope<'subagent_event', {task_id: string; status: string; summary?: string}>
   | Envelope<'ack', {action: 'cancel' | 'approval' | 'steer'}>
@@ -306,7 +446,9 @@ export type ServerEvent =
 
 export type ClientRequest = (
   | Envelope<'run', {text: string; task?: RunTaskMeta}>
-  | Envelope<'command', {command: Exclude<BackendCommand, 'skills' | 'autonomy' | 'plan' | 'explore' | 'notifications' | 'trace' | 'priority'>}>
+  | Envelope<'command', {command: Exclude<BackendCommand, 'skills' | 'autonomy' | 'plan' | 'explore' | 'notifications' | 'trace' | 'priority' | 'inspections' | 'tasks'>}>
+  | Envelope<'command', {command: 'tasks' | 'sessions'; args?: TaskCatalogArgs}>
+  | Envelope<'command', {command: 'inspections'; args?: InspectionHistoryArgs}>
   | Envelope<'command', {command: 'skills'; args?: SkillsCommandArgs}>
   | Envelope<'command', {command: 'autonomy'; args: AutonomyCommandArgs}>
   | Envelope<'command', {command: 'plan'; args?: PlanCommandArgs}>
@@ -345,7 +487,7 @@ function message(value: unknown): value is PersistedMessage {
 
 const approvalDecisions: readonly string[] = ['once', 'session', 'workspace', 'deny'];
 
-function execution(value: unknown): value is CommandExecution {
+export function execution(value: unknown): value is CommandExecution {
   if (!record(value) || !['succeeded', 'failed', 'timed_out', 'cancelled', 'unknown'].includes(String(value.status)) ||
       !(value.exit_code === null || (typeof value.exit_code === 'number' && Number.isSafeInteger(value.exit_code)))) return false;
   if (value.status === 'succeeded') return value.exit_code === 0;
@@ -483,7 +625,115 @@ function taskSnapshot(value: unknown): value is TaskSnapshot {
     typeof value.segment === 'number' && Number.isSafeInteger(value.segment) && value.segment >= 0 &&
     typeof value.objective === 'string' &&
     (value.goal_id === null || typeof value.goal_id === 'string') &&
-    typeof value.updated_at === 'string';
+    (value.plan_id === undefined || value.plan_id === null || typeof value.plan_id === 'string') &&
+    (value.plan_version === undefined || value.plan_version === null || nonnegativeInteger(value.plan_version) && value.plan_version > 0) &&
+    typeof value.updated_at === 'string' && (value.mode === undefined || typeof value.mode === 'string');
+}
+
+function nonnegativeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+export function reviewRef(value: unknown): value is ReviewRef {
+  if (!record(value) || Object.keys(value).length !== 5) return false;
+  return ['session_id', 'plan_task_id', 'plan_id'].every(key =>
+    typeof value[key] === 'string' && (value[key] as string).length > 0 &&
+    (value[key] as string).length <= 128 && (value[key] as string).trim() === value[key] &&
+    !/[\x00-\x1f]/.test(value[key] as string)) &&
+    /^t-\d{8}-\d{6}-[0-9a-f]{6}$/.test(String(value.plan_task_id)) &&
+    nonnegativeInteger(value.plan_version) && value.plan_version > 0 &&
+    typeof value.plan_hash === 'string' && /^[0-9a-f]{64}$/.test(value.plan_hash);
+}
+
+function reviewSummary(value: unknown): value is ReviewSummary {
+  return record(value) && Object.keys(value).length === 6 && typeof value.objective === 'string' &&
+    ['draft', 'proposed', 'approved', 'executing', 'superseded', 'legacy'].includes(String(value.status)) &&
+    typeof value.executable === 'boolean' &&
+    ['step_count', 'criterion_count', 'question_count'].every(key => nonnegativeInteger(value[key]));
+}
+
+function planReviewResult(value: Record<string, unknown>): boolean {
+  if (!validId(value.id) || !(value.target === null || reviewRef(value.target)) ||
+      !(value.replacement_target === null || reviewRef(value.replacement_target)) ||
+      !(value.code === null || (typeof value.code === 'string' && value.code.length > 0)) ||
+      typeof value.message !== 'string' || !(value.summary === null || reviewSummary(value.summary)) ||
+      typeof value.body_page !== 'string' || Array.from(value.body_page).length > 16000 ||
+      !(value.next_cursor === null || nonnegativeInteger(value.next_cursor)) ||
+      !Array.isArray(value.available_actions) || new Set(value.available_actions).size !== value.available_actions.length ||
+      !value.available_actions.every(action => ['approve-execute', 'approve-only', 'dismiss'].includes(action))) return false;
+  if (value.outcome === 'unavailable') {
+    return typeof value.code === 'string' && value.launch === null && value.available_actions.length === 0;
+  }
+  if (!reviewRef(value.target)) return false;
+  if (['ready', 'approved', 'dismissed'].includes(String(value.outcome))) {
+    return value.launch === null && reviewSummary(value.summary);
+  }
+  const launch = value.launch;
+  if (!record(launch) || Object.keys(launch).length !== 5 || typeof launch.task_id !== 'string' ||
+      !/^t-\d{8}-\d{6}-[0-9a-f]{6}$/.test(launch.task_id) || typeof launch.run_started !== 'boolean' ||
+      !['reserved', 'created', 'queued', 'running', 'paused', 'completed', 'failed', 'cancelled', 'interrupted'].includes(String(launch.status))) return false;
+  if (value.outcome === 'approved_not_started') {
+    return launch.run_id === null && launch.segment === 0 && launch.run_started === false;
+  }
+  return value.outcome === 'launched' && value.available_actions.length === 0 &&
+    validId(launch.run_id) && nonnegativeInteger(launch.segment) && launch.segment > 0 &&
+    launch.status !== 'reserved' && (!launch.run_started || launch.run_id === value.id);
+}
+
+function planRevisionResult(value: Record<string, unknown>): boolean {
+  if (!validId(value.id) || !(value.target === null || reviewRef(value.target)) ||
+      !(value.result_target === null || reviewRef(value.result_target)) ||
+      !(value.code === null || (typeof value.code === 'string' && value.code.length > 0)) ||
+      typeof value.message !== 'string' || typeof value.feedback !== 'string' ||
+      Array.from(value.feedback).length > 4000) return false;
+  if (value.outcome === 'unavailable') {
+    return typeof value.code === 'string' && value.task === null && value.result_target === null && value.revision_id === null;
+  }
+  if (!reviewRef(value.target) || !value.feedback.trim() || typeof value.revision_id !== 'string' ||
+      !/^[0-9a-f]{64}$/.test(value.revision_id)) return false;
+  if (value.outcome === 'absent') return value.task === null && value.result_target === null && value.code === null;
+  const task = value.task;
+  if (task === null) return value.outcome === 'pending' && value.result_target === null;
+  if (!record(task) || Object.keys(task).length !== 5 || typeof task.task_id !== 'string' ||
+      !/^t-\d{8}-\d{6}-[0-9a-f]{6}$/.test(task.task_id) || !nonnegativeInteger(task.segment) ||
+      typeof task.run_started !== 'boolean' ||
+      !['created', 'queued', 'running', 'paused', 'completed', 'failed', 'cancelled', 'interrupted'].includes(String(task.status))) return false;
+  if (task.segment === 0) return value.outcome === 'pending' && task.run_id === null && task.run_started === false && value.result_target === null;
+  if (!validId(task.run_id) || (task.run_started && (task.run_id !== value.id || task.status !== 'running'))) return false;
+  if (value.outcome === 'submitted') {
+    const output = value.result_target;
+    return reviewRef(output) && output.session_id === value.target.session_id && output.plan_task_id === value.target.plan_task_id &&
+      output.plan_id === value.target.plan_id && output.plan_version === value.target.plan_version + 1;
+  }
+  if (value.result_target !== null) return false;
+  if (value.outcome === 'running') return task.status === 'running';
+  if (value.outcome === 'paused') return ['paused', 'interrupted'].includes(String(task.status)) && task.run_started === false;
+  return value.outcome === 'incomplete' && value.code === 'revision_not_submitted' && task.status !== 'running' && task.run_started === false;
+}
+
+function planRevisionHistory(value: Record<string, unknown>): boolean {
+  if (!validId(value.id) || !(value.target === null || reviewRef(value.target)) ||
+      !(value.code === null || typeof value.code === 'string' && value.code.length > 0) || typeof value.message !== 'string' ||
+      !Array.isArray(value.records) || value.records.length > 10 ||
+      !(value.next_cursor === null || typeof value.next_cursor === 'string' && /^[0-9a-f]{64}$/.test(value.next_cursor))) return false;
+  if (value.code !== null) return value.records.length === 0 && value.next_cursor === null;
+  const target = value.target;
+  if (!reviewRef(target) || value.next_cursor !== null && value.records.length !== 10) return false;
+  const keys = new Set<string>();
+  return value.records.every(item => {
+    if (!record(item) || !planRevisionResult({...item, id: value.id}) || !reviewRef(item.target) ||
+        !item.feedback || record(item.task) && item.task.run_started !== false ||
+        item.target.session_id !== target.session_id || item.target.plan_task_id !== target.plan_task_id || item.target.plan_id !== target.plan_id) return false;
+    const key = JSON.stringify([reviewKey(item.target), item.feedback]);
+    if (keys.has(key)) return false;
+    keys.add(key); return true;
+  });
+}
+
+function planModeState(value: unknown): value is PlanModeState {
+  return record(value) && Object.keys(value).length === 3 &&
+    typeof value.active === 'boolean' && typeof value.pending === 'boolean' &&
+    (value.wanted === null || typeof value.wanted === 'boolean');
 }
 
 export function parseServerEvent(line: string): ServerEvent {
@@ -501,6 +751,7 @@ export function parseServerEvent(line: string): ServerEvent {
     throw new Error('后端协议版本或消息标识无效');
   }
   let valid = false;
+  if ('file_source' in value && value.file_source !== null && !validFileSource(value.file_source)) throw new Error('文件来源身份无效');
   switch (value.type) {
     case 'ready':
       valid = value.id === null && typeof value.workspace === 'string' &&
@@ -514,6 +765,19 @@ export function parseServerEvent(line: string): ServerEvent {
         (value.skills === undefined || skillList(value.skills)) &&
         (value.autonomy === undefined || autonomyLevel(value.autonomy)) &&
         (value.autonomy_label === undefined || (typeof value.autonomy_label === 'string' && value.autonomy_label.length <= 80));
+      break;
+    case 'plan_mode': valid = value.id === null && planModeState(value.mode); break;
+    case 'plan_review': valid = planReviewResult(value); break;
+    case 'plan_revision': valid = planRevisionResult(value); break;
+    case 'plan_revision_history': valid = planRevisionHistory(value); break;
+    case 'task_catalog': valid = validId(value.id) && validTaskCatalogPage(value); break;
+    case 'session_catalog': valid = validId(value.id) && validSessionCatalogPage(value); break;
+    case 'inspection_history':
+      valid = validId(value.id) && typeof value.workspace === 'string' && validId(value.session_id) &&
+        (value.task_id === undefined || validId(value.task_id)) &&
+        (value.next_cursor === null || inspectionCursor(value.next_cursor)) && Number.isSafeInteger(value.skipped) && Number(value.skipped) >= 0 &&
+        Array.isArray(value.records) && value.records.length <= 3 && value.records.every(item => validInspectionSnapshot(item) &&
+          item.workspace === value.workspace && item.sessionId === value.session_id && (value.task_id === undefined || item.scope.taskId === value.task_id));
       break;
     case 'history_message': valid = value.id === null && message(value.message); break;
     case 'notice': valid = value.id === null && typeof value.message === 'string'; break;
@@ -570,7 +834,7 @@ export function parseServerEvent(line: string): ServerEvent {
 }
 
 const booleanArgs = new Set(['--fake', '--chat-only', '--continue', '--list-sessions', '--test-session', '--sandbox', '--sandbox-network']);
-const valueArgs = new Set(['--workspace', '--provider', '--model', '--base-url', '--max-steps', '--session', '--sandbox-network-allow', '--autonomy']);
+const valueArgs = new Set(['--workspace', '--provider', '--model', '--base-url', '--max-steps', '--session', '--session-identity', '--sandbox-network-allow', '--autonomy']);
 
 export function validateClientArgs(args: readonly string[]): string[] {
   const checked: string[] = [];

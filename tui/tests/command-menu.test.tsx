@@ -12,20 +12,26 @@ afterEach(cleanup);
 
 test('every command carries an honest description', () => {
   for (const command of COMMAND_COMPLETIONS) assert.ok(COMMAND_DESCRIPTIONS[command], `${command} 缺少说明`);
-  assert.equal(commandMatches('/co').length, 4);
+  assert.deepEqual(commandMatches('/co'), ['/context', '/cost', '/copy']);
   assert.deepEqual(commandMatches('/ch'), ['/chat']);
   assert.deepEqual(commandMatches('/ac'), ['/act']);
   assert.equal(commandMatches('任务').length, 0);
+  assert.deepEqual(commandMatches('/续做任务'), ['/resume']);
+  assert.deepEqual(commandMatches('/调整授权'), ['/autonomy']);
+  assert.ok(commandMatches('/').includes('/attach') && commandMatches('/').includes('/merge') && commandMatches('/').includes('/stop-workers'));
+  assert.ok(!commandMatches('/').includes('/continue'));
+  assert.deepEqual(commandMatches('/continue'), ['/continue']);
+  assert.deepEqual(commandMatches('/plan 请查看改动并做计划'), []);
 });
 
 test('menu shows descriptions and scrolls the window with the highlight', () => {
-  const matches = [...COMMAND_COMPLETIONS];
-  const {lastFrame} = render(<CommandMenu matches={matches} index={15} rows={5} columns={80} accentColor="cyan" foregroundColor="white" secondaryColor="gray" surfaceColor="black"/>);
+  const matches = commandMatches('/');
+  const {lastFrame} = render(<CommandMenu matches={matches} index={matches.indexOf('/session')} rows={5} columns={80} accentColor="cyan" foregroundColor="white" secondaryColor="gray" surfaceColor="black"/>);
   const frame = lastFrame() ?? '';
   assert.doesNotMatch(frame, /[┌┐└┘│─╭╮╰╯]/u);
   assert.match(frame, /› \/session/);
   assert.match(frame, /查看会话路径/);
-  assert.match(frame, /\/approvals {2,}查看待审批收件箱/);
+  assert.match(frame, /\/approvals {2,}查看 · 查看待审批收件箱/);
   assert.doesNotMatch(frame, /\/help/);
   assert.doesNotMatch(frame, /\/exit/);
   for (const line of frame.split('\n')) assert.ok(stringWidth(line) <= 80, line);
@@ -43,7 +49,7 @@ async function mountMenu() {
       count: matches.length,
       index: position,
       onMove: (delta: number) => setIndex(current => (current + delta + matches.length) % matches.length),
-      onAccept: () => {const next = matches[position]; setIndex(0); values.push(next); setValue(next);},
+      onAccept: (submit = false) => {const next = matches[position]; setIndex(0); if (submit) {submitted.push(next); setValue('');} else {values.push(next); setValue(next);}},
     } : undefined;
     return <Composer columns={80} maxRows={3} value={value} onChange={next => {setIndex(0); values.push(next); setValue(next);}} onSubmit={next => {submitted.push(next); setValue('');}} history={[]} menu={menu}/>;
   }
@@ -56,12 +62,12 @@ async function mountMenu() {
 test('slash opens the menu with guidance and arrows scroll the selection', async () => {
   const {key, lastFrame} = await mountMenu();
   await key('/');
-  assert.match(lastFrame() ?? '', /↑↓ 选择 · Tab 填充 · 1\/38/);
+  assert.match(lastFrame() ?? '', /↑↓ 选择 · Enter 确认 · Tab 填充 · 1\/\d+/);
   await key('\u001b[B');
   await key('\u001b[B');
-  assert.match(lastFrame() ?? '', /3\/38/);
+  assert.match(lastFrame() ?? '', /3\/\d+/);
   await key('\u001b[A');
-  assert.match(lastFrame() ?? '', /2\/38/);
+  assert.match(lastFrame() ?? '', /2\/\d+/);
 });
 
 test('Tab fills the highlighted command while scrolling', async () => {
@@ -70,18 +76,19 @@ test('Tab fills the highlighted command while scrolling', async () => {
   await key('\u001b[B');
   await key('\u001b[B');
   await key('\t');
-  assert.equal(values.at(-1), '/project');
+  assert.equal(values.at(-1), '/priority');
   assert.deepEqual(submitted, []);
 });
 
-test('Enter always submits so command aliases keep working', async () => {
+test('Enter accepts the visible highlighted command rather than submitting its unfinished prefix', async () => {
   const {key, submitted} = await mountMenu();
   await key('/co');
+  await key('\u001b[B');
   await key('\r');
-  assert.deepEqual(submitted, ['/co']);
+  assert.deepEqual(submitted, ['/cost']);
   await key('/help');
   await key('\r');
-  assert.deepEqual(submitted, ['/co', '/help']);
+  assert.deepEqual(submitted, ['/cost', '/help']);
 });
 
 test('Enter does not steal history navigation outside the menu', async () => {

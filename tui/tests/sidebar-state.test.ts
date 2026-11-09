@@ -38,18 +38,18 @@ test('manual selection disables follow and survives refreshes', () => {
   assert.equal(state.selected, 'b.ts');
 });
 
-test('selection falls back to the first file when it disappears', () => {
+test('fixed selection retains a disappeared file until the reader accepts a change', () => {
   let state = applyWorkspace(initialSidebarState(), status([file('a.ts'), file('b.ts')]));
   state = selectDelta(state, 1);
   state = applyWorkspace(state, status([file('a.ts')]));
-  assert.equal(state.selected, 'a.ts');
+  assert.equal(state.selected, 'b.ts');
+  assert.equal(selectedFile(state), null);
 });
 
 test('follow can be toggled and resets diff scroll', () => {
   let state = applyWorkspace(initialSidebarState(), status([file('a.ts'), file('b.ts')]));
   state = scrollDiff(state, 5, 10);
   assert.equal(state.diffScroll, 5);
-  state = toggleFollow(state);
   assert.equal(state.follow, false);
   state = toggleFollow(state);
   assert.equal(state.follow, true);

@@ -5,7 +5,8 @@ import type {ContextColor, Palette, SemanticTone, SurfaceName} from './theme.js'
 import {splitCells, type SelectionCells} from './selection.js';
 
 export type Span = {text: string; bold?: boolean; code?: boolean; contextSection?: ContextColor};
-export type ReadingLine = {spans: Span[]; kind?: 'heading' | 'code' | 'label' | 'tool' | 'error' | 'notice'; tone?: SemanticTone; contextSection?: ContextColor; surface?: SurfaceName; selected?: boolean; entryId?: number};
+export type ReadingLine = {spans: Span[]; kind?: 'heading' | 'code' | 'label' | 'tool' | 'error' | 'notice'; tone?: SemanticTone; contextSection?: ContextColor; surface?: SurfaceName; selected?: boolean; entryId?: number;
+  inspectionActions?: {page: 'changes' | 'plan' | 'verification'; left: number; right: number}[]};
 const graphemes = new Intl.Segmenter(undefined, {granularity: 'grapheme'});
 
 export function visibleText(text: string): string {

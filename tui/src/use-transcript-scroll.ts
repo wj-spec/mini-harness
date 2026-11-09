@@ -1,6 +1,6 @@
 import {useEffect, useRef} from 'react';
 import {useStdin, useStdout} from 'ink';
-import {TerminalMouseParser} from './mouse.js';
+import {TerminalMouseParser, type MouseEvent} from './mouse.js';
 
 export type ScreenPoint = {row: number; column: number};
 export type BodyBounds = {top: number; bottom: number; left: number; right: number};
@@ -15,6 +15,7 @@ type TranscriptMouseOptions = {
   onDragStart?: (point: ScreenPoint) => void;
   onDragMove?: (point: ScreenPoint) => void;
   onDragEnd?: (point: ScreenPoint) => void;
+  onPointer?: (event: MouseEvent) => boolean;
   enabled?: boolean;
 };
 
@@ -47,6 +48,7 @@ export function useTranscriptMouse(options: TranscriptMouseOptions): void {
     const parser = new TerminalMouseParser();
     const handleData = (chunk: string | Uint8Array) => {
       for (const event of parser.push(chunk)) {
+        if (current.current.onPointer?.(event)) {selecting.current = false; continue;}
         const {top, bottom, left, right, body, onScroll, onDragStart, onDragMove, onDragEnd} = current.current;
         const point = {row: event.row, column: event.column};
         if (event.type === 'wheel') {

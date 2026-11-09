@@ -3,6 +3,17 @@ import test from 'node:test';
 import type {SidebarLink} from '../src/sidebar/lifecycle.js';
 import {adjustSidebarSplit, targetSidebarColumns} from '../src/sidebar/split-ratio.js';
 
+test('split adjustment ignores another instance even when parent and workspace match', async () => {
+  const owner = {instanceId: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa', parentPid: process.pid};
+  const other = {...owner, instanceId: 'bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb'};
+  const result = await adjustSidebarSplit({workspace: '/repo', totalColumns: 170, owner, timeoutMs: 5,
+    readLink: () => ({pid: 1, parentPid: process.pid, columns: 85, owner: other}),
+    resize: () => {throw new Error('must not resize a different instance');},
+    wait: () => new Promise(resolve => setTimeout(resolve, 1)),
+  });
+  assert.equal(result, null);
+});
+
 test('target columns keep the sidebar at roughly 30% of the window', () => {
   assert.equal(targetSidebarColumns(170), 51);
   assert.equal(targetSidebarColumns(154), 46);

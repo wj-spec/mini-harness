@@ -13,7 +13,10 @@ from copy import copy, deepcopy
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
+
+if TYPE_CHECKING:
+    from app.runtime.plan import Plan
 
 from core.context import ContextBuilder
 from core.contracts import ExecutionOutcome, ToolCall
@@ -906,12 +909,14 @@ class ToolRegistry:
     def unregister(self, name: str) -> None:
         self._tools.pop(name, None)
 
-    def register_plan_tool(self, task_dir: str | Path) -> None:
+    def register_plan_tool(self, task_dir: str | Path, *, revision: Plan | None = None,
+                           feedback: str = "", revision_id: str = "", on_submitted: Callable[[Plan], None] | None = None) -> None:
         """只在 plan task 的 run 内注册 submit_plan（写任务目录产物，不碰工作区）。"""
-        from app.runtime.plan import Plan, PlanError, save_plan, propose_plan
+        from app.runtime.plan import Plan, propose_plan, propose_revision
 
         directory = Path(task_dir)
         task_id = directory.name
+        revision = deepcopy(revision)
 
         def _normalize_steps(raw_steps) -> list[dict]:
             if not isinstance(raw_steps, list):
@@ -929,6 +934,12 @@ class ToolRegistry:
                 if not normalized.get("title"):
                     normalized["title"] = str(normalized.get("description") or normalized["step_id"])
                 normalized.setdefault("kind", "read")
+                # 仅规范新提案；旧产物的缺省值与审阅 hash 保持不变。
+                minimum = {"read": "read", "edit": "write", "run": "exec", "verify": "exec"}.get(
+                    normalized["kind"], "read")
+                risk = normalized.setdefault("risk", minimum)
+                if risk == "read" or (risk == "write" and minimum == "exec"):
+                    normalized["risk"] = minimum
                 steps.append(normalized)
             return steps
 
@@ -946,6 +957,15 @@ class ToolRegistry:
         def submit_plan(**payload) -> str:
             import uuid
             steps = _normalize_steps(payload.get("steps"))
+            if revision is not None:
+                content = {**payload, "steps": steps}
+                if "acceptance_criteria" in content:
+                    content["acceptance_criteria"] = _normalize_criteria(content["acceptance_criteria"])
+                revised = propose_revision(directory, revision, content=content,
+                                           feedback=feedback, revision_id=revision_id)
+                if on_submitted:
+                    on_submitted(revised)
+                return f"plan proposed: {revised.plan_id} v{revised.version}"
             criteria = _normalize_criteria(payload.get("acceptance_criteria", []))
             plan = Plan.from_dict({
                 "schema_version": 1,
@@ -963,6 +983,8 @@ class ToolRegistry:
                 "open_questions": payload.get("open_questions", []),
             })
             propose_plan(directory, plan)
+            if on_submitted:
+                on_submitted(plan)
             try:
                 from app.runtime.notifications import notify, workspace_from_task_dir
                 notify(workspace_from_task_dir(directory), "plan_proposed",
@@ -975,7 +997,8 @@ class ToolRegistry:
             name="submit_plan",
             description=(
                 "Submit a structured plan for user review. Only available in plan mode. "
-                "The plan is saved in the task directory as proposed, not executed."
+                "The plan is saved in the task directory as proposed, not executed. "
+                "Make this your final tool call: the planning run ends after a successful submission."
             ),
             parameters={
                 "type": "object",
@@ -989,6 +1012,10 @@ class ToolRegistry:
                                 "step_id": {"type": "string", "minLength": 1},
                                 "title": {"type": "string", "minLength": 1},
                                 "kind": {"type": "string", "enum": ["read", "edit", "run", "verify"]},
+                                "risk": {
+                                    "type": "string", "enum": ["read", "write", "exec", "network"],
+                                    "description": "Review hint, not tool authorization. Defaults to read for read, write for edit, exec for run/verify; lower values are raised to the kind's minimum.",
+                                },
                                 "depends_on": {"type": "array", "items": {"type": "string"}},
                                 "files": {"type": "array", "items": {"type": "string"}},
                             },

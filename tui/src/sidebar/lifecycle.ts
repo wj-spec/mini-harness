@@ -1,8 +1,6 @@
 /** 侧栏与主 TUI 的生命周期联动：TUI 退出后侧栏自动退出，避免留下孤儿面板。 */
-import {createHash} from 'node:crypto';
-import {mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
-import {tmpdir} from 'node:os';
-import path from 'node:path';
+import {rmSync} from 'node:fs';
+import {readChannel, sameOwner, sidebarChannelPath, writeChannel, type SidebarOwner} from './channel.js';
 
 export function isProcessAlive(pid: number, kill: (pid: number, signal: 0) => boolean = (target, signal) => process.kill(target, signal)): boolean {
   if (!Number.isInteger(pid) || pid <= 0) return false;
@@ -39,52 +37,53 @@ export function watchParentPid(pid: number, onGone: () => void, options: {
   };
 }
 
-export type SidebarLink = {pid: number; parentPid: number; columns?: number; rows?: number};
+export type SidebarLink = {pid: number; parentPid: number; columns?: number; rows?: number; owner?: SidebarOwner; hasSelection?: boolean};
 
 /** 侧栏登记文件放在系统临时目录，不给目标工作区留下运行时文件。 */
-export function sidebarLinkPath(workspace: string): string {
-  const name = createHash('sha1').update(path.resolve(workspace)).digest('hex').slice(0, 16);
-  return path.join(tmpdir(), 'mini-harness-sidebar', `${name}.json`);
+export function sidebarLinkPath(workspace: string, owner?: SidebarOwner): string {
+  return sidebarChannelPath(workspace, 'link', owner);
 }
 
 export function writeSidebarLink(workspace: string, link: SidebarLink): void {
-  const file = sidebarLinkPath(workspace);
-  mkdirSync(path.dirname(file), {recursive: true});
-  writeFileSync(file, JSON.stringify(link));
+  if (link.owner && link.owner.parentPid !== link.parentPid) throw new Error('Sidebar parent does not match owner');
+  writeChannel(sidebarLinkPath(workspace, link.owner), link);
 }
 
-export function readSidebarLink(workspace: string): SidebarLink | null {
+export function readSidebarLink(workspace: string, owner?: SidebarOwner): SidebarLink | null {
   try {
-    const value = JSON.parse(readFileSync(sidebarLinkPath(workspace), 'utf8')) as Partial<SidebarLink>;
+    const value = readChannel(sidebarLinkPath(workspace, owner)) as Partial<SidebarLink> | null;
+    if (!value || owner && (!sameOwner(value.owner, owner) || value.parentPid !== owner.parentPid)) return null;
     if (!Number.isSafeInteger(value.pid) || !Number.isSafeInteger(value.parentPid)) return null;
     if ((value.pid ?? 0) <= 0 || (value.parentPid ?? 0) <= 0) return null;
-    const link: SidebarLink = {pid: value.pid!, parentPid: value.parentPid!};
+    const link: SidebarLink = {pid: value.pid!, parentPid: value.parentPid!, ...(owner ? {owner} : {})};
     if (Number.isSafeInteger(value.columns) && (value.columns ?? 0) > 0) link.columns = value.columns!;
     if (Number.isSafeInteger(value.rows) && (value.rows ?? 0) > 0) link.rows = value.rows!;
+    if (value.hasSelection === true) link.hasSelection = true;
     return link;
   } catch {
     return null;
   }
 }
 
-export function removeSidebarLink(workspace: string, pid?: number): void {
-  const link = readSidebarLink(workspace);
+export function removeSidebarLink(workspace: string, pid?: number, owner?: SidebarOwner): void {
+  const link = readSidebarLink(workspace, owner);
   if (pid !== undefined && link && link.pid !== pid) return;
-  rmSync(sidebarLinkPath(workspace), {force: true});
+  rmSync(sidebarLinkPath(workspace, owner), {force: true});
 }
 
 /** 主 TUI 退出时尽量立即终止自己启动的侧栏；只有 parentPid 匹配才处理，避免误杀。 */
 export function killLinkedSidebar(workspace: string, options: {
+  owner?: SidebarOwner;
   parentPid?: number;
   alive?: (pid: number) => boolean;
   kill?: (pid: number, signal: NodeJS.Signals) => boolean;
 } = {}): boolean {
-  const parentPid = options.parentPid ?? process.pid;
-  const link = readSidebarLink(workspace);
-  if (!link || link.parentPid !== parentPid) return false;
+  const parentPid = options.parentPid ?? options.owner?.parentPid ?? process.pid;
+  const link = readSidebarLink(workspace, options.owner);
+  if (!link || link.parentPid !== parentPid || link.hasSelection) return false;
   const alive = options.alive ?? isProcessAlive;
   if (!alive(link.pid)) {
-    removeSidebarLink(workspace, link.pid);
+    removeSidebarLink(workspace, link.pid, options.owner);
     return false;
   }
   try {

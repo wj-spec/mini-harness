@@ -13,6 +13,11 @@ from collections.abc import AsyncIterable, Callable
 from dataclasses import asdict, replace
 
 from app.runtime.agent import Agent, AgentResult
+from app.runtime.plan import PlanError
+from app.runtime.plan_mode import PlanModeStore
+from app.runtime.plan_policy import applied_plan_policy
+from app.runtime.plan_review import PlanReview
+from app.runtime.plan_revision import PlanRevision
 from app.runtime.tasks import TaskError, TaskStore
 from app.runtime.task_runtime import (
     TaskBudgetExceeded, TaskRuntime, TaskRuntimeDisabled, TaskRuntimeError,
@@ -29,6 +34,7 @@ from app.safety.policy import ApprovalDecision, ApprovalGate
 from app.providers.fake import FakeProvider
 from app.providers.openai_compat import OpenAICompatProvider
 from app.session.store import SessionStore
+from app.session.writer import SessionBusy, SessionWriter
 from core.contracts import ToolCall
 
 MAX_FRAME_BYTES = 1024 * 1024
@@ -36,7 +42,7 @@ _OVERSIZED = object()
 COMMANDS = frozenset({
     "resume", "permissions", "permissions_reset", "cost", "tools", "diff", "mcp",
     "skills", "evidence", "autonomy", "tasks", "approvals", "plan", "explore", "notifications",
-    "trace", "priority", "queue",
+    "trace", "priority", "queue", "inspections", "sessions",
 })
 COMPLETION_CODE_LABELS = {
     "no_verification": "有文件改动但没有验证命令",
@@ -306,12 +312,18 @@ class _Connection:
         self.agent = agent
         self.config = config
         self.session = session
+        self.session_revision = None
+        self.session_writer = None
         self.emit = emit
         self.mcp = mcp
         self.task_runtime = task_runtime
+        self.plan_mode = PlanModeStore(session.root)
+        self.plan_review = PlanReview(session.root, session_id=session.id, task_runtime=task_runtime)
+        self.plan_revision = PlanRevision(session.root, session_id=session.id, task_runtime=task_runtime)
         self.seen: set[str] = set()
         self.active_id: str | None = None
         self.active: asyncio.Task | None = None
+        self.active_kind: str | None = None
         self.cancel = asyncio.Event()
         self.stop = asyncio.Event()
         self.closed_id: str | None = None
@@ -320,9 +332,22 @@ class _Connection:
         self.output_open = True
         self.has_started_run = False
         self.plan_context = None
-        self.last_task_record = None
+        self.inspection_record = None
 
     def send(self, kind: str, request_id: str | None = None, **data):
+        record = self.inspection_record
+        if record is not None and request_id == record.snapshot['scope']['requestId']:
+            try:
+                if kind == 'done':
+                    record.finish(data['result'])
+                else:
+                    record.observe(kind, **data)
+            except Exception as exc:
+                record.error = f'{type(exc).__name__}: {exc}'
+            if kind == 'done':
+                self.inspection_record = None
+                if record.error:
+                    self.send('notice', message=f'检查记录未保存，重开后可能缺少本轮结果：{record.error}'[:1000])
         if not self.output_open:
             return
         event = {"v": 1, "type": kind, "id": request_id, **data}
@@ -351,6 +376,73 @@ class _Connection:
 
     def error(self, request_id, code, message):
         self.send("error", request_id, code=code, message=message)
+
+    def _start_inspection(self, request_id, objective, run_task, revision_context):
+        from app.runtime.inspection import InspectionStore
+        self.inspection_record = None
+        try:
+            task = self.task_runtime.payload(run_task.record) if run_task and self.task_runtime else None
+            self.inspection_record = InspectionStore(self.session.root, self.config.workspace).start(request_id, objective, task=task,
+                                                                                                   tools_root=self.agent.tools.root)
+            if revision_context:
+                self.inspection_record.bind_revision(revision_context)
+        except Exception as exc:
+            self.send('notice', message=f'检查记录未保存：{type(exc).__name__}: {exc}'[:1000])
+
+    def _inspect_plan(self, plan, relation):
+        if self.inspection_record is not None:
+            try:
+                self.inspection_record.bind_plan(plan, relation)
+            except Exception as exc:
+                self.inspection_record.error = f'{type(exc).__name__}: {exc}'
+
+    def send_plan_mode(self) -> None:
+        self.send("plan_mode", None, mode=self.plan_mode.status())
+
+    def plan_mode_text(self) -> str:
+        state = self.plan_mode.status()
+        text = "计划模式：开启" if state["active"] else "计划模式：关闭"
+        if state["pending"]:
+            text += "（待生效：" + ("开启" if state["wanted"] else "关闭") + "）"
+        next_active = state["wanted"] if state["pending"] else state["active"]
+        if next_active:
+            text += "\n下一条普通消息将以只读规划运行；批准计划或 /plan off 后退出。"
+        else:
+            text += "\n下一条普通消息正常执行；用 /plan on 开启只读规划。"
+        if state["pending"]:
+            text += "\n当前任务模式不变；运行结束后更新默认模式。"
+        return text
+
+    def set_plan_mode(self, active: bool, *, source: str = "command") -> str:
+        running = self.active_kind == "run"
+        outcome = self.plan_mode.set(active, running=running)
+        state = self.plan_mode.status()
+        try:
+            self.session.append_event(
+                "plan_mode", active=active, wanted=state["wanted"],
+                pending=state["pending"], source=source, outcome=outcome,
+            )
+        except Exception:
+            pass
+        self.send_plan_mode()
+        return outcome
+
+    def plan_mode_command(self, action: str) -> str:
+        if self.task_runtime is None or not getattr(self.task_runtime, "enabled", False):
+            return "会话计划模式需要任务运行时（VIBE_TASK_RUNTIME）；当前未启用。"
+        if action == "mode-status":
+            self.send_plan_mode()
+            return self.plan_mode_text()
+        active = action == "mode-on"
+        outcome = self.set_plan_mode(active, source="command")
+        target = "开启" if active else "关闭"
+        if outcome == "queued":
+            return f"计划模式{target}将在当前运行结束后生效。\n{self.plan_mode_text()}"
+        if outcome == "noop":
+            return f"计划模式已经是{'开启' if active else '关闭'}状态。\n{self.plan_mode_text()}"
+        if outcome == "cancelled":
+            return f"计划模式{target}请求已取消。\n{self.plan_mode_text()}"
+        return f"计划模式已{target}。\n{self.plan_mode_text()}"
 
     async def publish_loaded_context(self) -> None:
         try:
@@ -462,10 +554,154 @@ class _Connection:
                 await self.publish_loaded_context()
                 self.send("status", phase="idle")
 
+    def review_plan(self, request_id: str, args: dict) -> None:
+        action = args.get("action")
+        if action not in ("review", "approve-execute", "approve", "dismiss"):
+            raise ValueError("invalid plan review action")
+        allowed = {"action", "target", "cursor"} if action == "review" else {"action", "target"}
+        if set(args) - allowed or (action != "review" and "target" not in args):
+            raise ValueError("invalid plan review action or fields")
+        if "target" in args and not isinstance(args["target"], dict):
+            raise ValueError("plan review target must be an object")
+        if action == "review":
+            self.send_review(request_id, self.plan_review.read_review(args.get("target"), args.get("cursor", 0)))
+            return
+        busy = self.active is not None and not self.active.done()
+        decision = self.plan_review.decide_review(
+            args["target"], "approve-only" if action == "approve" else action, request_id, busy=busy,
+        )
+        self.send_review(request_id, decision.receipt)
+        if not busy and (decision.run_task is not None
+                         or decision.receipt["outcome"] in {"approved", "approved_not_started"}):
+            try:
+                self.set_plan_mode(False, source="approval")
+            except (OSError, ValueError) as exc:
+                self.error(request_id, "plan_mode_error", str(exc))
+        if decision.run_task is None:
+            return
+        run_task = decision.run_task
+        self.active_id = request_id
+        self.active_kind = "run"
+        self.cancel = asyncio.Event()
+        self.send("task_state", request_id, task=self.task_runtime.payload(run_task.record))
+        self.send("status", request_id, phase="running")
+        self.active = asyncio.create_task(self.session_operation(
+            self.run_review(request_id, args["target"], run_task), self.session_writer))
+
+    def revise_plan(self, request_id: str, args: dict) -> None:
+        action = args.get("action")
+        if action == "list-revisions":
+            if not {'action', 'target'} <= set(args) or set(args) - {'action', 'target', 'cursor'}:
+                raise ValueError('revision history requires target and optional cursor')
+            self.send('plan_revision_history', request_id, **self.plan_revision.history(args['target'], args.get('cursor')))
+            return
+        legacy = action == "request-changes" and "target" not in args
+        if legacy and set(args) == {"action", "feedback"}:
+            snapshot = self.plan_review.read_review()
+            if snapshot["code"]:
+                self.error(request_id, snapshot["code"], snapshot["message"])
+                return
+            args = {**args, "target": snapshot["target"]}
+        allowed = {"action", "target", "feedback"} | ({"expected_segment"} if action == "resume-revision" else set())
+        if set(args) != allowed:
+            raise ValueError("revision requires exact target, feedback and observed segment for resume")
+        busy = self.active is not None and not self.active.done()
+        if action == "query-revision":
+            self.send("plan_revision", request_id, **self.plan_revision.read(args["target"], args["feedback"]))
+            return
+        if not self.agent.tools_enabled:
+            self.error(request_id, "native_tools_disabled", "当前后端未启用计划提交工具，不能启动修订")
+            return
+        if action == "resume-revision":
+            decision = self.plan_revision.resume(args["target"], args["feedback"], request_id,
+                                                 expected_segment=args["expected_segment"], busy=busy)
+        else:
+            decision = self.plan_revision.request(args["target"], args["feedback"], request_id, busy=busy)
+        self.send("plan_revision", request_id, **decision.receipt)
+        if decision.run_task is None:
+            if legacy:
+                self.send("command_result", request_id, command="plan", text=decision.receipt["message"])
+            return
+        self.active_id = request_id
+        self.active_kind = "run"
+        self.cancel = asyncio.Event()
+        self.send("task_state", request_id, task=self.task_runtime.payload(decision.run_task.record))
+        self.send("status", request_id, phase="running")
+        self.active = asyncio.create_task(self.session_operation(
+            self.run_review(request_id, args["target"], decision.run_task, revision=True), self.session_writer))
+
+    def send_review(self, request_id: str, receipt: dict) -> None:
+        from app.runtime import plan as plan_artifacts
+
+        actions = []
+        summary = receipt["summary"]
+        if (plan_artifacts.fcntl is not None and not (self.active and not self.active.done())
+                and receipt["outcome"] in {"ready", "approved", "approved_not_started"}
+                and summary is not None):
+            approvable = summary["status"] in {"draft", "proposed"}
+            if self.task_runtime is not None and (approvable or summary["executable"]):
+                actions.append("approve-execute")
+            if approvable:
+                actions.append("approve-only")
+            actions.append("dismiss")
+        self.send("plan_review", request_id, **{**receipt, "available_actions": actions})
+
+    def review_execution_plan(self, target: dict, run_task):
+        from app.runtime.plan import can_execute, content_hash, load_plan_ref
+
+        snapshot = self.plan_review.read_review(target)
+        if snapshot["code"]:
+            raise PlanError(snapshot["message"], code=snapshot["code"])
+        if not snapshot["launch"] or snapshot["launch"]["task_id"] != run_task.task_id:
+            raise PlanError("运行绑定无法核对", code="needs_reconciliation")
+        task_dir = self.session.root / "tasks" / target["plan_task_id"]
+        plan = load_plan_ref(task_dir, target["plan_id"], target["plan_version"])
+        if content_hash(plan) != target["plan_hash"]:
+            raise PlanError("计划内容已变化，请重新审阅", code="content_changed")
+        if not can_execute(plan):
+            raise PlanError("计划批准已失效，请重新审阅", code="plan_stale")
+        return task_dir, plan
+
+    async def run_review(self, request_id: str, target: dict, run_task, *, text=None, revision=False) -> None:
+        previous_gate = self.agent.approval.execution_gate
+        previous_tool_gate = self.agent.tool_gate
+        previous_tools = self.agent.tools
+        previous_names = set(previous_tools.names())
+        try:
+            if revision:
+                context = self.plan_revision.context(run_task)
+                await self.run(request_id, "按反馈修订原计划：" + context.feedback, run_task, revision_context=context)
+            else:
+                bound_plan = self.review_execution_plan(target, run_task)
+                await self.run(request_id, text if text is not None else run_task.objective,
+                               run_task, reviewed_plan=bound_plan)
+        except Exception as exc:
+            code = exc.code if isinstance(exc, PlanError) else "run_preparation_error"
+            self.error(request_id, code, str(exc))
+            result = AgentResult(f"运行未继续：{exc}", 0, "stopped", stop_reason=code)
+            try:
+                record = self.task_runtime.finish_run(run_task, result)
+                self.send("task_state", request_id, task=self.task_runtime.payload(record))
+            except Exception as cleanup_error:
+                self.error(request_id, "task_runtime_error", str(cleanup_error))
+            self.agent.approval.execution_gate = previous_gate
+            self.agent.tool_gate = previous_tool_gate
+            self.agent.tools = previous_tools
+            for name in {"start_plan_step", "complete_plan_step", "submit_plan"} - previous_names:
+                previous_tools.unregister(name)
+            self.plan_context = None
+            self.active_id = None
+            self.active_kind = None
+            self.send("done", request_id, result=asdict(result))
+            if not self.stop.is_set():
+                self.send("status", phase="idle")
+
     def _plan_command(self, action: str, args: dict | None = None) -> str:
         from app.runtime.plan import (
-            PlanError, approve_plan, can_execute, load_plan, render_plan, reject_plan,
+            PlanError, can_execute, content_hash, load_plan, render_plan, reject_plan,
         )
+        if action in {"mode-on", "mode-off", "mode-status"}:
+            return self.plan_mode_command(action)
         tasks_root = self.session.root / "tasks"
         if action == "list":
             rows = []
@@ -490,47 +726,37 @@ class _Connection:
         if not candidates:
             return "当前会话没有计划产物；用 /plan <任务> 生成。"
         if action == "prepare-background":
-            from app.runtime.plan import can_execute
-            selected = None
-            for candidate in candidates:
-                try:
-                    candidate_plan = load_plan(candidate)
-                except PlanError:
-                    continue
-                if can_execute(candidate_plan):
-                    selected = (candidate, candidate_plan)
-                    break
-            if selected is None:
+            from app.runtime.plan import executable_plans
+            executable = executable_plans(self.session.root)
+            if not executable:
                 return "没有可执行的 approved 计划；先批准或修订计划。"
-            path, plan = selected
+            path, plan = executable[0]
         else:
             path = candidates[0]
         try:
             plan = load_plan(path) if action != "prepare-background" else plan
+            if action == "markdown":
+                from app.runtime.plan_review import render_markdown
+                return render_markdown(plan)
+            if action == "dismiss":
+                from app.runtime.plan_review import dismiss as dismiss_review
+                dismiss_review(path.parent.parent, plan, by="user")
+                return (f"已关闭计划审阅（{plan.plan_id} v{plan.version}）；"
+                        f"计划保持 {plan.status}，批准动作未发生。")
             if action == "card":
                 from app.runtime.plan import render_approval_card
                 return render_approval_card(plan)
             if action == "prepare-background":
                 if self.task_runtime is None or not getattr(self.task_runtime, "enabled", False):
                     return "任务运行时未启用，无法准备后台计划。"
-                existing = next(
-                    (item for item in self.task_runtime.store.list(status="created")
-                     if item.plan_id == plan.plan_id and item.plan_version == plan.version),
-                    None,
-                )
-                if existing is not None:
-                    return (f"background task already prepared: task_id={existing.task_id} "
-                            f"plan_id={plan.plan_id} version={plan.version}")
                 try:
-                    task = self.task_runtime.store.create(
-                        kind="run", objective=plan.objective,
-                        workspace=self.task_runtime.workspace, mode="act",
-                        plan_id=plan.plan_id, plan_version=plan.version,
-                        session_id=self.session.id,
-                    )
+                    task, reused = self.plan_review.prepare_background({
+                        'session_id': self.session.id, 'plan_task_id': plan.task_id,
+                        'plan_id': plan.plan_id, 'plan_version': plan.version, 'plan_hash': content_hash(plan),
+                    })
                 except Exception as exc:
                     return f"后台计划准备失败：{exc}"
-                return (f"background task prepared: task_id={task.task_id} "
+                return (f"background task {'already prepared' if reused else 'prepared'}: task_id={task.task_id} "
                         f"plan_id={plan.plan_id} version={plan.version}")
             if action == "acceptance":
                 lines = ["验收标准："]
@@ -604,7 +830,15 @@ class _Connection:
                     pass
                 return text
             if action == "approve":
-                approve_plan(path.parent.parent, plan, approved_by="user", approval_id=None)
+                decision = self.plan_review.decide_review(
+                    {"session_id": self.session.id, "plan_task_id": plan.task_id, "plan_id": plan.plan_id,
+                     "plan_version": plan.version, "plan_hash": content_hash(plan)}, "approve-only", str(uuid.uuid4()),
+                )
+                if decision.receipt["code"]:
+                    return "计划操作失败：" + decision.receipt["message"]
+                plan = load_plan(path)
+                if self.plan_mode.status()["active"]:
+                    self.set_plan_mode(False, source="approval")
                 try:
                     from app.runtime.notifications import notify
                     notify(self.agent.tools.root, "plan_approved", task_id=plan.task_id,
@@ -664,6 +898,8 @@ class _Connection:
                 except (PlanError, ValueError) as exc:
                     return f"计划修订失败：{exc}"
             text = render_plan(plan) + f"\nexecutable={can_execute(plan)}"
+            if action == "approve":
+                text += "\n会话计划模式：关闭（批准后退出）。"
             try:
                 from app.runtime.plan_execution import load_ledger
                 ledger = load_ledger(path.parent.parent, plan.version)
@@ -679,29 +915,51 @@ class _Connection:
     async def command(self, request_id, command, args=None):
         skills = None
         if command == "resume" and self.agent.history:
-            record = self.last_task_record
-            if record is not None and self.task_runtime is not None and self.task_runtime.enabled:
-                meta = {"kind": record.kind, "task_id": record.task_id,
-                        "objective": record.objective, "mode": record.mode}
-                if record.plan_id:
-                    meta["plan_id"] = record.plan_id
-                    meta["plan_version"] = record.plan_version
-                if record.goal_id:
-                    meta["goal_id"] = record.goal_id
-                try:
-                    run_task = self.task_runtime.prepare_run(request_id, meta)
-                except Exception:
-                    run_task = None
-                if run_task is not None:
-                    self.last_task_record = run_task.record
-                    self.active_id = request_id
-                    self.active_phase = "running"
+            try:
+                latest = self.session.latest_run() or {}
+                # 旧任务没有可靠的当前运行绑定，不能猜最新 task 或退回无约束续聊。
+                if "task_id" not in latest and any((self.session.root / "tasks").glob("*/meta.json")):
+                    raise TaskRuntimeError("旧会话缺少续做绑定，请核对任务后显式指定 task_id 继续")
+                task_id = latest.get("task_id")
+                run_task = None
+                if task_id is not None:
+                    if self.task_runtime is None or not self.task_runtime.enabled:
+                        raise TaskRuntimeDisabled("续做原任务需要启用 VIBE_TASK_RUNTIME")
+                    record = self.task_runtime.store.get(task_id)
+                    meta = {"kind": record.kind, "task_id": record.task_id,
+                            "objective": record.objective, "mode": record.mode}
+                    if record.plan_id:
+                        meta.update(plan_id=record.plan_id, plan_version=record.plan_version)
+                    if record.goal_id:
+                        meta["goal_id"] = record.goal_id
+                    if record.mode == "plan" and "creation" in record.extra:
+                        if not self.agent.tools_enabled:
+                            raise TaskRuntimeError("当前后端未启用计划提交工具，不能续做修订")
+                        creation = record.extra["creation"]
+                        target = creation.get("target") if isinstance(creation, dict) else None
+                        if not isinstance(target, dict) or target.get("operation") != "plan-revision":
+                            raise TaskRuntimeError("修订来源凭据无法核对")
+                        observed = next((s.segment for s in record.segments if s.run_id == latest.get("request_id")), None)
+                        decision = self.plan_revision.resume(target.get("source"), target.get("feedback"), request_id,
+                                                             expected_segment=observed)
+                        self.send("plan_revision", request_id, **decision.receipt)
+                        if decision.run_task is None:
+                            raise TaskRuntimeError(decision.receipt["message"])
+                        run_task = decision.run_task
+                    else:
+                        run_task = self.task_runtime.prepare_run(request_id, meta)
+                    self.active_kind = "run"
                     self.send("task_state", request_id,
                               task=self.task_runtime.payload(run_task.record))
-                    self.send("status", request_id, phase="running")
-                    await self.run(request_id, RESUME_INSTRUCTION, run_task)
-                    return
-            await self.run(request_id, RESUME_INSTRUCTION)
+            except Exception as exc:
+                self.error(request_id, "resume_unavailable", str(exc))
+                self.send("done", request_id, result=asdict(AgentResult(
+                    f"未续做：{exc}", 0, "stopped", stop_reason="resume_unavailable")))
+                self.active_id = None
+                self.active_kind = None
+                self.send("status", phase="idle")
+                return
+            await self.run(request_id, RESUME_INSTRUCTION, run_task)
             return
         try:
             if command == "resume":
@@ -712,7 +970,8 @@ class _Connection:
                 if command == "permissions_reset":
                     self.agent.approval.clear(self.agent.tools.root)
                 rules = self.agent.approval.permissions(self.agent.tools.root)
-                text = ("已撤销当前工作区的本进程授权。\n" if command.endswith("reset") else "")
+                text = ("已撤销当前工作区的本进程授权；授权档位和持久策略保持不变。\n"
+                        if command.endswith("reset") else "")
                 text += (f"workspace 授权：{'已开启' if rules['workspace_allowed'] else '未开启'}；"
                          f"session 精确规则：{rules['session_rules']} 条。重启后重新审批。")
                 level = getattr(self.agent, "autonomy", "ask")
@@ -933,33 +1192,79 @@ class _Connection:
                       text=f"命令失败：{type(exc).__name__}: {exc}"[:16000])
         finally:
             self.active_id = None
+            self.active_kind = None
             if not self.stop.is_set():
                 if command == "skills" and not self.has_started_run:
                     await self.publish_loaded_context()
                 self.send("status", phase="idle")
 
-    async def run(self, request_id: str, text: str, run_task=None):
+    async def session_operation(self, operation, writer):
+        try:
+            return await operation
+        finally:
+            if writer is not None:
+                writer.close()
+                if self.session_writer is writer:
+                    self.session_writer = None
+
+    def refresh_session_context(self) -> None:
+        revision = self.session.context_revision()
+        if revision == self.session_revision:
+            return
+        history = self.session.load_context()
+        state = self.session.load_state()
+        changed = history != self.agent.history or (state is not None and state != self.agent.state)
+        if (history or state is not None) and changed:
+            self.agent.restore_context(history, state)
+            if self.session_revision is not None:
+                self.send('notice', None, message='已接入此会话的最新结果，继续前会重新核对文件。')
+        self.session_revision = revision
+
+    async def run(self, request_id: str, text: str, run_task=None, *, reviewed_plan=None, revision_context=None):
+        self.refresh_session_context()
+        if run_task is not None and "creation" in run_task.record.extra and reviewed_plan is None and revision_context is None:
+            creation = run_task.record.extra["creation"]
+            target = creation.get("target") if isinstance(creation, dict) else None
+            revision = isinstance(target, dict) and target.get("operation") == "plan-revision"
+            await self.run_review(request_id, target, run_task, text=text, revision=revision)
+            return
         self.has_started_run = True
+        self._start_inspection(request_id, text, run_task, revision_context)
         previous_tools_enabled = self.agent.tools_enabled
         previous_tools = self.agent.tools
+        previous_stop_after_tools = getattr(self.agent, "stop_after_tools", frozenset())
         plan_tool_registered = False
         plan_context = None
         active_plan_step = {"step_id": None}
         plan_step_tools_registered = False
+        profile = None
+        plan_policy_scope = None
         if run_task is not None:
             from app.runtime.modes import ModeError, resolve_profile, validate_profile_tools
             profile = resolve_profile(run_task.record.mode)
             if profile.mode == "plan":
                 from app.runtime.tasks import TaskStore
                 self.agent.tools.register_plan_tool(
-                    TaskStore(self.session.root).task_dir(run_task.task_id),
+                    revision_context.task_dir if revision_context else TaskStore(self.session.root).task_dir(run_task.task_id),
+                    on_submitted=lambda plan: self._inspect_plan(plan, 'revision-result' if revision_context else 'planning'),
+                    **({"revision": revision_context.plan, "feedback": revision_context.feedback,
+                        "revision_id": revision_context.revision_id} if revision_context else {}),
                 )
                 plan_tool_registered = True
+                self.agent.stop_after_tools = frozenset({"submit_plan"})
+                try:
+                    if not self.plan_mode.status()["active"]:
+                        self.plan_mode.set(True, running=False)
+                    self.send_plan_mode()
+                except Exception:
+                    pass
             try:
                 validate_profile_tools(profile, self.agent.tools.names())
             except ModeError as exc:
                 self.error(request_id, "task_profile_error", str(exc))
                 self.agent.tools_enabled = previous_tools_enabled
+                self.agent.stop_after_tools = previous_stop_after_tools
+                self.active_kind = None
                 return
             try:
                 self.task_runtime.store.append_event(
@@ -976,9 +1281,9 @@ class _Connection:
                 self.agent.tools = previous_tools.subset(profile.tools)
         previous_gate = getattr(self.agent.approval, "execution_gate", None) if self.agent.approval is not None else None
         previous_tool_gate = getattr(self.agent, "tool_gate", None)
-        if run_task is not None and run_task.record.plan_id and self.agent.approval is not None:
+        if run_task is not None and run_task.record.mode != "plan" and run_task.record.plan_id and self.agent.approval is not None:
             from app.runtime.plan import can_execute, find_plan
-            found = find_plan(self.session.root, run_task.record.plan_id, run_task.record.plan_version)
+            found = reviewed_plan or find_plan(self.session.root, run_task.record.plan_id, run_task.record.plan_version)
             if found is None:
                 try:
                     self.task_runtime.store.append_event(
@@ -993,6 +1298,7 @@ class _Connection:
                 self.agent.approval.execution_gate = lambda _call: "plan_not_approved"
             else:
                 bound_task_dir, bound_plan = found
+                self._inspect_plan(bound_plan, 'execution')
                 if not can_execute(bound_plan):
                     reason = "plan_stale" if bound_plan.status == "approved" else "plan_not_approved"
                     try:
@@ -1011,7 +1317,11 @@ class _Connection:
                     from app.runtime.plan_execution import ExecutionError, StepLedger, load_ledger, save_ledger
                     try:
                         ledger = load_ledger(bound_task_dir, bound_plan.version)
-                    except ExecutionError:
+                    except ExecutionError as exc:
+                        if reviewed_plan is not None and (
+                            not isinstance(exc.__cause__, FileNotFoundError) or len(run_task.record.segments) > 1
+                        ):
+                            raise
                         ledger = StepLedger.from_plan(bound_plan)
                         save_ledger(bound_task_dir, ledger)
                     plan_context = {"plan": bound_plan, "ledger": ledger, "task_dir": bound_task_dir}
@@ -1062,7 +1372,8 @@ class _Connection:
                         if not ledger.can_execute_step(bound_plan, step_id):
                             return f"ERROR step_blocked: {step_id} dependencies not done"
                         try:
-                            ledger.start_step(step_id)
+                            if ledger.record(step_id).status != "in_progress":
+                                ledger.start_step(step_id)
                         except ExecutionError as exc:
                             return f"ERROR {exc}"
                         active_plan_step["step_id"] = step_id
@@ -1166,6 +1477,7 @@ class _Connection:
         observed_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         observed_tools = 0
         started = time.monotonic()
+        start_files_changed = len(self.agent.state.files_changed) if self.agent.state is not None else 0
 
         def tool_result(call, ok, output):
             nonlocal observed_tools
@@ -1200,9 +1512,14 @@ class _Connection:
 
         def record_trace(event):
             nonlocal terminal_trace, observed_tools
+            if event["type"] in {"run_start", "run_end"}:
+                event = {**event, "task_id": run_task.task_id if run_task is not None else None,
+                         "request_id": request_id}
             if run_task is not None and self.task_runtime is not None:
                 self.task_runtime.record_trace(run_task, event)
             trace_identity.update({key: event[key] for key in ("run_id", "model") if key in event})
+            if self.inspection_record is not None:
+                self.inspection_record.trace(event.get('run_id'))
             if event["type"] == "context_snapshot":
                 self.session.append_trace(event)
                 self.send("context_snapshot", request_id, snapshot=snapshot_for_display(event))
@@ -1253,6 +1570,9 @@ class _Connection:
                 self.send("notice", None, message=f"已应用纠偏：{message.content}")
 
         try:
+            if profile is not None and profile.mode == "plan":
+                plan_policy_scope = applied_plan_policy(self.agent, revision=revision_context)
+                plan_policy_scope.__enter__()
             # 每次任务前重新读取，profile 的增删在下一次 run 生效。
             self.agent.set_project_background(load_project_background(self.config.workspace))
             user_profile = load_user_profile()
@@ -1283,6 +1603,13 @@ class _Connection:
             total_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
             prompt = text
             while True:
+                if reviewed_plan is not None:
+                    try:
+                        self.review_execution_plan(run_task.record.extra["creation"]["target"], run_task)
+                    except PlanError as exc:
+                        self.error(request_id, exc.code, str(exc))
+                        result = AgentResult(f"运行未继续：{exc}", 0, "stopped", stop_reason=exc.code)
+                        break
                 result = await self.agent.run(
                     prompt,
                     on_text=lambda delta: self.send("text_delta", request_id, delta=delta),
@@ -1296,6 +1623,8 @@ class _Connection:
                     trace=record_trace,
                     cancel=self.cancel,
                 )
+                if revision_context is not None:
+                    result = self._revision_result(run_task, result)
                 completed = True
                 total_steps += int(result.steps or 0)
                 total_cost += float(result.cost_usd or 0.0)
@@ -1346,6 +1675,11 @@ class _Connection:
             result = AgentResult(f"error: {type(exc).__name__}: {exc}", 0, "error", dict(observed_usage),
                                  metrics["cost_usd"], trace_identity.get("run_id", ""))
         finally:
+            if plan_policy_scope is not None:
+                try:
+                    plan_policy_scope.__exit__(None, None, None)
+                except Exception:
+                    pass
             failures = []
             snapshots = [("context", self.session.save_context, self.agent.history)]
             if self.agent.state is not None:
@@ -1373,7 +1707,8 @@ class _Connection:
                 "remaining_tokens": max(0, self.agent.max_run_tokens - metrics["used_tokens"]),
                 "usage_estimated": metrics["estimated"],
             }
-            ending.update(status=result.status, stop_reason=result.stop_reason)
+            ending.update(status=result.status, stop_reason=result.stop_reason,
+                          task_id=run_task.task_id if run_task is not None else None, request_id=request_id)
             if result.status == "error":
                 ending["error"] = result.text
             try:
@@ -1392,13 +1727,30 @@ class _Connection:
                 except Exception as exc:
                     self.error(request_id, "task_runtime_error",
                                f"{type(exc).__name__}: {exc}")
+            try:
+                self.plan_mode.commit_pending()
+            except Exception:
+                pass
+            self.send_plan_mode()
+            if result.stop_reason == "plan_submitted":
+                self.send("notice", None,
+                          message="计划已提交（proposed）；批准后退出计划模式。"
+                                  "用 /plan card 或 /plan markdown 查看。")
+            if plan_context is not None:
+                result = self._plan_result(plan_context, result, start_files_changed)
             publish_metrics(force=True)
+            if revision_context is not None:
+                binding = run_task.record.extra["creation"]["target"]
+                self.send("plan_revision", request_id, **self.plan_revision.read(binding["source"], binding["feedback"]))
+            self.session_revision = self.session.context_revision()
             self.send("done", request_id, result=asdict(result))
             self.active_id = None
             self.agent.tools_enabled = previous_tools_enabled
             self.agent.tools = previous_tools
             self.agent.tool_gate = previous_tool_gate
+            self.agent.stop_after_tools = previous_stop_after_tools
             self.plan_context = None
+            self.active_kind = None
             if self.agent.approval is not None:
                 self.agent.approval.execution_gate = previous_gate
             if plan_tool_registered:
@@ -1408,6 +1760,62 @@ class _Connection:
                 previous_tools.unregister("complete_plan_step")
             if not self.stop.is_set():
                 self.send("status", phase="idle")
+
+    def _revision_result(self, run_task, result):
+        binding = run_task.record.extra["creation"]["target"]
+        receipt = self.plan_revision.read(binding["source"], binding["feedback"])
+        submitted = receipt["outcome"] == "submitted"
+        if result.status == "done" and not submitted:
+            code = receipt["code"] or "revision_not_submitted"
+            result = replace(result, status="stopped", stop_reason=code)
+        message = (f"已提交 v{receipt['result_target']['plan_version']}，等待重新审阅"
+                   if submitted else f"未提交新计划；{result.stop_reason or result.status}，反馈已保留")
+        result = replace(result, verified=None if submitted else False,
+                         receipt="[计划修订] " + message,
+                         completion={"allowed": submitted, "codes": [] if submitted else [result.stop_reason or result.status],
+                                     "messages": [message]})
+        latest = self.session.latest_round()
+        if latest and result.run_id and latest.get("run_id") == result.run_id:
+            self.session.update_latest_round({key: getattr(result, key) for key in
+                                             ("status", "stop_reason", "verified", "completion", "receipt")})
+        return result
+
+    def _plan_result(self, context, result, start_files_changed):
+        """计划的最终回执在 harness 验收后生成，不能沿用 Agent 的提前结论。"""
+        from core.task import CompletionDecision
+
+        verification = context.get("verification")
+        verified = verification["status"] if verification is not None and result.status == "done" else (
+            False if result.status != "done" else None)
+        decision = CompletionDecision(
+            result.status == "done" and verified is not False,
+            (result.stop_reason,) if result.status != "done" else (),
+            (f"计划未完成：{result.stop_reason or result.status}",) if result.status != "done" else (),
+        )
+        files = self.agent.state.files_changed[start_files_changed:] if self.agent.state is not None else []
+        label = "已验证" if verified is True else "未通过" if verified is False else "待确认（未配置可确认的计划验收）"
+        lines = [f"[运行结束] status={result.status} steps={result.steps} tokens={result.usage.get('total_tokens', 0)}",
+                 f"[计划验收] {label}" + (f" · {result.stop_reason}" if result.stop_reason else ""),
+                 "步骤：" + "；".join(f"{sid}={step.status}" for sid, step in context["ledger"].steps.items()),
+                 "本轮改动（工具记录）：" + (", ".join(files) or "无（未记录文件修改）")]
+        if verification is None:
+            lines.append("实际计划验收：未运行验收命令")
+        else:
+            commands = {item.id: item.command for item in context["plan"].acceptance().verification_plan}
+            for vid, item in verification["results"].items():
+                outcome = f"exit={item['exit_code']}" if "exit_code" in item else f"未执行：{item.get('reason', 'unknown')}"
+                if item.get("timed_out"):
+                    outcome += " · timed_out"
+                lines.append(f"实际计划验收：{vid} {commands.get(vid, '?')[:500]} [{outcome}]")
+        result = replace(result, receipt="\n".join(lines), verified=verified, completion=decision.to_dict())
+        try:
+            latest = self.session.latest_round()
+            if latest and result.run_id and latest.get("run_id") == result.run_id:
+                self.session.update_latest_round({key: getattr(result, key) for key in
+                                                  ("status", "stop_reason", "verified", "completion", "receipt")})
+        except OSError:
+            pass
+        return result
 
     def _record_acceptance_round(self, verification, *, plan_id=None, plan_version=None,
                                  goal_id=None) -> None:
@@ -1440,6 +1848,7 @@ class _Connection:
         from app.runtime.verification import run_verification_plan
         from app.safety.sandbox import CommandCancelled
 
+        request_id = self.active_id
         try:
             retries = int(os.getenv("VIBE_ACCEPTANCE_RETRIES", "0"))
         except ValueError:
@@ -1455,7 +1864,7 @@ class _Connection:
         if total_timeout <= 0:
             total_timeout = timeout * (max(0, min(retries, 3)) + 1) + 30.0
         try:
-            return await asyncio.wait_for(
+            verification = await asyncio.wait_for(
                 run_verification_plan(
                     acceptance, self.agent.tools.root, self.agent.approval,
                     retries=max(0, min(retries, 3)),
@@ -1465,6 +1874,18 @@ class _Connection:
             )
         except (asyncio.TimeoutError, CommandCancelled):
             return None
+        commands = {item.id: item.command for item in acceptance.verification_plan}
+        for command_id, item in verification["results"].items():
+            code = item.get("exit_code")
+            status = ("timed_out" if item.get("timed_out") else
+                      "succeeded" if type(code) is int and code == 0 else
+                      "failed" if type(code) is int else "unknown")
+            self.send("tool_result", request_id,
+                      call={"id": f"acceptance-{uuid.uuid4().hex}", "name": "bash",
+                            "args": {"command": commands[command_id], "cwd": ".", "verification": True}},
+                      ok=item.get("ok") is True, output=str(item.get("output") or item.get("reason") or ""),
+                      execution={"status": status, "exit_code": code if type(code) is int else None})
+        return verification
 
     @staticmethod
     def _acceptance_failure_text(acceptance, verification, label: str) -> str:
@@ -1549,6 +1970,7 @@ class _Connection:
             if acceptance is None:
                 return result
             verification = await self._run_trusted_acceptance(acceptance)
+            plan_context["verification"] = verification
             if verification is None:
                 return replace(
                     result, status="stopped", stop_reason="acceptance_timeout",
@@ -1590,8 +2012,9 @@ class _Connection:
                     text=(result.text + suffix).strip(),
                 )
             return result
-        except Exception:
-            return result
+        except Exception as exc:
+            return replace(result, status="stopped", verified=False, stop_reason="plan_verification_error",
+                           text=(result.text + f"\n[计划验收无法核对：{type(exc).__name__}: {exc}]").strip())
 
     def _enter_plan_repair_mode(self, plan_context) -> None:
         """验收失败后放开计划完成门：允许按计划范围读取/修改，必要时执行命令。"""
@@ -1630,19 +2053,17 @@ class _Connection:
         context = self.plan_context
         if not context:
             return
-        from app.runtime.plan import save_plan
+        from app.runtime.plan import mark_plan_stale
         plan = context["plan"]
-        approval = dict(plan.approval)
-        approval["stale"] = True
-        plan.approval = approval
         try:
-            save_plan(context["task_dir"], plan)
+            mark_plan_stale(context["task_dir"], plan)
             TaskStore = __import__("app.runtime.tasks", fromlist=["TaskStore"]).TaskStore
             TaskStore(self.session.root).append_event(
                 plan.task_id, "plan_stale", data={"reason": "steering", "plan_id": plan.plan_id},
             )
         except Exception:
             pass
+        plan.approval = {**plan.approval, "stale": True}
         if self.agent.approval is not None:
             self.agent.approval.execution_gate = lambda _call: "plan_stale"
 
@@ -1651,6 +2072,7 @@ class _Connection:
             self.error(None, "frame_too_large", f"input exceeds {MAX_FRAME_BYTES} bytes")
             return
         request_id = None
+        writer = None
         try:
             if isinstance(frame, (str, bytes)) and len(
                 frame.encode("utf-8") if isinstance(frame, str) else frame
@@ -1681,7 +2103,7 @@ class _Connection:
             }
             if not isinstance(kind, str) or kind not in fields:
                 raise ValueError("unknown request type")
-            if kind == "command" and request.get("command") in {"skills", "autonomy", "plan", "explore", "notifications", "trace", "priority"} and "args" in request:
+            if kind == "command" and request.get("command") in {"skills", "autonomy", "plan", "explore", "notifications", "trace", "priority", "inspections", "tasks", "sessions"} and "args" in request:
                 fields[kind] = fields[kind] | {"args"}
             allowed = {"v", "type", "id"} | fields[kind]
             if kind == "run" and "task" in request:
@@ -1696,13 +2118,69 @@ class _Connection:
                     raise ValueError("run text must be a nonempty string")
                 if kind == "command" and (not isinstance(request["command"], str) or request["command"] not in COMMANDS):
                     raise ValueError("unknown command")
+                args = request.get('args')
+                starts_run = (kind == 'run' or request.get('command') == 'resume'
+                              or (request.get('command') == 'plan' and isinstance(args, dict)
+                                  and args.get('action') in {'approve-execute', 'request-changes', 'resume-revision'}))
+                if starts_run and not (self.active is not None and not self.active.done()):
+                    writer = SessionWriter(self.session.root)
+                    writer.__enter__()
+                    self.session_writer = writer
+                    from app.runtime.supervise import WorkerSupervisor
+                    if os.getenv('VIBE_WORKER') != '1' and WorkerSupervisor(self.session.root).recovery_blocked():
+                        raise SessionBusy('此会话有活动或无法核对的后台任务；请从任务入口接入或核对状态后重试。')
+                    self.session.repair_incomplete_tool_calls()
+                    self.refresh_session_context()
+                if kind == 'command' and request['command'] == 'sessions':
+                    from app.runtime.session_navigation import session_catalog
+                    try:
+                        page = session_catalog(self.session, self.config.workspace, request.get('args', {}))
+                    except OSError as exc:
+                        self.error(request_id, 'session_catalog_unavailable', f'会话目录暂不可读：{exc}'[:1000])
+                        return
+                    self.send('session_catalog', request_id, **page)
+                    return
+                if kind == "command" and request["command"] == "tasks" and "args" in request:
+                    from app.runtime.task_navigation import task_catalog
+                    try:
+                        page = task_catalog(self.session.root, self.config.workspace, request['args'])
+                    except OSError as exc:
+                        self.error(request_id, 'task_catalog_unavailable', f'任务目录暂不可读：{exc}'[:1000])
+                        return
+                    self.send('task_catalog', request_id, **page)
+                    return
+                if kind == "command" and request["command"] == "inspections":
+                    from app.runtime.inspection import InspectionStore
+                    args = request.get('args', {})
+                    if not isinstance(args, dict) or set(args) - {'cursor', 'task_id'} or any(not isinstance(value, str) for value in args.values()):
+                        raise ValueError('inspections accepts only cursor and task_id')
+                    inspection_store = InspectionStore(self.session.root, self.config.workspace)
+                    try:
+                        page = inspection_store.page(before=args.get('cursor'), task_id=args.get('task_id'), limit=3)
+                    except OSError as exc:
+                        self.error(request_id, 'inspection_unavailable', f'历史记录暂不可读：{exc}'[:1000])
+                        return
+                    self.send('inspection_history', request_id, workspace=inspection_store.workspace,
+                              session_id=self.session.root.name,
+                              **({'task_id': args['task_id']} if 'task_id' in args else {}), **page)
+                    return
                 if kind == "command" and request["command"] in {"skills", "plan", "trace", "notifications", "explore", "priority"} and "args" in request:
                     args = request["args"]
                     if not isinstance(args, dict):
                         raise ValueError("command args must be an object")
                     if request["command"] == "plan":
-                        if set(args) - {"action", "objective", "step_id", "title", "kind", "files", "depends_on", "version_a", "version_b"} or args.get("action", "show") not in {"show", "list", "step", "edit-step", "diff", "acceptance", "card", "approve", "reject", "revise", "prepare-background"}:
-                            raise ValueError("plan args allowed: action=show|list|step|edit-step|diff|acceptance|approve|reject|revise|prepare-background")
+                        if args.get("action") in {"request-changes", "query-revision", "resume-revision", "list-revisions"}:
+                            self.revise_plan(request_id, args)
+                            return
+                        if args.get("action") in ("review", "approve-execute") or "target" in args:
+                            self.review_plan(request_id, args)
+                            return
+                        if set(args) - {"action", "objective", "feedback", "step_id", "title", "kind", "files", "depends_on", "version_a", "version_b"} or args.get("action", "show") not in {"show", "list", "step", "edit-step", "diff", "acceptance", "card", "approve", "reject", "revise", "request-changes", "dismiss", "markdown", "mode-on", "mode-off", "mode-status", "prepare-background"}:
+                            raise ValueError("plan args allowed: action=show|list|step|edit-step|diff|acceptance|card|approve|reject|revise|request-changes|dismiss|markdown|mode-on|mode-off|mode-status|prepare-background")
+                        if args.get("action") == "request-changes" and (not isinstance(args.get("feedback"), str) or not args["feedback"].strip()):
+                            raise ValueError("plan request-changes requires nonempty feedback")
+                        if args.get("action") in {"dismiss", "markdown", "mode-on", "mode-off", "mode-status"} and set(args) != {"action"}:
+                            raise ValueError(f"plan {args.get('action')} accepts only action")
                         if args.get("action") == "revise" and (not isinstance(args.get("objective"), str) or not args["objective"].strip()):
                             raise ValueError("plan revise requires a nonempty objective")
                         if args.get("action") == "step" and (not isinstance(args.get("step_id"), str) or not args["step_id"].strip()):
@@ -1776,9 +2254,30 @@ class _Connection:
                         raise ValueError("autonomy args must contain only level")
                     if args["level"] not in permissions.AUTONOMY_LEVELS:
                         raise ValueError("unknown autonomy level")
+                if kind == "command" and request["command"] == "plan" and request.get("args", {}).get("action") in {"mode-on", "mode-off", "mode-status"}:
+                    try:
+                        text = self.plan_mode_command(request["args"]["action"])
+                        self.send("command_result", request_id, command="plan", text=text)
+                    except OSError as exc:
+                        self.error(request_id, "plan_mode_error", str(exc))
+                    return
                 if self.active is not None and not self.active.done():
                     self.error(request_id, "busy", "another run is active")
                     return
+                if kind == "run" and task_meta is None and self.plan_mode.status()["pending"]:
+                    try:
+                        self.plan_mode.commit_pending()
+                        self.send_plan_mode()
+                    except OSError as exc:
+                        self.error(request_id, "default_mode_unavailable", f"默认模式尚未生效，未启动任务：{exc}")
+                        return
+                if kind == "run" and task_meta is None and self.plan_mode.status()["active"]:
+                    if self.task_runtime is None:
+                        self.error(request_id, "plan_mode_requires_tasks",
+                                   "session plan mode requires VIBE_TASK_RUNTIME")
+                        return
+                    plan_text = str(request["text"])
+                    task_meta = {"kind": "run", "mode": "plan", "objective": plan_text[:500]}
                 run_task = None
                 if kind == "run" and task_meta is not None:
                     if self.task_runtime is None:
@@ -1786,6 +2285,11 @@ class _Connection:
                                    "task metadata requires VIBE_TASK_RUNTIME")
                         return
                     try:
+                        if task_meta.get("task_id"):
+                            record = self.task_runtime.store.get(task_meta["task_id"])
+                            if record.mode == "plan" and "creation" in record.extra:
+                                self.error(request_id, "revision_resume_required", "修订任务需通过带已观察段号的 resume-revision 续做")
+                                return
                         run_task = self.task_runtime.prepare_run(request_id, task_meta)
                     except TaskRuntimeDisabled as exc:
                         self.error(request_id, "task_runtime_disabled", str(exc))
@@ -1796,18 +2300,17 @@ class _Connection:
                     except (TaskRuntimeError, TaskError) as exc:
                         self.error(request_id, "task_error", f"{type(exc).__name__}: {exc}")
                         return
-                if run_task is not None:
-                    self.last_task_record = run_task.record
                 self.active_id = request_id
+                self.active_kind = "run" if kind == "run" else "command"
                 self.cancel = asyncio.Event()
                 if run_task is not None and self.task_runtime is not None:
                     self.send("task_state", request_id,
                               task=self.task_runtime.payload(run_task.record))
                 self.send("status", request_id, phase="running")
-                self.active = asyncio.create_task(
+                self.active = asyncio.create_task(self.session_operation(
                     self.run(request_id, request["text"], run_task) if kind == "run"
-                    else self.command(request_id, request["command"], request.get("args"))
-                )
+                    else self.command(request_id, request["command"], request.get("args")), writer,
+                ))
             elif kind == "cancel":
                 if not isinstance(request["target"], str) or not request["target"]:
                     raise ValueError("cancel target must be a run id")
@@ -1817,7 +2320,6 @@ class _Connection:
                 self.stopping()
                 self.send("ack", request_id, action="cancel")
             elif kind == "steer":
-                self._mark_plan_stale_for_steer()
                 if not isinstance(request["target"], str) or not request["target"]:
                     raise ValueError("steer target must be a run id")
                 if not isinstance(request["text"], str) or not request["text"].strip():
@@ -1831,6 +2333,7 @@ class _Connection:
                 if not self.agent.steer(request["text"]):
                     self.error(request_id, "run_mismatch", "target is not accepting steering")
                     return
+                self._mark_plan_stale_for_steer()
                 self.send("ack", request_id, action="steer")
             elif kind == "approval":
                 if (
@@ -1851,8 +2354,17 @@ class _Connection:
             else:
                 self.closed_id = request_id
                 self.stop.set()
+        except SessionBusy as exc:
+            self.error(request_id, 'session_busy', str(exc))
+        except OSError as exc:
+            self.error(request_id, 'session_unavailable', f'无法安全接入会话，未启动：{exc}')
         except (ValueError, TypeError, UnicodeError, RecursionError) as exc:
             self.error(request_id, "invalid_request", str(exc))
+        finally:
+            if writer is not None and self.active_id != request_id:
+                writer.close()
+                if self.session_writer is writer:
+                    self.session_writer = None
 
 
 async def serve(
@@ -1881,7 +2393,13 @@ async def serve(
         TaskRuntime(TaskStore(session.root), workspace=config.workspace, enabled=True)
         if runtime_enabled else None
     )
-    interrupted = task_runtime.recover() if task_runtime is not None else []
+    interrupted = []
+    if task_runtime is not None:
+        try:
+            with SessionWriter(session.root):
+                interrupted = task_runtime.recover()
+        except SessionBusy:
+            pass
     connection = _Connection(agent, config, session, emit, mcp=mcp, task_runtime=task_runtime)
     register_delegate_tool(agent, session.root)
     if agent.approval is None:
@@ -1902,10 +2420,17 @@ async def serve(
     reading = None
     stopped = asyncio.create_task(connection.stop.wait())
     capabilities = ["run", "cancel", "steer", "approval_once", "approval_scopes", "session_recording",
-                    "metrics", "history_restore", "commands", "resume"]
+                    "metrics", "history_restore", "commands", "resume", "inspection-history", "task-navigation", "session-navigation"]
+    from app.runtime import plan as plan_artifacts
+    if plan_artifacts.fcntl is not None:
+        capabilities.append("plan-review")
+        if task_runtime is not None and agent.tools_enabled:
+            capabilities.append("plan-revision")
+            capabilities.append("plan-revision-history")
     if task_runtime is not None:
         capabilities.append("tasks")
         capabilities.append("modes")
+        capabilities.append("plan-mode-control")
     if agent.tools_enabled:
         capabilities.append("native_tools")
     provider = (
@@ -1914,8 +2439,15 @@ async def serve(
         else type(agent.provider).__name__
     )
     try:
-        connection.send("ready", workspace=str(config.workspace.resolve()), model=config.model,
+        from app.runtime.inspection import capture_file_source
+        from app.runtime.session_navigation import session_identity
+        try:
+            identity = session_identity(session, config.workspace, session.purpose)
+        except (OSError, ValueError, TypeError):
+            identity = None
+        connection.send("ready", workspace=str(config.workspace.resolve()), model=config.model, file_source=capture_file_source(agent.tools.root),
                         session_id=session.id, session_path=str(session.root.resolve()),
+                    **({'session_identity': identity} if identity is not None else {}),
                     provider=provider, capabilities=capabilities,
                     tasks=_task_hints(session.root), resumed=resumed,
                     session_purpose=session.purpose,
@@ -1923,6 +2455,12 @@ async def serve(
                     autonomy_label=permissions.AUTONOMY_LABELS.get(
                         agent.autonomy, agent.autonomy),
                     skills=(agent.tools.skill_entries() if agent.tools_enabled else []))
+        if task_runtime is not None:
+            try:
+                connection.plan_mode.commit_pending()
+            except OSError as exc:
+                connection.send("notice", None, message=f"默认模式尚未生效：{exc}；请核对 /plan status。")
+        connection.send_plan_mode()
         for record in interrupted:
             connection.send("notice", None,
                             message=f"检测到中断任务 {record.task_id}（未自动重放）；可用 /goal resume 或重新开始。")

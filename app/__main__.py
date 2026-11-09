@@ -41,6 +41,27 @@ def _fake_demo_script() -> list:
     ]
 
 
+def _fake_plan_demo_script(content: str = "plan demo") -> list:
+    """确定性计划旅程；工具写入与验收命令仍经过 ApprovalGate。"""
+    return [
+        Response(tool_calls=[ToolCall("submit_plan", {
+            "objective": "写入 .vibe/plan-demo.txt 并校验内容",
+            "steps": [{"step_id": "s1", "title": "写入演示文件", "kind": "edit", "risk": "write",
+                       "files": [".vibe/plan-demo.txt"]}],
+            "acceptance_criteria": [{"id": "ac1", "text": f"演示文件内容为 {content} 加换行",
+                                     "confirmed": True, "required": True}],
+            "verification_plan": [{"id": "v1", "covers": ["ac1"], "source": "plan_approval",
+                                   "command": f"python3 -c \"from pathlib import Path; assert Path('.vibe/plan-demo.txt').read_text() == '{content}\\n'\""}],
+            "constraints": ["仅写入 .vibe/plan-demo.txt；写入和验证命令均需用户审批"],
+        }, id="plan-demo-submit")]),
+        Response(tool_calls=[ToolCall("start_plan_step", {"step_id": "s1"}, id="plan-demo-start")]),
+        Response(tool_calls=[ToolCall("write_file", {"path": ".vibe/plan-demo.txt", "content": content + "\n"},
+                                     id="plan-demo-write")]),
+        Response(tool_calls=[ToolCall("complete_plan_step", {"step_id": "s1"}, id="plan-demo-complete")]),
+        "演示本轮结束；是否完成请以实际工具回执和计划验收为准。",
+    ]
+
+
 def _fake_stream_faults() -> list[dict]:
     """VIBE_FAKE_STREAM_ERRORS=N：在 fake 脚本前注入 N 次可重试流错误。"""
     try:
@@ -91,6 +112,13 @@ def _build_info(repo_root: Path) -> dict:
 def build_provider(config: Config, fake: bool, debug_path=None):
     debug_path = debug_path or os.getenv("VIBE_LLM_DEBUG_PATH") or None
     if fake or config.provider == "fake":
+        if os.getenv("VIBE_FAKE_DEMO", "").strip().lower() == "revision-resume":
+            return FakeProvider(_fake_stream_faults() + _fake_plan_demo_script("revised demo"))
+        if os.getenv("VIBE_FAKE_DEMO", "").strip().lower() == "revision":
+            return FakeProvider(_fake_stream_faults() + [_fake_plan_demo_script()[0]]
+                                + _fake_plan_demo_script("revised demo"))
+        if os.getenv("VIBE_FAKE_DEMO", "").strip().lower() == "plan":
+            return FakeProvider(_fake_stream_faults() + _fake_plan_demo_script())
         if os.getenv("VIBE_FAKE_DEMO", "").strip().lower() in {"1", "true", "yes"}:
             return FakeProvider(_fake_stream_faults() + _fake_demo_script())
         if os.getenv("VIBE_FAKE_READ", "").strip().lower() in {"1", "true", "yes"}:
@@ -144,6 +172,7 @@ def main() -> None:
     sessions.add_argument("--session", metavar="SESSION_ID", help="恢复本工作区指定 session，不自动续跑")
     sessions.add_argument("--list-sessions", action="store_true", help="只读列出本工作区已有对话的 session 后退出")
     parser.add_argument("--sessions-json", action="store_true", help="--list-sessions 的 JSON 输出")
+    parser.add_argument('--session-identity', help=argparse.SUPPRESS)
     parser.add_argument("--tasks", action="store_true", help="只读列出最近会话的任务与 worker 状态")
     parser.add_argument("--tasks-json", action="store_true", help="--tasks 的 JSON 输出")
     parser.add_argument("--notifications", action="store_true", help="只读输出本工作区最近的本地通知")
@@ -1006,7 +1035,9 @@ def main() -> None:
     if args.prepare_plan_task or args.run_plan_queue:
         import subprocess
 
-        from app.runtime.plan import can_execute, executable_plans, find_plan
+        from app.runtime.plan import can_execute, content_hash, executable_plans, find_plan
+        from app.runtime.plan_review import PlanReview
+        from app.runtime.task_runtime import TaskRuntime
         from app.runtime.tasks import TaskStore
 
         purpose = "test" if args.test_session or args.fake or config.provider == "fake" else "user"
@@ -1039,27 +1070,13 @@ def main() -> None:
                 print("no executable approved plan in this session", file=sys.stderr)
                 raise SystemExit(2)
             plan_path, plan = plans[0]
-            existing = next(
-                (item for item in store.list(status="created")
-                 if item.plan_id == plan.plan_id and item.plan_version == plan.version),
-                None,
-            )
-            if existing is not None:
-                print(json.dumps({
-                    "workspace": str(workspace), "session": session.id,
-                    "task_id": existing.task_id, "plan_id": plan.plan_id,
-                    "plan_version": plan.version, "objective": plan.objective,
-                    "plan_path": str(plan_path), "priority": existing.priority,
-                    "reused": True,
-                }, ensure_ascii=False, indent=2))
-                return
             try:
-                task = store.create(
-                    kind="run", objective=plan.objective, workspace=str(workspace),
-                    mode="act", plan_id=plan.plan_id, plan_version=plan.version,
-                    priority=max(0, min(args.plan_task_priority or 0, 100)),
-                    session_id=session.id,
-                )
+                review = PlanReview(session.root, session_id=session.id,
+                                    task_runtime=TaskRuntime(store, workspace=workspace))
+                task, reused = review.prepare_background({
+                    'session_id': session.id, 'plan_task_id': plan.task_id,
+                    'plan_id': plan.plan_id, 'plan_version': plan.version, 'plan_hash': content_hash(plan),
+                }, priority=max(0, min(args.plan_task_priority or 0, 100)))
             except Exception as exc:
                 print(f"prepare plan task failed: {exc}", file=sys.stderr)
                 raise SystemExit(2)
@@ -1067,7 +1084,7 @@ def main() -> None:
                 "workspace": str(workspace), "session": session.id, "task_id": task.task_id,
                 "plan_id": plan.plan_id, "plan_version": plan.version,
                 "objective": plan.objective, "plan_path": str(plan_path),
-                "priority": task.priority, "reused": False,
+                "priority": task.priority, "reused": reused,
             }, ensure_ascii=False, indent=2))
             return
 
@@ -1581,12 +1598,17 @@ def main() -> None:
         return
 
     resumed_session = None
+    if args.session_identity and (not args.session or not args.stdio):
+        parser.error('--session-identity requires --stdio and --session')
     if args.continue_session or args.session is not None:
         try:
             resumed_session = (
                 SessionStore.open_existing(config.workspace, args.session, purpose=session_purpose)
                 if args.session is not None else SessionStore.latest(config.workspace, purpose=session_purpose)
             )
+            if args.session_identity:
+                from app.runtime.session_navigation import open_selected_session
+                resumed_session = open_selected_session(config.workspace, args.session, session_purpose, args.session_identity)
         except ValueError as exc:
             parser.error(str(exc))
         has_tasks = False
@@ -1600,6 +1622,7 @@ def main() -> None:
             not resumed_session.load_context()
             and not os.getenv("VIBE_WORKER")
             and not has_tasks
+            and not args.session_identity
         ):
             target = f"session {args.session}" if args.session is not None else "conversation"
             print(f"no {target} found under {config.workspace}/.vibe/sessions", file=sys.stderr)
@@ -1654,7 +1677,18 @@ def main() -> None:
     )
     if resumed_session is not None:
         session = resumed_session
-        repaired = session.repair_incomplete_tool_calls()
+        from app.runtime.supervise import WorkerSupervisor
+        from app.session.writer import SessionBusy, SessionWriter
+        blocked = os.getenv('VIBE_WORKER') != '1' and WorkerSupervisor(session.root).recovery_blocked()
+        repaired = 0
+        if not blocked:
+            try:
+                with SessionWriter(session.root):
+                    repaired = session.repair_incomplete_tool_calls()
+            except SessionBusy:
+                blocked = True
+        if blocked:
+            print('会话有其他活动连接或无法核对的 worker；保留工具记录，可从任务入口接入。', file=sys.stderr)
         if repaired:
             print(f"recovered {repaired} incomplete tool call(s)", file=sys.stderr)
         history = session.load_context()

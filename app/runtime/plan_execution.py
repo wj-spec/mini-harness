@@ -140,8 +140,8 @@ class StepLedger:
                   if item.get("ok") and item.get("kind") in {"verification", "command_ok"}]
             if not ok:
                 raise ExecutionError("step_evidence_missing: verification evidence required")
-        elif not record.evidence:
-            raise ExecutionError("step_evidence_missing: at least one evidence ref required")
+        elif not any(item.get("ok") for item in record.evidence):
+            raise ExecutionError("step_evidence_missing: successful evidence required")
         record.status = "done"
         record.updated_at = _now()
         self.updated_at = _now()

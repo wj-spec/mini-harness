@@ -1,5 +1,14 @@
 # 建设方向
 
+**P8 原会话上下文与执行互斥（2026-11-09，实施中）**：返回后下一次模型请求接入最新有效快照、消息和任务状态；同会话其他连接运行时拒绝抢写，普通草稿恢复，持久后续消息退回队列并暂停。启动恢复不改写活跃工具，正常结束或强退后可显式重试。完整 Ink **690/690**、Python **1932 passed / 4 skipped**，实际双进程与 32×12 worker/Ink/Python PTY 通过。旧会话导航和 Ghostty 真人/Owner Review 仍待完成，见 [本批验证](../openspec/changes/implement-improve-workbench-ux-p8/verification.md#原会话上下文与并行执行保护2026-11-09)。
+
+**P8 工作台内接入与停止（2026-11-09，实施中）**：已接通任务目录中的接入/审批/停止/离线查看，返回保留两侧草稿与光标，运行中等待或停止后切换，连接失败可回原会话。完整 Ink **687/687**、Python **1923 passed / 4 skipped** 与实际 worker/Ink/Python PTY 通过；原会话模型上下文同步/同会话并发写入、旧会话导航和 Ghostty 真人/Owner Review 仍待完成，见 [第二批验证](../openspec/changes/implement-improve-workbench-ux-p8/verification.md#工作台内接入与停止2026-11-09)。
+
+**P8 当前会话任务导航（2026-11-09，实施中）**：已接通可点击目录、分页选择与准确历史，刷新保留任务身份，返回保留草稿/光标。完整 Ink **679/679**、Python **1918 passed / 4 skipped** 与实际 Ink/Python PTY 通过。接入/停止、旧会话切换和 Ghostty 真人/Owner Review 仍待完成，见 [第一批验证](../openspec/changes/implement-improve-workbench-ux-p8/verification.md)。
+
+**P7 持久待办（2026-11-09，实施中）**：后续消息已保存到所属会话，重开默认暂停；同会话单窗口管理，其他窗口只读并可显式接入。发送中断保留请求身份并显示“结果待核对”，不会自动重发；保存失败和未保存编辑保留输入并提示。完整 Ink **670/670**、Python **1915 passed / 4 skipped**，真实 Ink/Python 进程的退出重开、多窗口接入与中断恢复通过；Ghostty 真人完整旅程与 Owner Review 仍待完成。 见 [本批记录](../openspec/changes/implement-improve-workbench-ux-p7/verification.md#持久待办与未知发送恢复2026-11-09)。
+
+
 长期目标是一个越用越了解我的个人助手工作台，同时作为深入学习全栈开发的长期项目。当前以单进程 Agent loop 发展 vibe coding 能力，在真实编码任务中积累使用反馈，同时理解 agent 的运行原理；界面开发、状态管理、前后端通信和交付也纳入学习范围。后续探索主 Agent 编排、子 Agent 执行的协作架构，以及展示用户偏好与画像的“关于你”。阶段顺序表达建设重点，不预设完成日期。
 
 具体交付顺序、当前状态与完成条件见 [工作台里程碑 W0–W7](MILESTONES.md)；本页记录长期方向与取舍。
@@ -50,6 +59,64 @@ LSP、插件生态和其他界面根据具体使用需求评估。stdio MCP 已�
 2026-10-26 已完成两方向的方向调研与实施规格：[Multi-Agent 与 Computer Use](specs/multi-agent-computer-use.md)；Computer Use 已收窄为先做 [Browser Use](specs/browser-use.md)。当前顺序为 **G0 MCP 工具级权限 → B1 浏览器观察 → B2 本地受控浏览器动作 → 再评估 M1 只读子 Agent / 桌面 Computer Use**。2026-10-27 B2 已通过用户 CLI 真实模型与 Ink 本地功能验收：click/type/select、逐次审批、拒绝后保持草稿、零提交均成立；主观使用体验继续记录。当前范围保持本地且不提交，后续扩展按实际需求单独评估。第一版不并行写、不做视觉优先的通用桌面控制。
 
 这是一条架构探索方向，与“关于你”的个人上下文能力分别演进。先根据实际任务确认委派/GUI 操作是否带来收益，再确定通信、执行和任务状态的设计；多 Agent 不预设为 W0–W3 的交付要求。
+
+## 计划模式后续方向（P2，2026-11-08 记录）
+
+2026-11-08 已完成 P0/P1：可配置 plan 提示词、`submit_plan` 最终调用门禁、审阅三态
+（批准/要求修改/关闭）、Markdown 审阅稿，以及会话级 plan mode
+（`/plan on|off|status` + `plan-mode.json` + TUI 状态）。同日复盘发现交互层债务：
+`/plan on` 等命令把内部状态暴露给用户、`request-changes` 不驱动模型修订、批准与执行分离；
+下一轮优先做交互重设计（一步入口、Plan review 卡、request-changes 闭环、批准即执行），
+缺陷、目标模型与 P0/P1/P2 方案见 [计划模式 UX 复盘与改进方案](specs/plan-ux.md)。
+以下为交互重设计之外的后续项：
+
+- **工具目录稳定/渐进披露**：若未来支持 turn 内切换 plan mode（当前只在 task/run 边界切换），
+  参考 DSH 的做法保持工具列表稳定、首次进入只加 `submit_plan`，并评估 prompt cache 影响；
+  当前不实现。
+- **事件日志投影与多端 pending**：`plan-mode.json` 是单文件简单状态；多标签、attach、
+  重启后的统一投影与 pending 回放后续再评估（当前 TUI 单连接够用）。
+- **子 Agent/fork 的 plan 语义**：fork 是否继承计划模式、新 spawn 是否从非激活开始、
+  子级不得自行批准计划；当前 plan profile 禁止模型自发委派，等实际需求再定。
+- **模式抽象**：plan 协作状态保持 plan 专用；出现第二种具体协作模式后再抽通用 seam，
+  避免提前做模式注册表。
+- **通用审批/question seam**：当前 plan 审阅已有 `review_intent` 并集中到 `plan_review`；
+  跨 plan/goal/子 Agent 的统一审阅请求与多端渲染，等出现第二个实际使用者后再抽，
+  遵循“第二个使用者再复用”的取舍。
+
+## 工作台 UX 落地规划（2026-11-08，P1 核心交互已验收）
+
+最新顺序调整：P3 核心演示已获用户确认，但快捷键审批体验不佳，因此先交付[审批按钮增量](../openspec/changes/implement-improve-workbench-ux-p1/verification.md#审批按钮增量2026-11-08)：可点击的本次允许/拒绝、更多授权与常规键盘导航。自动与三种尺寸工具 PTY 通过，新按钮真人体验待验收。P3 原生重开/恢复、P2 真人和学习 Review 未获确认，以下历史进度保留；当前推进 P6 对象范围与检查区，P4/P5 剩余验收单列，进度见本节末。
+
+结合 [Ink UX 审计](research/ink-ux-audit-2026-11-08.md)、Plan UX 复盘与 Ghostty 侧栏走查，
+新增 [工作台 UX 实施路线图](../openspec/roadmaps/improve-workbench-ux/roadmap.md)。近期先做输入/审批控制与稳定阅读，
+再推进 Plan 审阅修订、操作入口及带轮次范围的任务检查区；每阶段分别记录自动验证和真人终端验收。
+默认入口保持 Ink，OpenTUI 通过独立、限时的侧栏与输入对照试验评估；规划不等同于里程碑完成或迁移决定。
+P1 的 [输入/审批控制](../openspec/changes/implement-improve-workbench-ux-p1/verification.md) 已完成工程验证，用户确认核心交互符合预期；新增可点击按钮的真人体验仍待反馈。P2 的 [稳定阅读](../openspec/changes/implement-improve-workbench-ux-p2/verification.md) 通过自动与工具 PTY，真人待验收。P3 的 [审阅与执行](../openspec/changes/implement-improve-workbench-ux-p3/verification.md) 通过受控真实模型与用户核心演示，原生重开/恢复及学习 Review 待确认。P4 已接通修订和重开恢复，当前证据见下；P5 入口、模式恢复及紧凑布局通过工程验证，真人验收待完成；P6 实例隔离与基础运行/计划投影通过工程验证、完整检查区实施中；P7 持久恢复通过工程验证、真人待验收；P8 当前会话导航、接入/停止及上下文同步/执行互斥通过工程验证，旧会话导航实施中；P9–P10 未实施。
+
+P3 验收补充：首个真实样本预算暂停后，已修复任务续接、拒绝后的完成判定与最终回执，并提供 `VIBE_FAKE_DEMO=plan` 演示。第二个受控真实样本已完成 message.txt 修改、两次逐次审批和验收 exit=0；离线重开未重复运行。样本暴露的新提案风险提示已修复，最终 Python 1817 passed / 4 skipped、TUI 497/497。Ghostty 真人与学习 Review 仍待完成；详见 [P3 验证记录](../openspec/changes/implement-improve-workbench-ux-p3/verification.md)。
+
+P4 当前进度：修订记录与重开恢复已接通，[回执丢失与新版竞争](../openspec/changes/implement-improve-workbench-ux-p4/verification.md#实际进程故障恢复补验2026-11-08) 也通过实际进程验证；读取与冲突拒绝不增加模型调用或运行段。该轮 TUI 540/540，Python 1885 passed / 4 skipped。未发送反馈仍只保存在进程内；受控真实模型、Ghostty 真人与 Owner Review 待完成，P4 尚未整体验收。
+
+P5 当前进度：[模式与恢复](../openspec/changes/implement-improve-workbench-ux-p5/verification.md#紧凑布局与原生点击2026-11-08) 已在命令入口与可用原因基础上接通：当前任务与下次默认值分别显示，pending 可选择/撤回，重开无自动运行，保存失败保留输入。全量 TUI 561/561、Python 1888 passed / 4 skipped，三尺寸实际 PTY 通过；早期跨语言检查遗漏已更正。80×24 固定样本正文从 8 行增至 12 行，三尺寸原生鼠标拒绝通过；下一步细化 P6 对象范围与检查区；真人与 Owner Review 单列，P6 实例隔离与基础运行/计划投影通过工程验证、完整检查区实施中；P7 持久恢复通过工程验证、真人待验收；P8 当前会话导航、接入/停止及上下文同步/执行互斥通过工程验证，旧会话导航实施中；P9–P10 未实施。
+
+P6 启动稳定性增量：侧栏新增启动与实例占用：同一工作台的多模式启动、不同会话的 quick 启动不会同时进入宿主操作；重复 CLI 拒绝覆盖登记，正常退出和强制结束后可重开。完整 Ink 643/643、Python 1915 passed / 4 skipped、八组并发压力与实际 PTY 复验通过；评审补齐路径别名竞争，Ghostty 原生 GUI 因工具安全限制未能核验，真人完整旅程与 Owner Review 仍待完成。见 [验证记录](../openspec/changes/implement-improve-workbench-ux-p6/verification.md#侧栏启动竞争与重复登记2026-11-09)。
+
+P6 当前进度：主区新增可点击的专注检查，与独立侧栏共用变更、准确计划和验证阅读；返回保留草稿/光标、页码与选区。无法自动分屏时，结果入口进入内嵌视图；新审批只提示返回处理，停止仍指向当前运行。全量 Ink 638/638、Python 1915 passed / 4 skipped 与实际终端复验通过；Ghostty 原生、完整真人旅程与 Owner Review 仍待完成，P6 保持实施中。见 [专注检查证据](../openspec/changes/implement-improve-workbench-ux-p6/verification.md#内嵌专注检查2026-11-09)。
+
+P6 来源路由增量：检查记录已保存任务实际文件目录，attach 和历史选择据此读取 worktree 的当前 diff；项目与任务中的同名文件不会混用。目录失效或旧记录缺少来源时明确说明，附回选区同时复核来源与版本。实际后台写入、当前/重开侧栏和目录替换拒绝通过；内嵌专注检查、完整真人旅程和 Owner Review 仍待完成，P6 保持实施中。完整 Python 1915 passed / 4 skipped，Ink **633/633** 全量通过；见 [来源路由证据](../openspec/changes/implement-improve-workbench-ux-p6/verification.md#worktree-文件来源与-diff-路由2026-11-09)。
+
+## Agent 实验台规划（2026-11-08，未实施）
+
+为持续改善 coding Agent，新增 [Agent 实验台路线图](../openspec/roadmaps/build-agent-lab/roadmap.md)
+与 [整体设计](../openspec/roadmaps/build-agent-lab/design.md)：以真实任务证据、实际运行版本、固定协议评测和失败回归形成优化闭环。
+近期先做可核查运行证据包与 SWE-bench 对照，Terminal-Bench 为紧随其后的必需主基准；内部 eval 保留快速自检。
+后续根据实际案例推进本地配套工作台、基线管理与可选观测集成。不同数据集版本、原生评分与本地诊断统计分开；本地跑分不等同于官方接纳上榜。
+Ink 仍是 Agent 操作入口，实验台承担跨运行分析；本地证据为事实源，OTel 为可选派生出口。
+本规划服务于 W0 可复现起点与已有评测扩题，不改变 W0–W7 的验收状态；已完成文档规划与本地流程原型，
+首版原型已获“业务覆盖不足”的反馈；用户明确优先定位真实任务的失败、反复与高消耗，
+已用三个真实历史样本重做诊断入口，支持请求/上下文、工具结果及带证据的改进草案，双基准对比保留，
+见 [业务旅程](../openspec/roadmaps/build-agent-lab/business-workflows.md) 与 [原型核验](../openspec/roadmaps/build-agent-lab/prototype-review.md)。
+新版用户体验反馈待收集，P1–P7 的生产能力仍未实施。
 
 ## 持续取舍
 
