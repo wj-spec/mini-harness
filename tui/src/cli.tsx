@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-import React from 'react';
+import React, {useEffect, useState} from 'react';
 import {spawn} from 'node:child_process';
 import {constants} from 'node:os';
 import {render} from 'ink';
 import {App} from './app.js';
-import {createBackendClient, type AttachOptions} from './backend.js';
+import {createBackendClient, type AttachOptions, type BackendClient} from './backend.js';
 import {validateClientArgs} from './protocol.js';
 import {createTerminalInput} from './terminal-input.js';
 import {backendCommand, backendLaunchOptions} from './backend-launch.js';
@@ -66,6 +66,7 @@ Ctrl+C 取消任务或 MCP 初始化，空闲时退出；Ctrl+Q 退出。
   /skills [refresh|activate NAME|unload NAME]  技能菜单与生命周期（↑↓ 选择，Tab 补全）
   /goal <目标> | /goal stop | /goal resume   目标模式：长任务自动续段
   /session                      查看当前会话路径
+  /sessions                     选择并预览旧会话，显式打开（打开不会自动运行）
   /followup [TEXT]              查看/编辑后续消息；成功后续发，失败暂停
   /copy                         复制最近回复、工具详情或审批预览（Ctrl+Y）
   /project                     查看项目背景；/project add 文本、/project remove 序号、/project source 序号 来源
@@ -86,6 +87,18 @@ function extractAttach(args: string[]): {args: string[]; attach?: AttachOptions;
   const session = sessionIndex >= 0 ? rest[sessionIndex + 1] : undefined;
   if (!session || session.startsWith('--')) return {args: [], error: '--attach-task requires --session SESSION_ID'};
   return {args: rest, attach: {taskId, session}};
+}
+
+// 顶层 App 持有当前会话的后端；旧会话显式打开成功后替换客户端并重挂载工作台。
+function Root({initial, attach, onClientChange}: {initial: BackendClient; attach: boolean; onClientChange: (client: BackendClient) => void}) {
+  const [current, setCurrent] = useState({client: initial, generation: 0});
+  useEffect(() => {onClientChange(current.client);}, [current.client, onClientChange]);
+  return <App key={current.generation} client={current.client} attach={attach}
+    onSessionSwitch={async next => {
+      const previous = current.client;
+      setCurrent({client: next, generation: current.generation + 1});
+      try {await previous.shutdown();} catch {void 0;}
+    }}/>;
 }
 
 async function main() {
@@ -147,9 +160,10 @@ async function main() {
   }
   const client = createBackendClient({args: checkedArgs, attach: extracted.attach});
   const stdin = createTerminalInput(process.stdin);
+  const currentClient = {client};
   let instance: ReturnType<typeof render>;
   try {
-    instance = render(<App client={client} attach={Boolean(extracted.attach)}/>, {
+    instance = render(<Root initial={client} attach={Boolean(extracted.attach)} onClientChange={next => {currentClient.client = next;}}/>, {
       stdin, exitOnCtrlC: false, patchConsole: false, interactive: true, alternateScreen: true,
     });
   } catch (error) {
@@ -160,7 +174,7 @@ async function main() {
   const onSignal = (signal: NodeJS.Signals) => {
     if (ending) return;
     ending = true;
-    void client.shutdown().finally(() => {
+    void currentClient.client.shutdown().finally(() => {
       instance.unmount();
       process.exitCode = signal === 'SIGINT' ? 130 : signal === 'SIGTERM' ? 143 : 129;
     });
@@ -176,7 +190,7 @@ async function main() {
     await instance.waitUntilExit();
   } finally {
     try {
-      await client.shutdown();
+      await currentClient.client.shutdown();
     } finally {
       process.off('SIGTERM', onTerm);
       process.off('SIGHUP', onHup);

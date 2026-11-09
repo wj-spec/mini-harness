@@ -23,6 +23,8 @@
 
 ## 界面迁移与全栈学习切片
 
+**P8 旧会话预览与显式打开（2026-11-09，实施中）**：`/sessions` 可按当前用途分页浏览旧会话标题、更新时间、消息数与最近内容，预览只读；点击「打开会话」先创建候选后端并核对 workspace/session/identity/resumed 回执，通过后才替换当前工作台并关闭旧后端，不自动运行（需 `/resume` 或输入新任务）。运行中、目标模式或待办未保存时拒绝切换并保留原会话；失败/超时/取消/迟到回执保留原页与输入。新增 9 项 App/BackendClient 回归（含实际 Python 目录→打开→历史回放、零运行），完整 Ink **699**（697 passed、2 项沙箱 PTY 环境失败）、Python **1943** 项（1930 passed / 13 skipped）。真实终端/PTY 旅程、Ghostty 真人与 Owner Review 待完成，P8 不标完成。见 [本批验证](../openspec/changes/implement-improve-workbench-ux-p8/verification.md#旧会话目录预览与显式打开2026-11-09)。
+
 **P8 原会话上下文与执行互斥（2026-11-09，实施中）**：返回后下一次模型请求接入最新有效快照、消息和任务状态；同会话其他连接运行时拒绝抢写，普通草稿恢复，持久后续消息退回队列并暂停。启动恢复不改写活跃工具，正常结束或强退后可显式重试。完整 Ink **690/690**、Python **1932 passed / 4 skipped**，实际双进程与 32×12 worker/Ink/Python PTY 通过。旧会话导航和 Ghostty 真人/Owner Review 仍待完成，见 [本批验证](../openspec/changes/implement-improve-workbench-ux-p8/verification.md#原会话上下文与并行执行保护2026-11-09)。
 
 **P8 工作台内接入与停止（2026-11-09，实施中）**：任务目录可直接接入、审批、返回、停止或离线查看，原会话不重启，窗口内两侧草稿与光标分别保留；运行中先明确等待或停止，取消和连接失败保留原会话。完整 Ink **687/687**、Python **1923 passed / 4 skipped**，实际 worker/Ink/Python PTY 的审批写入、返回后继续运行、显式停止、32×12 与离线草稿恢复通过；已修复活跃 worker 工具被误恢复的问题。原会话模型上下文同步/同会话并发写入、旧会话导航与 Ghostty 真人/Owner Review 仍待完成，见 [第二批验证](../openspec/changes/implement-improve-workbench-ux-p8/verification.md#工作台内接入与停止2026-11-09)。

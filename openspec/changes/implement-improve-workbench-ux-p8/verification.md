@@ -2,6 +2,29 @@
 
 状态：实施中，未整体验收。只读目录与选择、工作台内接入/停止、返回后的模型上下文同步与同会话执行互斥已通过工程核验。旧会话完整旅程、Ghostty 真人与 Owner Review 仍在范围内；各批基线与历史证据分别保留。
 
+## 旧会话目录、预览与显式打开（2026-11-09）
+
+开始前确认上一批归档为有效进展；本批补齐上轮未归档后端增量的 TUI 接线。`/sessions` 成为可用入口：按当前用途（user/test）列出旧会话，每页 5 条，展示标题、准确 session id、更新时间、消息数与最近 3 条消息节选；分页、刷新与坏记录计数沿用后端 `session_catalog` 契约，查询不创建任务、不调用模型、不写会话记录。
+
+「打开会话」显式且不自动运行：先在本窗口创建候选后端，保留当前 `--fake` / `--test-session` 用途参数，替换为所选会话的 `--workspace`/`--session`/`--session-identity`；只有 ready 回执的 workspace、session_id、session_identity、resumed 全部匹配才交给外层替换当前工作台，旧后端随后关闭。失败、超时、取消、错身份或迟到回执都保留当前会话与草稿，并在面板内给出原因。切换后不会自动续跑，需要 `/resume` 或输入新任务；当前任务运行中、目标模式进行中、待办未保存/未持久时拒绝切换并说明原因；任务接入视图内先返回原会话。浏览返回（Esc/返回）保留输入与光标。
+
+### 自动验证
+
+| 边界 | 证据与结果 |
+|---|---|
+| 后端目录与打开（沿用上一未归档增量） | `session_navigation.py` + stdio capability `session-navigation` + CLI `--session-identity`；2 项目录查询、5 项 CLI 身份/用途复核：catalog-red/green、open-red/green、scope-open |
+| BackendClient | 新增 3 项 fixture：用途参数保留与准确参数替换、错 identity/session 回执拒绝、无能力时不创建候选；1 项实际 Python：目录 → 打开所选会话 → 历史回放 → 零运行 → 错身份拒绝且原连接保持 |
+| App | 新增 5 项旅程：只读分页/返回继续输入、打开后交给外层、运行中拒绝切换、失败与迟到回执保留原页、能力缺失/运行中入口可用 |
+| 完整 Ink | `ui-green.log` 9/9；全量 **699** 项（697 passed，2 项 sandbox PTY 环境失败，与基线相同） |
+| 完整 Python | 1943 项，**1930 passed / 13 skipped**，0 失败；沙箱环境 skip 比正常终端多 9 项 |
+| 先红后绿 | `ui-red.log` 保存先红构建失败（缺 `openSession`/`onSessionSwitch`）；实现后 `ui-green.log` 全绿 |
+
+### 终端与范围
+
+本批产品源码：`tui/src/backend.ts`、`protocol.ts`、`commands.ts`、`app.tsx`、`cli.tsx`，新增 `use-session-navigation.ts`、`session-navigation-panel.tsx`，另有 2 份 TUI 测试；Python 后端沿用上一未归档增量，未新增协议字段。证据在 `.vibe/ux-p8-sessions-nav-2026-11-09/`（`ui-red.log`、`ui-green.log`）。
+
+未做：真实终端 PTY 旅程、Ghostty 真人与 Owner Review；「打开后 /resume 续做」的跨会话真人旅程单列；本批不把自动验证当作 P8 整体或真人验收。
+
 ## 原会话上下文与并行执行保护（2026-11-09）
 
 开始前重新核验上一批 control 归档，保存 `.vibe/ux-p8-session-2026-11-09/baseline-manifest.json` 共 653 文件。双 stdio 连接复现后台结果已保存、原连接下一次模型请求仍缺少结果；另一个复现证明后台等待审批时，原连接仍能同时执行。修复后先取得会话进程锁，再准备任务、接入最新有效压缩快照/消息/TaskState，至保存收尾才释放。正常结束、取消或进程崩溃释放锁；启动工具修复和任务恢复共用同一锁，忙时只读打开。

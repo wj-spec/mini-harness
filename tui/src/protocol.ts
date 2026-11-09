@@ -24,6 +24,7 @@ export type BackendCommand = typeof BACKEND_COMMANDS[number];
 export type SkillsCommandArgs = {action?: 'list' | 'refresh' | 'activate' | 'unload'; name?: string};
 export type InspectionHistoryArgs = {cursor?: string; task_id?: string};
 export type TaskCatalogArgs = {cursor?: string};
+export type SessionCatalogArgs = TaskCatalogArgs;
 export type SessionCatalogRow = {session_id: string; identity: string; title: string; updated_at: string;
   message_count: number; preview: string; truncated: boolean};
 export type SessionCatalogPage = {workspace: string; session_id: string; purpose: SessionPurpose; records: SessionCatalogRow[];
@@ -37,6 +38,10 @@ export function validSessionCatalogPage(value: unknown): value is SessionCatalog
       validId(item.session_id) && typeof item.identity === 'string' && /^[0-9a-f]{64}$/.test(item.identity) &&
       text(item.title, 1000) && text(item.updated_at, 128) && text(item.preview, 6000) &&
       Number.isSafeInteger(item.message_count) && Number(item.message_count) >= 0 && typeof item.truncated === 'boolean');
+}
+export function validateSessionCatalogArgs(value: unknown): asserts value is SessionCatalogArgs {
+  if (!record(value) || Object.keys(value).some(key => key !== 'cursor') ||
+      'cursor' in value && !taskCatalogCursor(value.cursor)) throw new Error('会话目录参数无效');
 }
 export type TaskCatalogRow = {task_id: string; objective: string; kind: string; mode: string; status: string; priority: number;
   controls?: {attach: 'live' | 'offline' | null; attach_reason: string | null; stop: boolean; stop_reason: string | null};

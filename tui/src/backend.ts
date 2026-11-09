@@ -3,7 +3,7 @@ import {randomUUID} from 'node:crypto';
 import {StringDecoder} from 'node:string_decoder';
 import {validateTaskCatalogArgs, type TaskCatalogArgs} from './protocol.js';
 import {backendCommand, backendLaunchOptions} from './backend-launch.js';
-import {BACKEND_COMMANDS, MAX_FRAME_BYTES, parseServerEvent, validateAutonomyArgs, validateClientArgs, validateExploreArgs, validateNotificationsArgs, validatePlanArgs, validateInspectionArgs, type InspectionHistoryArgs, validateSkillsArgs, validateTraceArgs, validatePriorityArgs, type ApprovalDecision, type AutonomyCommandArgs, type BackendCommand, type ClientRequest, type CommandArgs, type ExploreCommandArgs, type NotificationsCommandArgs, type PlanCommandArgs, type RunTaskMeta, type ServerEvent, type SkillsCommandArgs, type TraceCommandArgs, type PriorityCommandArgs} from './protocol.js';
+import {BACKEND_COMMANDS, MAX_FRAME_BYTES, parseServerEvent, validateAutonomyArgs, validateClientArgs, validateExploreArgs, validateNotificationsArgs, validatePlanArgs, validateInspectionArgs, validateSessionCatalogArgs, type InspectionHistoryArgs, validateSkillsArgs, validateTraceArgs, validatePriorityArgs, type ApprovalDecision, type AutonomyCommandArgs, type BackendCommand, type ClientRequest, type CommandArgs, type ExploreCommandArgs, type NotificationsCommandArgs, type PlanCommandArgs, type RunTaskMeta, type ServerEvent, type SkillsCommandArgs, type TraceCommandArgs, type PriorityCommandArgs} from './protocol.js';
 
 export interface BackendClient {
   subscribe(listener: (event: ServerEvent) => void): () => void;
@@ -16,9 +16,12 @@ export interface BackendClient {
   shutdown(): Promise<void>;
   start(): void;
   connectTask?(target: TaskConnectionTarget, signal?: AbortSignal): Promise<BackendClient>;
+  openSession?(target: SessionOpenTarget, signal?: AbortSignal): Promise<BackendClient>;
 }
 
 export interface TaskConnectionTarget {workspace: string; sessionId: string; taskId: string}
+
+export interface SessionOpenTarget {workspace: string; sessionId: string; identity: string}
 
 export interface AttachOptions {
   taskId: string;
@@ -368,6 +371,46 @@ export function createBackendClient(options: BackendOptions = {}): BackendClient
         return connection;
       } catch (error) {await connection.shutdown(); connections.delete(connection); throw error;}
     },
+    async openSession(target, abortSignal) {
+      if (shuttingDown || abortSignal?.aborted) throw new Error('打开已取消，当前会话保留');
+      if (!ready || !(ready.type === 'ready' && ready.capabilities.includes('session-navigation'))) throw new Error('后端不支持旧会话目录');
+      if (!target.workspace || !/^[-A-Za-z0-9_]{1,128}$/.test(target.sessionId) || !/^[0-9a-f]{64}$/.test(target.identity)) throw new Error('旧会话身份无效');
+      const nextArgs: string[] = [];
+      for (let i = 0; i < args.length; i += 1) {
+        if (args[i] === '--workspace' || args[i] === '--session' || args[i] === '--session-identity') {i += 1; continue;}
+        if (args[i] === '--continue' || args[i] === '--list-sessions') continue;
+        nextArgs.push(args[i]!);
+      }
+      nextArgs.push('--workspace', target.workspace, '--session', target.sessionId, '--session-identity', target.identity);
+      const connection = createBackendClient({...options, args: nextArgs, attach: undefined});
+      connections.add(connection);
+      const untrack = connection.subscribe(event => {if (event.type === 'closed') {connections.delete(connection); untrack();}});
+      try {
+        await new Promise<void>((resolve, reject) => {
+          let settled = false; let diagnostic = '';
+          const finish = (error?: Error) => {
+            if (settled) return;
+            settled = true; clearTimeout(timer); unsubscribe(); abortSignal?.removeEventListener('abort', abort);
+            if (error) reject(error); else resolve();
+          };
+          const abort = () => finish(new Error('打开已取消，当前会话保留'));
+          const timer = setTimeout(() => finish(new Error('打开旧会话超时，当前会话保留')), 10_000);
+          const unsubscribe = connection.subscribe(event => {
+            if (event.type === 'diagnostic') diagnostic = (diagnostic + event.message).slice(-2000);
+            else if (event.type === 'ready') {
+              if (event.workspace !== target.workspace || event.resumed !== true || event.session_id !== target.sessionId ||
+                  event.session_identity !== target.identity) {finish(new Error('打开回执的工作区、会话或身份不匹配')); return;}
+              finish();
+            } else if (event.type === 'error' || event.type === 'closed') {
+              finish(new Error(diagnostic.trim() || (event.type === 'error' ? event.message : '打开旧会话失败，当前会话保留'))); return;
+            }
+          });
+          abortSignal?.addEventListener('abort', abort, {once: true});
+          connection.start();
+        });
+        return connection;
+      } catch (error) {await connection.shutdown(); connections.delete(connection); throw error;}
+    },
     start() {
       if (started || shuttingDown) return;
       started = true;
@@ -452,6 +495,10 @@ export function createBackendClient(options: BackendOptions = {}): BackendClient
           if (!(ready.type === 'ready' && ready.capabilities.includes('task-navigation'))) throw new Error('后端不支持任务目录');
           validateTaskCatalogArgs(args);
         }
+        else if (command === 'sessions') {
+          if (!(ready.type === 'ready' && ready.capabilities.includes('session-navigation'))) throw new Error('后端不支持旧会话目录');
+          validateSessionCatalogArgs(args);
+        }
         else if (command === 'inspections') validateInspectionArgs(args);
         else if (command === 'skills') validateSkillsArgs(args);
         else if (command === 'autonomy') validateAutonomyArgs(args);
@@ -485,6 +532,7 @@ export function createBackendClient(options: BackendOptions = {}): BackendClient
       else if (command === 'trace') send({v: 1, type: 'command', id, command, ...(args === undefined ? {} : {args: args as TraceCommandArgs})});
       else if (command === 'priority') send({v: 1, type: 'command', id, command, args: args as PriorityCommandArgs});
       else if (command === 'tasks') send({v: 1, type: 'command', id, command, ...(args === undefined ? {} : {args: args as TaskCatalogArgs})});
+      else if (command === 'sessions') send({v: 1, type: 'command', id, command, ...(args === undefined ? {} : {args: args as TaskCatalogArgs})});
       else if (command === 'inspections') send({v: 1, type: 'command', id, command, ...(args === undefined ? {} : {args: args as InspectionHistoryArgs})});
       else if (command === 'plan') send({v: 1, type: 'command', id, command, ...(args === undefined ? {} : {args: args as PlanCommandArgs})});
       else send({v: 1, type: 'command', id, command});

@@ -21,6 +21,9 @@ import {useTaskNavigation} from './use-task-navigation.js';
 import {useTaskConnection, type TaskDraft} from './use-task-connection.js';
 import type {TaskConnectionTarget} from './backend.js';
 import {TaskNavigationPanel} from './task-navigation-panel.js';
+import {useSessionNavigation} from './use-session-navigation.js';
+import {SessionNavigationPanel} from './session-navigation-panel.js';
+import type {SessionCatalogRow} from './protocol.js';
 import {usePlanReview} from './use-plan-review.js';
 import {SidebarApp} from './sidebar/app.js';
 import {useInspectionHistory} from './use-inspection-history.js';
@@ -188,7 +191,7 @@ function latestPlanText(sessionPath: string, full = false): string | null {
   } catch {return null;}
 }
 
-export function App({client, attach = false, active = true, initialDraft, onDraftChange, onDetach, stopOnConnect = false, initialState = emptyState, windowSize, initialTheme = 'system', copyText = copyToClipboard, profilePath, userProfilePath, launchSidebar = launchSidebarForTui, setupSidebar = runSidebarSetup, publishSidebarSignal = writeSidebarSignal, autoObserve = process.env.VIBE_AUTO_OBSERVE === '1'}: {
+export function App({client, attach = false, active = true, initialDraft, onDraftChange, onDetach, stopOnConnect = false, onSessionSwitch, initialState = emptyState, windowSize, initialTheme = 'system', copyText = copyToClipboard, profilePath, userProfilePath, launchSidebar = launchSidebarForTui, setupSidebar = runSidebarSetup, publishSidebarSignal = writeSidebarSignal, autoObserve = process.env.VIBE_AUTO_OBSERVE === '1'}: {
   client: BackendClient; attach?: boolean; initialState?: ViewState; windowSize?: {columns: number; rows: number}; initialTheme?: ThemeName;
   copyText?: (text: string) => string | null; profilePath?: string; userProfilePath?: string;
   launchSidebar?: (workspace: string, mode?: SidebarMode, totalColumns?: number, owner?: SidebarOwner) => LaunchResult;
@@ -196,6 +199,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
   publishSidebarSignal?: (workspace: string, input: SidebarSignalInput) => void;
   autoObserve?: boolean;
   active?: boolean; initialDraft?: TaskDraft; onDraftChange?: (draft: TaskDraft) => void; onDetach?: () => void; stopOnConnect?: boolean;
+  onSessionSwitch?: (client: BackendClient) => void | Promise<void>;
 }) {
   const [state, dispatch] = useReducer(reduceView, initialState);
   const taskConnection = useTaskConnection(client);
@@ -214,6 +218,11 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
   const navigation = useTaskNavigation(client, state.workspace, state.sessionId, state.phase === 'closed');
   const navigationRef = useRef(navigation); navigationRef.current = navigation;
   const navigationAvailable = Boolean(state.sessionId && client.capabilities?.().includes('task-navigation'));
+  const sessionNav = useSessionNavigation(client, state.workspace, state.sessionId, state.phase === 'closed');
+  const sessionNavRef = useRef(sessionNav); sessionNavRef.current = sessionNav;
+  const sessionNavAvailable = Boolean(state.sessionId && client.capabilities?.().includes('session-navigation'));
+  const sessionSwitch = useRef<AbortController | null>(null);
+  useEffect(() => () => {sessionSwitch.current?.abort();}, []);
   const sidebarRequests = useSidebarPlanRequests(client, state, sidebarOwner);
   const sidebarRequestsRef = useRef(sidebarRequests); sidebarRequestsRef.current = sidebarRequests;
   const [inspectionSelection, setInspectionSelection] = useState<{id: string; page: 'changes' | 'plan' | 'verification'; snapshot: InspectionSnapshot | null} | null>(null);
@@ -320,11 +329,12 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
   const terminal = useWindowSize();
   const columns = Math.max(1, windowSize?.columns ?? terminal.columns);
   const rows = Math.max(1, windowSize?.rows ?? terminal.rows);
-  const minimumColumns = state.approval || review.focused || revision.mode || followups.open || navigation.open ? 32 : 24;
-  const minimumRows = state.approval || review.focused || revision.mode || followups.open || navigation.open ? 12 : 11;
+  const minimumColumns = state.approval || review.focused || revision.mode || followups.open || navigation.open || sessionNav.open ? 32 : 24;
+  const minimumRows = state.approval || review.focused || revision.mode || followups.open || navigation.open || sessionNav.open ? 12 : 11;
   const inspectionVisible = surfaceActive && inspectionFocused && !quitPrompt;
   const followupsVisible = surfaceActive && followups.open && !quitPrompt;
   const navigationVisible = surfaceActive && navigation.open && !quitPrompt;
+  const sessionNavVisible = surfaceActive && sessionNav.open && !quitPrompt;
   const terminalTooSmall = rows < minimumRows || columns < minimumColumns;
   const palette = getPalette(theme);
   const tools = state.entries.filter(entry => entry.kind === 'tool' && entry.call);
@@ -346,7 +356,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
     state.phase === 'closed' ? '连接已断开' : state.phase === 'starting' ? '后端尚未就绪' : state.phase === 'stopping' ? '正在停止' :
       state.phase === 'waiting_approval' ? '等待审批' : undefined;
   const commandContext = {busy: state.phase !== 'idle' || Boolean(activeRun.current), activeCommand: state.activeCommand,
-    tasks: client.capabilities?.().includes('tasks') ?? false, blocked: submissionBlock, taskNavigation: navigationAvailable,
+    tasks: client.capabilities?.().includes('tasks') ?? false, blocked: submissionBlock, taskNavigation: navigationAvailable, sessionNavigation: sessionNavAvailable,
     planModeControl: client.capabilities?.().includes('plan-mode-control') ?? false, modePending: Boolean(modeRequest.current)};
   const menuUnavailable = Object.fromEntries(menuMatches.map(command => [command, commandUnavailable(command, commandContext)]));
   const approvalRows = state.approval ? rows >= 18 ? 3 : 1 : 0;
@@ -471,6 +481,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
   useEffect(() => client.subscribe(event => {
     let stopTarget: string | null | undefined;
     if (navigationRef.current.receive(event) || event.type === 'task_catalog') return;
+    if (sessionNavRef.current.receive(event) || event.type === 'session_catalog') return;
     if (historyRef.current.receive(event) || event.type === 'inspection_history') return;
     if (sidebarRequestsRef.current.receive(event)) return;
     if (event.type === 'error' && ['default_mode_unavailable', 'session_busy', 'session_unavailable'].includes(event.code) && event.id === activeRun.current) {
@@ -641,7 +652,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
       if (canContinue) startQueuedFollowup();
     }
   }), [client]);
-  usePaste(() => {}, {isActive: surfaceActive && (readerFocused || inspectionVisible || followupsVisible || navigationVisible)});
+  usePaste(() => {}, {isActive: surfaceActive && (readerFocused || inspectionVisible || followupsVisible || navigationVisible || sessionNavVisible)});
   // 只读信号文件：侧栏据此即时刷新，并标记本轮 Agent 写/改过的文件。
   const [draftAppendRevision, setDraftAppendRevision] = useState(0);
   useSidebarDraftRequests(state, sidebarOwner, text => {
@@ -684,6 +695,33 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
   }, [state.workspace, state.sessionId, state.fileSource, state.inspection, state.inspectionPlan, state.entries, state.activeId, state.phase, state.lastStatus, sidebarOwner, publishSidebarSignal, inspectionSelection]);
 
   const notice = (text: string) => {dispatch({type: 'notice', text}); setScroll({follow: true, top: 0});};
+  const cancelSessionOpen = () => {sessionSwitch.current?.abort(); sessionSwitch.current = null;};
+  // 旧会话打开：候选后端确认身份后才交给外层替换，失败/取消保留当前会话与草稿。
+  const openOldSession = async (row: SessionCatalogRow) => {
+    if (sessionNav.opening) return;
+    if (!onSessionSwitch || attach) {sessionNav.setProblem('先返回原会话再打开旧会话'); return;}
+    if (state.attachOffline) {sessionNav.setProblem('当前离线只读，不能切换会话'); return;}
+    if (state.phase !== 'idle' || activeRun.current) {sessionNav.setProblem('当前任务运行中；结束后再打开旧会话'); return;}
+    if (goal?.active) {sessionNav.setProblem('目标模式进行中；先 /goal stop 再切换'); return;}
+    if (followupDraftDirty.current || followups.items.length && !followups.persisted || followups.writable && Boolean(followups.problem)) {
+      sessionNav.setProblem('待办尚未保存；处理后再切换旧会话'); return;
+    }
+    if (input.trim()) {sessionNav.setProblem('草稿尚未发送；请先发送或清空再切换，草稿归属当前会话'); return;}
+    if (!client.openSession || !state.workspace) {sessionNav.setProblem('当前客户端不支持打开旧会话'); return;}
+    sessionSwitch.current?.abort();
+    const controller = new AbortController(); sessionSwitch.current = controller;
+    sessionNav.setOpening(true); sessionNav.setProblem('');
+    try {
+      const next = await client.openSession({workspace: state.workspace, sessionId: row.session_id, identity: row.identity}, controller.signal);
+      if (controller.signal.aborted) {await next.shutdown(); return;}
+      await onSessionSwitch(next);
+    } catch (error) {
+      if (!controller.signal.aborted) sessionNav.setProblem(`打开失败：${String(error)}；当前会话保留`);
+    } finally {
+      if (sessionSwitch.current === controller) sessionSwitch.current = null;
+      sessionNav.setOpening(false);
+    }
+  };
   const announce = (text: string) => {dispatch({type: 'notice', text}); setFeedback(text); setFeedbackTone('info');};
   const reportError = (text: string) => {notice(text); setFeedback(text); setFeedbackTone('error');};
   const launchGoalSegment = (nextGoal: GoalMode, display: string) => {
@@ -1085,7 +1123,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
       setSelection(chosen);
       copySelection(chosen);
     },
-    enabled: surfaceActive && !inspectionVisible && !followupsVisible && !navigationVisible && !quitting && rows >= 11 && columns >= 24,
+    enabled: surfaceActive && !inspectionVisible && !followupsVisible && !navigationVisible && !sessionNavVisible && !quitting && rows >= 11 && columns >= 24,
   });
   const openTool = () => {if (chosenTool) {setDetail(chosenTool.id); setOverlayScroll({key: `tool-${chosenTool.id}`, top: 0});}};
   const openContext = () => {setDetail(null); setContextSelection(null); setContextOpen(true); setOverlayScroll({key: 'context', top: 0});};
@@ -1416,7 +1454,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
       } else if (!state.activeId) requestShutdown();
       return;
     }
-    if (inspectionVisible || followupsVisible || navigationVisible || terminalTooSmall) return;
+    if (inspectionVisible || followupsVisible || navigationVisible || sessionNavVisible || terminalTooSmall) return;
     if (key.ctrl && keyInput === 'y') {copyCurrent(); return;}
     if (key.ctrl && keyInput === 'g') {openSidebarPanel(); return;}
     if (state.approval) {
@@ -1683,6 +1721,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
     if (text === '/quit' || text === '/exit') {setInput(''); requestShutdown(); return;}
     if (text === '/followup') {setInput(''); followups.show(); return;}
     if ((text === '/task' || text === '/tasks') && navigationAvailable) {setInput(''); navigation.show(); return;}
+    if (text === '/sessions') {setInput(''); if (!sessionNavAvailable) {notice('后端未连接或不支持旧会话目录。'); return;} sessionNav.show(); return;}
     if (text === '/context') {setInput(''); openContext(); return;}
     if (text === '/copy') {setInput(''); copyCurrent(); return;}
     if (text === '/sidebar setup') {setInput(''); setupSidebarConfig(); return;}
@@ -2247,7 +2286,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
     {rows > 3 && state.approval ? <Text color={palette.secondary}>{fitText('Ctrl+Q 退出', columns)}</Text> : null}
   </Box>;
 
-  return <><Box display={surfaceActive ? 'flex' : 'none'} flexDirection="column"><Box display={inspectionVisible || followupsVisible || navigationVisible ? 'none' : 'flex'} flexDirection="column" width={columns} height={rows} backgroundColor={palette.background} overflow="hidden">
+  return <><Box display={surfaceActive ? 'flex' : 'none'} flexDirection="column"><Box display={inspectionVisible || followupsVisible || navigationVisible || sessionNavVisible ? 'none' : 'flex'} flexDirection="column" width={columns} height={rows} backgroundColor={palette.background} overflow="hidden">
     <AgentHeader state={state} columns={columns} height={headerRows} palette={palette}/>
     {compactRows ? <StatusPanel state={state} columns={columns} height={compactRows} palette={palette}/> : null}
     <Box display={compactQuit ? 'none' : 'flex'} flexDirection="row" width={columns} height={paneRows} flexShrink={0}>
@@ -2255,7 +2294,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
         <Text color={palette.accent} bold>{fitText(`修订反馈 · v${revision.record.target.plan_version} · ${[...revision.record.draft.trim()].length}/4000 字`, readerColumns - 4)}</Text>
         <Text color={palette.secondary}>{fitText(revision.record.objective.replace(/\s+/g, ' '), readerColumns - 4)}</Text>
         <Composer value={revision.record.draft} onChange={revision.change} onSubmit={revision.preview} history={[]}
-          focused={surfaceActive && !inspectionVisible && !followupsVisible && !navigationVisible && !revision.selected && !quitting} placeholder="写下希望修改的地方" columns={bodyColumns} maxRows={Math.max(1, paneRows - 4)}
+          focused={surfaceActive && !inspectionVisible && !followupsVisible && !navigationVisible && !sessionNavVisible && !revision.selected && !quitting} placeholder="写下希望修改的地方" columns={bodyColumns} maxRows={Math.max(1, paneRows - 4)}
           onTab={backwards => revision.move(backwards ? -1 : 1)} accentColor={palette.accent} foregroundColor={palette.foreground} secondaryColor={palette.secondary}/>
       </Box> : <ReadingPane title={paneTitle} lines={lines} top={top} height={paneRows} columns={readerColumns} palette={palette} overlay={readerFocused} selection={selection}/>}
       {sidebar ? <><Box width={1}/><StatusPanel state={state} columns={32} height={paneRows} palette={palette}/></> : null}
@@ -2277,7 +2316,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
       </Text>)}
     </Box> : null}
     <Box display={quitPrompt ? 'none' : 'flex'} backgroundColor={state.approval ? palette.surfaces.warning : readerFocused ? palette.surface : palette.focus} height={composerRows + composerPadding * 2} width={columns} paddingX={2} paddingY={composerPadding} flexShrink={0}>
-      <Composer value={input} initialCursor={initialDraft?.cursor} onDraftChange={onDraftChange} appendRevision={draftAppendRevision} onChange={text => {setMenuIndex(0); setInput(text);}} onSubmit={submit} onSubmitBlocked={() => setFeedback(`未发送：${submissionBlock}，草稿保留`)} history={inputHistory} disabled={composerDisabled} disabledHint={unavailableHint} focused={surfaceActive && !quitPrompt && !inspectionVisible && !followupsVisible && !navigationVisible && !readerFocused && !quitting} placeholder={effectivePlaceholder} columns={Math.max(1, columns - 4)} maxRows={composerRows} accentColor={palette.accent} warningColor={palette.warning} foregroundColor={palette.foreground} secondaryColor={palette.secondary}
+      <Composer value={input} initialCursor={initialDraft?.cursor} onDraftChange={onDraftChange} appendRevision={draftAppendRevision} onChange={text => {setMenuIndex(0); setInput(text);}} onSubmit={submit} onSubmitBlocked={() => setFeedback(`未发送：${submissionBlock}，草稿保留`)} history={inputHistory} disabled={composerDisabled} disabledHint={unavailableHint} focused={surfaceActive && !quitPrompt && !inspectionVisible && !followupsVisible && !navigationVisible && !sessionNavVisible && !readerFocused && !quitting} placeholder={effectivePlaceholder} columns={Math.max(1, columns - 4)} maxRows={composerRows} accentColor={palette.accent} warningColor={palette.warning} foregroundColor={palette.foreground} secondaryColor={palette.secondary}
         onTab={state.approval ? backwards => {const button = backwards ? approvalChoices.at(-1) : approvalChoices[0]; if (button) selectApproval(button.action);} : undefined}
         menu={menuRows ? {
           count: menuMatches.length,
@@ -2306,6 +2345,13 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
       onReturn={() => {if (taskConnection.pending) taskConnection.cancel(); navigation.close();}}
       status={handoff ? handoff.mode === 'choose' ? '当前仍有运行，请选择接入方式' : '等待当前运行收尾，待办已暂停' : taskConnection.pending ? '正在确认所选任务连接…' : taskConnection.problem || (state.approval ? '待审批 · 返回主区处理' : state.activeId ? '当前任务仍运行 · Ctrl+C 停止' : '查看不执行 · Esc 返回草稿')}
       onInspect={taskId => {if (taskConnection.pending) taskConnection.cancel(); navigation.close(); history.show(taskId); setOverlayScroll({key: 'inspection-history', top: 0});}}/></Box> : null}
+    {sessionNav.open ? <Box display={sessionNavVisible ? 'flex' : 'none'}><SessionNavigationPanel navigation={sessionNav} columns={columns} rows={rows} palette={palette}
+      active={sessionNavVisible} opening={sessionNav.opening}
+      onOpen={!attach && onSessionSwitch ? openOldSession : undefined}
+      onCancelOpen={cancelSessionOpen}
+      message={sessionNav.problem}
+      onReturn={() => {if (sessionNav.opening) cancelSessionOpen(); sessionNav.close();}}
+      status={state.approval ? '待审批 · 返回主区处理' : state.activeId ? '当前任务仍运行 · 结束后再打开' : attach ? '任务接入中 · 先返回原会话' : '查看不执行 · Esc 返回草稿'}/></Box> : null}
     {followups.open ? <Box display={followupsVisible ? 'flex' : 'none'}><FollowupPanel queue={followups} columns={columns} rows={rows} palette={palette} active={followupsVisible}
       blocked={submissionBlock || (state.attachOffline ? '离线只读，不能继续执行' : goal?.active ? '目标模式进行中' : undefined)}
       status={state.approval ? '待审批 · 返回主区处理' : state.activeId ? '当前任务仍运行 · Ctrl+C 停止' :

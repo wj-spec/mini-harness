@@ -25,7 +25,7 @@ const definitions: readonly CommandDefinition[] = [
   {command: '/task', group: '查看', description: '选择当前会话任务、查看状态与记录', aliases: ['/tasks']},
   {command: '/approvals', group: '查看', description: '查看待审批收件箱'},
   {command: '/session', group: '查看', description: '查看会话路径'},
-  {command: '/sessions', group: '查看', description: '选择并预览旧会话，显式打开'},
+  {command: '/sessions', group: '查看', description: '选择并预览旧会话，显式打开（不自动运行）'},
   {command: '/theme', group: '设置', description: '查看或切换主题', usage: '[system|light|dark]'},
   {command: '/theme system', group: '设置', description: '跟随终端主题'},
   {command: '/theme light', group: '设置', description: '使用浅色主题'},
@@ -119,7 +119,7 @@ export function commandDefinition(command: string): CommandDefinition | undefine
   return undefined;
 }
 
-export type CommandContext = {busy: boolean; activeCommand: string | null; tasks: boolean; blocked?: string; planModeControl?: boolean; modePending?: boolean; taskNavigation?: boolean};
+export type CommandContext = {busy: boolean; activeCommand: string | null; tasks: boolean; blocked?: string; planModeControl?: boolean; modePending?: boolean; taskNavigation?: boolean; sessionNavigation?: boolean};
 
 // 与 App 的本地操作、运行中纠偏和后端单请求边界一致。
 export function commandUnavailable(value: string, context: CommandContext): string | undefined {
@@ -132,6 +132,7 @@ export function commandUnavailable(value: string, context: CommandContext): stri
   }
   if (!root || !context.busy) return;
   if (root === '/task' && context.taskNavigation) return;
+  if (root === '/sessions' && context.sessionNavigation) return;
   if (['/help', '/context', '/copy', '/inspections', '/sidebar', '/project', '/about', '/theme', '/session', '/quit', '/attach', '/merge', '/stop-workers'].includes(root)) return;
   if (text === '/autonomy' || text === '/goal' || text === '/goal stop') return;
   if (root === '/followup') return context.activeCommand && context.activeCommand !== 'resume' ? '命令执行中，结束后再发送' : undefined;

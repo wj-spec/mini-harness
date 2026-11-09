@@ -10,6 +10,15 @@
 - 不把计划、源码核查或自动测试记成真人验收；运行记录写 `.vibe/`。
 - 文档覆盖现有 U01–U11 与侧栏 S01–S04；实现时将相关问题逐项连接到回归与证据。
 
+## 2026-11-09 · P8 旧会话预览与显式打开
+
+- **基线**：上一批上下文同步为有效进展；上轮已留下未归档后端增量（`session_navigation.py`、stdio `session-navigation` capability、CLI `--session-identity` 与 7 项测试），本批补 TUI 接线。未改 Python 产品代码。
+- **行为**：新增 `/sessions` 旧会话面板：按用途分页列出标题/id/更新时间/消息数/最近内容，预览只读；「打开会话」先创建候选后端并在 ready 回执核对 workspace/session/identity/resumed，通过才替换当前工作台、关闭旧后端；不自动运行，需 `/resume` 或输入新任务。运行中、目标模式、待办未保存时拒绝切换并保留原会话；失败/超时/取消/迟到回执原页保留。返回保留输入与光标。
+- **评审**：先写 9 项 App/BackendClient 测试并留 `ui-red.log`（缺 `openSession`/`onSessionSwitch` 构建失败）；实现后 `ui-green.log` 9/9。开工第一版未提供带草稿的入口，命令输入需空草稿；按只读浏览不接管草稿的边界记录，不把草稿跨会话搬运。
+- **验证**：完整 Ink **699** 项（697 passed；2 项沙箱 PTY 环境失败，与基线相同）；完整 Python **1943** 项（1930 passed / 13 skipped / 0 失败，沙箱 skip 比正常终端多 9 项）。未在本沙箱跑实际 PTY/终端旅程，也未调用真实模型。
+- **范围**：`tui/src/backend.ts`、`protocol.ts`、`commands.ts`、`app.tsx`、`cli.tsx`，新增 `use-session-navigation.ts`、`session-navigation-panel.tsx`、2 份 TUI 测试；证据 `.vibe/ux-p8-sessions-nav-2026-11-09/`。
+- **未完成**：真实终端/PTY 旅程、Ghostty 真人、Owner Review 与打开后 `/resume` 续做的真人旅程；P8 不标整体验收。
+
 ## 2026-11-09 · P8 原会话上下文与执行归属
 
 - **基线**：上一批归档重新核验，保存 653 文件快照；本批 12 份源码/测试、14 份文档，新增 2 文件，共 655 文件。无 stage/提交。
