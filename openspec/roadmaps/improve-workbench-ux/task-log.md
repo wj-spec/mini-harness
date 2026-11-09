@@ -10,6 +10,15 @@
 - 不把计划、源码核查或自动测试记成真人验收；运行记录写 `.vibe/`。
 - 文档覆盖现有 U01–U11 与侧栏 S01–S04；实现时将相关问题逐项连接到回归与证据。
 
+## 2026-11-09 · P10 会话内定位与只读工具折叠
+
+- **基线**：P9 已提交；本批新增 P10 change 包并实现第一批。未新增后端检索协议，搜索/定位全部在 TUI 本地完成。
+- **行为**：`/find <关键词>` 在已加载正文渲染行中大小写不敏感搜索（上限 200 条）并定位命中行；`/rounds` 按用户任务轮次（runId + done 终态）定位；`/errors` 定位工具失败与 `runStatus=error` 轮次；定位写入回看位置、`Ctrl+End` 回最新、返回保留草稿与光标。`tool_call` 新增可选 `tier`；连续 ≥2 个成功只读工具折叠为摘要卡，`Tab` 选中或 `Ctrl+O` 仍可查看原始调用/输出；旧后端无 tier 不折叠。
+- **评审**：先写纯函数/渲染/App 测试并留 `red.log`（模块缺失构建失败）；实现后 10/10 绿（`green.log`）。首版定位后 `notice()` 会把滚动重置回「跟随最新」，改为先提示再写回看位置；视口断言按 3000 条量级重排填充数据。
+- **验证**：完整 Ink **717** 项（715 passed；2 项沙箱 PTY 环境失败与基线相同）；完整 Python **1946** 项（1933 passed / 13 skipped / 0 失败）。3000 条记录/8999 渲染行搜索 p95 **4.3–4.5ms**。未在真实终端跑 PTY，未调用真实模型。
+- **范围**：`app/stdio.py`（tool_call tier）、`tui/src/{protocol,view-state,workbench,commands,app,cli}.ts*`、新增 `history-locate.ts`/`locator-panel.tsx` 与 2 份测试；证据 `.vibe/ux-p10-history-2026-11-09/`。
+- **未完成**：跨会话全文检索/索引、rounds 账本深链、搜索高亮、真实终端与 Ghostty 真人/Owner Review；P10 不标整体验收。
+
 ## 2026-11-09 · P9 权限来源与逐条撤销
 
 - **基线**：分支 `ux/workbench-p1-p8` 已含 P1–P8 工程实现与旧会话增量；本批新增 P9 change 包（proposal/design/tasks）并实现。未改审批判定、硬边界与审计格式。

@@ -12,6 +12,8 @@ export type Entry = {
   call?: ToolCall;
   output?: string;
   ok?: boolean;
+  tier?: import('./protocol.js').ToolTier;
+  runStatus?: string;
   pending?: boolean;
   uncertain?: boolean;
   runId?: string;
@@ -203,8 +205,9 @@ export function reduceView(state: ViewState, action: Action): ViewState {
     if (launch?.run_started && launch.run_id === action.id) inspection = {...inspection, scope: {...inspection.scope,
       taskId: launch.task_id, segment: launch.segment, taskStatus: launch.status}};
     if (action.revision) inspection = bindRevision(inspection, action.revision, state.sessionId, true);
-    return append({...state, inspection, inspectionPlan: action.revision ? revisionPlan(inspection, null, state.entries) : action.plan ? planInspection(inspection, null, state.sessionId, action.plan) : null,
+    const begun = append({...state, inspection, inspectionPlan: action.revision ? revisionPlan(inspection, null, state.entries) : action.plan ? planInspection(inspection, null, state.sessionId, action.plan) : null,
       phase: 'running', activeId: action.id, activeCommand: null, runMode: null, activity: 'waiting_model', live: '', segment: '', approval: null, lastResult: '', lastStatus: null, lastStopReason: null, error: null, metrics: null, contextSnapshots: [], hasStartedRun: true, lastVerified: null, lastCompletion: null, lastAudit: null}, 'task', action.text);
+    return {...begun, entries: begun.entries.map((entry, index) => index === begun.entries.length - 1 ? {...entry, runId: action.id} : entry)};
   }
   if (action.type === 'begin_command') return {...state, phase: 'running', activeId: action.id, activeCommand: action.command, runMode: null,
     activity: action.command === 'resume' ? 'waiting_model' : null, approval: null, error: null,
@@ -294,7 +297,7 @@ export function reduceView(state: ViewState, action: Action): ViewState {
       const next = {...flush(state), segment: ''};
       const entry: Entry = {id: next.nextEntry, kind: 'tool',
         text: `工具 › ${event.call.name}${Object.keys(event.call.args).length ? ` (${argumentSummary(event.call.args)})` : ''}`,
-        call: event.call, pending: true, runId: state.activeId ?? undefined};
+        call: event.call, pending: true, runId: state.activeId ?? undefined, ...(event.tier ? {tier: event.tier} : {})};
       return {...next, entries: [...next.entries, entry], nextEntry: next.nextEntry + 1, activity: 'using_tool'};
     }
     case 'tool_result': {
@@ -326,8 +329,8 @@ export function reduceView(state: ViewState, action: Action): ViewState {
       }
       next = flush(next);
       if (event.result.receipt) next = append(next, 'notice', event.result.receipt);
-      return retainInspection({...next, entries: next.entries.map(entry => entry.pending && entry.runId === state.activeId ?
-        {...entry, pending: false, uncertain: true, output: '此调用没有确认结果；请先核对实际文件与进程状态。'} : entry),
+      return retainInspection({...next, entries: next.entries.map(entry => entry.kind === 'task' && entry.runId === event.id ? {...entry, runStatus: event.result.status} :
+        entry.pending && entry.runId === state.activeId ? {...entry, pending: false, uncertain: true, output: '此调用没有确认结果；请先核对实际文件与进程状态。'} : entry),
         live: '', segment: '', activeId: null, activeCommand: null, runMode: null, activity: null, approval: null, phase: 'idle',
         inspection: state.inspection?.scope.requestId === event.id ? {...state.inspection, scope: {...state.inspection.scope, status: 'finished',
           traceRunId: event.result.run_id || state.inspection.scope.traceRunId}, result: event.result} : state.inspection,

@@ -9,6 +9,9 @@ export interface ToolCall {
 }
 
 export type ApprovalDecision = 'once' | 'session' | 'workspace' | 'deny';
+export const TOOL_TIERS = ['read', 'write', 'exec', 'network', 'remote_action'] as const;
+export type ToolTier = typeof TOOL_TIERS[number];
+const validToolTier = (value: unknown) => typeof value === 'string' && TOOL_TIERS.includes(value as ToolTier);
 export type SessionPurpose = 'user' | 'test';
 export type AutonomyLevel = 'ask' | 'edits' | 'workspace' | 'full';
 export const AUTONOMY_LEVELS = ['ask', 'edits', 'workspace', 'full'] as const;
@@ -477,7 +480,7 @@ export type ServerEvent =
   | Envelope<'diagnostic', {message: string}>
   | Envelope<'status', {phase: 'starting' | 'idle' | 'running' | 'waiting_approval' | 'stopping'}>
   | Envelope<'text_delta', {delta: string}>
-  | Envelope<'tool_call', {call: ToolCall}>
+  | Envelope<'tool_call', {call: ToolCall; tier?: ToolTier}>
   | Envelope<'tool_result', {call: ToolCall; ok: boolean; output: string; execution?: CommandExecution}>
   | Envelope<'approval_request', {approval_id: string; call: ToolCall; preview: string; decisions?: ApprovalDecision[]; tier?: string; tier_label?: string; rule?: ApprovalRule}>
   | Envelope<'approval_resolved', {approval_id: string; decision: ApprovalDecision}>
@@ -851,7 +854,7 @@ export function parseServerEvent(line: string): ServerEvent {
         (value.phase !== 'starting' || validId(value.id));
       break;
     case 'text_delta': valid = validId(value.id) && typeof value.delta === 'string'; break;
-    case 'tool_call': valid = validId(value.id) && toolCall(value.call); break;
+    case 'tool_call': valid = validId(value.id) && toolCall(value.call) && (value.tier === undefined || validToolTier(value.tier)); break;
     case 'tool_result':
       valid = validId(value.id) && toolCall(value.call) && typeof value.ok === 'boolean' && typeof value.output === 'string' &&
         (value.execution === undefined || execution(value.execution));

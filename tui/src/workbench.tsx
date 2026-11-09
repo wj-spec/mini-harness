@@ -83,11 +83,48 @@ export function errorLines(error: string, columns: number): ReadingLine[] {
   return cardLines('运行错误', textLines(error, Math.max(1, columns - 4), 'error'), columns, 'error', false, 'error');
 }
 
+function collapsibleReadOnly(entry: Entry, selectedTool: number | null): boolean {
+  return entry.kind === 'tool' && Boolean(entry.call) && entry.tier === 'read' && entry.ok === true &&
+    !entry.pending && !entry.uncertain && !entry.execution && !entry.inspection && entry.id !== selectedTool;
+}
+
+function collapsedToolLines(group: Entry[], columns: number): ReadingLine[] {
+  const counts = new Map<string, number>();
+  for (const entry of group) counts.set(entry.call!.name, (counts.get(entry.call!.name) ?? 0) + 1);
+  const summary = [...counts].map(([name, count]) => `${name}×${count}`).join(' · ');
+  const inside = Math.max(1, columns - 4);
+  return [
+    {spans: [{text: fitText(`▌ 连续 ${group.length} 个只读调用 · 已折叠`, columns)}], kind: 'label', surface: 'tool'},
+    {spans: [{text: fitText(`  ${summary} · 全部成功 · Tab 选择或 Ctrl+O 查看原始调用与输出`, inside)}], kind: 'tool', surface: 'tool'},
+  ];
+}
+
 export function transcriptLines(state: ViewState, columns: number, selectedTool: number | null): ReadingLine[] {
   const lines: ReadingLine[] = [];
   const latestTask = state.entries.findLast(entry => entry.kind === 'task')?.id;
-  for (const entry of state.entries) {
+  const pushEntry = (entry: Entry, entryLines: ReadingLine[]) => {
+    if (entry.inspection) {
+      const actions = [{page: 'changes' as const, label: '变更'}, {page: 'plan' as const, label: '计划'}, {page: 'verification' as const, label: '验证'}];
+      const groups = columns >= 26 ? [actions] : actions.map(action => [action]);
+      for (const group of groups) {
+        let left = 0;
+        const inspectionActions = group.map(({page}) => {const action = {page, left, right: left + 7}; left += 9; return action;});
+        entryLines.push({spans: [{text: group.map(action => `[ ${action.label} ]`).join(' '), bold: true}], inspectionActions, kind: 'label'});
+      }
+    }
+    lines.push(...entryLines.map(line => ({...line, entryId: entry.id})));
+  };
+  for (let position = 0; position < state.entries.length; position += 1) {
+    const entry = state.entries[position]!;
+    let end = position + 1;
+    while (end < state.entries.length && collapsibleReadOnly(state.entries[end]!, selectedTool)) end += 1;
+    const collapseGroup = collapsibleReadOnly(entry, selectedTool) && end - position >= 2 ? state.entries.slice(position, end) : null;
     if (lines.length) lines.push({spans: [{text: ''}]});
+    if (collapseGroup) {
+      pushEntry(entry, collapsedToolLines(collapseGroup, columns));
+      position = end - 1;
+      continue;
+    }
     let entryLines: ReadingLine[];
     if (entry.review) {
       const {target, summary, message, launch} = entry.review;
@@ -111,16 +148,7 @@ export function transcriptLines(state: ViewState, columns: number, selectedTool:
           entry.kind === 'task' ? 'task' : entry.kind === 'approval' ? 'warning' : 'agent');
       }
     }
-    if (entry.inspection) {
-      const actions = [{page: 'changes' as const, label: '变更'}, {page: 'plan' as const, label: '计划'}, {page: 'verification' as const, label: '验证'}];
-      const groups = columns >= 26 ? [actions] : actions.map(action => [action]);
-      for (const group of groups) {
-        let left = 0;
-        const inspectionActions = group.map(({page}) => {const action = {page, left, right: left + 7}; left += 9; return action;});
-        entryLines.push({spans: [{text: group.map(action => `[ ${action.label} ]`).join(' '), bold: true}], inspectionActions, kind: 'label'});
-      }
-    }
-    lines.push(...entryLines.map(line => ({...line, entryId: entry.id})));
+    pushEntry(entry, entryLines);
   }
   return lines;
 }

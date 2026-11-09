@@ -280,6 +280,16 @@ async def _stdin_frames():
         transport.close()
 
 
+def _tool_tier_payload(agent, call) -> dict:
+    resolver = getattr(agent, "_tool_tier", None)
+    if not callable(resolver):
+        return {}
+    try:
+        return {"tier": resolver(call)}
+    except Exception:
+        return {}
+
+
 def _acceptance_repair_limit() -> int:
     try:
         value = int(os.getenv("VIBE_ACCEPTANCE_REPAIR_ATTEMPTS", "0"))
@@ -1613,7 +1623,7 @@ class _Connection:
                 result = await self.agent.run(
                     prompt,
                     on_text=lambda delta: self.send("text_delta", request_id, delta=delta),
-                    on_tool=lambda call: self.send("tool_call", request_id, call=asdict(call)),
+                    on_tool=lambda call: self.send("tool_call", request_id, call=asdict(call), **_tool_tier_payload(self.agent, call)),
                     on_result=tool_result,
                     on_execution=lambda call, execution: executions.__setitem__(id(call), execution),
                     on_context=record_context,

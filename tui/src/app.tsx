@@ -25,6 +25,8 @@ import {useSessionNavigation} from './use-session-navigation.js';
 import {SessionNavigationPanel} from './session-navigation-panel.js';
 import {usePermissionPanel} from './use-permission-panel.js';
 import {PermissionPanel} from './permission-panel.js';
+import {LocatorPanel} from './locator-panel.js';
+import {errorItems, roundItems, searchTranscript, type LocateItem} from './history-locate.js';
 import type {SessionCatalogRow} from './protocol.js';
 import {usePlanReview} from './use-plan-review.js';
 import {SidebarApp} from './sidebar/app.js';
@@ -226,6 +228,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
   const permissionPanel = usePermissionPanel(client, state.workspace, state.sessionId, state.phase === 'closed');
   const permissionPanelRef = useRef(permissionPanel); permissionPanelRef.current = permissionPanel;
   const permissionPanelAvailable = Boolean(client.capabilities?.().includes('permission-panel'));
+  const [locator, setLocator] = useState<{title: string; items: LocateItem[]; kind: 'find' | 'rounds' | 'errors'} | null>(null);
   const sessionSwitch = useRef<AbortController | null>(null);
   useEffect(() => () => {sessionSwitch.current?.abort();}, []);
   const sidebarRequests = useSidebarPlanRequests(client, state, sidebarOwner);
@@ -334,13 +337,14 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
   const terminal = useWindowSize();
   const columns = Math.max(1, windowSize?.columns ?? terminal.columns);
   const rows = Math.max(1, windowSize?.rows ?? terminal.rows);
-  const minimumColumns = state.approval || review.focused || revision.mode || followups.open || navigation.open || sessionNav.open || permissionPanel.open ? 32 : 24;
-  const minimumRows = state.approval || review.focused || revision.mode || followups.open || navigation.open || sessionNav.open || permissionPanel.open ? 12 : 11;
+  const minimumColumns = state.approval || review.focused || revision.mode || followups.open || navigation.open || sessionNav.open || permissionPanel.open || locator ? 32 : 24;
+  const minimumRows = state.approval || review.focused || revision.mode || followups.open || navigation.open || sessionNav.open || permissionPanel.open || locator ? 12 : 11;
   const inspectionVisible = surfaceActive && inspectionFocused && !quitPrompt;
   const followupsVisible = surfaceActive && followups.open && !quitPrompt;
   const navigationVisible = surfaceActive && navigation.open && !quitPrompt;
   const sessionNavVisible = surfaceActive && sessionNav.open && !quitPrompt;
   const permissionPanelVisible = surfaceActive && permissionPanel.open && !quitPrompt;
+  const locatorVisible = surfaceActive && Boolean(locator) && !quitPrompt;
   const terminalTooSmall = rows < minimumRows || columns < minimumColumns;
   const palette = getPalette(theme);
   const tools = state.entries.filter(entry => entry.kind === 'tool' && entry.call);
@@ -659,7 +663,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
       if (canContinue) startQueuedFollowup();
     }
   }), [client]);
-  usePaste(() => {}, {isActive: surfaceActive && (readerFocused || inspectionVisible || followupsVisible || navigationVisible || sessionNavVisible || permissionPanelVisible)});
+  usePaste(() => {}, {isActive: surfaceActive && (readerFocused || inspectionVisible || followupsVisible || navigationVisible || sessionNavVisible || permissionPanelVisible || locatorVisible)});
   // 只读信号文件：侧栏据此即时刷新，并标记本轮 Agent 写/改过的文件。
   const [draftAppendRevision, setDraftAppendRevision] = useState(0);
   useSidebarDraftRequests(state, sidebarOwner, text => {
@@ -1130,7 +1134,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
       setSelection(chosen);
       copySelection(chosen);
     },
-    enabled: surfaceActive && !inspectionVisible && !followupsVisible && !navigationVisible && !sessionNavVisible && !permissionPanelVisible && !quitting && rows >= 11 && columns >= 24,
+    enabled: surfaceActive && !inspectionVisible && !followupsVisible && !navigationVisible && !sessionNavVisible && !permissionPanelVisible && !locatorVisible && !quitting && rows >= 11 && columns >= 24,
   });
   const openTool = () => {if (chosenTool) {setDetail(chosenTool.id); setOverlayScroll({key: `tool-${chosenTool.id}`, top: 0});}};
   const openContext = () => {setDetail(null); setContextSelection(null); setContextOpen(true); setOverlayScroll({key: 'context', top: 0});};
@@ -1461,7 +1465,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
       } else if (!state.activeId) requestShutdown();
       return;
     }
-    if (inspectionVisible || followupsVisible || navigationVisible || sessionNavVisible || permissionPanelVisible || terminalTooSmall) return;
+    if (inspectionVisible || followupsVisible || navigationVisible || sessionNavVisible || permissionPanelVisible || locatorVisible || terminalTooSmall) return;
     if (key.ctrl && keyInput === 'y') {copyCurrent(); return;}
     if (key.ctrl && keyInput === 'g') {openSidebarPanel(); return;}
     if (state.approval) {
@@ -1730,6 +1734,29 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
     if ((text === '/task' || text === '/tasks') && navigationAvailable) {setInput(''); navigation.show(); return;}
     if (text === '/sessions') {setInput(''); if (!sessionNavAvailable) {notice('后端未连接或不支持旧会话目录。'); return;} sessionNav.show(); return;}
     if (text === '/permissions' && permissionPanelAvailable) {setInput(''); permissionPanel.show(); return;}
+    if (text === '/find' || text.startsWith('/find ')) {
+      setInput('');
+      const query = text.slice('/find'.length).trim();
+      if (!query) {notice('用法：/find <关键词>：搜索本次会话正文并定位。'); return;}
+      const items = searchTranscript(lines, query);
+      if (!items.length) {notice(`没有找到“${query}”；试试更短的关键词，或用 /rounds、/errors 定位。`); return;}
+      setLocator({title: `查找 ${query} · ${items.length} 处`, items, kind: 'find'});
+      return;
+    }
+    if (text === '/rounds') {
+      setInput('');
+      const items = roundItems(state.entries, lines);
+      if (!items.length) {notice('本次会话还没有可定位的轮次。'); return;}
+      setLocator({title: `按轮定位 · ${items.length} 轮`, items, kind: 'rounds'});
+      return;
+    }
+    if (text === '/errors') {
+      setInput('');
+      const items = errorItems(state.entries, lines);
+      if (!items.length) {notice('本次会话没有记录到工具错误或失败轮次。'); return;}
+      setLocator({title: `错误定位 · ${items.length} 处`, items, kind: 'errors'});
+      return;
+    }
     if (text === '/context') {setInput(''); openContext(); return;}
     if (text === '/copy') {setInput(''); copyCurrent(); return;}
     if (text === '/sidebar setup') {setInput(''); setupSidebarConfig(); return;}
@@ -2294,7 +2321,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
     {rows > 3 && state.approval ? <Text color={palette.secondary}>{fitText('Ctrl+Q 退出', columns)}</Text> : null}
   </Box>;
 
-  return <><Box display={surfaceActive ? 'flex' : 'none'} flexDirection="column"><Box display={inspectionVisible || followupsVisible || navigationVisible || sessionNavVisible || permissionPanelVisible ? 'none' : 'flex'} flexDirection="column" width={columns} height={rows} backgroundColor={palette.background} overflow="hidden">
+  return <><Box display={surfaceActive ? 'flex' : 'none'} flexDirection="column"><Box display={inspectionVisible || followupsVisible || navigationVisible || sessionNavVisible || permissionPanelVisible || locatorVisible ? 'none' : 'flex'} flexDirection="column" width={columns} height={rows} backgroundColor={palette.background} overflow="hidden">
     <AgentHeader state={state} columns={columns} height={headerRows} palette={palette}/>
     {compactRows ? <StatusPanel state={state} columns={columns} height={compactRows} palette={palette}/> : null}
     <Box display={compactQuit ? 'none' : 'flex'} flexDirection="row" width={columns} height={paneRows} flexShrink={0}>
@@ -2302,7 +2329,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
         <Text color={palette.accent} bold>{fitText(`修订反馈 · v${revision.record.target.plan_version} · ${[...revision.record.draft.trim()].length}/4000 字`, readerColumns - 4)}</Text>
         <Text color={palette.secondary}>{fitText(revision.record.objective.replace(/\s+/g, ' '), readerColumns - 4)}</Text>
         <Composer value={revision.record.draft} onChange={revision.change} onSubmit={revision.preview} history={[]}
-          focused={surfaceActive && !inspectionVisible && !followupsVisible && !navigationVisible && !sessionNavVisible && !permissionPanelVisible && !revision.selected && !quitting} placeholder="写下希望修改的地方" columns={bodyColumns} maxRows={Math.max(1, paneRows - 4)}
+          focused={surfaceActive && !inspectionVisible && !followupsVisible && !navigationVisible && !sessionNavVisible && !permissionPanelVisible && !locatorVisible && !revision.selected && !quitting} placeholder="写下希望修改的地方" columns={bodyColumns} maxRows={Math.max(1, paneRows - 4)}
           onTab={backwards => revision.move(backwards ? -1 : 1)} accentColor={palette.accent} foregroundColor={palette.foreground} secondaryColor={palette.secondary}/>
       </Box> : <ReadingPane title={paneTitle} lines={lines} top={top} height={paneRows} columns={readerColumns} palette={palette} overlay={readerFocused} selection={selection}/>}
       {sidebar ? <><Box width={1}/><StatusPanel state={state} columns={32} height={paneRows} palette={palette}/></> : null}
@@ -2324,7 +2351,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
       </Text>)}
     </Box> : null}
     <Box display={quitPrompt ? 'none' : 'flex'} backgroundColor={state.approval ? palette.surfaces.warning : readerFocused ? palette.surface : palette.focus} height={composerRows + composerPadding * 2} width={columns} paddingX={2} paddingY={composerPadding} flexShrink={0}>
-      <Composer value={input} initialCursor={initialDraft?.cursor} onDraftChange={onDraftChange} appendRevision={draftAppendRevision} onChange={text => {setMenuIndex(0); setInput(text);}} onSubmit={submit} onSubmitBlocked={() => setFeedback(`未发送：${submissionBlock}，草稿保留`)} history={inputHistory} disabled={composerDisabled} disabledHint={unavailableHint} focused={surfaceActive && !quitPrompt && !inspectionVisible && !followupsVisible && !navigationVisible && !sessionNavVisible && !permissionPanelVisible && !readerFocused && !quitting} placeholder={effectivePlaceholder} columns={Math.max(1, columns - 4)} maxRows={composerRows} accentColor={palette.accent} warningColor={palette.warning} foregroundColor={palette.foreground} secondaryColor={palette.secondary}
+      <Composer value={input} initialCursor={initialDraft?.cursor} onDraftChange={onDraftChange} appendRevision={draftAppendRevision} onChange={text => {setMenuIndex(0); setInput(text);}} onSubmit={submit} onSubmitBlocked={() => setFeedback(`未发送：${submissionBlock}，草稿保留`)} history={inputHistory} disabled={composerDisabled} disabledHint={unavailableHint} focused={surfaceActive && !quitPrompt && !inspectionVisible && !followupsVisible && !navigationVisible && !sessionNavVisible && !permissionPanelVisible && !locatorVisible && !readerFocused && !quitting} placeholder={effectivePlaceholder} columns={Math.max(1, columns - 4)} maxRows={composerRows} accentColor={palette.accent} warningColor={palette.warning} foregroundColor={palette.foreground} secondaryColor={palette.secondary}
         onTab={state.approval ? backwards => {const button = backwards ? approvalChoices.at(-1) : approvalChoices[0]; if (button) selectApproval(button.action);} : undefined}
         menu={menuRows ? {
           count: menuMatches.length,
@@ -2364,6 +2391,10 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
       active={permissionPanelVisible}
       status={state.approval ? '待审批 · 返回主区处理' : state.activeId ? '当前任务仍运行 · 撤销立即影响后续工具调用' : '查看不改变审批规则 · 撤销立即生效'}
       onReturn={() => permissionPanel.close()}/></Box> : null}
+    {locator ? <Box display={locatorVisible ? 'flex' : 'none'}><LocatorPanel title={locator.title} items={locator.items} columns={columns} rows={rows} palette={palette}
+      active={locatorVisible} status={locator.kind === 'find' ? '搜索只读 · 定位后返回阅读' : locator.kind === 'rounds' ? '选择轮次定位旧结论' : '选择错误定位失败现场'}
+      onJump={line => {notice(`已定位到第 ${line + 1} 行；Ctrl+End 回到最新。`); setScroll({follow: false, top: Math.max(0, line - 2)}); setLocator(null);}}
+      onReturn={() => setLocator(null)}/></Box> : null}
     {followups.open ? <Box display={followupsVisible ? 'flex' : 'none'}><FollowupPanel queue={followups} columns={columns} rows={rows} palette={palette} active={followupsVisible}
       blocked={submissionBlock || (state.attachOffline ? '离线只读，不能继续执行' : goal?.active ? '目标模式进行中' : undefined)}
       status={state.approval ? '待审批 · 返回主区处理' : state.activeId ? '当前任务仍运行 · Ctrl+C 停止' :
