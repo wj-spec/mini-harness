@@ -12,7 +12,7 @@ const definitions: readonly CommandDefinition[] = [
   {command: '/inspections', group: '查看', description: '查看历史结果与验证记录', keywords: ['历史结果', '旧任务结果']},
   {command: '/tools', group: '查看', description: '查看可用工具目录'},
   {command: '/diff', group: '查看', description: '查看工作区改动', keywords: ['查看改动', '文件变化']},
-  {command: '/permissions', group: '设置', description: '查看审批规则'},
+  {command: '/permissions', group: '设置', description: '查看权限来源与有效期，撤销本进程授权', keywords: ['授权', '权限', '撤销']},
   {command: '/permissions reset', group: '设置', description: '撤销本进程授权（档位与持久策略不变）'},
   {command: '/mcp', group: '查看', description: '查看 MCP 服务'},
   {command: '/skills', group: '设置', description: '查看技能列表', aliases: ['/skill']},
@@ -119,7 +119,7 @@ export function commandDefinition(command: string): CommandDefinition | undefine
   return undefined;
 }
 
-export type CommandContext = {busy: boolean; activeCommand: string | null; tasks: boolean; blocked?: string; planModeControl?: boolean; modePending?: boolean; taskNavigation?: boolean; sessionNavigation?: boolean};
+export type CommandContext = {busy: boolean; activeCommand: string | null; tasks: boolean; blocked?: string; planModeControl?: boolean; modePending?: boolean; taskNavigation?: boolean; sessionNavigation?: boolean; permissionPanel?: boolean};
 
 // 与 App 的本地操作、运行中纠偏和后端单请求边界一致。
 export function commandUnavailable(value: string, context: CommandContext): string | undefined {
@@ -133,6 +133,7 @@ export function commandUnavailable(value: string, context: CommandContext): stri
   if (!root || !context.busy) return;
   if (root === '/task' && context.taskNavigation) return;
   if (root === '/sessions' && context.sessionNavigation) return;
+  if (text === '/permissions' && context.permissionPanel) return;
   if (['/help', '/context', '/copy', '/inspections', '/sidebar', '/project', '/about', '/theme', '/session', '/quit', '/attach', '/merge', '/stop-workers'].includes(root)) return;
   if (text === '/autonomy' || text === '/goal' || text === '/goal stop') return;
   if (root === '/followup') return context.activeCommand && context.activeCommand !== 'resume' ? '命令执行中，结束后再发送' : undefined;

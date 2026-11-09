@@ -2103,7 +2103,7 @@ class _Connection:
             }
             if not isinstance(kind, str) or kind not in fields:
                 raise ValueError("unknown request type")
-            if kind == "command" and request.get("command") in {"skills", "autonomy", "plan", "explore", "notifications", "trace", "priority", "inspections", "tasks", "sessions"} and "args" in request:
+            if kind == "command" and request.get("command") in {"skills", "autonomy", "plan", "explore", "notifications", "trace", "priority", "inspections", "tasks", "sessions", "permissions"} and "args" in request:
                 fields[kind] = fields[kind] | {"args"}
             allowed = {"v", "type", "id"} | fields[kind]
             if kind == "run" and "task" in request:
@@ -2139,6 +2139,29 @@ class _Connection:
                         self.error(request_id, 'session_catalog_unavailable', f'会话目录暂不可读：{exc}'[:1000])
                         return
                     self.send('session_catalog', request_id, **page)
+                    return
+                if kind == "command" and request["command"] == "permissions" and "args" in request:
+                    from app.runtime.permission_view import PermissionGrantNotFound, permission_overview, revoke_grant
+                    args = request["args"]
+                    if not isinstance(args, dict):
+                        raise ValueError("permissions args must be an object")
+                    action = args.get("action")
+                    if action == "list" and set(args) == {"action"}:
+                        overview = permission_overview(self.agent, self.config.workspace)
+                    elif action == "revoke" and set(args) == {"action", "grant_id"}:
+                        grant_id = args.get("grant_id")
+                        if not isinstance(grant_id, str) or not 1 <= len(grant_id) <= 128:
+                            raise ValueError("permissions revoke requires a grant_id of 1-128 characters")
+                        try:
+                            overview = revoke_grant(self.agent, self.config.workspace, grant_id)
+                        except PermissionGrantNotFound as exc:
+                            self.error(request_id, "permission_grant_not_found", str(exc)[:1000])
+                            return
+                    else:
+                        raise ValueError("permissions accepts {action:list} or {action:revoke,grant_id}")
+                    self.send("permission_overview", request_id, **overview,
+                              workspace=str(self.config.workspace.resolve()),
+                              session_id=self.session.root.name)
                     return
                 if kind == "command" and request["command"] == "tasks" and "args" in request:
                     from app.runtime.task_navigation import task_catalog
@@ -2420,7 +2443,7 @@ async def serve(
     reading = None
     stopped = asyncio.create_task(connection.stop.wait())
     capabilities = ["run", "cancel", "steer", "approval_once", "approval_scopes", "session_recording",
-                    "metrics", "history_restore", "commands", "resume", "inspection-history", "task-navigation", "session-navigation"]
+                    "metrics", "history_restore", "commands", "resume", "inspection-history", "task-navigation", "session-navigation", "permission-panel"]
     from app.runtime import plan as plan_artifacts
     if plan_artifacts.fcntl is not None:
         capabilities.append("plan-review")

@@ -25,6 +25,46 @@ export type SkillsCommandArgs = {action?: 'list' | 'refresh' | 'activate' | 'unl
 export type InspectionHistoryArgs = {cursor?: string; task_id?: string};
 export type TaskCatalogArgs = {cursor?: string};
 export type SessionCatalogArgs = TaskCatalogArgs;
+export type PermissionCommandArgs = {action: 'list'} | {action: 'revoke'; grant_id: string};
+export type PermissionGrant = {id: string; kind: 'workspace' | 'session'; scope: 'workspace' | 'session';
+  tool: string | null; target: string; workspace: string; validity: 'process'; revocable: true};
+export type PermissionPersistent = {source: 'user' | 'project'; path: string; rule: string;
+  validity: 'file'; revocable: false; reason: string};
+export type PermissionOverview = {
+  autonomy: {level: string; label: string; source: 'cli' | 'user-policy' | 'default'; requested: string; cap: string | null};
+  grants: PermissionGrant[]; persistent: PermissionPersistent[]; error: string | null;
+  revoked: {id: string; kind: 'workspace' | 'session'; scope: string; tool: string | null; target: string} | null;
+  workspace: string; session_id: string;
+};
+export const permissionGrantId = (value: unknown): value is string => typeof value === 'string' && /^(?:ws|ss)-[0-9a-f]{12}$/.test(value);
+export function validatePermissionArgs(value: unknown): asserts value is PermissionCommandArgs {
+  if (!record(value)) throw new Error('权限参数无效');
+  if (value.action === 'list' && Object.keys(value).length === 1) return;
+  if (value.action === 'revoke' && Object.keys(value).length === 2 && permissionGrantId(value.grant_id)) return;
+  throw new Error('权限参数只支持 {action:list} 或 {action:revoke,grant_id}');
+}
+export function validPermissionOverview(value: unknown): value is PermissionOverview {
+  const bounded = (v: unknown, limit: number) => typeof v === 'string' && [...v].length <= limit;
+  if (!record(value) || !record(value.autonomy)) return false;
+  const autonomy = value.autonomy;
+  if (!['cli', 'user-policy', 'default'].includes(String(autonomy.source)) ||
+      !bounded(autonomy.level, 32) || !bounded(autonomy.label, 64) || !bounded(autonomy.requested, 32) ||
+      (autonomy.cap !== null && !bounded(autonomy.cap, 32))) return false;
+  if (!Array.isArray(value.grants) || value.grants.length > 100) return false;
+  if (!value.grants.every(item => record(item) && permissionGrantId(item.id) &&
+      ['workspace', 'session'].includes(String(item.kind)) && ['workspace', 'session'].includes(String(item.scope)) &&
+      (item.tool === null || bounded(item.tool, 128)) && bounded(item.target, 512) && bounded(item.workspace, 1024) &&
+      item.validity === 'process' && item.revocable === true)) return false;
+  if (!Array.isArray(value.persistent) || value.persistent.length > 100) return false;
+  if (!value.persistent.every(item => record(item) && ['user', 'project'].includes(String(item.source)) &&
+      bounded(item.path, 1024) && bounded(item.rule, 1024) && item.validity === 'file' &&
+      item.revocable === false && bounded(item.reason, 512))) return false;
+  if (value.error !== null && !bounded(value.error, 1000)) return false;
+  if (value.revoked !== null && (typeof value.revoked !== 'object' || !record(value.revoked) ||
+      !permissionGrantId(value.revoked.id) || !['workspace', 'session'].includes(String(value.revoked.kind)) ||
+      (value.revoked.tool !== null && !bounded(value.revoked.tool, 128)) || !bounded(value.revoked.target, 512))) return false;
+  return bounded(value.workspace, 1024) && bounded(value.session_id, 128);
+}
 export type SessionCatalogRow = {session_id: string; identity: string; title: string; updated_at: string;
   message_count: number; preview: string; truncated: boolean};
 export type SessionCatalogPage = {workspace: string; session_id: string; purpose: SessionPurpose; records: SessionCatalogRow[];
@@ -134,7 +174,7 @@ export type ExploreCommandArgs = {prompt: string};
 export type NotificationsCommandArgs = {kind?: string};
 export type TraceCommandArgs = {hours?: number};
 export type PriorityCommandArgs = {task_id: string; priority: number};
-export type CommandArgs = SkillsCommandArgs | AutonomyCommandArgs | PlanCommandArgs | ExploreCommandArgs | NotificationsCommandArgs | TraceCommandArgs | PriorityCommandArgs | InspectionHistoryArgs | TaskCatalogArgs;
+export type CommandArgs = SkillsCommandArgs | AutonomyCommandArgs | PlanCommandArgs | ExploreCommandArgs | NotificationsCommandArgs | TraceCommandArgs | PriorityCommandArgs | InspectionHistoryArgs | TaskCatalogArgs | PermissionCommandArgs;
 export function validateNotificationsArgs(value: unknown): asserts value is NotificationsCommandArgs {
   if (!record(value) || Object.keys(value).some(key => key !== 'kind') ||
       (value.kind !== undefined && (typeof value.kind !== 'string' || !value.kind.trim()))) {
@@ -428,6 +468,7 @@ export type ServerEvent =
   | Envelope<'inspection_history', InspectionHistoryPage>
   | Envelope<'task_catalog', TaskCatalogPage>
   | Envelope<'session_catalog', SessionCatalogPage>
+  | Envelope<'permission_overview', PermissionOverview>
   | Envelope<'history_message', {message: PersistedMessage}>
   | Envelope<'notice', {message: string}>
   | Envelope<'command_result', {command: BackendCommand; text: string; skills?: SkillInfo[]; autonomy?: string}>
@@ -453,6 +494,7 @@ export type ClientRequest = (
   | Envelope<'run', {text: string; task?: RunTaskMeta}>
   | Envelope<'command', {command: Exclude<BackendCommand, 'skills' | 'autonomy' | 'plan' | 'explore' | 'notifications' | 'trace' | 'priority' | 'inspections' | 'tasks'>}>
   | Envelope<'command', {command: 'tasks' | 'sessions'; args?: TaskCatalogArgs}>
+  | Envelope<'command', {command: 'permissions'; args?: PermissionCommandArgs}>
   | Envelope<'command', {command: 'inspections'; args?: InspectionHistoryArgs}>
   | Envelope<'command', {command: 'skills'; args?: SkillsCommandArgs}>
   | Envelope<'command', {command: 'autonomy'; args: AutonomyCommandArgs}>
@@ -777,6 +819,7 @@ export function parseServerEvent(line: string): ServerEvent {
     case 'plan_revision_history': valid = planRevisionHistory(value); break;
     case 'task_catalog': valid = validId(value.id) && validTaskCatalogPage(value); break;
     case 'session_catalog': valid = validId(value.id) && validSessionCatalogPage(value); break;
+    case 'permission_overview': valid = validId(value.id) && validPermissionOverview(value); break;
     case 'inspection_history':
       valid = validId(value.id) && typeof value.workspace === 'string' && validId(value.session_id) &&
         (value.task_id === undefined || validId(value.task_id)) &&

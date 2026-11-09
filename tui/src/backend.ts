@@ -3,7 +3,7 @@ import {randomUUID} from 'node:crypto';
 import {StringDecoder} from 'node:string_decoder';
 import {validateTaskCatalogArgs, type TaskCatalogArgs} from './protocol.js';
 import {backendCommand, backendLaunchOptions} from './backend-launch.js';
-import {BACKEND_COMMANDS, MAX_FRAME_BYTES, parseServerEvent, validateAutonomyArgs, validateClientArgs, validateExploreArgs, validateNotificationsArgs, validatePlanArgs, validateInspectionArgs, validateSessionCatalogArgs, type InspectionHistoryArgs, validateSkillsArgs, validateTraceArgs, validatePriorityArgs, type ApprovalDecision, type AutonomyCommandArgs, type BackendCommand, type ClientRequest, type CommandArgs, type ExploreCommandArgs, type NotificationsCommandArgs, type PlanCommandArgs, type RunTaskMeta, type ServerEvent, type SkillsCommandArgs, type TraceCommandArgs, type PriorityCommandArgs} from './protocol.js';
+import {BACKEND_COMMANDS, MAX_FRAME_BYTES, parseServerEvent, validateAutonomyArgs, validateClientArgs, validateExploreArgs, validateNotificationsArgs, validatePlanArgs, validateInspectionArgs, validateSessionCatalogArgs, validatePermissionArgs, type InspectionHistoryArgs, type PermissionCommandArgs, validateSkillsArgs, validateTraceArgs, validatePriorityArgs, type ApprovalDecision, type AutonomyCommandArgs, type BackendCommand, type ClientRequest, type CommandArgs, type ExploreCommandArgs, type NotificationsCommandArgs, type PlanCommandArgs, type RunTaskMeta, type ServerEvent, type SkillsCommandArgs, type TraceCommandArgs, type PriorityCommandArgs} from './protocol.js';
 
 export interface BackendClient {
   subscribe(listener: (event: ServerEvent) => void): () => void;
@@ -499,6 +499,10 @@ export function createBackendClient(options: BackendOptions = {}): BackendClient
           if (!(ready.type === 'ready' && ready.capabilities.includes('session-navigation'))) throw new Error('后端不支持旧会话目录');
           validateSessionCatalogArgs(args);
         }
+        else if (command === 'permissions') {
+          if (!(ready.type === 'ready' && ready.capabilities.includes('permission-panel'))) throw new Error('后端不支持权限面板');
+          validatePermissionArgs(args);
+        }
         else if (command === 'inspections') validateInspectionArgs(args);
         else if (command === 'skills') validateSkillsArgs(args);
         else if (command === 'autonomy') validateAutonomyArgs(args);
@@ -533,6 +537,7 @@ export function createBackendClient(options: BackendOptions = {}): BackendClient
       else if (command === 'priority') send({v: 1, type: 'command', id, command, args: args as PriorityCommandArgs});
       else if (command === 'tasks') send({v: 1, type: 'command', id, command, ...(args === undefined ? {} : {args: args as TaskCatalogArgs})});
       else if (command === 'sessions') send({v: 1, type: 'command', id, command, ...(args === undefined ? {} : {args: args as TaskCatalogArgs})});
+      else if (command === 'permissions') send({v: 1, type: 'command', id, command, ...(args === undefined ? {} : {args: args as PermissionCommandArgs})});
       else if (command === 'inspections') send({v: 1, type: 'command', id, command, ...(args === undefined ? {} : {args: args as InspectionHistoryArgs})});
       else if (command === 'plan') send({v: 1, type: 'command', id, command, ...(args === undefined ? {} : {args: args as PlanCommandArgs})});
       else send({v: 1, type: 'command', id, command});

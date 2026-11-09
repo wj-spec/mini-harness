@@ -10,6 +10,15 @@
 - 不把计划、源码核查或自动测试记成真人验收；运行记录写 `.vibe/`。
 - 文档覆盖现有 U01–U11 与侧栏 S01–S04；实现时将相关问题逐项连接到回归与证据。
 
+## 2026-11-09 · P9 权限来源与逐条撤销
+
+- **基线**：分支 `ux/workbench-p1-p8` 已含 P1–P8 工程实现与旧会话增量；本批新增 P9 change 包（proposal/design/tasks）并实现。未改审批判定、硬边界与审计格式。
+- **行为**：`permissions` 带 `args` 返回结构化 `permission_overview`：档位来源（CLI/user 策略/默认，含 project 上限）、进程内 workspace/session 授权（稳定 id、工具与目标摘要、`validity=process`）、持久策略规则（来源文件、`validity=file`、不可撤销原因）与策略错误。逐条撤销只作用于进程内授权，回执带 `revoked` 与撤销后概览；未知/已撤销/跨工作区 id 拒绝；不带 args 与 `permissions_reset` 保持原文本与 P1 文案。TUI `/permissions` 打开面板（↑↓ 选授权、撤销所选、刷新、剩余权限），无能力回退旧文本。
+- **评审**：先写 3 项 Python 与 7 项 TUI 测试；后端先红（模块缺失）后绿；TUI 首次构建红（缺 provider/types），修 validator 落点后 8/8 绿。撤销后剩余权限用回执整体概览重绘，不做本地推断。
+- **验证**：完整 Ink **707** 项（705 passed；2 项沙箱 PTY 环境失败与基线相同）；完整 Python **1946** 项（1933 passed / 13 skipped / 0 失败，沙箱 skip 多 9 项）。未在真实终端跑 PTY，也未调用真实模型。
+- **范围**：`app/safety/policy.py`、`app/runtime/permission_view.py`、`app/stdio.py`、`tui/src/{protocol,backend,commands,app,cli}.ts*`、新增 `use-permission-panel.ts`/`permission-panel.tsx` 与 4 份测试；证据 `.vibe/ux-p9-panel-2026-11-09/`。
+- **未完成**：持久策略文件写回/撤销、跨进程授权同步、审计 UI、真实终端与 Ghostty 真人/Owner Review；P9 不标整体验收。
+
 ## 2026-11-09 · P8 旧会话预览与显式打开
 
 - **基线**：上一批上下文同步为有效进展；上轮已留下未归档后端增量（`session_navigation.py`、stdio `session-navigation` capability、CLI `--session-identity` 与 7 项测试），本批补 TUI 接线。未改 Python 产品代码。

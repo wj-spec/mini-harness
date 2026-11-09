@@ -118,6 +118,70 @@ class ApprovalGate:
             self.workspace_allowed.discard(root)
         self.session_allowed = {key for key in self.session_allowed if key[0] != root}
 
+    # ---- 进程内授权的结构化视图与逐条撤销（P9） ----
+
+    @staticmethod
+    def _grant_digest(*parts: str) -> str:
+        return hashlib.sha256("\0".join(parts).encode("utf-8")).hexdigest()[:12]
+
+    @staticmethod
+    def _target_summary(tool: str, target: str, root: str) -> str:
+        if tool == "bash":
+            try:
+                parsed = json.loads(target)
+            except json.JSONDecodeError:
+                return target[:160]
+            if isinstance(parsed, dict):
+                command = str(parsed.get("command", "")).strip()
+                cwd = str(parsed.get("cwd", ""))
+                text = command or target[:160]
+                if cwd and cwd != root:
+                    text += f"（cwd={cwd}）"
+                return text[:160]
+        try:
+            return str(Path(target).relative_to(root))
+        except (TypeError, ValueError):
+            return target[:160]
+
+    def grants(self, workspace: str | Path | None) -> list[dict]:
+        root = self._workspace(workspace)
+        if root is None:
+            return []
+        result: list[dict] = []
+        if root in self.workspace_allowed:
+            result.append({
+                "id": "ws-" + self._grant_digest(root), "kind": "workspace", "scope": "workspace",
+                "tool": None, "target": root, "workspace": root,
+                "validity": "process", "revocable": True,
+            })
+        for key in sorted(self.session_allowed, key=lambda item: (item[1], item[2])):
+            if key[0] != root:
+                continue
+            result.append({
+                "id": "ss-" + self._grant_digest(*key), "kind": "session", "scope": "session",
+                "tool": key[1], "target": self._target_summary(key[1], key[2], root), "workspace": root,
+                "validity": "process", "revocable": True,
+            })
+        return result
+
+    def revoke_grant(self, workspace: str | Path | None, grant_id: str) -> dict | None:
+        root = self._workspace(workspace)
+        if root is None or not isinstance(grant_id, str) or not grant_id:
+            return None
+        if grant_id == "ws-" + self._grant_digest(root):
+            if root not in self.workspace_allowed:
+                return None
+            self.workspace_allowed.discard(root)
+            return {"id": grant_id, "kind": "workspace", "scope": "workspace",
+                    "tool": None, "target": root, "workspace": root}
+        for key in list(self.session_allowed):
+            if key[0] == root and grant_id == "ss-" + self._grant_digest(*key):
+                self.session_allowed.discard(key)
+                return {"id": grant_id, "kind": "session", "scope": "session",
+                        "tool": key[1], "target": self._target_summary(key[1], key[2], root),
+                        "workspace": root}
+        return None
+
     async def request(
         self, call: ToolCall, preview: str, workspace: str | Path | None = None,
     ) -> ApprovalDecision:

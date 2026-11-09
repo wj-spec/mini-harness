@@ -53,7 +53,7 @@ Ctrl+C 取消任务或 MCP 初始化，空闲时退出；Ctrl+Q 退出。
   /context                      查看估算分区、压缩趋势与块来源
   /tools                        查看可用工具
   /resume                       继续已保存的任务
-  /permissions                  查看当前授权规则
+  /permissions                  查看权限来源、有效期与剩余权限；面板内逐条撤销本进程授权
   /permissions reset            清除本进程授权（档位和持久策略不变）
   /evidence                     查看最近一轮验收证据（verified/审计/改动 hash）
   /autonomy [LEVEL]             查看或切换授权档位：ask|edits|workspace|full
