@@ -1,7 +1,7 @@
 import type {ReadingLine} from './markdown.js';
 import type {Entry} from './view-state.js';
 
-export type LocateItem = {line: number; label: string; detail: string};
+export type LocateItem = {line: number; label: string; detail: string; highlight?: string};
 
 export function lineText(line: ReadingLine): string {
   return line.spans.map(span => span.text).join('').trimEnd();

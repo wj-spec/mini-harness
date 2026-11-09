@@ -234,6 +234,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
   const historySearchAvailable = Boolean(client.capabilities?.().includes('history-search'));
   const roundsLedgerAvailable = Boolean(client.capabilities?.().includes('rounds-ledger'));
   const [locator, setLocator] = useState<{title: string; items: LocateItem[]; kind: 'find' | 'rounds' | 'errors' | 'ledger'} | null>(null);
+  const [highlightLine, setHighlightLine] = useState<number | null>(null);
   const [searchPanel, setSearchPanel] = useState<{query: string; matches: HistorySearchMatch[]; next: string | null; loading: boolean; problem: string; truncated: boolean; skipped: number} | null>(null);
   const searchRequest = useRef<{id: string; append: boolean; timer: ReturnType<typeof setTimeout>} | null>(null);
   const roundsRequest = useRef<{id: string; timer: ReturnType<typeof setTimeout>} | null>(null);
@@ -488,9 +489,12 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
     const found = searchTranscript(lines, initialFocus);
     if (!found.length) return;
     initialFocusDone.current = true;
+    setHighlightLine(found[0]!.line);
     setScroll({follow: false, top: Math.max(0, found[0]!.line - 2)});
     dispatch({type: 'notice', text: `已在旧会话中定位“${initialFocus}”`});
   }, [initialFocus, lines.length]);
+  const paneLines = useMemo(() => highlightLine === null ? lines : lines.map((line, index) =>
+    index === highlightLine ? {...line, highlight: true} : line), [lines, highlightLine]);
   const viewport = useRef({top, maximum, overlayKey});
   viewport.current = {top, maximum, overlayKey};
   const approvalFocused = Boolean(state.approval && approvalSelection?.id === state.approval.id);
@@ -1479,6 +1483,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
   };
 
   useEffect(() => {setSelection(null); dragAnchor.current = null;}, [overlayKey]);
+  useEffect(() => {if (state.phase === 'running') setHighlightLine(null);}, [state.phase]);
 
   useInput((keyInput, key) => {
     if (!surfaceActive) return;
@@ -1854,7 +1859,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
       setInput('');
       const query = text.slice('/find'.length).trim();
       if (!query) {notice('用法：/find <关键词>：搜索本次会话正文并定位。'); return;}
-      const items = searchTranscript(lines, query);
+      const items = searchTranscript(lines, query).map(item => ({...item, highlight: query}));
       if (!items.length) {notice(`没有找到“${query}”；试试更短的关键词，或用 /rounds、/errors 定位。`); return;}
       setLocator({title: `查找 ${query} · ${items.length} 处`, items, kind: 'find'});
       return;
@@ -2452,7 +2457,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
         <Composer value={revision.record.draft} onChange={revision.change} onSubmit={revision.preview} history={[]}
           focused={surfaceActive && !inspectionVisible && !followupsVisible && !navigationVisible && !sessionNavVisible && !permissionPanelVisible && !secondaryPanelVisible && !revision.selected && !quitting} placeholder="写下希望修改的地方" columns={bodyColumns} maxRows={Math.max(1, paneRows - 4)}
           onTab={backwards => revision.move(backwards ? -1 : 1)} accentColor={palette.accent} foregroundColor={palette.foreground} secondaryColor={palette.secondary}/>
-      </Box> : <ReadingPane title={paneTitle} lines={lines} top={top} height={paneRows} columns={readerColumns} palette={palette} overlay={readerFocused} selection={selection}/>}
+      </Box> : <ReadingPane title={paneTitle} lines={paneLines} top={top} height={paneRows} columns={readerColumns} palette={palette} overlay={readerFocused} selection={selection}/>}
       {sidebar ? <><Box width={1}/><StatusPanel state={state} columns={32} height={paneRows} palette={palette}/></> : null}
     </Box>
     {!compactQuit && state.approval ? <ApprovalActions buttons={approvalChoices} selected={approvalFocused ? approvalSelection?.decision ?? null : null}
@@ -2517,6 +2522,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
       onJump={line => {
         if (line < 0) {notice('该轮不在当前正文（重开前的历史）；可用 /sessions 打开原会话核验。'); setLocator(null); return;}
         notice(`已定位到第 ${line + 1} 行；Ctrl+End 回到最新。`);
+        setHighlightLine(line);
         setScroll({follow: false, top: Math.max(0, line - 2)});
         setLocator(null);
       }}

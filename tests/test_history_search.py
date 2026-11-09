@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
+import time
 
 import pytest
 
 from app.config import Config
-from app.runtime.history_search import history_search
+from app.runtime.history_search import clear_history_search_cache, history_search, search_stats
 from app.runtime.round_ledger import session_rounds
 from app.session.store import SessionStore
 from core.contracts import Message
@@ -122,3 +124,60 @@ def test_stdio_serves_history_search_and_rounds_ledger(tmp_path, monkeypatch):
         await harness.close()
 
     asyncio.run(scenario())
+
+
+def test_history_search_index_reuses_unchanged_sessions_and_refreshes_only_changed(tmp_path):
+    clear_history_search_cache()
+    current = SessionStore.new(tmp_path, 'fake', purpose='test')
+    one = SessionStore.new(tmp_path, 'fake', purpose='test')
+    _message(one, 'user', '索引增量目标一')
+    two = SessionStore.new(tmp_path, 'fake', purpose='test')
+    _message(two, 'user', '索引增量目标二')
+
+    first = history_search(current, tmp_path, {'query': '索引增量目标'})
+    assert {match['session_id'] for match in first['matches']} == {one.id, two.id}
+    stats = search_stats()
+    assert stats['index_builds'] == 1 and stats['session_reloads'] == 3
+
+    before = search_stats()['session_reloads']
+    warm = history_search(current, tmp_path, {'query': '索引增量目标一'})
+    assert [match['session_id'] for match in warm['matches']] == [one.id]
+    assert search_stats()['session_reloads'] == before, '未变化的会话不应重建索引'
+
+    one.append_message(Message('user', '新增的结论乙'))
+    refreshed = history_search(current, tmp_path, {'query': '结论乙'})
+    assert [match['session_id'] for match in refreshed['matches']] == [one.id]
+    assert search_stats()['session_reloads'] == before + 1, '只重建发生变化的那一个会话'
+
+    shutil.rmtree(two.root)
+    assert history_search(current, tmp_path, {'query': '索引增量目标二'})['matches'] == []
+
+    with one.events_path.open('a', encoding='utf-8') as handle:
+        handle.write('{broken\n')
+    corrupt = history_search(current, tmp_path, {'query': '结论乙'})
+    assert corrupt['skipped'] == 1 and len(corrupt['matches']) == 1
+
+
+def test_history_search_warm_index_keeps_latency_low(tmp_path):
+    clear_history_search_cache()
+    current = SessionStore.new(tmp_path, 'fake', purpose='test')
+    for session_index in range(20):
+        store = SessionStore.new(tmp_path, 'fake', purpose='test')
+        for message_index in range(200):
+            role = 'user' if message_index % 2 == 0 else 'assistant'
+            suffix = ' 结论' if message_index % 40 == 0 else ''
+            store.append_message(Message(role, f'会话{session_index} 第{message_index}条内容{suffix}'))
+
+    started = time.perf_counter()
+    history_search(current, tmp_path, {'query': '结论'})
+    cold_ms = (time.perf_counter() - started) * 1000.0
+    samples: list[float] = []
+    for _ in range(15):
+        begin = time.perf_counter()
+        page = history_search(current, tmp_path, {'query': '结论'})
+        samples.append((time.perf_counter() - begin) * 1000.0)
+        assert page['matches']
+    samples.sort()
+    p95 = samples[int(len(samples) * 0.95)]
+    print(f'history-search perf: sessions=20 messages=4000 cold={cold_ms:.1f}ms warm_p95={p95:.1f}ms')
+    assert p95 < 100.0, f'warm p95 {p95:.1f}ms exceeds 100ms'

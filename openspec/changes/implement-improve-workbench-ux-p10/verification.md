@@ -1,6 +1,30 @@
 # P10 验证记录
 
-状态：实施中，未整体验收。会话内搜索、按轮/错误定位、只读工具折叠、跨会话检索与 rounds 账本深链已通过工程核验；索引优化、真实终端与 Owner Review 仍在范围内。
+状态：实施中，未整体验收。会话内搜索、按轮/错误定位、只读工具折叠、跨会话检索与索引、rounds 账本深链与搜索高亮已通过工程核验；真实终端与 Owner Review 仍在范围内。
+
+## 检索索引、增量缓存与高亮（2026-11-09）
+
+跨会话检索原先每次分页都重新扫描全部会话事件。本批加**进程内索引**：按 (workspace, purpose) 缓存各会话的消息（session_id、identity、title、created、`messages[{index, role, content, ts}]`）；每个会话以 events/meta 文件的 inode、大小与 mtime 组成签名，未变化直接复用、变化只重建该会话、删除的会话自动剔除；总消息超过 200k 时按创建时间保留最新会话并标记 `truncated`，损坏行与不可读会话计入 `skipped`。索引只读，不写会话记录。
+
+**搜索高亮**：`Span` 增加 `highlight` 属性（反色+加粗渲染），新增 `highlightSpans` 大小写不敏感切分；`/find` 结果、跨会话 `/history` 命中都在结果行内高亮关键词；从结果或轮次定位到正文时，目标行整行反色高亮，开始新任务时清除。
+
+### 自动验证
+
+| 边界 | 证据与结果 |
+|---|---|
+| 索引复用 | 未变化的两次检索 `session_reloads` 不增加；`index_builds` 保持 1，第二次起计 `cache_hits` |
+| 增量刷新 | 追加消息后只重建该会话（+1 reload）并立即命中新内容；删除会话后结果不再返回 |
+| 损坏与降级 | 追加坏行后 `skipped` 计数增加但索引仍可用；超 200k 消息按最新会话截断并标记 `truncated`（常量级防御） |
+| 性能 | 20 会话 / **4000 消息**：冷启动首次检索 10.7–11.5ms，**warm p95 = 2.9–4.0ms**（15 次采样）；`perf.txt` 保留实测输出 |
+| 高亮 | `highlightSpans` 单测：大小写不敏感、多处命中、原文拼接不变、空查询/无命中、中文关键词、`base` 样式保留 |
+| 完整 Ink | `tui-full.log`：**726** 项（**724 passed**，2 项 sandbox PTY 环境失败，与基线相同） |
+| 完整 Python | `python-full.log`：**1952** 项，**1939 passed / 13 skipped**，0 失败 |
+
+### 范围与未做
+
+产品源码：`app/runtime/history_search.py`（索引/增量）、`tui/src/markdown.tsx`（highlight 渲染与切分）、`tui/src/locator-panel.tsx`、`tui/src/history-search-panel.tsx`、`tui/src/app.tsx`（结果高亮与正文目标行）；测试 2 份。证据在 `.vibe/ux-p10-batch3-2026-11-09/`。
+
+未做：磁盘级持久索引/启动预热、索引内存上界之外的淘汰策略（当前按最新会话截断）、跨会话检索与服务端全文索引、账本到 P6 检查记录的精确跳转、真实终端与 Ghostty 真人/Owner Review。本批不把自动验证当作阶段或真人验收。
 
 ## 跨会话检索与轮次账本深链（2026-11-09）
 

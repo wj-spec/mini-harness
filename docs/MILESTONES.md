@@ -23,6 +23,8 @@
 
 ## 界面迁移与全栈学习切片
 
+**P10 检索索引与高亮（2026-11-09，实施中）**：跨会话检索改为进程内索引 + 签名增量缓存：未变化会话复用、只重建变化会话、删除剔除、损坏计数、200k 消息上限截断；20 会话/4000 消息冷启动 10.7–11.5ms、warm p95 2.9–4.0ms。新增 `highlightSpans`，`/find`/`/history` 结果行与定位后的正文目标行均高亮。完整 Ink **726**（724 passed、2 项沙箱 PTY 环境失败）、Python **1952** 项（1939 passed / 13 skipped）。磁盘级持久索引/预热与真人/Owner Review 待完成，P10 不标完成。见 [本批验证](../openspec/changes/implement-improve-workbench-ux-p10/verification.md#检索索引增量缓存与高亮2026-11-09)。
+
 **P10 跨会话检索与轮次账本深链（2026-11-09，实施中）**：`/history <关键词>` 跨会话检索已保存消息并打开所选会话，打开复用 P8 身份复核、不自动运行，打开后自动定位首个匹配行；`/rounds` 展示轮次账本（目标/状态/验证三态/步数费用）并按目标文本定位正文轮次，旧轮次不在正文时提示用 `/sessions` 核验，无能力回退正文轮次。后端新增 `search`/`rounds` 结构化命令与能力协商；完整 Ink **725**（723 passed、2 项沙箱 PTY 环境失败）、Python **1950** 项（1937 passed / 13 skipped）。跨会话索引/增量缓存、搜索高亮与真人/Owner Review 待完成，P10 不标完成。见 [本批验证](../openspec/changes/implement-improve-workbench-ux-p10/verification.md#跨会话检索与轮次账本深链2026-11-09)。
 
 **P10 会话内定位与只读工具折叠（2026-11-09，实施中）**：`/find <关键词>` 搜索本次会话正文并跳到命中行；`/rounds` 按用户任务轮次（含终态）定位；`/errors` 定位工具错误与失败轮次；定位只改变回看位置，`Ctrl+End` 回最新，返回保留草稿与光标。连续 ≥2 个成功只读（tier=read）工具调用折叠为摘要，`Tab`/`Ctrl+O` 仍可查看原始调用与输出；旧后端无 tier 时不折叠。3000 条记录/8999 渲染行实测搜索 p95 **4.3–4.5ms**；完整 Ink **717**（715 passed、2 项沙箱 PTY 环境失败）、Python **1946** 项（1933 passed / 13 skipped）。跨会话全文检索/索引、rounds 账本深链、真实终端与 Owner Review 待完成，P10 不标完成。见 [本批验证](../openspec/changes/implement-improve-workbench-ux-p10/verification.md#会话内定位与只读工具折叠2026-11-09)。

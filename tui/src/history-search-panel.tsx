@@ -1,7 +1,7 @@
 import React, {useCallback, useRef, useState} from 'react';
 import {Box, Text, useInput, type Key} from 'ink';
 import {ActionButtons, type ActionTarget} from './action-buttons.js';
-import {fitText, textLines} from './markdown.js';
+import {fitText, highlightSpans, textLines} from './markdown.js';
 import {ReadingPane} from './workbench.js';
 import {useTranscriptMouse} from './use-transcript-scroll.js';
 import type {Palette} from './theme.js';
@@ -25,9 +25,11 @@ export function HistorySearchPanel({query, matches, columns, rows, palette, acti
     [...(next || loading ? [{action: 'more' as const, label: loading ? '读取中…' : '更多'}] : []), {action: 'back', label: '返回'}],
   ];
   const bodyHeight = Math.max(3, rows - 4 - buttons.length + 1);
-  const lines = matches.flatMap((match, index) => textLines(
-    `${index === selected ? '›' : ' '} ${index + 1}. [${match.title || match.session_id}] ${match.role} · ${match.snippet}\n     ${match.session_id} · ${match.updated_at}`,
-    Math.max(1, columns - 5)));
+  const width = Math.max(1, columns - 5);
+  const lines = matches.flatMap((match, index) => {
+    const head = fitText(`${index === selected ? '›' : ' '} ${index + 1}. [${match.title || match.session_id}] ${match.role} · ${match.snippet}`, width);
+    return [{spans: highlightSpans(head, query)}, ...textLines(`     ${match.session_id} · ${match.updated_at}`, width)];
+  });
   const status = loading ? '正在检索会话记录…' : problem || (matches.length ? `${selected + 1}/${matches.length}${next ? ' · 还有更多' : ''}${skipped ? ` · 跳过 ${skipped} 条损坏记录` : ''}${truncated ? ' · 已达扫描上限' : ''}` : '没有匹配的会话消息；换个关键词再试。');
   const clampTop = (value: number) => Math.max(0, Math.min(Math.max(0, lines.length - bodyHeight + 2), value));
   const move = (delta: number) => {

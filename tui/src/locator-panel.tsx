@@ -1,7 +1,7 @@
 import React, {useCallback, useRef, useState} from 'react';
 import {Box, Text, useInput, type Key} from 'ink';
 import {ActionButtons, type ActionTarget} from './action-buttons.js';
-import {fitText, textLines} from './markdown.js';
+import {fitText, highlightSpans, textLines} from './markdown.js';
 import {ReadingPane} from './workbench.js';
 import {useTranscriptMouse} from './use-transcript-scroll.js';
 import type {Palette} from './theme.js';
@@ -23,8 +23,11 @@ export function LocatorPanel({title, items, columns, rows, palette, active, stat
     {action: 'previous', label: '上一条'}, {action: 'next', label: '下一条'}, {action: 'jump', label: '定位'}, {action: 'back', label: '返回'},
   ];
   const bodyHeight = Math.max(3, rows - 4);
-  const lines = items.flatMap((entry, index) => textLines(
-    `${index === selected ? '›' : ' '} ${index + 1}. ${entry.label}\n     ${entry.detail}`, Math.max(1, columns - 5)));
+  const width = Math.max(1, columns - 5);
+  const lines = items.flatMap((entry, index) => {
+    const head = fitText(`${index === selected ? '›' : ' '} ${index + 1}. ${entry.label}`, width);
+    return [{spans: highlightSpans(head, entry.highlight ?? '')}, ...textLines(`     ${entry.detail}`, width)];
+  });
   const clampTop = (value: number) => Math.max(0, Math.min(Math.max(0, lines.length - bodyHeight + 2), value));
   const move = (delta: number) => {
     const next = Math.max(0, Math.min(items.length - 1, selected + delta));
