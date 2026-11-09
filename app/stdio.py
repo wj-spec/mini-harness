@@ -2151,7 +2151,10 @@ class _Connection:
                     self.send('session_catalog', request_id, **page)
                     return
                 if kind == "command" and request["command"] == "permissions" and "args" in request:
-                    from app.runtime.permission_view import PermissionGrantNotFound, permission_overview, revoke_grant
+                    from app.runtime.permission_view import (
+                        PermissionGrantNotFound, PermissionRuleNotRevocable, PermissionRuleNotFound,
+                        permission_overview, revoke_grant, revoke_rule,
+                    )
                     args = request["args"]
                     if not isinstance(args, dict):
                         raise ValueError("permissions args must be an object")
@@ -2167,8 +2170,20 @@ class _Connection:
                         except PermissionGrantNotFound as exc:
                             self.error(request_id, "permission_grant_not_found", str(exc)[:1000])
                             return
+                    elif action == "revoke-rule" and set(args) == {"action", "rule_id"}:
+                        rule_id = args.get("rule_id")
+                        if not isinstance(rule_id, str) or not 1 <= len(rule_id) <= 128:
+                            raise ValueError("permissions revoke-rule requires a rule_id of 1-128 characters")
+                        try:
+                            overview = revoke_rule(self.agent, self.config.workspace, rule_id)
+                        except PermissionRuleNotFound as exc:
+                            self.error(request_id, "permission_rule_not_found", str(exc)[:1000])
+                            return
+                        except PermissionRuleNotRevocable as exc:
+                            self.error(request_id, "permission_rule_not_revocable", str(exc)[:1000])
+                            return
                     else:
-                        raise ValueError("permissions accepts {action:list} or {action:revoke,grant_id}")
+                        raise ValueError("permissions accepts action=list | revoke(grant_id) | revoke-rule(rule_id)")
                     self.send("permission_overview", request_id, **overview,
                               workspace=str(self.config.workspace.resolve()),
                               session_id=self.session.root.name)

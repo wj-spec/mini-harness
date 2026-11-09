@@ -28,23 +28,26 @@ export type SkillsCommandArgs = {action?: 'list' | 'refresh' | 'activate' | 'unl
 export type InspectionHistoryArgs = {cursor?: string; task_id?: string};
 export type TaskCatalogArgs = {cursor?: string};
 export type SessionCatalogArgs = TaskCatalogArgs;
-export type PermissionCommandArgs = {action: 'list'} | {action: 'revoke'; grant_id: string};
+export type PermissionCommandArgs = {action: 'list'} | {action: 'revoke'; grant_id: string} | {action: 'revoke-rule'; rule_id: string};
 export type PermissionGrant = {id: string; kind: 'workspace' | 'session'; scope: 'workspace' | 'session';
   tool: string | null; target: string; workspace: string; validity: 'process'; revocable: true};
-export type PermissionPersistent = {source: 'user' | 'project'; path: string; rule: string;
-  validity: 'file'; revocable: false; reason: string};
+export type PermissionPersistent = {id: string; source: 'user' | 'project'; path: string; rule: string;
+  validity: 'file'; revocable: boolean; reason: string};
 export type PermissionOverview = {
   autonomy: {level: string; label: string; source: 'cli' | 'user-policy' | 'default'; requested: string; cap: string | null};
   grants: PermissionGrant[]; persistent: PermissionPersistent[]; error: string | null;
   revoked: {id: string; kind: 'workspace' | 'session'; scope: string; tool: string | null; target: string} | null;
+  revoked_rule: {id: string; source: 'user'; path: string; rule: string} | null;
   workspace: string; session_id: string;
 };
 export const permissionGrantId = (value: unknown): value is string => typeof value === 'string' && /^(?:ws|ss)-[0-9a-f]{12}$/.test(value);
+export const permissionRuleId = (value: unknown): value is string => typeof value === 'string' && /^(?:ur|pr)-[0-9a-f]{12}$/.test(value);
 export function validatePermissionArgs(value: unknown): asserts value is PermissionCommandArgs {
   if (!record(value)) throw new Error('权限参数无效');
   if (value.action === 'list' && Object.keys(value).length === 1) return;
   if (value.action === 'revoke' && Object.keys(value).length === 2 && permissionGrantId(value.grant_id)) return;
-  throw new Error('权限参数只支持 {action:list} 或 {action:revoke,grant_id}');
+  if (value.action === 'revoke-rule' && Object.keys(value).length === 2 && permissionRuleId(value.rule_id)) return;
+  throw new Error('权限参数只支持 {action:list} / {action:revoke,grant_id} / {action:revoke-rule,rule_id}');
 }
 export function validPermissionOverview(value: unknown): value is PermissionOverview {
   const bounded = (v: unknown, limit: number) => typeof v === 'string' && [...v].length <= limit;
@@ -59,13 +62,16 @@ export function validPermissionOverview(value: unknown): value is PermissionOver
       (item.tool === null || bounded(item.tool, 128)) && bounded(item.target, 512) && bounded(item.workspace, 1024) &&
       item.validity === 'process' && item.revocable === true)) return false;
   if (!Array.isArray(value.persistent) || value.persistent.length > 100) return false;
-  if (!value.persistent.every(item => record(item) && ['user', 'project'].includes(String(item.source)) &&
-      bounded(item.path, 1024) && bounded(item.rule, 1024) && item.validity === 'file' &&
-      item.revocable === false && bounded(item.reason, 512))) return false;
+  if (!value.persistent.every(item => record(item) && permissionRuleId(item.id) &&
+      ['user', 'project'].includes(String(item.source)) && bounded(item.path, 1024) && bounded(item.rule, 1024) &&
+      item.validity === 'file' && typeof item.revocable === 'boolean' && bounded(item.reason, 512))) return false;
   if (value.error !== null && !bounded(value.error, 1000)) return false;
   if (value.revoked !== null && (typeof value.revoked !== 'object' || !record(value.revoked) ||
       !permissionGrantId(value.revoked.id) || !['workspace', 'session'].includes(String(value.revoked.kind)) ||
       (value.revoked.tool !== null && !bounded(value.revoked.tool, 128)) || !bounded(value.revoked.target, 512))) return false;
+  if (value.revoked_rule !== null && (typeof value.revoked_rule !== 'object' || !record(value.revoked_rule) ||
+      !permissionRuleId(value.revoked_rule.id) || value.revoked_rule.source !== 'user' ||
+      !bounded(value.revoked_rule.path, 1024) || !bounded(value.revoked_rule.rule, 1024))) return false;
   return bounded(value.workspace, 1024) && bounded(value.session_id, 128);
 }
 export type SearchCommandArgs = {query: string; cursor?: string};

@@ -94,7 +94,7 @@ npm --prefix tui test
 | 计划审阅 | `/plan` 查询计划卡；`Ctrl+R` 聚焦，`↑↓/Tab` 或 `e/b/r/a/d/q` 选择执行/正文/修改计划/仅批准/关闭/查询，`Enter` 确认；`Esc` 返回草稿，`←→` 切换已发现的计划 |
 | 取消 / 退出 | `Ctrl+C` 取消当前任务，空闲时退出；`Ctrl+Q` 或 `/quit` 退出并清理 |
 | 运行中纠偏 / 排队 | 运行中 `Enter` 提交纠偏（下一次模型请求生效）；`/followup <内容>` 排队；成功后续发，失败暂停 |
-| 续做与权限 | `/resume` 显式续做；`/permissions` 打开权限面板（档位来源、进程内授权与有效期、持久策略只读说明、逐条撤销）；`/permissions reset` 撤销全部本进程授权，档位与持久策略不变 |
+| 续做与权限 | `/resume` 显式续做；`/permissions` 打开权限面板（档位来源、进程内授权与有效期、持久策略、逐条撤销）：进程授权直接撤销，用户级持久规则二次确认后写回用户策略文件，项目规则只读；`/permissions reset` 撤销全部本进程授权，档位与持久策略不变 |
 | 帮助与信息 | `/help` 查看分组，`/help context` 查看单项用法；`/cost` 会话用量、`/tools` 可用工具目录、`/mcp` 服务、`/session` 会话路径 |
 | 查看改动 | `/diff` 经审批执行 git diff，全文可翻页 |
 | 右侧变更侧栏 | `/sidebar` 或 `Ctrl+G` 打开/切换 Git 变更侧栏（Ghostty split/quick；macOS Terminal 独立窗口） |

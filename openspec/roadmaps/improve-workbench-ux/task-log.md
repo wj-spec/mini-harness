@@ -37,6 +37,15 @@
 - **范围**：`app/stdio.py`（tool_call tier）、`tui/src/{protocol,view-state,workbench,commands,app,cli}.ts*`、新增 `history-locate.ts`/`locator-panel.tsx` 与 2 份测试；证据 `.vibe/ux-p10-history-2026-11-09/`。
 - **未完成**：跨会话全文检索/索引、rounds 账本深链、搜索高亮、真实终端与 Ghostty 真人/Owner Review；P10 不标整体验收。
 
+## 2026-11-09 · P9 持久用户策略规则撤销
+
+- **基线**：P9 第一批已提交；本批扩展持久规则撤销，仅允许 user 级规则，project 保持只读（撤销会放宽权限）。
+- **行为**：overview persistent 条目增加 `ur-`/`pr-` 稳定 id、revocable 与原因；新增 `permissions {action:"revoke-rule",rule_id}`：按 id 原子删除用户策略文件中的该规则（保留 version/autonomy/其它规则），写前完整校验，成功后重载并返回含 `revoked_rule` 的完整概览；未知/变化 id → `permission_rule_not_found`，项目规则/用户策略未启用/文件损坏 → `permission_rule_not_revocable`，均不改文件。TUI 面板可撤销项 = 进程授权 + user 规则；user 规则需二次确认，回执显示剩余用户策略，Esc 取消确认。
+- **评审**：先写 4 项 Python（id/可撤销性、原子写保留、拒绝边界、stdio 分发）与 1 项 TUI 旅程；首次实现项目 id 被当成未知 id、用户策略禁用顺序不对，按测试红绿修正；TUI 首版持久条目仍标不可撤销，改为双层选择（grant+user rule）与确认态。
+- **验证**：完整 Ink **727** 项（725 passed；2 项沙箱 PTY 环境失败与基线相同）；完整 Python **1956** 项（1943 passed / 13 skipped / 0 失败）。未在真实终端跑 PTY，未调用真实模型；撤销动作未写独立审计（记录为未做）。
+- **范围**：`app/safety/permission_policy.py`、`app/runtime/permission_view.py`、`app/stdio.py`、`tui/src/protocol.ts`、`tui/src/use-permission-panel.ts`、`tui/src/permission-panel.tsx`，测试 2 份；证据 `.vibe/ux-p9-rules-2026-11-09/`。
+- **未完成**：项目策略写回/审计、跨进程授权同步、真实终端与 Ghostty 真人/Owner Review；P9 不标整体验收。
+
 ## 2026-11-09 · P9 权限来源与逐条撤销
 
 - **基线**：分支 `ux/workbench-p1-p8` 已含 P1–P8 工程实现与旧会话增量；本批新增 P9 change 包（proposal/design/tasks）并实现。未改审批判定、硬边界与审计格式。

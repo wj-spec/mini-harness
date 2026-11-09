@@ -11,23 +11,23 @@ export function usePermissionPanel(client: BackendClient, workspace: string, ses
   const [revoking, setRevoking] = useState<string | null>(null);
   const [problem, setProblem] = useState('');
   const [flash, setFlash] = useState('');
-  const pending = useRef<{id: string; kind: 'list' | 'revoke'; workspace: string; sessionId: string; timer: ReturnType<typeof setTimeout>} | null>(null);
-  const lastQuery = useRef<'list' | 'revoke'>('list');
+  const pending = useRef<{id: string; kind: 'list' | 'revoke' | 'revoke-rule'; workspace: string; sessionId: string; timer: ReturnType<typeof setTimeout>} | null>(null);
+  const lastQuery = useRef<'list' | 'revoke' | 'revoke-rule'>('list');
   const ids = useRef(new Set<string>());
   const finish = (message = '') => {
     if (pending.current) clearTimeout(pending.current.timer);
     pending.current = null; setLoading(false); setRevoking(null); setProblem(message);
   };
-  const send = (kind: 'list' | 'revoke', grantId?: string) => {
+  const send = (kind: 'list' | 'revoke' | 'revoke-rule', targetId?: string) => {
     if (pending.current) return;
     lastQuery.current = kind;
     if (closed || !client.capabilities?.().includes('permission-panel')) {setProblem('后端未连接或不支持权限面板'); return;}
     try {
-      const id = client.command('permissions', kind === 'list' ? {action: 'list'} : {action: 'revoke', grant_id: grantId!});
+      const id = client.command('permissions', kind === 'list' ? {action: 'list'} : kind === 'revoke' ? {action: 'revoke', grant_id: targetId!} : {action: 'revoke-rule', rule_id: targetId!});
       ids.current.add(id); while (ids.current.size > 128) ids.current.delete(ids.current.values().next().value!);
-      pending.current = {id, kind, workspace, sessionId, timer: setTimeout(() => finish(kind === 'revoke' ? '撤销回执超时，原列表保留；可刷新核对' : '权限读取超时，可重试'), 10_000)};
+      pending.current = {id, kind, workspace, sessionId, timer: setTimeout(() => finish(kind === 'list' ? '权限读取超时，可重试' : '撤销回执超时，原列表保留；可刷新核对'), 10_000)};
       setLoading(true); setProblem('');
-      if (kind === 'revoke') setRevoking(grantId ?? null);
+      if (kind !== 'list') setRevoking(targetId ?? null);
     } catch (error) {finish(`权限操作未送达：${String(error)}`);}
   };
   useEffect(() => {
@@ -39,8 +39,9 @@ export function usePermissionPanel(client: BackendClient, workspace: string, ses
     show: () => {setOpen(true); send('list');},
     close: () => {setOpen(false); finish();},
     refresh: () => send('list'),
-    retry: () => {if (lastQuery.current === 'revoke') send('list'); else send('list');},
+    retry: () => send('list'),
     revoke: (grantId: string) => send('revoke', grantId),
+    revokeRule: (ruleId: string) => send('revoke-rule', ruleId),
     receive: (event: ServerEvent) => {
       if (event.type === 'closed') {if (open || pending.current) finish('连接已断开，保留已读取权限'); return false;}
       if (!event.id || !ids.current.has(event.id)) return false;
@@ -52,7 +53,8 @@ export function usePermissionPanel(client: BackendClient, workspace: string, ses
         if (query.workspace !== workspace || query.sessionId !== sessionId || event.workspace !== workspace || event.session_id !== sessionId ||
             !validPermissionOverview(event)) {finish('权限回执不匹配，原列表保留'); return true;}
         setOverview(event);
-        setFlash(event.revoked ? `已撤销 ${event.revoked.kind}${event.revoked.tool ? ' · ' + event.revoked.tool : ''} · ${event.revoked.target}；剩余 ${event.grants.length} 条进程授权` : '');
+        setFlash(event.revoked_rule ? `已撤销持久规则 · ${event.revoked_rule.rule}；剩余 ${event.persistent.filter(entry => entry.source === 'user').length} 条用户策略` :
+          event.revoked ? `已撤销 ${event.revoked.kind}${event.revoked.tool ? ' · ' + event.revoked.tool : ''} · ${event.revoked.target}；剩余 ${event.grants.length} 条进程授权` : '');
         finish();
       }
       return true;

@@ -1,5 +1,7 @@
 # 建设方向
 
+**P9 持久用户策略规则撤销（2026-11-09，实施中）**：`/permissions` 面板的持久策略条目带 `ur-`/`pr-` 稳定 id 与可撤销性：用户级规则可二次确认后撤销，后端原子写回用户策略文件（保留 version/autonomy/其它规则）并立即重载；项目级规则保持只读并说明「只能收紧、撤销会放宽」；未知/变化 id、文件不可用明确拒绝且不改文件。新增 4 项 Python 与 1 项 TUI 回归（含实际 Python 分发），完整 Ink **727**（725 passed、2 项沙箱 PTY 环境失败）、Python **1956** 项（1943 passed / 13 skipped）。项目策略写回、撤销独立审计、跨进程同步与真人/Owner Review 待完成，P9 不标完成。见 [本批验证](../openspec/changes/implement-improve-workbench-ux-p9/verification.md#持久用户策略规则撤销2026-11-09)。
+
 **P10 检索索引与高亮（2026-11-09，实施中）**：跨会话检索改为进程内索引 + 签名增量缓存：未变化会话复用、只重建变化会话、删除剔除、损坏计数、200k 消息上限截断；20 会话/4000 消息冷启动 10.7–11.5ms、warm p95 2.9–4.0ms。新增 `highlightSpans`，`/find`/`/history` 结果行与定位后的正文目标行均高亮。完整 Ink **726**（724 passed、2 项沙箱 PTY 环境失败）、Python **1952** 项（1939 passed / 13 skipped）。磁盘级持久索引/预热与真人/Owner Review 待完成，P10 不标完成。见 [本批验证](../openspec/changes/implement-improve-workbench-ux-p10/verification.md#检索索引增量缓存与高亮2026-11-09)。
 
 **P10 跨会话检索与轮次账本深链（2026-11-09，实施中）**：`/history <关键词>` 跨会话检索已保存消息并打开所选会话，打开复用 P8 身份复核、不自动运行，打开后自动定位首个匹配行；`/rounds` 展示轮次账本（目标/状态/验证三态/步数费用）并按目标文本定位正文轮次，旧轮次不在正文时提示用 `/sessions` 核验，无能力回退正文轮次。后端新增 `search`/`rounds` 结构化命令与能力协商；完整 Ink **725**（723 passed、2 项沙箱 PTY 环境失败）、Python **1950** 项（1937 passed / 13 skipped）。跨会话索引/增量缓存、搜索高亮与真人/Owner Review 待完成，P10 不标完成。见 [本批验证](../openspec/changes/implement-improve-workbench-ux-p10/verification.md#跨会话检索与轮次账本深链2026-11-09)。
@@ -101,13 +103,13 @@ LSP、插件生态和其他界面根据具体使用需求评估。stdio MCP 已�
 新增 [工作台 UX 实施路线图](../openspec/roadmaps/improve-workbench-ux/roadmap.md)。近期先做输入/审批控制与稳定阅读，
 再推进 Plan 审阅修订、操作入口及带轮次范围的任务检查区；每阶段分别记录自动验证和真人终端验收。
 默认入口保持 Ink，OpenTUI 通过独立、限时的侧栏与输入对照试验评估；规划不等同于里程碑完成或迁移决定。
-P1 的 [输入/审批控制](../openspec/changes/implement-improve-workbench-ux-p1/verification.md) 已完成工程验证，用户确认核心交互符合预期；新增可点击按钮的真人体验仍待反馈。P2 的 [稳定阅读](../openspec/changes/implement-improve-workbench-ux-p2/verification.md) 通过自动与工具 PTY，真人待验收。P3 的 [审阅与执行](../openspec/changes/implement-improve-workbench-ux-p3/verification.md) 通过受控真实模型与用户核心演示，原生重开/恢复及学习 Review 待确认。P4 已接通修订和重开恢复，当前证据见下；P5 入口、模式恢复及紧凑布局通过工程验证，真人验收待完成；P6 实例隔离与基础运行/计划投影通过工程验证、完整检查区实施中；P7 持久恢复通过工程验证、真人待验收；P8 当前会话导航、接入/停止、上下文同步/执行互斥与旧会话预览/显式打开通过工程验证，真实终端与真人待做；P9 权限面板通过工程验证、真人待做；P10 会话内定位、跨会话检索与索引、账本深链与高亮通过工程验证、真人待做。
+P1 的 [输入/审批控制](../openspec/changes/implement-improve-workbench-ux-p1/verification.md) 已完成工程验证，用户确认核心交互符合预期；新增可点击按钮的真人体验仍待反馈。P2 的 [稳定阅读](../openspec/changes/implement-improve-workbench-ux-p2/verification.md) 通过自动与工具 PTY，真人待验收。P3 的 [审阅与执行](../openspec/changes/implement-improve-workbench-ux-p3/verification.md) 通过受控真实模型与用户核心演示，原生重开/恢复及学习 Review 待确认。P4 已接通修订和重开恢复，当前证据见下；P5 入口、模式恢复及紧凑布局通过工程验证，真人验收待完成；P6 实例隔离与基础运行/计划投影通过工程验证、完整检查区实施中；P7 持久恢复通过工程验证、真人待验收；P8 当前会话导航、接入/停止、上下文同步/执行互斥与旧会话预览/显式打开通过工程验证，真实终端与真人待做；P9 权限面板与用户级持久规则撤销通过工程验证、真人待做；P10 会话内定位、跨会话检索与索引、账本深链与高亮通过工程验证、真人待做。
 
 P3 验收补充：首个真实样本预算暂停后，已修复任务续接、拒绝后的完成判定与最终回执，并提供 `VIBE_FAKE_DEMO=plan` 演示。第二个受控真实样本已完成 message.txt 修改、两次逐次审批和验收 exit=0；离线重开未重复运行。样本暴露的新提案风险提示已修复，最终 Python 1817 passed / 4 skipped、TUI 497/497。Ghostty 真人与学习 Review 仍待完成；详见 [P3 验证记录](../openspec/changes/implement-improve-workbench-ux-p3/verification.md)。
 
 P4 当前进度：修订记录与重开恢复已接通，[回执丢失与新版竞争](../openspec/changes/implement-improve-workbench-ux-p4/verification.md#实际进程故障恢复补验2026-11-08) 也通过实际进程验证；读取与冲突拒绝不增加模型调用或运行段。该轮 TUI 540/540，Python 1885 passed / 4 skipped。未发送反馈仍只保存在进程内；受控真实模型、Ghostty 真人与 Owner Review 待完成，P4 尚未整体验收。
 
-P5 当前进度：[模式与恢复](../openspec/changes/implement-improve-workbench-ux-p5/verification.md#紧凑布局与原生点击2026-11-08) 已在命令入口与可用原因基础上接通：当前任务与下次默认值分别显示，pending 可选择/撤回，重开无自动运行，保存失败保留输入。全量 TUI 561/561、Python 1888 passed / 4 skipped，三尺寸实际 PTY 通过；早期跨语言检查遗漏已更正。80×24 固定样本正文从 8 行增至 12 行，三尺寸原生鼠标拒绝通过；下一步细化 P6 对象范围与检查区；真人与 Owner Review 单列，P6 实例隔离与基础运行/计划投影通过工程验证、完整检查区实施中；P7 持久恢复通过工程验证、真人待验收；P8 当前会话导航、接入/停止及上下文同步/执行互斥通过工程验证，旧会话导航实施中；P9 权限面板通过工程验证、真人待做；P10 会话内定位、跨会话检索与索引、账本深链与高亮通过工程验证、真人待做。
+P5 当前进度：[模式与恢复](../openspec/changes/implement-improve-workbench-ux-p5/verification.md#紧凑布局与原生点击2026-11-08) 已在命令入口与可用原因基础上接通：当前任务与下次默认值分别显示，pending 可选择/撤回，重开无自动运行，保存失败保留输入。全量 TUI 561/561、Python 1888 passed / 4 skipped，三尺寸实际 PTY 通过；早期跨语言检查遗漏已更正。80×24 固定样本正文从 8 行增至 12 行，三尺寸原生鼠标拒绝通过；下一步细化 P6 对象范围与检查区；真人与 Owner Review 单列，P6 实例隔离与基础运行/计划投影通过工程验证、完整检查区实施中；P7 持久恢复通过工程验证、真人待验收；P8 当前会话导航、接入/停止及上下文同步/执行互斥通过工程验证，旧会话导航实施中；P9 权限面板与用户级持久规则撤销通过工程验证、真人待做；P10 会话内定位、跨会话检索与索引、账本深链与高亮通过工程验证、真人待做。
 
 P6 启动稳定性增量：侧栏新增启动与实例占用：同一工作台的多模式启动、不同会话的 quick 启动不会同时进入宿主操作；重复 CLI 拒绝覆盖登记，正常退出和强制结束后可重开。完整 Ink 643/643、Python 1915 passed / 4 skipped、八组并发压力与实际 PTY 复验通过；评审补齐路径别名竞争，Ghostty 原生 GUI 因工具安全限制未能核验，真人完整旅程与 Owner Review 仍待完成。见 [验证记录](../openspec/changes/implement-improve-workbench-ux-p6/verification.md#侧栏启动竞争与重复登记2026-11-09)。
 

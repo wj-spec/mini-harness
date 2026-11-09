@@ -58,6 +58,10 @@ test('the permissions command transports structured args and rejects invalid gra
     assert.match(notice.message, /"command":"permissions"/);
     assert.match(notice.message, /"action":"list"/);
     assert.throws(() => client.command('permissions', {action: 'revoke', grant_id: 'not-a-grant'}), /权限参数/);
+    client.command('permissions', {action: 'revoke-rule', rule_id: 'ur-' + 'e'.repeat(12)});
+    const revokedRule = await state.wait(event => event.type === 'notice' && event.message.includes('revoke-rule'));
+    assert.match(revokedRule.type === 'notice' ? revokedRule.message : '', /"action":"revoke-rule"/);
+    assert.throws(() => client.command('permissions', {action: 'revoke-rule', rule_id: 'bad'}), /权限参数/);
     assert.throws(() => client.command('permissions', {action: 'nope'} as never), /权限参数/);
   } finally {await client.shutdown(); await f.close();}
 });
@@ -91,6 +95,9 @@ test('actual Python serves the permission overview and a structured revoke error
     const missing = client.command('permissions', {action: 'revoke', grant_id: 'ss-' + '0'.repeat(12)});
     const error = await state.wait(event => event.type === 'error' && event.id === missing);
     assert.equal(error.type === 'error' ? error.code : '', 'permission_grant_not_found');
+    const ruleId = client.command('permissions', {action: 'revoke-rule', rule_id: 'ur-' + 'f'.repeat(12)});
+    const ruleError = await state.wait(event => event.type === 'error' && event.id === ruleId);
+    assert.equal(ruleError.type === 'error' ? ruleError.code : '', 'permission_rule_not_found');
     const legacy = client.command('permissions');
     const text = await state.wait(event => event.type === 'command_result' && event.id === legacy);
     assert.match(text.type === 'command_result' ? text.text : '', /workspace 授权/);

@@ -18,8 +18,11 @@ const overview = (overrides: Partial<PermissionOverview> = {}): PermissionOvervi
     {id: WS, kind: 'workspace', scope: 'workspace', tool: null, target: '/workspace', workspace: '/workspace', validity: 'process', revocable: true},
     {id: SS, kind: 'session', scope: 'session', tool: 'bash', target: 'npm test', workspace: '/workspace', validity: 'process', revocable: true},
   ],
-  persistent: [{source: 'user', path: '/home/u/.vibe/permissions.json', rule: '- [user] bash prefix=pytest → allow（本地测试）', validity: 'file', revocable: false, reason: '持久策略在文件中，进程内不撤销'}],
-  error: null, revoked: null, workspace: '/workspace', session_id: 'session', ...overrides,
+  persistent: [
+    {id: 'ur-' + 'c'.repeat(12), source: 'user', path: '/home/u/.vibe/permissions.json', rule: '- [user] bash prefix=pytest → allow（本地测试）', validity: 'file', revocable: true, reason: '用户策略可在此撤销（会写入用户策略文件）'},
+    {id: 'pr-' + 'd'.repeat(12), source: 'project', path: '/workspace/.vibe/permissions.json', rule: '- [project] bash prefix=rm → once', validity: 'file', revocable: false, reason: '项目策略只能收紧；撤销会放宽权限，请修改仓库文件'},
+  ],
+  error: null, revoked: null, revoked_rule: null, workspace: '/workspace', session_id: 'session', ...overrides,
 });
 
 class Client implements BackendClient {
@@ -62,7 +65,7 @@ test('the permission panel shows sources, validity and persistent rules without 
   assert.match(frame, /进程临时授权 · 2 条/);
   assert.match(frame, /workspace · \/workspace/);
   assert.match(frame, /session · bash · npm test/);
-  assert.match(frame, /持久策略 · 1 条/);
+  assert.match(frame, /持久策略 · 2 条/);
   assert.match(frame, /\[user\] bash prefix=pytest/);
   assert.match(frame, /不可撤销/);
   assert.match(frame, /退出后失效/);
@@ -107,4 +110,25 @@ test('without the permission-panel capability the command keeps the legacy text 
   view.client.emit({v: 1, type: 'command_result', id: 'command-1', command: 'permissions', text: 'workspace 授权：未开启；session 精确规则：0 条。重启后重新审批。'});
   await pause(40);
   assert.match(view.lastFrame()!, /workspace 授权：未开启/);
+});
+
+
+test('revoking a persistent user rule requires confirmation and reports the remaining policy', async () => {
+  const view = await mount(); await view.key('/permissions'); await view.key('\r');
+  view.client.page('command-1', overview()); await pause(40);
+  await view.click('[ 后一条 ]'); await view.click('[ 后一条 ]');
+  assert.match(view.lastFrame()!, /\[user\] bash prefix=pytest/);
+  assert.match(view.lastFrame()!, /可撤销/);
+  await view.click('[ 撤销所选 ]');
+  assert.match(view.lastFrame()!, /再次确认/);
+  assert.equal(view.client.commands.length, 1);
+  await view.click('[ 确认撤销规则 ]');
+  const ruleId = 'ur-' + 'c'.repeat(12);
+  assert.deepEqual(view.client.commands[1], {id: 'command-2', command: 'permissions', args: {action: 'revoke-rule', rule_id: ruleId}});
+  view.client.page('command-2', overview({persistent: [overview().persistent[1]!],
+    revoked_rule: {id: ruleId, source: 'user', path: '/home/u/.vibe/permissions.json', rule: '- [user] bash prefix=pytest → allow（本地测试）'}}));
+  await pause(40);
+  assert.match(view.lastFrame()!, /已撤销持久规则/);
+  assert.match(view.lastFrame()!, /剩余 0 条用户策略/);
+  assert.doesNotMatch(view.lastFrame()!, /bash prefix=pytest → allow（本地测试） · 可撤销/);
 });

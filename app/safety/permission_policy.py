@@ -7,7 +7,9 @@ project（只收紧）。每次 run 重新加载，与项目背景/偏好一致�
 from __future__ import annotations
 
 import fnmatch
+import hashlib
 import json
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,6 +23,75 @@ TIER_RANK = {"read": 0, "write": 1, "exec": 2, "network": 3, "remote_action": 4}
 
 class PolicyError(ValueError):
     """策略文件不合法；调用方应保留上一份策略或拒绝启动。"""
+
+
+class RuleNotFound(LookupError):
+    """策略文件中没有指定规则（可能已被外部修改）。"""
+
+
+def rule_identifier(rule: Rule) -> str:
+    """规则稳定 id：来源 + 规范化字段的哈希；用于面板撤销定位。"""
+    canonical = json.dumps([
+        rule.source, rule.tool, rule.decision,
+        list(rule.scopes) if rule.scopes is not None else None,
+        rule.tier, list(rule.command_prefix), rule.command_regex, rule.note,
+    ], ensure_ascii=False, sort_keys=True)
+    prefix = "ur-" if rule.source == "user" else "pr-"
+    return prefix + hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:12]
+
+
+def format_rule(rule: Rule) -> str:
+    """逐条渲染规则，供 /permissions 与权限面板展示。"""
+    fields = [f"- [{rule.source}] {rule.tool}"]
+    if rule.command_prefix:
+        fields.append("prefix=" + ", ".join(rule.command_prefix))
+    if rule.command_regex:
+        fields.append(f"regex={rule.command_regex}")
+    if rule.tier is not None:
+        fields.append(f"tier={rule.tier}")
+    if rule.scopes is not None:
+        fields.append("scopes=" + ",".join(rule.scopes))
+    if rule.decision is not None:
+        fields.append(f"→ {rule.decision}")
+    line = " ".join(fields)
+    if rule.note:
+        line += f"（{rule.note}）"
+    return line
+
+
+def _write_atomic(path: Path, text: str) -> None:
+    temporary = path.with_name(path.name + ".tmp")
+    try:
+        temporary.write_text(text, encoding="utf-8")
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def remove_user_rule(path: str | Path, rule_id: str) -> dict:
+    """从用户策略文件删除指定规则（原子写，保留其它字段与规则）。"""
+    path = Path(path)
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise PolicyError(f"用户策略读取失败：{exc}") from None
+    if not isinstance(raw, dict):
+        raise PolicyError("用户策略必须是 JSON 对象")
+    _parse_document("user", raw)
+    rules = raw.get("rules", [])
+    for index, item in enumerate(rules):
+        rule = _parse_rule("user", item, index)
+        if rule_identifier(rule) != rule_id:
+            continue
+        removed = dict(item)
+        del rules[index]
+        raw["rules"] = rules
+        try:
+            _write_atomic(path, json.dumps(raw, ensure_ascii=False, indent=2) + "\n")
+        except OSError as exc:
+            raise PolicyError(f"用户策略写入失败：{exc}") from None
+        return removed
+    raise RuleNotFound(rule_id)
 
 
 @dataclass(frozen=True)
@@ -203,21 +274,13 @@ class PermissionPolicy:
 
     def describe_rules(self) -> tuple[str, ...]:
         """逐条渲染规则，供 /permissions 展示来源、匹配条件与说明。"""
-        lines: list[str] = []
-        for rule in self.rules:
-            fields = [f"- [{rule.source}] {rule.tool}"]
-            if rule.command_prefix:
-                fields.append("prefix=" + ", ".join(rule.command_prefix))
-            if rule.command_regex:
-                fields.append(f"regex={rule.command_regex}")
-            if rule.tier is not None:
-                fields.append(f"tier={rule.tier}")
-            if rule.scopes is not None:
-                fields.append("scopes=" + ",".join(rule.scopes))
-            if rule.decision is not None:
-                fields.append(f"→ {rule.decision}")
-            line = " ".join(fields)
-            if rule.note:
-                line += f"（{rule.note}）"
-            lines.append(line)
-        return tuple(lines)
+        return tuple(format_rule(rule) for rule in self.rules)
+
+    def describe_entries(self) -> tuple[dict, ...]:
+        """带稳定 id、来源与可撤销性的结构化规则列表（P9 权限面板）。"""
+        return tuple({
+            "id": rule_identifier(rule),
+            "source": rule.source,
+            "rule": format_rule(rule),
+            "revocable": rule.source == "user",
+        } for rule in self.rules)
