@@ -1,5 +1,6 @@
 import {readSidebarLink} from './sidebar/lifecycle.js';
 import {useSidebarDraftRequests} from './sidebar/use-draft-requests.js';
+import {formatExcerptLabel, type DraftRequest} from './sidebar/draft-channel.js';
 import {spawn, spawnSync} from 'node:child_process';
 import {createHash, randomUUID} from 'node:crypto';
 import {readFileSync, readdirSync, rmSync, statSync} from 'node:fs';
@@ -330,11 +331,26 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
   });
   const reviewRef = useRef(review);
   reviewRef.current = review;
+  // 附回只把一行占位符放进草稿；发送时再展开成完整引用交给模型，显示保留占位。
+  const excerptAttachments = useRef(new Map<string, string>());
+  const expandExcerpts = (raw: string): string => {
+    let expanded = raw;
+    for (const [token, full] of excerptAttachments.current) {
+      if (!expanded.includes(token)) continue;
+      expanded = expanded.split(token).join(full);
+    }
+    while (excerptAttachments.current.size > 100) {
+      const oldest = excerptAttachments.current.keys().next().value;
+      if (oldest === undefined) break;
+      excerptAttachments.current.delete(oldest);
+    }
+    return expanded;
+  };
   const startQueuedFollowup = () => {
     const current = latestState.current;
     if (!surfaceActiveRef.current || quittingRef.current || current.phase === 'closed' || current.attachOffline || activeRun.current) return;
     followupsRef.current.start((text, requestId) => {
-      const id = client.run(text, undefined, requestId);
+      const id = client.run(expandExcerpts(text), undefined, requestId);
       activeRun.current = id;
       dispatch({type: 'begin', id, text});
       setFeedback(''); setScroll({follow: true, top: 0});
@@ -731,8 +747,10 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
   usePaste(() => {}, {isActive: surfaceActive && (readerFocused || inspectionVisible || followupsVisible || navigationVisible || sessionNavVisible || permissionPanelVisible || secondaryPanelVisible)});
   // 只读信号文件：侧栏据此即时刷新，并标记本轮 Agent 写/改过的文件。
   const [draftAppendRevision, setDraftAppendRevision] = useState(0);
-  useSidebarDraftRequests(state, sidebarOwner, text => {
-    setInput(previous => previous + (previous ? '\n\n' : '') + text);
+  useSidebarDraftRequests(state, sidebarOwner, (text, request: DraftRequest) => {
+    const token = formatExcerptLabel(request);
+    excerptAttachments.current.set(token, text);
+    setInput(previous => (previous ? previous.replace(/\n+$/, '') + '\n' : '') + token);
     setDraftAppendRevision(value => value + 1); setFeedback('已附入侧栏引用 · 尚未发送');
   }, quitting, (target, cursor) => sidebarRequestsRef.current.readPage(target, cursor));
   const publishedSignal = useRef('');
@@ -809,7 +827,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
         objective: nextGoal.objective,
         ...(nextGoal.taskId ? {task_id: nextGoal.taskId} : {}),
       } : undefined;
-      const id = client.run(goalPrompt(nextGoal), task);
+      const id = client.run(expandExcerpts(goalPrompt(nextGoal)), task);
       goalRef.current = nextGoal;
       setGoal(nextGoal);
       activeRun.current = id;
@@ -2284,7 +2302,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
         return;
       }
       try {
-        const id = client.run(prompt, {kind: 'run', mode: 'plan', objective: prompt});
+        const id = client.run(expandExcerpts(prompt), {kind: 'run', mode: 'plan', objective: prompt});
         activeRun.current = id;
         dispatch({type: 'begin', id, text: prompt});
         setInput(''); setFeedback(''); setScroll({follow: true, top: 0});
@@ -2364,7 +2382,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
         return;
       }
       try {
-        const id = client.run(prompt, {kind: 'run', mode, objective: prompt});
+        const id = client.run(expandExcerpts(prompt), {kind: 'run', mode, objective: prompt});
         activeRun.current = id;
         dispatch({type: 'begin', id, text: prompt});
         setInput(''); setFeedback(''); setScroll({follow: true, top: 0});
@@ -2378,7 +2396,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
         return;
       }
       try {
-        const id = client.steer(activeRun.current, text);
+        const id = client.steer(activeRun.current, expandExcerpts(text));
         controlRequests.current.set(id, 'steer');
         setInput('');
         notice('纠偏已发送，等待后端确认');
@@ -2389,7 +2407,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
     if (goalRef.current?.active) {notice('目标模式进行中；先 /goal stop 再开始新任务。'); return;}
     const task = followupText ?? text;
     try {
-      const id = client.run(task);
+      const id = client.run(expandExcerpts(task));
       activeRun.current = id;
       dispatch({type: 'begin', id, text: task});
       setInput(''); setFeedback(''); setScroll({follow: true, top: 0});

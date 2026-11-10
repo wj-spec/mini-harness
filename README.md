@@ -11,16 +11,16 @@
 
 ![mini-harness 工作台](docs/assets/workbench.png)
 
-*React/Ink 工作台（左）与只读 Git 变更侧栏（右）；顶部是产品标识像素猫 Mini。截图为 2026-10-26 的当前版本，点击可查看原图。*
+*React/Ink 工作台（左）与只读 Git 变更侧栏（右）；顶部是产品标识像素猫 Mini。截图取自 2026-10-26，此后 P5–P10 新增了权限面板、跨会话搜索与轮次账本入口，界面细节已与最新版不同；点击可查看原图。*
 
-> 状态：单 Agent 编码流程已可用（W1–W5 真实验收完成）；前后台 Plan（含会话级 `/plan on|off`、审阅三态、Markdown 审阅稿、可配置规划提示词与 `submit_plan` 最终门禁）、只读子 Agent、后台 goal worker、验收失败自动修复、worktree→merge→重验均通过真实模型 P1（suite 六模式 deepseek-flash/chat 各 6/6）；只读 CLI/观测（tasks/plans/plan-card/acceptance/approvals/evidence/trace-summary/bench-history）齐备；真实 TUI 终端渲染键路仍待人工验收（[10 分钟清单](docs/specs/manual-acceptance-tui-quick.md)）；最新进度见[工作台里程碑](docs/MILESTONES.md)、[P0 收束报告](docs/specs/p0-closure-report.md) 与 [真实 P1 记录](docs/specs/real-p1-plan-smoke-2026-11-07.md)。
+> 状态：单 Agent 编码流程已可用（W1–W5 真实验收完成；W6 个性化对照已完成，主假设未获支持）；前后台 Plan（含会话级 `/plan on|off`、审阅三态、Markdown 审阅稿、可配置规划提示词与 `submit_plan` 最终门禁）、只读子 Agent、后台 goal worker、验收失败自动修复、worktree→merge→重验均通过真实模型 P1（suite 六模式 deepseek-flash/chat 各 6/6）；只读 CLI/观测（tasks/plans/plan-card/acceptance/approvals/evidence/trace-summary/bench-history）齐备；真实 TUI 终端渲染键路仍待人工验收（[10 分钟清单](docs/specs/manual-acceptance-tui-quick.md)）；进度与测试数字以[工作台里程碑](docs/MILESTONES.md)为准，另见[P0 收束报告](docs/specs/p0-closure-report.md) 与 [真实 P1 记录](docs/specs/real-p1-plan-smoke-2026-11-07.md)。
 
 ## 项目简介
 
 Agent 执行的步骤一多，最终回答就不足以说明它依据了什么、实际做了什么、验证是否真的通过。这个项目把每次模型请求的上下文构成、每个动作的审批决定、每条命令的退出状态，以及中断后的恢复依据都保存下来，让编码任务可以像 code review 一样被核对。
 
 - **已交付**：单 Agent 编码工作台（工具、审批、上下文、恢复、评测）、长任务 `/goal`、后台 worker + attach、Plan `/plan`、只读子 Agent `/explore`、项目背景 `/project` 与个人偏好 `/about`；
-- **工程取向**：先把执行边界、证据链和恢复做可靠，再扩展能力；W1–W5 已完成真实验收；
+- **工程取向**：先把执行边界、证据链和恢复做可靠，再扩展能力；W1–W5 已完成真实验收，W6 对照未获支持故不扩张；
 - **边界**：交互主 loop 仍是单 Agent；后台 worker、只读子 Agent（`/explore`）与前后台 Plan 已通过真实模型 P1 验收，写子 Agent 与模型自发委派未开放；真实 TUI 人工键路待验收；命令仍以当前用户权限运行，审批 + 黑名单 + 超时是当前边界，可选 macOS Seatbelt 沙箱；
 - **自举与学习**：工作台也参与本仓库自身的开发与验收；项目同时用于学习 Agent 原理与 TypeScript / React 全栈和进程间通信。
 
@@ -41,7 +41,7 @@ Agent 执行的步骤一多，最终回答就不足以说明它依据了什么�
 | 历史定位 | `/find <关键词>` 搜索本次会话正文并定位；`/history <关键词>` 跨会话检索已保存消息（进程内索引/增量缓存）并打开定位、命中与目标行高亮；`/rounds` 按轮查看验证账本、`/errors` 按失败定位；连续成功只读工具折叠显示，`Tab`/`Ctrl+O` 仍可查看原始调用与输出，定位不调用模型 |
 | 长任务 | `/goal` 目标模式：资源受限停止后自动续段（默认 8 段 / 4 小时）；目标状态写入会话目录，重启 / `--continue` 后恢复为暂停态，需 `/goal resume` 显式续段；完成未验证时暂停而不是标记完成；已确认 criteria 由 harness 执行可信命令（失败暂停）；`--prepare-plan-task`/`--run-plan-queue` 支持计划任务串行/跨会话/跨工作区排队 |
 | 后台 / 计划 / 子 Agent | `/chat` `/act` `/plan`（schema、审批、执行门禁、step 证据、验收命令、失败自动修复、合并后重验）；计划模式支持会话级开关（`/plan on|off|status`，下一条普通消息自动走 plan profile）、计划提示词注入、`submit_plan` 成功后终止规划 run、审阅三态（批准/要求修改/关闭）与 Markdown 审阅稿；前后台 Plan 与 `/explore` 只读子 Agent 已通过真实模型 P1（deepseek-flash/chat，suite 六模式 6/6）；P2 委派支持 opt-in 只读 `delegate`；后台 worker、`--tasks`、`--attach`、`--stop`、`--pause-task`；计划队列 `--prepare-plan-task`/`--run-plan-queue`（跨会话/跨工作区、并行、priority、dry-run）与 TUI `/queue`（查看）/`/priority`（调整）；计划编辑支持目标/步骤标题/类型/文件范围/依赖（环检测）与完整审批卡（约束/验收/验证命令/门禁/hash）；CLI `--explore PROMPT` 只读子 Agent；本地通知 `/notifications` + 可选外部 webhook；只读 CLI `--tasks/--plans/--acceptance/--notifications/--approvals/--evidence/--trace-summary`；TUI `/trace [H]` 观测摘要 |
-| 工作台 | 全屏 Ink、Markdown 阅读、多行输入与历史、拖选复制、Git 变更侧栏、像素猫 Mini 首屏；`--doctor` 首用环境自检（待审批/events 软上限/stale worktree/benchmark 回归/真实模型报告）；`./scripts/verify_all.sh` 一键验收；审批面板标题显示层级；`/trace [H]`、`/queue`、`/priority`、`/plan card` 等只读视图 |
+| 工作台 | 全屏 Ink、Markdown 阅读、多行输入与历史、拖选复制、Git 变更侧栏、像素猫 Mini 首屏；`--doctor` 首用环境自检（待审批/events 软上限/stale worktree/benchmark 回归/真实模型报告）；`./scripts/verify_all.sh` 一键验收；审批面板标题显示层级，`/permissions` 查看权限来源与有效期并逐条撤销本进程授权（`/permissions reset` 只清进程内授权）；`/trace [H]`、`/queue`、`/priority`、`/plan card`、`/history` 等只读视图；侧栏选区附回以一行占位进入草稿，完整引用提交时展开 |
 | 个性化 | 项目背景 `/project`（查看、增删、改来源）与个人偏好 `/about`（确认、编辑、触发词、相关性注入、导出/审计）：均带来源，下一次任务生效；W6 v2 未证明收益，保持显式可管理，不扩 P5 |
 
 ## 架构
@@ -99,12 +99,12 @@ Plan 反馈修订的持久任务与恢复位于 [plan_revision.py](app/runtime/p
 
 结论尽量来自可复核的证据，而不是「看起来能跑」。完整运行记录与验收条件见[工作台里程碑](docs/MILESTONES.md)。
 
-| 验证项 | 方式 | 结果（2026-10-31） |
+| 验证项 | 方式 | 结果（2026-11-09 实测） |
 | --- | --- | --- |
-| 自动回归 | `./run_tests.sh`、`npm --prefix tui test` | Python **1167** 通过 / 13 项环境跳过（收集 1180）；TUI **348** 项中 347 通过（1 项为无 PTY 环境的已知限制） |
+| 自动回归 | `./run_tests.sh`、`npm --prefix tui test` | Python **1953 passed / 4 skipped**；TUI **731/731 通过**（0 失败、0 跳过） |
 | 真实模型任务 | 内部 eval 前 3 题 + SWE-bench Lite 开发集首题 | 内部 eval 前 3 题（创建 / 编辑 / 复制）3/3，其余 7 题未见运行记录；SWE-bench Lite（10 题子集）首题 `pylint-dev__astroid-1196` resolved 1/1（单题，非整榜；前三题扩跑待做） |
 | 本地编码基准 | 6 道仓库副本注入 bug 任务（3 道 held-out：2 道保留题 + 1 道跨层压测） | 调优题能力 2/3 → 3/3；保留题 2 题 × 3 次运行 `verified_fix` 全真；跨层压测 3/3 次通过 |
-| 端到端里程碑 | 真实模型 + 证据采集脚本 | W1–W5 完成真实验收；W6 v2 三组对照完成（主假设未获支持，如实记录；已停止 P0 扩张，不进入 P5） |
+| 端到端里程碑 | 真实模型 + 证据采集脚本 | W1–W5 完成真实验收；W6 v2 三组对照完成（主假设未获支持：未观察到重复说明减少；已停止 P0 扩张，不进入 P5） |
 | 评测口径 | 隐藏测试、初始 RED、防改测试；内部 eval 在宿主执行、本地基准用独立临时工作区、SWE-bench 走容器 | 分开记录产物正确 / 运行完成 / 可比较性；支持 `--runs` 多次运行、`--pause-tokens` 暂停续做 |
 | 产品体验 P0 | `/evidence`、`/autonomy`、verified 状态、`--doctor` 与 `.env.example` | 结束状态区分已验证 / 待验证；`/evidence` 输出最近一轮证据；`/autonomy` 与 `--autonomy` 可切换并显示档位；`--doctor` 实机自检（缺 key exit 2、配 key exit 0）；未做真实模型与真实 PTY 验收 |
 

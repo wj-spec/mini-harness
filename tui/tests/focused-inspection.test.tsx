@@ -121,7 +121,8 @@ test('a focused diff selection appends to the preserved draft once and keeps its
     view.stdin.write(`\x1b[<0;${col};${row}M\x1b[<32;${col + 11};${row}M\x1b[<0;${col + 11};${row}m`);
     await click(view, '[ 附回 ]'); await until(view, '已附到主区草稿');
     await click(view, '[ 附回 ]'); await until(view, '已附到主区草稿');
-    await click(view, '返回草稿'); view.stdin.write('中'); await until(view, '中文草中稿');
+    await click(view, '返回草稿'); view.stdin.write('中'); await until(view, '字符中');
+    assert.match(view.lastFrame()!, /中文草稿/); assert.match(view.lastFrame()!, /\[附回\]/);
     assert.equal(f.runs.length, 0);
     view.stdin.write('\r'); await pause(30);
     assert.equal(f.runs.length, 1); assert.match(f.runs[0]!, /FOCUS_ONLY/); assert.match(f.runs[0]!, /hello.txt/);

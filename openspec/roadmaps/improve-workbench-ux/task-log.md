@@ -37,6 +37,16 @@
 - **范围**：`app/stdio.py`（tool_call tier）、`tui/src/{protocol,view-state,workbench,commands,app,cli}.ts*`、新增 `history-locate.ts`/`locator-panel.tsx` 与 2 份测试；证据 `.vibe/ux-p10-history-2026-11-09/`。
 - **未完成**：跨会话全文检索/索引、rounds 账本深链、搜索高亮、真实终端与 Ghostty 真人/Owner Review；P10 不标整体验收。
 
+## 2026-11-10 · P2 侧栏附回占位与输入换行修复
+
+- **反馈**：P2 手动验收反馈「右侧边栏选中文字附回后，输入框无法换行」；同时希望附回内容不完整展示，用一行占位（附回 · 来源 · 行数）。
+- **诊断**：复现确认附回把完整多行引用写进草稿，且输入框对外部写入保留原光标（空草稿时在开头），续写/换行落在引用块之前/中间，表现为无法换行。
+- **修复**：附回只写入一行占位（工作区 diff / 计划 / 验证记录三类）；完整引用留在缓冲，提交时展开给模型（普通任务、纠偏、排队后续、`/chat` `/act` `/plan`、目标模式）；外部写入草稿统一把光标移到末尾；去重、来源/版本复核、错误回执不变。
+- **评审**：先写复现测试确认光标问题；首版把「附回→光标末尾」误做成「所有外部写入保留光标」，导致命令预填（`/act `、`/plan diff `）回归失败，改为统一末尾后恢复；focused-inspection/plan-review/worktree 旧「中间插入」契约按新交互更新。
+- **验证**：完整 Ink **731** 项（729 passed；2 项沙箱 PTY 环境失败与基线相同）；完整 Python **1957** 项沿用本批无 Python 改动的既有结果（1944 passed / 13 skipped / 0 失败）。未在真实终端跑 PTY，未调用真实模型。
+- **范围**：`tui/src/sidebar/draft-channel.ts`、`sidebar/use-draft-requests.ts`、`tui/src/app.tsx`、`tui/src/composer.tsx`；测试更新 sidebar-draft/focused-inspection/plan-review/worktree/app 预填回归。
+- **未完成**：占位点击展开预览/编辑、占位持久化、真人再验收；P2/P6 不标整体验收。
+
 ## 2026-11-10 · P2 工作台记录与对话主区分离
 
 - **反馈**：P2 手动验收中反馈「工作台记录存放在模型对话的专注区，会打断心流」。定为 P2 反馈增量（阅读语义），优先于其余 P2 真人项处理。

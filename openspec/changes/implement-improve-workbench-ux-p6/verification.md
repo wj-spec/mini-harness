@@ -6,6 +6,8 @@
 
 当前工程范围见下方最新增量；历史、attach 只读与 worktree 文件来源/diff 已接通；内嵌专注检查工程已接通，完整真人验收继续保留在执行清单。下方旧增量保留当时范围，以最新记录为准。
 
+> 2026-11-10 增量：侧栏附回改为一行占位（`[附回] 工作区 vs HEAD · 文件 · 行/字符范围`），完整引用只在提交时展开给模型；外部写入草稿后光标到末尾，修复附回后无法换行/续写。来源/版本复核、去重与错误回执不变。详见 [P2 验证记录](../implement-improve-workbench-ux-p2/verification.md#侧栏附回占位与输入换行修复2026-11-10)。
+
 ## 侧栏启动竞争与重复登记（2026-11-09）
 
 上轮 `focus-manifest.json` 归档已复核；基线 `.vibe/ux-p6-launch-2026-11-09/baseline-manifest.json` 保存 629 文件。本批 5 份 Ink 源码/测试，新增 `sidebar/lease.ts` 与 `sidebar-launch-concurrency.test.ts`；后端、审批、执行及检查结果格式不变。

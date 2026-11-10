@@ -53,14 +53,22 @@ test('a scoped diff excerpt appends once to the existing draft, preserves its cu
     writeChannel(file, request);
     await until(() => read(reply)?.outcome === 'appended');
     assert.equal(client.runs.length, 0);
+    // 附回只放一行占位符：来源/行号/字符数可见，完整引用不在输入框展开。
+    assert.match(view.lastFrame() ?? '', /\[附回\] 工作区 vs HEAD · note\.txt · 第 \d+ 行 · 5 字符/);
+    assert.doesNotMatch(view.lastFrame() ?? '', /\[引用结束\]/);
+    view.stdin.write('\n'); await pause(20); view.stdin.write('后续行'); await pause(20);
+    assert.match(view.lastFrame() ?? '', /\[附回\]/);
     writeChannel(file, {...request, text: '伪造同 ID 内容'});
     await until(() => read(reply)?.outcome === 'error');
     writeChannel(file, request); await until(() => read(reply)?.outcome === 'appended');
-    view.stdin.write('中'); await pause(20); view.stdin.write('\r'); await until(() => client.runs.length);
-    assert.match(client.runs[0]!, /^原有中文草中稿\n\n\[侧栏引用/);
+    view.stdin.write('\r'); await until(() => client.runs.length);
+    // 模型收到展开后的完整引用，草稿/对话里仍是压缩占位。
+    assert.match(client.runs[0]!, /^原有中文草稿\n\[侧栏引用/);
     assert.match(client.runs[0]!, /工作区 vs HEAD.*note.txt/);
     assert.equal(client.runs[0]!.split('> +中文证据').length, 2);
+    assert.match(client.runs[0]!, /\[引用结束\][\s\S]*后续行$/);
     assert.match(client.runs[0]!, new RegExp(diff.revision));
+    assert.match(view.lastFrame() ?? '', /\[附回\] 工作区 vs HEAD/);
     assert.equal(read(reply)?.id, request.id);
     writeFileSync(path.join(workspace, 'note.txt'), 'changed after selection\n');
     const stale = {...request, id: randomUUID(), createdAt: Date.now()}; writeChannel(file, stale);

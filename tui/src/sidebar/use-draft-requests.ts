@@ -10,7 +10,7 @@ import {readChannel, type SidebarOwner} from './channel.js';
 import {readWorkspaceStatusAsync, readFileDiffAsync} from './git.js';
 import {draftPath, readDraftRequest, writeDraftReply, removeDraftChannel, excerptText, formatExcerpt, type DraftReply, type DraftRequest} from './draft-channel.js';
 
-export function useSidebarDraftRequests(state: ViewState, owner: SidebarOwner, append: (text: string) => void, disabled: boolean, readPlanPage: (target: ReviewRef, cursor: number) => Promise<{body: string; nextCursor: number | null}>) {
+export function useSidebarDraftRequests(state: ViewState, owner: SidebarOwner, append: (text: string, request: DraftRequest) => void, disabled: boolean, readPlanPage: (target: ReviewRef, cursor: number) => Promise<{body: string; nextCursor: number | null}>) {
   const current = useRef({state, append, disabled, readPlanPage}); current.current = {state, append, disabled, readPlanPage};
   useEffect(() => {
     if (!state.workspace || !state.sessionId) return;
@@ -91,7 +91,7 @@ export function useSidebarDraftRequests(state: ViewState, owner: SidebarOwner, a
           reply.message = '来源版本或选区已变化；请接入后重选，或复制旧内容'; return;
         }
         if (!alive || !validScope(request) || Date.now() - request.createdAt > 30_000) return;
-        current.current.append(formatExcerpt(request));
+        current.current.append(formatExcerpt(request), request);
         reply.outcome = 'appended'; reply.message = '已附到主区草稿 · 尚未发送';
       } catch (error) {reply.message = `${error instanceof Error ? error.message : '读取来源失败'}；选区保留，可复制`;}
       finally {

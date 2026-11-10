@@ -130,7 +130,7 @@ test('plan excerpts recheck the exact version without changing the active run, r
     assert.deepEqual(client.commands[1], {command: 'plan', args: {action: 'review', target: exact, cursor: 5}});
     client.review('command-2', receipt({target: exact, body_page: '中文🙂原文还有', next_cursor: null}));
     await until(() => read(replyFile)?.outcome === 'appended');
-    await key('中'); assert.match(lastFrame()!, /原草中稿/);
+    await key('中'); assert.match(lastFrame()!, /原草稿/); assert.match(lastFrame()!, /字符中/);
     await key('\u0003'); assert.deepEqual(client.cancellations, ['run-1']);
     await key('\u0012'); await key('b'); await key('\r');
     assert.match(lastFrame()!, /完整约束与步骤/); assert.doesNotMatch(lastFrame()!, /中文🙂原文还有/);

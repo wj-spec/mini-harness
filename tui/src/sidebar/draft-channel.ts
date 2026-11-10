@@ -50,6 +50,20 @@ export function formatExcerpt(request: EvidenceExcerpt & {requestId: string | nu
     (request.source.kind === 'diff' && request.source.fileSource ? `来源目录：${request.source.fileSource.root}\n` : '') +
     request.text.split('\n').map(line => '> ' + line).join('\n') + '\n[引用结束]\n';
 }
+export function formatExcerptLabel(request: EvidenceExcerpt & {requestId: string | null}): string {
+  const chars = [...request.text].length;
+  if (request.source.kind === 'diff') {
+    const first = request.start.line + 1;
+    const last = request.end.line + 1;
+    const range = first === last ? `第 ${first} 行` : `第 ${first}–${last} 行`;
+    return `[附回] 工作区 vs HEAD · ${request.source.path} · ${range} · ${chars} 字符`;
+  }
+  if (request.source.kind === 'plan') {
+    const start = request.source.cursor;
+    return `[附回] 计划 ${request.source.target.plan_id} v${request.source.target.plan_version} · 字符 ${start}–${start + request.source.length} · ${chars} 字符`;
+  }
+  return `[附回] 验证记录 · ${chars} 字符`;
+}
 export function writeDraftReply(reply: DraftReply): void {writeChannel(draftPath(reply.workspace, reply.owner, true), reply);}
 export function removeDraftChannel(workspace: string, owner: SidebarOwner): void {
   for (const reply of [false, true]) rmSync(draftPath(workspace, owner, reply), {force: true});

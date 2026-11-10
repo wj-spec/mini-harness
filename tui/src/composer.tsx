@@ -46,10 +46,11 @@ export function Composer({value, initialCursor, onDraftChange, appendRevision = 
   const width = Math.max(4, columns);
 
   if (value !== previous.current) {
-    const preserve = appended.current !== appendRevision && value.startsWith(previous.current);
+    // 外部写入（附回占位、命令预填、拒单恢复）一律把光标放到末尾，
+    // 用户继续输入/换行才符合直觉；草稿内容本身不被改写。
     appended.current = appendRevision;
     previous.current = value;
-    const nextCursor = preserve ? cursor : graphemes(value).length;
+    const nextCursor = graphemes(value).length;
     draft.current = {value, cursor: nextCursor};
     navigation.current = null;
     if (cursor !== nextCursor) setCursorState(nextCursor);

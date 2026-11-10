@@ -76,11 +76,11 @@ test('worktree diff excerpts are rechecked at the saved origin and cannot claim 
     const reply = () => {try {return JSON.parse(readFileSync(draftPath(root, owner, true), 'utf8'));} catch {return null;}};
     writeChannel(draftPath(root, owner), request); await until(() => reply()?.id === request.id);
     assert.equal(reply().outcome, 'appended', reply().message);
-    view.stdin.write('中'); await pause(40); assert.match(view.lastFrame()!, /中文草中稿/);
+    view.stdin.write('中'); await pause(40); assert.match(view.lastFrame()!, /字符中/); assert.match(view.lastFrame()!, /中文草稿/);
     const forged = {...request, id: randomUUID(), source: {...request.source, fileSource: source(root)}};
     writeChannel(draftPath(root, owner), forged); await until(() => reply()?.id === forged.id);
     assert.equal(reply().outcome, 'error');
-    for (let i = 0; i < 9; i++) {view.stdin.write('\x1b[B'); await pause(20);}
-    assert.match(view.lastFrame()!, /TASK_ONLY/);
+    assert.match(view.lastFrame()!, /\[附回\] 工作区 vs HEAD · same\.txt · 第 \d+ 行 · 10 字符/);
+    assert.doesNotMatch(view.lastFrame()!, /TASK_ONLY/);
   } finally {view.unmount(); rmSync(root, {recursive: true, force: true});}
 });
