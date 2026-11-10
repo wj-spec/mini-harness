@@ -1,5 +1,6 @@
 import {readSidebarLink} from './sidebar/lifecycle.js';
 import {useSidebarDraftRequests} from './sidebar/use-draft-requests.js';
+import {reapStaleSidebars} from './sidebar/lifecycle.js';
 import {formatExcerptLabel, type DraftRequest} from './sidebar/draft-channel.js';
 import {spawn, spawnSync} from 'node:child_process';
 import {createHash, randomUUID} from 'node:crypto';
@@ -54,7 +55,7 @@ import {selectedText, type Selection, type SelectionPoint} from './selection.js'
 import {loadProfile, projectProfilePath, saveProfile} from './project-profile.js';
 import {appendProfileAudit, exportUserProfile, loadUserProfile, looksSensitive, pruneUserProfile, readProfileAudit, saveUserProfile, userProfileFile, type UserPreference} from './user-profile.js';
 import {mergeProposals, proposePreferences, readSessionUserMessages} from './preference-observer.js';
-import {adjustSidebarSplitForTui, closeSidebarWindowForTui, killSidebarForTui, launchSidebarForTui, runSidebarSetup} from './sidebar/launch.js';
+import {adjustSidebarSplitForTui, closeSidebarWindowForTui, focusExistingSidebarForTui, killSidebarForTui, launchSidebarForTui, runSidebarSetup} from './sidebar/launch.js';
 import {agentTouchedFiles} from './sidebar/agent-activity.js';
 import {removeSidebarSignal, writeSidebarSignal, type SidebarSignalInput} from './sidebar/signal.js';
 import {createSidebarOwner, type SidebarOwner} from './sidebar/channel.js';
@@ -199,10 +200,11 @@ function latestPlanText(sessionPath: string, full = false): string | null {
   } catch {return null;}
 }
 
-export function App({client, attach = false, active = true, initialDraft, onDraftChange, onDetach, stopOnConnect = false, onSessionSwitch, initialFocus, initialState = emptyState, windowSize, initialTheme = 'system', copyText = copyToClipboard, profilePath, userProfilePath, launchSidebar = launchSidebarForTui, setupSidebar = runSidebarSetup, publishSidebarSignal = writeSidebarSignal, autoObserve = process.env.VIBE_AUTO_OBSERVE === '1'}: {
+export function App({client, attach = false, active = true, initialDraft, onDraftChange, onDetach, stopOnConnect = false, onSessionSwitch, initialFocus, initialState = emptyState, windowSize, initialTheme = 'system', copyText = copyToClipboard, profilePath, userProfilePath, launchSidebar = launchSidebarForTui, focusSidebar = focusExistingSidebarForTui, setupSidebar = runSidebarSetup, publishSidebarSignal = writeSidebarSignal, autoObserve = process.env.VIBE_AUTO_OBSERVE === '1'}: {
   client: BackendClient; attach?: boolean; initialState?: ViewState; windowSize?: {columns: number; rows: number}; initialTheme?: ThemeName;
   copyText?: (text: string) => string | null; profilePath?: string; userProfilePath?: string;
   launchSidebar?: (workspace: string, mode?: SidebarMode, totalColumns?: number, owner?: SidebarOwner) => LaunchResult;
+  focusSidebar?: (workspace: string, owner?: SidebarOwner) => boolean;
   setupSidebar?: () => SetupResult;
   publishSidebarSignal?: (workspace: string, input: SidebarSignalInput) => void;
   autoObserve?: boolean;
@@ -650,7 +652,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
       const summary = event.tasks.slice(0, 5).map(task => `${task.task_id} ${task.status}${task.worker_status ? `/${task.worker_status}` : ''}${task.pending_approvals ? ` 待审批${task.pending_approvals}` : ''}`).join('；');
       dispatch({type: 'notice', text: `检测到 ${event.tasks.length} 个任务${running.length ? `（${running.length} 个后台 worker 活跃）` : ''}：${summary}${event.tasks.length > 5 ? ' …' : ''}\n输入 /task 查看；/attach 生成 attach 命令。`});
     }
-    if (!attach && event.type === 'ready' && event.resumed && client.capabilities?.().includes('plan-review')) reviewRef.current.discover();
+    if (!attach && event.type === 'ready' && event.resumed && client.capabilities?.().includes('plan-review')) reviewRef.current.discover(true);
     if (event.type === 'subagent_event') {
       notice(`子 Agent ${event.status}：${event.task_id}${event.summary ? ` · ${event.summary}` : ''}`);
     }
@@ -754,6 +756,13 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
     setDraftAppendRevision(value => value + 1); setFeedback('已附入侧栏引用 · 尚未发送');
   }, quitting, (target, cursor) => sidebarRequestsRef.current.readPage(target, cursor));
   const publishedSignal = useRef('');
+  useEffect(() => {
+    if (!state.workspace) return;
+    try {
+      const reaped = reapStaleSidebars(state.workspace);
+      if (reaped.length) dispatch({type: 'notice', text: `已清理上次遗留的侧栏 ${reaped.length} 个`});
+    } catch {}
+  }, [state.workspace]);
   useEffect(() => {setInspectionSelection(null); setInspectionFocused(false); setInspectionMounted(false);}, [state.workspace, state.sessionId]);
   useEffect(() => () => {
     if (state.workspace) removeSidebarSignal(state.workspace, sidebarOwner);
@@ -954,6 +963,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
     const workspace = state.workspace;
     if (!workspace) {notice('尚未连接工作区，暂时无法打开变更侧栏'); return;}
     try {
+      if (focusSidebar(workspace, sidebarOwner)) {announce('侧栏已在运行 · 已聚焦'); return true;}
       const result = launchSidebar(workspace, mode, columns, sidebarOwner);
       announce(result.message);
       if (result.host && result.windowId) sidebarWindow.current = {host: result.host, windowId: result.windowId};

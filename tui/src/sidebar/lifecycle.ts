@@ -1,6 +1,9 @@
 /** 侧栏与主 TUI 的生命周期联动：TUI 退出后侧栏自动退出，避免留下孤儿面板。 */
-import {rmSync} from 'node:fs';
-import {readChannel, sameOwner, sidebarChannelPath, writeChannel, type SidebarOwner} from './channel.js';
+import {createHash} from 'node:crypto';
+import {readdirSync, rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import path from 'node:path';
+import {readChannel, sameOwner, sidebarChannelPath, validateOwner, writeChannel, type SidebarOwner} from './channel.js';
 
 export function isProcessAlive(pid: number, kill: (pid: number, signal: 0) => boolean = (target, signal) => process.kill(target, signal)): boolean {
   if (!Number.isInteger(pid) || pid <= 0) return false;
@@ -80,7 +83,7 @@ export function killLinkedSidebar(workspace: string, options: {
 } = {}): boolean {
   const parentPid = options.parentPid ?? options.owner?.parentPid ?? process.pid;
   const link = readSidebarLink(workspace, options.owner);
-  if (!link || link.parentPid !== parentPid || link.hasSelection) return false;
+  if (!link || link.parentPid !== parentPid) return false;
   const alive = options.alive ?? isProcessAlive;
   if (!alive(link.pid)) {
     removeSidebarLink(workspace, link.pid, options.owner);
@@ -92,4 +95,38 @@ export function killLinkedSidebar(workspace: string, options: {
   } catch {
     return false;
   }
+}
+
+/**
+ * 清理同一工作区中「父工作台已退出」的遗留侧栏：退出主区后无论是否有选区都应很快退出，
+ * 但崩溃/旧版本可能留下孤儿面板；新工作台启动或再次打开侧栏前先按 link 文件回收。
+ */
+export function reapStaleSidebars(workspace: string, options: {
+  root?: string;
+  alive?: (pid: number) => boolean;
+  kill?: (pid: number, signal: NodeJS.Signals) => boolean;
+} = {}): number[] {
+  const alive = options.alive ?? isProcessAlive;
+  const kill = options.kill ?? ((pid, signal) => process.kill(pid, signal));
+  const root = options.root ?? tmpdir();
+  const base = path.join(root, 'mini-harness-sidebar');
+  const prefix = `${createHash('sha1').update(path.resolve(workspace)).digest('hex').slice(0, 16)}-`;
+  let entries: string[] = [];
+  try {entries = readdirSync(base);} catch {return [];}
+  const reaped: number[] = [];
+  for (const entry of entries) {
+    if (!entry.startsWith(prefix) || !entry.endsWith('.link.json')) continue;
+    const file = path.join(base, entry);
+    const link = readChannel(file) as Partial<SidebarLink> | null;
+    if (!link || !Number.isSafeInteger(link.pid) || !Number.isSafeInteger(link.parentPid)) {rmSync(file, {force: true}); continue;}
+    if (alive(link.parentPid!)) continue;
+    if (alive(link.pid!)) {
+      try {kill(link.pid!, 'SIGTERM'); reaped.push(link.pid!);} catch {}
+    }
+    if (validateOwner(link.owner)) {
+      for (const kind of ['signal', 'request', 'reply'] as const) rmSync(sidebarChannelPath(workspace, kind, link.owner), {force: true});
+    }
+    rmSync(file, {force: true});
+  }
+  return reaped;
 }

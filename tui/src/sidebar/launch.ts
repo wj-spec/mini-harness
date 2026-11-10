@@ -1,8 +1,8 @@
 import {spawnSync} from 'node:child_process';
 import {existsSync} from 'node:fs';
 import path from 'node:path';
-import {closeSidebarWindow, openSidebar, type LaunchResult, type SidebarMode, type TerminalHost} from './host.js';
-import {killLinkedSidebar} from './lifecycle.js';
+import {closeSidebarWindow, focusSidebarTerminal, openSidebar, type LaunchResult, type SidebarMode, type TerminalHost} from './host.js';
+import {isProcessAlive, killLinkedSidebar, readSidebarLink, reapStaleSidebars} from './lifecycle.js';
 import {adjustSidebarSplit} from './split-ratio.js';
 import type {SidebarOwner} from './channel.js';
 
@@ -13,6 +13,8 @@ export function sidebarCliPath(argv1: string | undefined = process.argv[1]): str
 }
 
 export function launchSidebarForTui(workspace: string, mode: SidebarMode = 'split', totalColumns?: number, owner?: SidebarOwner): LaunchResult {
+  try {reapStaleSidebars(workspace);} catch {}
+
   // 包装 shell 可能是前台进程组首进程；TTY 可准确定位同一个 pane。
   const tty = owner && process.platform === 'darwin'
     ? spawnSync('/bin/ps', ['-p', String(owner.parentPid), '-o', 'tty='], {encoding: 'utf8', timeout: 1000}).stdout?.trim() : '';
@@ -44,6 +46,13 @@ export function runSidebarSetup(argv1: string | undefined = process.argv[1]): Se
     ok: result.status === 0,
     message: lines.slice(-3).join('\n') || (result.status === 0 ? '已写入 Ghostty 配置；请完全重启 Ghostty。' : `配置脚本退出码 ${result.status ?? '未知'}`),
   };
+}
+
+/** 已有本实例侧栏在运行时优先聚焦，避免标题覆盖失效时再开一个分屏。 */
+export function focusExistingSidebarForTui(workspace: string, owner?: SidebarOwner): boolean {
+  const link = readSidebarLink(workspace, owner);
+  if (!link || !isProcessAlive(link.pid)) return false;
+  return focusSidebarTerminal(link.pid);
 }
 
 /** 工作台退出时尽量立即终止同一工作区、同一父进程启动的侧栏。 */

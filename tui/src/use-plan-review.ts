@@ -4,7 +4,7 @@ import type {PlanReviewResult, ReviewRef, ServerEvent} from './protocol.js';
 import {reviewKey} from './protocol.js';
 
 type Choice = 'execute' | 'body' | 'approve' | 'dismiss' | 'query' | 'replacement' | 'revise' | 'revisions';
-type Request = {target?: ReviewRef; action: 'review' | 'approve-execute' | 'approve' | 'dismiss'; sequence: number; cursor?: number; previous?: number[]; activate?: boolean; autoFrom?: string; timer?: ReturnType<typeof setTimeout>};
+type Request = {target?: ReviewRef; action: 'review' | 'approve-execute' | 'approve' | 'dismiss'; sequence: number; cursor?: number; previous?: number[]; activate?: boolean; autoFrom?: string; quiet?: boolean; timer?: ReturnType<typeof setTimeout>};
 type Card = {result: PlanReviewResult; problem: string | null; pending: string | null; sequence: number; statusSegment: number; cursor: number; previous: number[]; body: string; next: number | null};
 type ReviewState = {cards: Map<string, Card>; current: string | null; focused: boolean; body: boolean; choice: Choice | null};
 export type ReviewChoice = {value: Choice; key: string; label: string};
@@ -35,10 +35,10 @@ export function usePlanReview(client: BackendClient, onCard: (result: PlanReview
     }
     callbacks.current.onMessage(problem);
   };
-  const send = (action: Request['action'], target?: ReviewRef, cursor?: number, previous?: number[], activate = false, autoFrom?: string) => {
+  const send = (action: Request['action'], target?: ReviewRef, cursor?: number, previous?: number[], activate = false, autoFrom?: string, quiet = false) => {
     try {
       const id = client.command('plan', action === 'review' ? {action, ...(target ? {target} : {}), ...(cursor !== undefined ? {cursor} : {})} : {action, target: target!});
-      const request: Request = {action, target, cursor, previous, activate, autoFrom, sequence: ++sequence.current};
+      const request: Request = {action, target, cursor, previous, activate, autoFrom, quiet, sequence: ++sequence.current};
       pending.current.set(id, request);
       request.timer = setTimeout(() => unknown(id, '等待回执超时'), 15_000);
       const state = current.current;
@@ -52,7 +52,7 @@ export function usePlanReview(client: BackendClient, onCard: (result: PlanReview
       return false;
     }
   };
-  const discover = () => send('review');
+  const discover = (quiet = false) => send('review', undefined, undefined, undefined, false, undefined, quiet);
   const blur = () => {
     if (current.current.choice) callbacks.current.onMessage('');
     update({...current.current, focused: false, body: false, choice: null});
@@ -88,7 +88,7 @@ export function usePlanReview(client: BackendClient, onCard: (result: PlanReview
     }
     clearTimeout(request.timer);
     pending.current.delete(event.id);
-    if (!event.target) {callbacks.current.onMessage(event.message); return true;}
+    if (!event.target) {if (!request.quiet) callbacks.current.onMessage(event.message); return true;}
     const state = current.current;
     const key = reviewKey(event.target);
     const existing = state.cards.get(key);

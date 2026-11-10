@@ -5,7 +5,7 @@ import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import test from 'node:test';
 import {
-  SIDEBAR_TITLE, checkQuickTerminalPosition, closeSidebarWindow, closeWindowScript, detectHost, ghosttyBinary, ghosttyScript, ghosttyWindowScript, openSidebar, readFontSize, resizeSidebarSplit, resizeSplitScript, shellQuote, sidebarCommand, splitScript, terminalWindowScript,
+  SIDEBAR_TITLE, checkQuickTerminalPosition, closeSidebarWindow, closeWindowScript, detectHost, focusSidebarScript, focusSidebarTerminal, ghosttyBinary, ghosttyScript, ghosttyWindowScript, openSidebar, readFontSize, resizeSidebarSplit, resizeSplitScript, shellQuote, sidebarCommand, splitScript, terminalWindowScript,
   type Runner,
 } from '../src/sidebar/host.js';
 import {sidebarCliPath} from '../src/sidebar/launch.js';
@@ -313,3 +313,14 @@ function hasOsacompile(): boolean {
   }
   return false;
 }
+
+test('focus fallback targets the registered sidebar pid and reports only a real focus', () => {
+  const script = focusSidebarScript(4321);
+  assert.match(script, /whose pid is 4321/u);
+  assert.match(script, /focus \(item 1 of hits\)/u);
+  assert.match(script, /return "focused"/u);
+  const ghostty = {TERM_PROGRAM: 'ghostty'};
+  assert.equal(focusSidebarTerminal(4321, {platform: 'darwin', env: ghostty, run: () => ({status: 0, stdout: 'focused', stderr: ''})}), true);
+  assert.equal(focusSidebarTerminal(4321, {platform: 'darwin', env: ghostty, run: () => ({status: 0, stdout: 'missing', stderr: ''})}), false);
+  assert.equal(focusSidebarTerminal(4321, {platform: 'linux', env: ghostty, run: () => ({status: 0, stdout: 'focused', stderr: ''})}), false);
+});

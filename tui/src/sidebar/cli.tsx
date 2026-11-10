@@ -49,7 +49,7 @@ async function main() {
 
 async function runSidebar(options: SidebarOptions) {
   const stdin = createTerminalInput(process.stdin);
-  let hasSelection = false; let parentGone = false;
+  let hasSelection = false;
   let updateLink = () => {};
   let instance: ReturnType<typeof render> | undefined;
   let stopParentWatch = () => {};
@@ -57,7 +57,7 @@ async function runSidebar(options: SidebarOptions) {
   try {
     setTitle(sidebarTitle(options.owner, options.hostMode));
     instance = render(<SidebarApp workspace={options.workspace} owner={options.owner} theme={options.theme} refreshMs={options.refreshMs}
-      onSelectionChange={selected => {hasSelection = selected; updateLink(); if (parentGone && !selected) instance?.unmount();}}
+      onSelectionChange={selected => {hasSelection = selected; updateLink();}}
       onQuit={() => instance?.unmount()}/>, {
       exitOnCtrlC: false, patchConsole: false, interactive: true, alternateScreen: true,
       stdin,
@@ -74,7 +74,7 @@ async function runSidebar(options: SidebarOptions) {
     updateLink();
     process.stdout.on('resize', updateLink);
     // 主工作台退出即联动收起侧栏；即使工作台崩溃，进程消失也会触发。
-    stopParentWatch = options.parentPid === null ? () => {} : watchParentPid(options.parentPid, () => {parentGone = true; if (!hasSelection) instance?.unmount();});
+    stopParentWatch = options.parentPid === null ? () => {} : watchParentPid(options.parentPid, () => {instance?.unmount();});
     process.once('SIGTERM', onSignal);
     process.once('SIGHUP', onSignal);
     await instance.waitUntilExit();

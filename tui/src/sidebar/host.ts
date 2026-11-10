@@ -205,6 +205,27 @@ ${owner ? `  set name override of newTerminal to "${sidebarTitle(owner, 'split')
 end tell`;
 }
 
+export function focusSidebarScript(pid: number): string {
+  const target = Math.max(1, Math.round(pid));
+  return `tell application "Ghostty"
+  set hits to (every terminal whose pid is ${target})
+  if (count of hits) is 0 then return "missing"
+  focus (item 1 of hits)
+  return "focused"
+end tell`;
+}
+
+/** 标题覆盖失效时按登记的侧栏进程号聚焦，避免重复分屏。仅在 Ghostty 下可用。 */
+export function focusSidebarTerminal(pid: number, options: {
+  env?: NodeJS.ProcessEnv; platform?: NodeJS.Platform; run?: Runner; timeoutMs?: number;
+} = {}): boolean {
+  const platform = options.platform ?? process.platform;
+  if (platform !== 'darwin' || detectHost(options.env ?? process.env) !== 'ghostty') return false;
+  const run = options.run ?? defaultRunner;
+  const result = run(SIDEBAR_COMMAND, ['-e', focusSidebarScript(pid)], {timeoutMs: options.timeoutMs ?? 1500});
+  return result.status === 0 && lastLine(result.stdout) === 'focused';
+}
+
 export function resizeSplitScript(direction: 'left' | 'right', pixels: number, owner?: SidebarOwner): string {
   const amount = Math.max(1, Math.round(pixels));
   return `tell application "Ghostty"

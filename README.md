@@ -91,7 +91,7 @@ flowchart TD
 
 模块地图、一次任务的事件序列、逐项机制与工程取舍见 [Harness 技术方案](docs/HARNESS.md)。
 
-Plan 反馈修订的持久任务与恢复位于 [plan_revision.py](app/runtime/plan_revision.py)；Ink 卡片反馈、准确版本修订与重开恢复已接通，真实验收状态见 [P4 验证记录](openspec/changes/implement-improve-workbench-ux-p4/verification.md)。按请求保存的检查事实与只读分页位于 [inspection.py](app/runtime/inspection.py)，主工作台已接通“历史结果”分页与重开后的准确检查；独立 attach 已支持绑定任务的历史/准确计划及离线只读，worktree 的当前 diff 与附回也按保存来源读取；内嵌专注检查已接通，完整真人验收待完成，见 [P6 验证记录](openspec/changes/implement-improve-workbench-ux-p6/verification.md#内嵌专注检查2026-11-09)。
+Plan 反馈修订的持久任务与恢复位于 [plan_revision.py](app/runtime/plan_revision.py)；Ink 卡片反馈、准确版本修订与重开恢复已接通，真实验收状态见 [P4 验证记录](openspec/changes/implement-improve-workbench-ux-p4/verification.md)。按请求保存的检查事实与只读分页位于 [inspection.py](app/runtime/inspection.py)，主工作台已接通“历史结果”分页与重开后的准确检查；独立 attach 已支持绑定任务的历史/准确计划及离线只读，worktree 的当前 diff 与附回也按保存来源读取；侧栏随主区退出联动关闭、遗留实例在启动时回收、已有侧栏按 PID 聚焦；内嵌专注检查已接通，完整真人验收待完成，见 [P6 验证记录](openspec/changes/implement-improve-workbench-ux-p6/verification.md#内嵌专注检查2026-11-09)。
 
 主区可点击“专注检查”（窄屏“检查”）阅读同一对象的变更、计划与验证，返回保留草稿/光标。详见 [P6 专注检查记录](openspec/changes/implement-improve-workbench-ux-p6/verification.md#内嵌专注检查2026-11-09)。
 

@@ -3,6 +3,8 @@
 日期：2026-11-08。状态：runtime 查询、共享写入保护与启动凭据/恢复已实现，既有 steering 已接线；新审阅 JSONL/TypeScript 协议、客户端与 Agent.run 交接已实现；Ink 准确审阅卡、焦点/草稿保护、正文分页与未知结果查询已接通，P3 整体未验收。
 P2 实现、回归、性能复测、全量与工具 PTY 已完成，真人体验仍待反馈；以下先保留设计预检历史，再记录本轮实现，不增加产品验收完成项。
 
+> 2026-11-10 增量：resumed 会话的自动计划发现改为静默查询；没有计划产物时不再把「找不到计划产物」显示到左下角，显式 `/plan` 仍提示原因。见 [P6 验证记录](../implement-improve-workbench-ux-p6/verification.md#侧栏生命周期与启动噪声2026-11-10)。
+
 ## 当前事实与探针
 
 证据目录 `.vibe/ux-p3-preflight-2026-11-08/`：`probe.py`、`probe.log`、`results.json`。

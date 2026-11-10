@@ -16,6 +16,8 @@ export function sameOwner(first: unknown, second: SidebarOwner): boolean {
   return validOwner(first) && first.instanceId === second.instanceId && first.parentPid === second.parentPid;
 }
 
+export const validateOwner = validOwner;
+
 export function createSidebarOwner(): SidebarOwner {
   return {instanceId: randomUUID(), parentPid: process.pid};
 }

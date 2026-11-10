@@ -1805,6 +1805,20 @@ test('/sidebar opens the right-hand Git sidebar through the injected launcher', 
   assert.match(lastFrame() ?? '', /已打开右侧 Git 变更侧栏/u);
 });
 
+test('an already-running sidebar is focused instead of opening a duplicate', async () => {
+  const launches: string[] = []; const focuses: string[] = [];
+  const client = new MockClient();
+  const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 120, rows: 40}}
+    initialState={{...initialState, phase: 'idle', workspace: '/repo', model: 'fake'}}
+    launchSidebar={workspace => {launches.push(workspace); return {outcome: 'started', message: 'unexpected'};}}
+    focusSidebar={workspace => {focuses.push(workspace); return true;}}/>);
+  await pause(20);
+  await enter(stdin, '/sidebar');
+  assert.deepEqual(focuses, ['/repo']);
+  assert.deepEqual(launches, []);
+  assert.match(lastFrame() ?? '', /侧栏已在运行 · 已聚焦/u);
+});
+
 test('Ctrl+G also opens the Git sidebar', async () => {
   const calls: string[] = [];
   const client = new MockClient();
@@ -2871,6 +2885,29 @@ test('/plan background sends prepare-background command', async () => {
   await enter(stdin, '/plan background');
   assert.equal(client.commands.at(-1), 'plan');
   assert.deepEqual(client.commandArgs.at(-1), {action: 'prepare-background'});
+});
+
+test('resumed plan auto-discovery stays quiet when no plan artifact exists until explicitly requested', async () => {
+  const {client, stdin, lastFrame} = await mount();
+  client.capabilityList = ['plan-review'];
+  client.emit({type: 'ready', workspace: '/tmp/repo', model: 'fake', session_id: 'test', capabilities: ['plan-review'], resumed: true});
+  client.emit({type: 'status', phase: 'idle'});
+  await pause(30);
+  assert.deepEqual(client.commands, ['plan']);
+  assert.deepEqual(client.commandArgs[0], {action: 'review'});
+  client.emit({type: 'plan_review', id: 'command-1', target: null, outcome: 'unavailable', code: 'not_found',
+    message: '找不到计划产物', replacement_target: null, launch: null, summary: null, body_page: '', next_cursor: null,
+    available_actions: []});
+  await pause(20);
+  assert.doesNotMatch(lastFrame() ?? '', /找不到计划产物/, '启动自动查询不应把「没有计划」显示成提示');
+  await enter(stdin, '/plan');
+  await pause(20);
+  assert.equal(client.commands.at(-1), 'plan');
+  client.emit({type: 'plan_review', id: 'command-2', target: null, outcome: 'unavailable', code: 'not_found',
+    message: '找不到计划产物', replacement_target: null, launch: null, summary: null, body_page: '', next_cursor: null,
+    available_actions: []});
+  await pause(20);
+  assert.match(lastFrame() ?? '', /找不到计划产物/, '显式 /plan 查询仍应给出原因');
 });
 
 test('/plan background keeps TUI when worker spawn fails', async () => {

@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {randomUUID} from 'node:crypto';
+import {createHash, randomUUID} from 'node:crypto';
 import {spawn} from 'node:child_process';
-import {isProcessAlive, killLinkedSidebar, readSidebarLink, removeSidebarLink, watchParentPid, writeSidebarLink} from '../src/sidebar/lifecycle.js';
+import {existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import path from 'node:path';
+import {isProcessAlive, killLinkedSidebar, readSidebarLink, reapStaleSidebars, removeSidebarLink, watchParentPid, writeSidebarLink} from '../src/sidebar/lifecycle.js';
 
 test('closing one workbench leaves the other linked process alive in the same workspace', async () => {
   const workspace = `/tmp/sidebar-owner-processes-${randomUUID()}`;
@@ -27,19 +30,39 @@ test('closing one workbench leaves the other linked process alive in the same wo
   }
 });
 
-test('closing the workbench preserves its sidebar while an excerpt is selected', () => {
+test('closing the workbench terminates its sidebar even while an excerpt is selected', () => {
   const workspace = `/tmp/sidebar-selected-${randomUUID()}`;
   const owner = {instanceId: randomUUID(), parentPid: process.pid};
-  let killed = false;
+  const killed: number[] = [];
   try {
-    const link = {pid: process.pid, parentPid: process.pid, owner, hasSelection: true};
-    writeSidebarLink(workspace, link);
-    assert.equal(killLinkedSidebar(workspace, {owner, kill: () => {killed = true; return true;}}), false);
-    assert.equal(killed, false);
-    const cleared = {...link, hasSelection: false}; writeSidebarLink(workspace, cleared);
-    assert.equal(killLinkedSidebar(workspace, {owner, kill: () => {killed = true; return true;}}), true);
-    assert.equal(killed, true);
+    writeSidebarLink(workspace, {pid: process.pid, parentPid: process.pid, owner, hasSelection: true});
+    assert.equal(killLinkedSidebar(workspace, {owner, kill: pid => {killed.push(pid); return true;}}), true);
+    assert.deepEqual(killed, [process.pid]);
   } finally {removeSidebarLink(workspace, undefined, owner);}
+});
+
+test('stale sidebar links from dead parents are reaped while live workbench links stay', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'sidebar-reap-'));
+  const workspace = `/tmp/sidebar-reap-${randomUUID()}`;
+  const base = path.join(root, 'mini-harness-sidebar');
+  mkdirSync(base, {recursive: true});
+  const prefix = createHash('sha1').update(path.resolve(workspace)).digest('hex').slice(0, 16);
+  const writeLink = (name: string, value: Record<string, unknown>) =>
+    writeFileSync(path.join(base, `${prefix}-${name}.link.json`), JSON.stringify(value));
+  try {
+    writeLink('dead-parent', {pid: 111, parentPid: 222});
+    writeLink('live-parent', {pid: 333, parentPid: 444});
+    writeLink('dead-child', {pid: 555, parentPid: 666});
+    const alive = (pid: number) => [111, 333, 444].includes(pid);
+    const killed: number[] = [];
+    const reaped = reapStaleSidebars(workspace, {root, alive, kill: (pid: number) => {killed.push(pid); return true;}});
+    assert.deepEqual(killed, [111]);
+    assert.deepEqual(reaped, [111]);
+    assert.ok(existsSync(path.join(base, `${prefix}-live-parent.link.json`)), 'live workbench sidebar must be kept');
+    assert.ok(!existsSync(path.join(base, `${prefix}-dead-parent.link.json`)));
+    assert.ok(!existsSync(path.join(base, `${prefix}-dead-child.link.json`)));
+    assert.equal(reapStaleSidebars(workspace, {root, alive: () => true, kill: () => true}).length, 0);
+  } finally {rmSync(root, {recursive: true, force: true});}
 });
 
 test('process liveness treats ESRCH as gone and EPERM as alive', () => {

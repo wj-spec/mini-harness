@@ -37,6 +37,16 @@
 - **范围**：`app/stdio.py`（tool_call tier）、`tui/src/{protocol,view-state,workbench,commands,app,cli}.ts*`、新增 `history-locate.ts`/`locator-panel.tsx` 与 2 份测试；证据 `.vibe/ux-p10-history-2026-11-09/`。
 - **未完成**：跨会话全文检索/索引、rounds 账本深链、搜索高亮、真实终端与 Ghostty 真人/Owner Review；P10 不标整体验收。
 
+## 2026-11-10 · P6 侧栏生命周期与启动噪声
+
+- **反馈**：重启后左下角出现「找不到计划产物」；主对话退出后右侧边栏没有一同关闭；重新进入再按 Ctrl+G 又出现一个侧栏（截图出现并排两个侧栏）。
+- **诊断**：① resumed 会话自动计划发现把无产物的 `not_found` 当反馈显示；② 旧策略「有选区保留侧栏」让 `killLinkedSidebar` 与侧栏父进程看护都跳过有选区实例；③ 新实例 owner/标题变化，旧对话框无法被当前实例匹配，打开时只能再分屏。
+- **修复**：自动发现改用静默查询（显式 `/plan` 仍提示）；主区退出/崩溃一律联动结束侧栏（忽略选区）；新增 `reapStaleSidebars` 在启动/打开侧栏前按 link 登记回收父进程已死亡的孤儿并清理通道；新增 `focusExistingSidebarForTui` 按 PID 聚焦已存活侧栏，标题失配也不再重复分屏；不同存活工作台互不回收。
+- **评审**：先补复现单测（有选区终止、遗留回收、聚焦脚本、静默发现），再把旧「选区保留」契约从 tests/docs 更新为「主区退出即结束」。
+- **验证**：完整 Ink **735** 项（733 passed；2 项沙箱 PTY 环境失败与基线相同）；Python **1957** 项沿用本批无 Python 改动的既有结果（1944 passed / 13 skipped / 0 失败）。未做真实 Ghostty GUI/PTY 面板关闭与聚焦验证。
+- **范围**：`tui/src/sidebar/lifecycle.ts`、`sidebar/cli.tsx`、`sidebar/host.ts`、`sidebar/launch.ts`、`tui/src/app.tsx`、`tui/src/use-plan-review.ts`；测试更新 sidebar-lifecycle/sidebar-host/app，并同步 P6/P3 验证、roadmap、里程碑与验收清单。
+- **未完成**：Ghostty 原生关闭/聚焦与真人再验收；非 Ghostty 终端的窗口级回收；P6 整体不标验收。
+
 ## 2026-11-10 · P2 侧栏附回占位与输入换行修复
 
 - **反馈**：P2 手动验收反馈「右侧边栏选中文字附回后，输入框无法换行」；同时希望附回内容不完整展示，用一行占位（附回 · 来源 · 行数）。
