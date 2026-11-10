@@ -37,6 +37,15 @@
 - **范围**：`app/stdio.py`（tool_call tier）、`tui/src/{protocol,view-state,workbench,commands,app,cli}.ts*`、新增 `history-locate.ts`/`locator-panel.tsx` 与 2 份测试；证据 `.vibe/ux-p10-history-2026-11-09/`。
 - **未完成**：跨会话全文检索/索引、rounds 账本深链、搜索高亮、真实终端与 Ghostty 真人/Owner Review；P10 不标整体验收。
 
+## 2026-11-10 · P2 工作台记录与对话主区分离
+
+- **反馈**：P2 手动验收中反馈「工作台记录存放在模型对话的专注区，会打断心流」。定为 P2 反馈增量（阅读语义），优先于其余 P2 真人项处理。
+- **行为**：普通工作台提示（复制/定位反馈、命令结果、操作异常、后台提示、diagnostic）进入 `ViewState.notices` 记录缓冲（上限 200），不再生成对话条目；提示更新不再 `follow` 跳末尾。对话主区只保留任务/回复/工具/审批与 `[运行结束]` 回执、计划审阅卡、历史结果卡。底部提示行显示最新记录首行（含条数）与 `/logs`；审批/审阅/修订/计划等覆盖层保留自己的按键提示。新增 `/logs` 只读面板（完整多行、滚动、Esc/Enter 返回）。
+- **评审**：首版把提示放状态行并替换按键提示，审批/计划覆盖层的 Tab 提示被遮住；改为覆盖层优先、记录行放提示行。首版还误过滤了带 review/inspection 的 notice 卡（计划审阅/历史结果），按条件保留。多行/多条记录相关测试改为 `/logs` 断言，工作台 notices 单测改查缓冲。
+- **验证**：完整 Ink **731** 项（729 passed；2 项沙箱 PTY 环境失败与基线相同）；Python **1957** 项沿用本批无 Python 改动的既有结果（1944 passed / 13 skipped / 0 失败）。未在真实终端跑 PTY，未调用真实模型。
+- **范围**：`tui/src/view-state.ts`、`workbench.tsx`、`app.tsx`、`commands.ts`、`cli.tsx`，新增 `workbench-log-panel.tsx`；测试新增 `workbench-log.test.tsx` 并更新 app/view-state/workbench/visual-fixture 断言。
+- **未完成**：记录持久化/搜索、真人 Ghostty 固定阅读与 zoom 验收；P2 不标整体验收。
+
 ## 2026-11-09 · P9 持久用户策略规则撤销
 
 - **基线**：P9 第一批已提交；本批扩展持久规则撤销，仅允许 user 级规则，project 保持只读（撤销会放宽权限）。

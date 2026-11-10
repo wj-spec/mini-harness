@@ -73,7 +73,7 @@ test('scrollbar shows current position and the real Ink reading pane stays withi
   }
 });
 
-test('transcript cards separate task, model, tool and diagnostics without losing source text or entry anchors', () => {
+test('transcript cards separate task, model and tool while workbench notices stay out of the transcript', () => {
   const lines = transcriptLines({...initialState, phase: 'idle', entries: [
     {id: 10, kind: 'task', text: '修复输入'},
     {id: 11, kind: 'assistant', text: '# 发现\n完整说明\n```ts\nconst marker = 42;\n```'},
@@ -83,11 +83,12 @@ test('transcript cards separate task, model, tool and diagnostics without losing
   const output = lines.map(line => line.spans.map(span => span.text).join('')).join('\n');
   assert.match(output, /当前任务/);
   assert.match(output, /Agent/);
-  assert.match(output, /后端诊断/);
+  assert.doesNotMatch(output, /后端诊断/);
   assert.match(output, /非零退出.*7/);
   assert.match(output, /const marker = 42;/);
   assert.doesNotMatch(output, /\n提示\n/);
-  for (const id of [10, 11, 12, 13]) assert.ok(lines.some(line => line.entryId === id));
+  for (const id of [10, 11, 12]) assert.ok(lines.some(line => line.entryId === id));
+  assert.ok(!lines.some(line => line.entryId === 13), 'plain workbench notices stay out of the transcript');
   assert.ok(lines.find(line => line.entryId === 12 && line.kind === 'error'));
 });
 

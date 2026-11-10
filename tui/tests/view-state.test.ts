@@ -269,7 +269,7 @@ test('a disconnected tool is marked unknown and keeps diagnostics visible', () =
   state = reduceView(state, {type: 'event', event: event('closed', {id: null})});
   assert.equal(state.entries.find(entry => entry.kind === 'tool')?.uncertain, true);
   assert.equal(state.entries.find(entry => entry.kind === 'tool')?.pending, false);
-  assert.ok(state.entries.some(entry => entry.text.includes('需要配置 API key')));
+  assert.ok(state.notices.some(text => text.includes('需要配置 API key')));
 });
 
 test('restores persisted messages and pairs results without replaying a run', () => {

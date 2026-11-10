@@ -33,9 +33,9 @@ export function fixtureState(scenario: string): ViewState {
     state.entries = [
       {id: 0, kind: 'task', text: 'context smoke'},
       {id: 1, kind: 'assistant', text: '上下文 smoke 完成'},
-      {id: 2, kind: 'notice', text: '已恢复会话 visual-fixture；未自动续跑。\n任务：context smoke\n已完成：暂无已记录项\n待继续：请核对目标与实际结果\n结果未知的操作需要先核对；取消不代表撤销。输入 /resume 显式开启新一轮预算。'},
     ];
-    state.nextEntry = 3;
+    state.nextEntry = 2;
+    state.notices = ['已恢复会话 visual-fixture；未自动续跑。\n任务：context smoke\n已完成：暂无已记录项\n待继续：请核对目标与实际结果\n结果未知的操作需要先核对；取消不代表撤销。输入 /resume 显式开启新一轮预算。'];
   }
   if (scenario === 'context') {
     const sample = contextSnapshot();

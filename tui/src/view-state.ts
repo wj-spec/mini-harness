@@ -4,6 +4,7 @@ import {agentTouchedFiles} from './sidebar/agent-activity.js';
 import type {ApprovalDecision, ApprovalRule, AuditSummary, AutonomyLevel, BackendCommand, CommandExecution, CompletionSummary, ContextSnapshot, PersistedMessage, PlanModeState, PlanReviewResult, PlanRevisionResult, RunMetrics, RunResult, ServerEvent, SessionPurpose, SkillInfo, ToolCall} from './protocol.js';
 
 export const MAX_CONTEXT_SNAPSHOTS = 100;
+export const MAX_WORKBENCH_NOTICES = 200;
 
 export type Entry = {
   id: number;
@@ -31,6 +32,7 @@ export type ViewState = {
   activity: 'waiting_model' | 'responding' | 'using_tool' | 'initializing' | null;
   entries: Entry[];
   nextEntry: number;
+  notices: string[];
   live: string;
   segment: string;
   approval: Approval | null;
@@ -74,11 +76,16 @@ export type Action =
   | {type: 'approval_sent'};
 
 export const initialState: ViewState = {
-  phase: 'starting', activeId: null, activeCommand: null, runMode: null, activity: 'initializing', entries: [], nextEntry: 0, live: '', segment: '',
+  phase: 'starting', activeId: null, activeCommand: null, runMode: null, activity: 'initializing', entries: [], nextEntry: 0, notices: [], live: '', segment: '',
   approval: null, model: '', workspace: '', lastResult: '', lastStatus: null, lastStopReason: null, error: null,
   sessionId: '', sessionPath: '', sessionPurpose: 'user', provider: '', metrics: null, contextSnapshots: [], hasStartedRun: false, resumed: false, skills: [],
   autonomy: '', autonomyLabel: '', planMode: {active: false, pending: false, wanted: null}, planModeKnown: false, lastVerified: null, lastCompletion: null, lastAudit: null, inspection: null, inspectionPlan: null,
 };
+
+function pushNotice(state: ViewState, text: string): ViewState {
+  const notices = [...state.notices, text];
+  return {...state, notices: notices.length > MAX_WORKBENCH_NOTICES ? notices.slice(-MAX_WORKBENCH_NOTICES) : notices};
+}
 
 function append(state: ViewState, kind: Entry['kind'], text: string): ViewState {
   const runId = state.activeId && state.activeId === state.inspection?.scope.requestId ? state.activeId : undefined;
@@ -212,7 +219,7 @@ export function reduceView(state: ViewState, action: Action): ViewState {
   if (action.type === 'begin_command') return {...state, phase: 'running', activeId: action.id, activeCommand: action.command, runMode: null,
     activity: action.command === 'resume' ? 'waiting_model' : null, approval: null, error: null,
     ...(action.command === 'resume' ? {inspection: startInspection(action.id, '继续任务'), inspectionPlan: null, live: '', segment: '', lastResult: '', lastStatus: null, lastStopReason: null, metrics: null, contextSnapshots: [], hasStartedRun: true, lastVerified: null, lastCompletion: null, lastAudit: null} : {})};
-  if (action.type === 'notice') return append(state, 'notice', action.text);
+  if (action.type === 'notice') return pushNotice(state, action.text);
   if (action.type === 'cancel') return {...state, phase: 'stopping', approval: null};
   if (action.type === 'approval_sent') return afterApproval(state);
 
@@ -269,9 +276,9 @@ export function reduceView(state: ViewState, action: Action): ViewState {
     case 'history_message':
       return restoreMessage(state, event.message);
     case 'notice':
-      return append(state, 'notice', event.message);
+      return pushNotice(state, event.message);
     case 'command_result':
-      return {...append(state, 'notice', event.text), skills: event.skills ?? state.skills,
+      return {...pushNotice(state, event.text), skills: event.skills ?? state.skills,
         ...(event.autonomy ? {autonomy: event.autonomy as AutonomyLevel, autonomyLabel: AUTONOMY_LABELS[event.autonomy as AutonomyLevel] ?? state.autonomyLabel} : {}),
         phase: 'idle', activeId: null, activeCommand: null, runMode: null, activity: null, approval: null};
     case 'metrics': {
@@ -346,7 +353,7 @@ export function reduceView(state: ViewState, action: Action): ViewState {
         inspection: state.inspection?.scope.requestId === event.id ? null : state.inspection} as const : {})};
     }
     case 'diagnostic':
-      return append(state, 'notice', `后端提示：${event.message.trim()}`);
+      return pushNotice(state, `后端提示：${event.message.trim()}`);
     case 'closed': {
       const next = flush(state);
       return retainInspection({...next, entries: next.entries.map(entry => entry.pending ?

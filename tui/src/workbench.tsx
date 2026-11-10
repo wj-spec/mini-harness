@@ -116,6 +116,8 @@ export function transcriptLines(state: ViewState, columns: number, selectedTool:
   };
   for (let position = 0; position < state.entries.length; position += 1) {
     const entry = state.entries[position]!;
+    // 工作台提示不再插入对话主区；运行回执、计划审阅与历史结果卡片仍留在正文。
+    if (entry.kind === 'notice' && !entry.text.startsWith('[运行结束]') && !entry.review && !entry.inspection) continue;
     let end = position + 1;
     while (end < state.entries.length && collapsibleReadOnly(state.entries[end]!, selectedTool)) end += 1;
     const collapseGroup = collapsibleReadOnly(entry, selectedTool) && end - position >= 2 ? state.entries.slice(position, end) : null;

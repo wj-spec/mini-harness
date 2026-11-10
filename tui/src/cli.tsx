@@ -70,6 +70,7 @@ Ctrl+C 取消任务或 MCP 初始化，空闲时退出；Ctrl+Q 退出。
   /history <关键词>             跨会话检索已保存的消息；打开所选会话并定位（打开不会自动运行）
   /followup [TEXT]              查看/编辑后续消息；成功后续发，失败暂停
   /copy                         复制最近回复、工具详情或审批预览（Ctrl+Y）
+  /logs                         查看工作台记录（操作提示与命令结果；不插入对话主区）
   /find <关键词>                搜索本次会话正文并定位；/rounds 按轮定位；/errors 定位错误
   /project                     查看项目背景；/project add 文本、/project remove 序号、/project source 序号 来源
   /about                       查看个人偏好；/about add/propose/observe/edit/triggers/confirm/disable/enable/remove/on/off

@@ -881,6 +881,9 @@ test('/task lists session tasks and startup hints are visible', async () => {
   assert.deepEqual(client.commands, ['tasks', 'approvals']);
   await enter(stdin, '/attach');
   await pause(20);
+  await enter(stdin, '/logs');
+  await pause(20);
+  assert.match(lastFrame() ?? '', /工作台记录 ·/);
   assert.match(lastFrame() ?? '', /--attach-task t-20261103-120000-abcdef/);
 });
 test('a startup error is labeled before the backend closes', async () => {
@@ -1222,8 +1225,14 @@ test('topic help describes the same operations as the menu without dispatching a
   const {client, stdin, lastFrame} = await mount(undefined, undefined, {columns: 80, rows: 24});
   await enter(stdin, '/help context');
   assert.match(lastFrame() ?? '', /用法：\/context/);
+  await enter(stdin, '/logs');
+  await pause(20);
   assert.match(lastFrame() ?? '', /查看上下文与预算/);
+  stdin.write('\u001b'); await pause(20);
   await enter(stdin, '/help tools');
+  assert.match(lastFrame() ?? '', /用法：\/tools/);
+  await enter(stdin, '/logs');
+  await pause(20);
   assert.match(lastFrame() ?? '', /查看可用工具目录/);
   assert.doesNotMatch(lastFrame() ?? '', /工具调用统计|未知命令/);
   assert.deepEqual(client.commands, []); assert.deepEqual(client.runs, []);
@@ -1476,8 +1485,11 @@ test('/followup queues messages while running and starts them in FIFO order afte
   await enter(stdin, '/followup 第二个任务');
   await enter(stdin, '/followup 第三个任务');
   assert.deepEqual(client.runs, ['first task']);
+  await enter(stdin, '/logs');
+  await pause(20);
   assert.match(lastFrame() ?? '', /已排队为后续消息：第二个任务/);
   assert.match(lastFrame() ?? '', /已排队为后续消息：第三个任务/);
+  stdin.write('\u001b'); await pause(20);
   client.emit(completed('run-1'));
   await pause(20);
   assert.deepEqual(client.runs, ['first task', '第二个任务']);
@@ -1714,7 +1726,10 @@ test('manages user preferences from the workbench', async () => {
     const {stdin, lastFrame} = await mount(undefined, undefined, {columns: 100, rows: 30}, undefined, file);
     await enter(stdin, '/about');
     await pause(20);
+    await enter(stdin, '/logs');
+    await pause(20);
     assert.match(lastFrame() ?? '', /暂无条目/);
+    stdin.write('\u001b'); await pause(20);
 
     await enter(stdin, '/about add 回答先给结论');
     await pause(20);
@@ -1726,8 +1741,11 @@ test('manages user preferences from the workbench', async () => {
 
     await enter(stdin, '/about');
     await pause(20);
+    await enter(stdin, '/logs');
+    await pause(20);
     assert.match(lastFrame() ?? '', /1\. \[已确认\] 回答先给结论/);
     assert.match(lastFrame() ?? '', /2\. \[待确认\] 可能偏好简短回复/);
+    stdin.write('\u001b'); await pause(20);
 
     await enter(stdin, '/about confirm 2');
     await pause(20);
@@ -2185,7 +2203,10 @@ test('/about resolve replaces a conflicted confirmed preference', async () => {
     const {stdin, lastFrame} = await mount(undefined, undefined, {columns: 100, rows: 30}, undefined, file);
     await enter(stdin, '/about');
     await pause(20);
+    await enter(stdin, '/logs');
+    await pause(20);
     assert.match(lastFrame() ?? '', /冲突待确认/u);
+    stdin.write('\u001b'); await pause(20);
     await enter(stdin, '/about resolve 2');
     await pause(30);
     const payload = JSON.parse(await readFile(file, 'utf8')) as {entries: {status: string}[]};
@@ -2268,7 +2289,10 @@ test('command menu explains a busy operation before Enter and re-enables it afte
   assert.match(lastFrame() ?? '', /未执行.*草稿保留/);
   stdin.write('\u0015'); await pause(15);
   await enter(stdin, '/help tools');
+  await enter(stdin, '/logs');
+  await pause(20);
   assert.match(lastFrame() ?? '', /查看可用工具目录/);
+  stdin.write('\u001b'); await pause(20);
   assert.deepEqual(client.runs, ['work']);
   stdin.write('/查看改动'); await pause(20);
   client.emit({type: 'done', id: 'run-1', result: {status: 'done', text: '完成'}}); await pause(20);
@@ -2861,6 +2885,8 @@ test('/plan background keeps TUI when worker spawn fails', async () => {
   const id = `command-${client.commands.length}`;
   client.emit({type: 'command_result', id, text: 'background task prepared: task_id=t-20261106-000000-abcdef plan_id=pl-1 version=1'});
   await pause(30);
+  await enter(stdin, '/logs');
+  await pause(20);
   assert.match(lastFrame() ?? '', /后台 worker 未启动/);
 });
 

@@ -27,6 +27,7 @@ import {usePermissionPanel} from './use-permission-panel.js';
 import {PermissionPanel} from './permission-panel.js';
 import {LocatorPanel} from './locator-panel.js';
 import {HistorySearchPanel} from './history-search-panel.js';
+import {WorkbenchLogPanel} from './workbench-log-panel.js';
 import {errorItems, firstLineByEntry, roundItems, searchTranscript, type LocateItem} from './history-locate.js';
 import {validHistorySearchPage, validRoundsLedgerPage, type HistorySearchMatch, type RoundsLedgerPage} from './protocol.js';
 import type {SessionCatalogRow} from './protocol.js';
@@ -235,6 +236,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
   const roundsLedgerAvailable = Boolean(client.capabilities?.().includes('rounds-ledger'));
   const [locator, setLocator] = useState<{title: string; items: LocateItem[]; kind: 'find' | 'rounds' | 'errors' | 'ledger'} | null>(null);
   const [highlightLine, setHighlightLine] = useState<number | null>(null);
+  const [logsOpen, setLogsOpen] = useState(false);
   const [searchPanel, setSearchPanel] = useState<{query: string; matches: HistorySearchMatch[]; next: string | null; loading: boolean; problem: string; truncated: boolean; skipped: number} | null>(null);
   const searchRequest = useRef<{id: string; append: boolean; timer: ReturnType<typeof setTimeout>} | null>(null);
   const roundsRequest = useRef<{id: string; timer: ReturnType<typeof setTimeout>} | null>(null);
@@ -353,8 +355,8 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
   const terminal = useWindowSize();
   const columns = Math.max(1, windowSize?.columns ?? terminal.columns);
   const rows = Math.max(1, windowSize?.rows ?? terminal.rows);
-  const minimumColumns = state.approval || review.focused || revision.mode || followups.open || navigation.open || sessionNav.open || permissionPanel.open || locator || searchPanel ? 32 : 24;
-  const minimumRows = state.approval || review.focused || revision.mode || followups.open || navigation.open || sessionNav.open || permissionPanel.open || locator || searchPanel ? 12 : 11;
+  const minimumColumns = state.approval || review.focused || revision.mode || followups.open || navigation.open || sessionNav.open || permissionPanel.open || locator || searchPanel || logsOpen ? 32 : 24;
+  const minimumRows = state.approval || review.focused || revision.mode || followups.open || navigation.open || sessionNav.open || permissionPanel.open || locator || searchPanel || logsOpen ? 12 : 11;
   const inspectionVisible = surfaceActive && inspectionFocused && !quitPrompt;
   const followupsVisible = surfaceActive && followups.open && !quitPrompt;
   const navigationVisible = surfaceActive && navigation.open && !quitPrompt;
@@ -362,7 +364,8 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
   const permissionPanelVisible = surfaceActive && permissionPanel.open && !quitPrompt;
   const locatorVisible = surfaceActive && Boolean(locator) && !quitPrompt;
   const searchPanelVisible = surfaceActive && Boolean(searchPanel) && !quitPrompt;
-  const secondaryPanelVisible = locatorVisible || searchPanelVisible;
+  const logsVisible = surfaceActive && logsOpen && !quitPrompt;
+  const secondaryPanelVisible = locatorVisible || searchPanelVisible || logsVisible;
   const terminalTooSmall = rows < minimumRows || columns < minimumColumns;
   const palette = getPalette(theme);
   const tools = state.entries.filter(entry => entry.kind === 'tool' && entry.call);
@@ -767,7 +770,8 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
     } catch {}
   }, [state.workspace, state.sessionId, state.fileSource, state.inspection, state.inspectionPlan, state.entries, state.activeId, state.phase, state.lastStatus, sidebarOwner, publishSidebarSignal, inspectionSelection]);
 
-  const notice = (text: string) => {dispatch({type: 'notice', text}); setScroll({follow: true, top: 0});};
+  // 工作台提示只更新记录区与状态行；不把阅读位置拉回末尾，避免打断心流。
+  const notice = (text: string) => {dispatch({type: 'notice', text});};
   const cancelSessionOpen = () => {sessionSwitch.current?.abort(); sessionSwitch.current = null;};
   // 旧会话打开：候选后端确认身份后才交给外层替换，失败/取消保留当前会话与草稿。
   const openOldSession = async (row: {session_id: string; identity: string}, focusQuery?: string) => {
@@ -1890,6 +1894,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
     if (text === '/sidebar quick') {setInput(''); openSidebarPanel('quick'); return;}
     if (text === '/sidebar window') {setInput(''); openSidebarPanel('window'); return;}
     if (text === '/inspections') {setInput(''); history.show(); setOverlayScroll({key: 'inspection-history', top: 0}); return;}
+    if (text === '/logs') {setInput(''); setLogsOpen(true); return;}
     if (text === '/sidebar') {setInput(''); openSidebarPanel(); return;}
     if (text === '/project' || text.startsWith('/project ')) {setInput(''); projectCommand(text.slice('/project'.length)); return;}
     if (text === '/about' || text.startsWith('/about ')) {setInput(''); aboutCommand(text.slice('/about'.length)); return;}
@@ -2422,6 +2427,11 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
             : (columns < 60 ? '任务已暂停 · /resume 续做' : '任务已暂停  /resume 续做  /context 查看进度  Ctrl+Q 退出')) :
         isEmpty ? (columns < 60 ? '输入任务开始 · Ctrl+Q退出 · /help' : '直接描述任务开始  /help 命令  Ctrl+K 上下文  Ctrl+Q 退出') :
         columns < 60 ? 'Ctrl+K上下文 · Ctrl+Q退出 · /help' : '拖选复制  Ctrl+R阅读  Ctrl+K上下文  Ctrl+Y复制回复  Ctrl+Q退出');
+  const lastNotice = state.notices.at(-1);
+  const noticeFirstLine = lastNotice ? (lastNotice.split('\n')[0] ?? '').trim() : '';
+  const recordHint = noticeFirstLine ? `记录${state.notices.length > 1 ? `(${state.notices.length})` : ''}：${noticeFirstLine}${columns >= 48 ? ' · /logs' : ''}` : '';
+  const statusBase = `${phase}${resultReason(state.lastResult) ? ` · ${resultReason(state.lastResult)}` : ''}${metricsText(state) ? `  ·  ${metricsText(state)}` : ''}`;
+  const statusLineText = feedback || statusBase;
   const composerDisabled = Boolean(submissionBlock);
   const composerPlaceholder = state.approval ? (approvalFocused ? '审批已聚焦 · Enter 确认 · Esc 草稿' : '草稿可编辑 · 点击按钮或 Tab 选择') : revision.mode ? '普通草稿已保留 · 返回后继续编辑' : review.focused ? '计划审阅已聚焦 · Esc 返回草稿' : contextOpen ? '上下文详情已聚焦，Esc 返回输入' : detailEntry ? '工具详情已聚焦，Esc 返回输入' : reading ? '正在阅读历史，Esc 返回输入' :
     state.phase === 'closed' ? '可以回看已有记录，退出后重新启动' : state.phase === 'starting' ? '可以先写下任务目标与约束' : state.phase === 'stopping' ? '正在停止 · 收到停止结果后可发送' :
@@ -2495,9 +2505,9 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
     {menuRows ? <CommandMenu matches={menuMatches} index={menuPosition} rows={menuRows} columns={columns} accentColor={palette.accent} foregroundColor={palette.foreground} secondaryColor={palette.secondary} surfaceColor={palette.surface} descriptions={skillMenu?.descriptions} unavailable={menuUnavailable}/> : null}
     {inspectionInline ? <Box height={1} width={columns}>
       <ActionButtons buttons={inspectionButtons} selected={null} columns={columns < 48 ? 10 : 14} height={1} palette={palette} targets={inspectionTargets}/>
-      <Text color={feedback && feedbackTone === 'error' ? palette.error : palette.foreground}>{fitText(feedback || `${phase}${resultReason(state.lastResult) ? ` · ${resultReason(state.lastResult)}` : ''}${metricsText(state) ? `  ·  ${metricsText(state)}` : ''}`, Math.max(1, columns - (columns < 48 ? 10 : 14)))}</Text>
-    </Box> : <Text color={state.error || state.phase === 'closed' || (feedback && feedbackTone === 'error') ? palette.error : state.approval ? palette.warning : palette.foreground}>{fitText(feedback || `${phase}${resultReason(state.lastResult) ? ` · ${resultReason(state.lastResult)}` : ''}${metricsText(state) ? `  ·  ${metricsText(state)}` : ''}`, columns)}</Text>}
-    <Text color={palette.secondary}>{fitText(onDetach && !readerFocused ? '任务草稿本窗口保留 · 返回原会话' : restoredIdle && columns < 60 && !readerFocused ? '未发送草稿需重输 · /resume 续做' : hint, columns)}</Text>
+      <Text color={feedback && feedbackTone === 'error' ? palette.error : palette.foreground}>{fitText(statusLineText, Math.max(1, columns - (columns < 48 ? 10 : 14)))}</Text>
+    </Box> : <Text color={state.error || state.phase === 'closed' || (feedback && feedbackTone === 'error') ? palette.error : state.approval ? palette.warning : palette.foreground}>{fitText(statusLineText, columns)}</Text>}
+    <Text color={palette.secondary}>{fitText((recordHint && !state.approval && !review.focused && !revision.mode && !contextOpen && !planOpen && !detailEntry && !historyVisible ? recordHint : '') || (onDetach && !readerFocused ? '任务草稿本窗口保留 · 返回原会话' : restoredIdle && columns < 60 && !readerFocused ? '未发送草稿需重输 · /resume 续做' : hint), columns)}</Text>
   </Box>
     {navigation.open ? <Box display={navigationVisible ? 'flex' : 'none'}><TaskNavigationPanel navigation={navigation} columns={columns} rows={rows} palette={palette}
       active={navigationVisible} onConnect={!attach ? connectSelectedTask : undefined} connecting={taskConnection.pending || handoff?.mode === 'wait'} onCancel={cancelHandoff}
@@ -2533,6 +2543,8 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
       onOpen={openSearchMatch}
       onMore={() => requestHistorySearch(searchPanel.query, searchPanel.next ?? undefined, true)}
       onReturn={() => setSearchPanel(null)}/></Box> : null}
+    {logsOpen ? <Box display={logsVisible ? 'flex' : 'none'}><WorkbenchLogPanel notices={state.notices} columns={columns} rows={rows} palette={palette}
+      active={logsVisible} onReturn={() => setLogsOpen(false)}/></Box> : null}
     {followups.open ? <Box display={followupsVisible ? 'flex' : 'none'}><FollowupPanel queue={followups} columns={columns} rows={rows} palette={palette} active={followupsVisible}
       blocked={submissionBlock || (state.attachOffline ? '离线只读，不能继续执行' : goal?.active ? '目标模式进行中' : undefined)}
       status={state.approval ? '待审批 · 返回主区处理' : state.activeId ? '当前任务仍运行 · Ctrl+C 停止' :
