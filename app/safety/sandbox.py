@@ -33,6 +33,9 @@ WRITE_COMMANDS = frozenset({
     "rm", "rmdir", "mv", "cp", "ln", "tee", "touch", "mkdir", "install", "truncate", "shred",
 })
 SAFE_WRITE_ROOTS = (Path("/tmp").resolve(),)
+# 与 Seatbelt 策略一致：这些设备写是丢弃/回显输出，不是工作区外落盘。
+# 只对重定向目标放行；rm/touch 等显式写入命令仍按工作区外处理。
+SAFE_REDIRECT_SINKS = frozenset({"/dev/null", "/dev/stdout", "/dev/stderr"})
 
 SEATBELT_BINARY = "sandbox-exec"
 BWRAP_BINARY = "bwrap"
@@ -199,10 +202,12 @@ def annotate_sandbox_denial(output: str, spec: SandboxSpec | None) -> str:
     return output
 
 
-def _outside_workspace_write(token: str, workspace: Path) -> str | None:
+def _outside_workspace_write(token: str, workspace: Path, *, allow_device_sink: bool = False) -> str | None:
     """显式写/删工作区外的一次尽力检查；bash 仍可绕过，不能当边界。"""
     probe = token.strip("'\"")
     if not probe or probe.startswith("-") or probe in {"~", "$HOME", "${HOME}"}:
+        return None
+    if allow_device_sink and os.path.normpath(probe) in SAFE_REDIRECT_SINKS:
         return None
     expanded = os.path.expandvars(os.path.expanduser(probe))
     if expanded.startswith(("~", "$")):
@@ -230,7 +235,7 @@ def check_write_paths(command: str, workspace: Path) -> None:
     after_redirect = False
     for token in tokens:
         if after_redirect:
-            violation = _outside_workspace_write(token, workspace)
+            violation = _outside_workspace_write(token, workspace, allow_device_sink=True)
             if violation:
                 raise PermissionError(f"blocked write outside workspace: {violation}")
             after_redirect = False

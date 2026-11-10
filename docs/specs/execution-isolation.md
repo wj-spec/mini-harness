@@ -53,7 +53,7 @@
 
 ## 已实施（2026-10-25，选项 B 的第一小步）
 
-`app/safety/sandbox.py` 新增 `check_write_paths`：`bash` 的 `rm/rmdir/mv/cp/ln/tee/touch/mkdir/install/truncate/shred` 显式操作数，以及 `>`/`>>`/`>|` 重定向目标，若解析后落在工作区外且不在 `/tmp`，直接抛 `PermissionError`（错误信息 `blocked write outside workspace: <path>`）。`ToolRegistry.bash` 与 `preview` 均传入工作区；只读命令（`cat`、`grep`、`python -c` 等）不受影响。
+`app/safety/sandbox.py` 新增 `check_write_paths`：`bash` 的 `rm/rmdir/mv/cp/ln/tee/touch/mkdir/install/truncate/shred` 显式操作数，以及 `>`/`>>`/`>|` 重定向目标，若解析后落在工作区外且不在 `/tmp`，直接抛 `PermissionError`（错误信息 `blocked write outside workspace: <path>`）。重定向目标另放行 `/dev/null`、`/dev/stdout`、`/dev/stderr` 三个设备 sink（与 Seatbelt 策略一致，写设备是丢弃/回显输出）；`rm`/`touch` 等显式写命令的操作数仍严格按工作区外处理，其它 `/dev` 路径不放行。`ToolRegistry.bash` 与 `preview` 均传入工作区；只读命令（`cat`、`grep`、`python -c` 等）不受影响。
 
 回归：`tests/test_sandbox.py` 覆盖家目录/绝对路径/`..` 逃逸/重定向被拒，工作区相对路径、`/tmp`、只读命令放行，既有黑名单模式仍生效，`bash` 工具路径与 `execute` 返回值一致。
 

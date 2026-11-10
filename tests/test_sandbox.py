@@ -20,6 +20,26 @@ def test_workspace_write_guard_blocks_explicit_escapes(tmp_path, monkeypatch):
             check_command(command, tmp_path)
 
 
+def test_workspace_write_guard_allows_device_redirect_sinks(tmp_path):
+    # 与 Seatbelt 策略一致：/dev/null、/dev/stdout、/dev/stderr 作为重定向目标是丢弃/回显输出，
+    # 不是工作区外落盘；模型常用 2>/dev/null 静默 stderr，不能因此拒绝整条命令。
+    for command in (
+        "ls 2>/dev/null",
+        "ls >/dev/null 2>&1",
+        "echo hi >> /dev/null",
+        "python3 -c 'print(1)' 2> /dev/stdout",
+        "make test 2> /dev/stderr",
+    ):
+        check_command(command, tmp_path)  # 不抛异常即通过
+    # 显式写命令的操作数仍严格：rm/touch 指向设备也不放行。
+    for command in ("rm -f /dev/null", "touch /dev/stderr"):
+        with pytest.raises(PermissionError, match="outside workspace"):
+            check_command(command, tmp_path)
+    # 其它 /dev 路径不是 sink。
+    with pytest.raises(PermissionError, match="outside workspace"):
+        check_command("echo hi > /dev/shm/out", tmp_path)
+
+
 def test_workspace_write_guard_allows_scoped_operations(tmp_path):
     for command in (
         "echo hi > out.txt",
