@@ -886,6 +886,17 @@ test('/task lists session tasks and startup hints are visible', async () => {
   assert.match(lastFrame() ?? '', /工作台记录 ·/);
   assert.match(lastFrame() ?? '', /--attach-task t-20261103-120000-abcdef/);
 });
+test('Shift+Enter from a kitty-capable terminal inserts a newline before sending', async () => {
+  const {client, stdin, lastFrame} = await mount();
+  stdin.write('第一行'); await pause(20);
+  stdin.write('\u001b[13;2u'); await pause(20);
+  stdin.write('第二行'); await pause(20);
+  assert.deepEqual(client.runs, []);
+  assert.match(lastFrame() ?? '', /第二行/);
+  stdin.write('\r'); await pause(30);
+  assert.deepEqual(client.runs, ['第一行\n第二行']);
+});
+
 test('a startup error is labeled before the backend closes', async () => {
   const client = new MockClient();
   const {lastFrame} = render(<App client={client as unknown as BackendClient}/>);

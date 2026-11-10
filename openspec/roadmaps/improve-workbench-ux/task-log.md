@@ -37,6 +37,14 @@
 - **范围**：`app/stdio.py`（tool_call tier）、`tui/src/{protocol,view-state,workbench,commands,app,cli}.ts*`、新增 `history-locate.ts`/`locator-panel.tsx` 与 2 份测试；证据 `.vibe/ux-p10-history-2026-11-09/`。
 - **未完成**：跨会话全文检索/索引、rounds 账本深链、搜索高亮、真实终端与 Ghostty 真人/Owner Review；P10 不标整体验收。
 
+## 2026-11-10 · P2 Shift+Enter 换行（kitty 键盘协议）
+
+- **背景**：确认换行支持时发现 `Shift+Enter` 仅当终端主动上报可区分 modified Return 才生效；Ink 的 kitty 键盘协议是可选开启的，本项目此前未开启，Ghostty 默认会把 Shift+Enter 当 Enter 提交。
+- **改动**：`tui/src/cli.tsx` render 传入 `kittyKeyboard: {mode: 'auto', flags: ['disambiguateEscapeCodes']}`，自动探测终端能力；支持协议的终端启用后 Shift+Enter 以 CSI-u 上报，composer 插入换行，Enter 仍发送。非 TTY/不支持终端自动放弃检测，保持 Ctrl+J/Enter 原行为；Escape/Ctrl 组合键仍解析为既有 key 语义。
+- **测试**：Composer 直接注入 `\x1b[13;2u`（kitty Shift+Enter）→ 换行且不提交；App 端到端确认 Enter 前不触发运行、Enter 后提交多行文本；既有 Ctrl+J、粘贴、普通 Enter、历史移动回归保持。
+- **验证**：完整 Ink **737** 项（735 passed；2 项沙箱 PTY 环境失败与基线相同）；Python **1957** 项沿用本批无 Python 改动的既有结果（1944 passed / 13 skipped / 0 失败）。沙箱无 GUI/TTY，真实 Ghostty 中 Shift+Enter 尚待人工确认。
+- **范围**：`tui/src/cli.tsx`（render 选项、帮助文本）、`tui/tests/composer.test.tsx`、`tui/tests/app.test.tsx`；同步 P2 验证/任务/提案、roadmap、里程碑、USAGE 与验收清单。
+
 ## 2026-11-10 · P6 侧栏生命周期与启动噪声
 
 - **反馈**：重启后左下角出现「找不到计划产物」；主对话退出后右侧边栏没有一同关闭；重新进入再按 Ctrl+G 又出现一个侧栏（截图出现并排两个侧栏）。

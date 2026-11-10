@@ -96,13 +96,14 @@ P3–P10 是推荐顺序，不是十个迭代的工期承诺。若后续消息�
 - [ ] 80×24、120×40 下用 Ghostty 原生缩放/zoom 后恢复阅读对象；开栏只做一次初始化校准，不持续覆盖手动比例。
 - [x] 明确展示“本轮触及文件”与“工作区 vs HEAD”；单一主会话条件记录清楚，跨会话身份协议归 P6，观察到串台即提前处理该前置。
 - [x] 反馈增量：工作台记录移出对话主区，底部只显示最新记录，`/logs` 查看完整记录；回看中收到提示不改变阅读位置（工程验证）。
+- [x] 输入换行：Enter 发送、Ctrl+J 换行；开启 kitty 键盘协议自动探测后，支持终端（如 Ghostty）Shift+Enter 也可换行，非支持终端行为不变（工程验证，真人终端待确认）。
 - [ ] 同一输入事件集重复回放结果一致；相关 TUI 回归、全量检查和本机体验记录齐备。
 
 ### 交付物
 
 可稳定阅读的主区与侧栏、刷新/跟随回归、固定尺寸样本和真实终端验收记录。
 实施包：[P2 稳定阅读](../../changes/implement-improve-workbench-ux-p2/proposal.md)；[自动验证与真人验收边界](../../changes/implement-improve-workbench-ux-p2/verification.md)。
-P2 通过后可按 [design.md 决策 1](design.md#决策-1保留-ink-主线侧栏承载可撤销的-opentui-对照试验)启动 OpenTUI 试验；结论可为保留 Ink。2026-11-10 反馈增量：工作台提示移入记录缓冲（`/logs`），对话主区只保留任务/回复/工具/审批与运行回执；详情见 [P2 验证记录](../../changes/implement-improve-workbench-ux-p2/verification.md#工作台记录与对话主区分离2026-11-10)。 附回改为一行占位并在提交时展开，外部写入后光标到末尾，见 [P2 验证记录](../../changes/implement-improve-workbench-ux-p2/verification.md#侧栏附回占位与输入换行修复2026-11-10)。
+P2 通过后可按 [design.md 决策 1](design.md#决策-1保留-ink-主线侧栏承载可撤销的-opentui-对照试验)启动 OpenTUI 试验；结论可为保留 Ink。2026-11-10 反馈增量：工作台提示移入记录缓冲（`/logs`），对话主区只保留任务/回复/工具/审批与运行回执；详情见 [P2 验证记录](../../changes/implement-improve-workbench-ux-p2/verification.md#工作台记录与对话主区分离2026-11-10)。 附回改为一行占位并在提交时展开，外部写入后光标到末尾，见 [P2 验证记录](../../changes/implement-improve-workbench-ux-p2/verification.md#侧栏附回占位与输入换行修复2026-11-10)。 输入框另开启 kitty 键盘协议自动探测：Ghostty 等支持终端 Shift+Enter 稳定换行，其他终端仍用 Ctrl+J，见 [P2 验证记录](../../changes/implement-improve-workbench-ux-p2/verification.md#shiftenter-换行kitty-键盘协议2026-11-10)。
 
 ## P3 · Plan 审阅执行
 

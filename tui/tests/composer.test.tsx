@@ -35,6 +35,17 @@ test('Chinese multiline input submits only on Enter and resets after submit', as
   assert.deepEqual(submitted, ['第一行\n第二行', '下一轮']);
 });
 
+test('a kitty-protocol Shift+Enter inserts a newline while plain Enter still submits', async () => {
+  const {key, values, submitted} = await mount();
+  await key('第一行');
+  await key('\u001b[13;2u');
+  await key('第二行');
+  assert.equal(values.at(-1), '第一行\n第二行');
+  assert.deepEqual(submitted, []);
+  await key('\r');
+  assert.deepEqual(submitted, ['第一行\n第二行']);
+});
+
 test('bracketed paste keeps newlines and never submits', async () => {
   const {key, values, submitted} = await mount();
   await key('\u001b[200~粘贴第一行\r\n第二行\u001b[201~');

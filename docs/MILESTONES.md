@@ -23,6 +23,8 @@
 
 ## 界面迁移与全栈学习切片
 
+**P2 Shift+Enter 换行（2026-11-10，实施中）**：输入框开启 Ink 的 kitty 键盘协议自动探测（`kittyKeyboard: auto`）。Ghostty 等支持协议的终端自动启用后，`Shift+Enter` 以 CSI-u 上报并插入换行；`Enter` 仍发送。不支持协议或非交互 TTY 时自动回退到原有行为（`Ctrl+J` 换行、`Enter` 发送），不报错。新增 Composer 原始序列与 App 端到端回归；完整 Ink **737**（735 passed、2 项沙箱 PTY 环境失败）、Python **1957**（1944 passed / 13 skipped）。真实 Ghostty 人工确认待做，P2 不标整体验收。见 [P2 验证记录](../openspec/changes/implement-improve-workbench-ux-p2/verification.md#shiftenter-换行kitty-键盘协议2026-11-10)。
+
 **P6 侧栏生命周期与启动噪声（2026-11-10，实施中）**：手动验收发现的「主区退出后侧栏未关闭、重开再按 Ctrl+G 出现第二个侧栏、重启后左下角提示找不到计划产物」已修复。主区退出（含崩溃/终止）一律联动结束侧栏，不再因有选区保留；启动或再次打开侧栏前按 link 登记回收父进程已退出的遗留面板，已有存活侧栏按 PID 聚焦，标题失配也不重复分屏；resumed 计划自动发现改为静默，无产物时不再显示提示，显式 `/plan` 仍给出原因。完整 Ink **735**（733 passed、2 项沙箱 PTY 环境失败）、Python **1957**（1944 passed / 13 skipped）。真实 Ghostty GUI 与真人仍待验收，P6 不标整体验收。见 [P6 验证记录](../openspec/changes/implement-improve-workbench-ux-p6/verification.md#侧栏生命周期与启动噪声2026-11-10)。
 
 **P2 附回占位与输入换行（2026-11-10，实施中）**：侧栏选区「附回」不再把整段多行引用塞进输入框，而是一行占位 `[附回] 工作区 vs HEAD · 文件 · 行/字符范围 · N 字符`；完整引用保留在附回缓冲，提交/纠偏/排队后续/模式任务时展开给模型，草稿与对话卡片保留占位。外部写入草稿（附回、命令预填、拒单恢复）统一把光标移到末尾，附回后可继续换行与续写；来源版本复核、去重与错误回执不变。完整 Ink **731**（729 passed、2 项沙箱 PTY 环境失败）、Python **1957** 项（1944 passed / 13 skipped）。真人再验收仍待完成，P2/P6 不标整体验收。见 [P2 验证记录](../openspec/changes/implement-improve-workbench-ux-p2/verification.md#侧栏附回占位与输入换行修复2026-11-10)。

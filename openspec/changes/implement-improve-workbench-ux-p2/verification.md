@@ -4,6 +4,30 @@
 
 > 2026-11-10 起新增「工作台记录与对话主区分离」增量，见下方首节；此前记录保留。
 
+## Shift+Enter 换行（kitty 键盘协议）（2026-11-10）
+
+手动验收确认输入框换行方式：`Ctrl+J` 一直可用；`Shift+Enter` 过去只在终端主动上报可区分的 modified Return 时生效，实际多数终端（含 Ghostty 默认）把它当作 Enter 提交，因此文档只能写“终端支持时”。
+
+本批在 Ink 渲染时开启 kitty 键盘协议自动探测（`kittyKeyboard: {mode: 'auto', flags: ['disambiguateEscapeCodes']}`）：
+
+- 终端支持协议（如 Ghostty）时自动启用，`Shift+Enter` 以 CSI-u 序列上报，输入框按 `Shift+Enter` 插入换行；`Enter` 仍发送。
+- 不支持协议或非交互 TTY（测试、重定向、其他终端）时自动放弃检测，行为与之前一致：`Ctrl+J` 换行、`Enter` 发送；不额外报错或阻塞输入。
+- Escape/Ctrl 等组合键由协议消歧后仍解析为既有 key 语义（`key.escape`/`key.ctrl`），面板返回、Esc 草稿保留路径不变。
+
+### 自动验证
+
+| 边界 | 证据与结果 |
+|---|---|
+| Shift+Enter | Composer 单测直接写入 kitty CSI-u 序列 `\x1b[13;2u`：插入换行、不提交；随后 Enter 提交完整多行文本 |
+| 端到端 | App 旅程：Shift+Enter 后第二行可见且未触发运行，Enter 后 `run` 收到 `第一行\n第二行` |
+| 兼容回退 | 既有 Ctrl+J、括号粘贴、普通 Enter、历史与垂直移动回归全部保持；非 TTY 测试环境不启用协议 |
+| 完整 Ink | **737** 项（**735 passed**，2 项 sandbox PTY 环境失败，与基线相同） |
+| 完整 Python | **1957** 项，**1944 passed / 13 skipped**，0 失败（本批未改 Python） |
+
+### 范围与未做
+
+产品源码：`tui/src/cli.tsx`（render 选项与帮助文本）；测试新增 composer/app 各 1 项。未做：真实 Ghostty 中 Shift+Enter 的人工确认（沙箱无 GUI/TTY）；不支持 kitty 协议的终端仍只有 `Ctrl+J`。本批不改变提交/审批语义，也不代表 P2 真人验收通过。
+
 ## 侧栏附回占位与输入换行修复（2026-11-10）
 
 手动验收反馈：右侧栏选区点击「附回」后，输入框难以继续换行/续写；且整段多行引用直接铺满草稿。复现确认两个原因：

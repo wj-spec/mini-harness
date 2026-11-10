@@ -36,7 +36,7 @@ const help = `vibe Ink — 个人编码工作台
 普通使用不显示或加载测试会话；--fake 或 --provider fake 自动进入测试会话范围。
 --continue 在当前范围内选择最近有对话的会话；查找更早会话用 --list-sessions，再用 --session SESSION_ID 打开。
 恢复会话不会自动续跑；输入 /resume 继续任务。
-Enter 发送任务；Ctrl+J 换行（终端支持时也可用 Shift+Enter）。
+Enter 发送任务；Ctrl+J 换行；支持 kitty 键盘协议的终端（如 Ghostty）也可用 Shift+Enter 换行。
 滚轮 / 触控板在对话区滚动；PageUp / PageDown 翻页；鼠标拖选文本，松开即复制。
 Ctrl+R 切换阅读与输入；阅读时 ↑↓ 滚动，Esc 回输入。
 Ctrl+P / Ctrl+N 逐行；Ctrl+Home / Ctrl+End 到首尾并跟随最新。
@@ -168,6 +168,8 @@ async function main() {
   try {
     instance = render(<Root initial={client} attach={Boolean(extracted.attach)} onClientChange={next => {currentClient.client = next;}}/>, {
       stdin, exitOnCtrlC: false, patchConsole: false, interactive: true, alternateScreen: true,
+      // 自动探测并开启 kitty 键盘协议：Ghostty 等终端可区分 Shift+Enter 与 Enter。
+      kittyKeyboard: {mode: 'auto', flags: ['disambiguateEscapeCodes']},
     });
   } catch (error) {
     stdin.dispose();
