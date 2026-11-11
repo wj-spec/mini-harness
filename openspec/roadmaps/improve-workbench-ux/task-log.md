@@ -37,6 +37,16 @@
 - **范围**：`app/stdio.py`（tool_call tier）、`tui/src/{protocol,view-state,workbench,commands,app,cli}.ts*`、新增 `history-locate.ts`/`locator-panel.tsx` 与 2 份测试；证据 `.vibe/ux-p10-history-2026-11-09/`。
 - **未完成**：跨会话全文检索/索引、rounds 账本深链、搜索高亮、真实终端与 Ghostty 真人/Owner Review；P10 不标整体验收。
 
+## 2026-11-11 · P3 启动期反馈与计划卡复核
+
+- **反馈**：P2 手动验收通过后进入 P3 第一条，按 Enter 后认为没有展示计划卡。
+- **复核**：真实 PTY 运行 `VIBE_TASK_RUNTIME=1 VIBE_FAKE_DEMO=plan ./run_ink.sh --fake --autonomy ask`，在 80×24、100×40、200×84（含模拟 kitty 协议回应）下 Enter 均出现计划卡与 `Ctrl+R审阅`；`plan_review` 正常，未复现完全不显示。
+- **诊断到的真实问题**：启动阶段（「正在启动后端」）按 Enter 会在输入生效前被忽略且无任何反馈；计划卡出现后底部最新记录行会覆盖 `Ctrl+R审阅` 提示。用户可能把启动期无反应当作「没有计划卡」。
+- **修复**：启动期 Enter 被拒时记录 + 状态行保留草稿并提示「后端仍在启动；显示就绪后再按 Enter」；idle 后再提示「后端已就绪 · 再按 Enter 发送」；存在计划卡时提示行优先显示 Ctrl+R 审阅。
+- **验证**：完成 Ink **738/738**（本次沙箱允许 PTY，原 2 项 PTY 失败消失）；Python **1957** 项（1953 passed / 4 skipped）。真实 PTY 证据在 `.vibe/ux-p3-startup-feedback-2026-11-11/`。
+- **未确认**：用户实际屏幕；若仍无计划卡需终端尺寸、启动/就绪时机与底部两行截图。
+- **范围**：`tui/src/app.tsx`（启动期反馈、提示行优先级）、新增 App 回归；同步 P3 验证/任务、roadmap、里程碑与验收清单。
+
 ## 2026-11-10 · P2 Shift+Enter 换行（kitty 键盘协议）
 
 - **背景**：确认换行支持时发现 `Shift+Enter` 仅当终端主动上报可区分 modified Return 才生效；Ink 的 kitty 键盘协议是可选开启的，本项目此前未开启，Ghostty 默认会把 Shift+Enter 当 Enter 提交。

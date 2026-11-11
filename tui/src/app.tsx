@@ -652,6 +652,11 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
       const summary = event.tasks.slice(0, 5).map(task => `${task.task_id} ${task.status}${task.worker_status ? `/${task.worker_status}` : ''}${task.pending_approvals ? ` 待审批${task.pending_approvals}` : ''}`).join('；');
       dispatch({type: 'notice', text: `检测到 ${event.tasks.length} 个任务${running.length ? `（${running.length} 个后台 worker 活跃）` : ''}：${summary}${event.tasks.length > 5 ? ' …' : ''}\n输入 /task 查看；/attach 生成 attach 命令。`});
     }
+    if (event.type === 'status' && event.phase === 'idle' && startupBlocked.current) {
+      startupBlocked.current = false;
+      setFeedback('后端已就绪 · 草稿已保留，再按 Enter 发送');
+      dispatch({type: 'notice', text: '后端已就绪；草稿仍保留，按 Enter 发送'});
+    }
     if (!attach && event.type === 'ready' && event.resumed && client.capabilities?.().includes('plan-review')) reviewRef.current.discover(true);
     if (event.type === 'subagent_event') {
       notice(`子 Agent ${event.status}：${event.task_id}${event.summary ? ` · ${event.summary}` : ''}`);
@@ -756,6 +761,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
     setDraftAppendRevision(value => value + 1); setFeedback('已附入侧栏引用 · 尚未发送');
   }, quitting, (target, cursor) => sidebarRequestsRef.current.readPage(target, cursor));
   const publishedSignal = useRef('');
+  const startupBlocked = useRef(false);
   useEffect(() => {
     if (!state.workspace) return;
     try {
@@ -2515,7 +2521,14 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
       </Text>)}
     </Box> : null}
     <Box display={quitPrompt ? 'none' : 'flex'} backgroundColor={state.approval ? palette.surfaces.warning : readerFocused ? palette.surface : palette.focus} height={composerRows + composerPadding * 2} width={columns} paddingX={2} paddingY={composerPadding} flexShrink={0}>
-      <Composer value={input} initialCursor={initialDraft?.cursor} onDraftChange={onDraftChange} appendRevision={draftAppendRevision} onChange={text => {setMenuIndex(0); setInput(text);}} onSubmit={submit} onSubmitBlocked={() => setFeedback(`未发送：${submissionBlock}，草稿保留`)} history={inputHistory} disabled={composerDisabled} disabledHint={unavailableHint} focused={surfaceActive && !quitPrompt && !inspectionVisible && !followupsVisible && !navigationVisible && !sessionNavVisible && !permissionPanelVisible && !secondaryPanelVisible && !readerFocused && !quitting} placeholder={effectivePlaceholder} columns={Math.max(1, columns - 4)} maxRows={composerRows} accentColor={palette.accent} warningColor={palette.warning} foregroundColor={palette.foreground} secondaryColor={palette.secondary}
+      <Composer value={input} initialCursor={initialDraft?.cursor} onDraftChange={onDraftChange} appendRevision={draftAppendRevision} onChange={text => {setMenuIndex(0); setInput(text);}} onSubmit={submit} onSubmitBlocked={() => {
+          const reason = submissionBlock ?? '当前不可发送';
+          setFeedback(`未发送：${reason}，草稿保留`);
+          if (state.phase === 'starting') {
+            startupBlocked.current = true;
+            dispatch({type: 'notice', text: '后端仍在启动；草稿已保留，显示就绪后再按 Enter 发送'});
+          }
+        }} history={inputHistory} disabled={composerDisabled} disabledHint={unavailableHint} focused={surfaceActive && !quitPrompt && !inspectionVisible && !followupsVisible && !navigationVisible && !sessionNavVisible && !permissionPanelVisible && !secondaryPanelVisible && !readerFocused && !quitting} placeholder={effectivePlaceholder} columns={Math.max(1, columns - 4)} maxRows={composerRows} accentColor={palette.accent} warningColor={palette.warning} foregroundColor={palette.foreground} secondaryColor={palette.secondary}
         onTab={state.approval ? backwards => {const button = backwards ? approvalChoices.at(-1) : approvalChoices[0]; if (button) selectApproval(button.action);} : undefined}
         menu={menuRows ? {
           count: menuMatches.length,
@@ -2535,7 +2548,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
       <ActionButtons buttons={inspectionButtons} selected={null} columns={columns < 48 ? 10 : 14} height={1} palette={palette} targets={inspectionTargets}/>
       <Text color={feedback && feedbackTone === 'error' ? palette.error : palette.foreground}>{fitText(statusLineText, Math.max(1, columns - (columns < 48 ? 10 : 14)))}</Text>
     </Box> : <Text color={state.error || state.phase === 'closed' || (feedback && feedbackTone === 'error') ? palette.error : state.approval ? palette.warning : palette.foreground}>{fitText(statusLineText, columns)}</Text>}
-    <Text color={palette.secondary}>{fitText((recordHint && !state.approval && !review.focused && !revision.mode && !contextOpen && !planOpen && !detailEntry && !historyVisible ? recordHint : '') || (onDetach && !readerFocused ? '任务草稿本窗口保留 · 返回原会话' : restoredIdle && columns < 60 && !readerFocused ? '未发送草稿需重输 · /resume 续做' : hint), columns)}</Text>
+    <Text color={palette.secondary}>{fitText((recordHint && !state.approval && !review.focused && !review.card && !revision.mode && !contextOpen && !planOpen && !detailEntry && !historyVisible ? recordHint : '') || (onDetach && !readerFocused ? '任务草稿本窗口保留 · 返回原会话' : restoredIdle && columns < 60 && !readerFocused ? '未发送草稿需重输 · /resume 续做' : hint), columns)}</Text>
   </Box>
     {navigation.open ? <Box display={navigationVisible ? 'flex' : 'none'}><TaskNavigationPanel navigation={navigation} columns={columns} rows={rows} palette={palette}
       active={navigationVisible} onConnect={!attach ? connectSelectedTask : undefined} connecting={taskConnection.pending || handoff?.mode === 'wait'} onCancel={cancelHandoff}

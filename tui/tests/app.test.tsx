@@ -897,6 +897,25 @@ test('Shift+Enter from a kitty-capable terminal inserts a newline before sending
   assert.deepEqual(client.runs, ['第一行\n第二行']);
 });
 
+test('Enter during startup keeps the draft and prompts again once the backend is ready', async () => {
+  const client = new MockClient();
+  const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 80, rows: 24}}/>);
+  await pause(30);
+  assert.match(lastFrame() ?? '', /正在启动后端|可编辑草稿/u);
+  stdin.write('计划任务'); await pause(20);
+  stdin.write('\r'); await pause(30);
+  assert.deepEqual(client.runs, []);
+  assert.match(lastFrame() ?? '', /未发送：后端尚未就绪，草稿保留/u);
+  assert.match(lastFrame() ?? '', /后端仍在启动/u);
+  client.emit({type: 'ready', workspace: '/repo', model: 'fake', session_id: 's', capabilities: []});
+  client.emit({type: 'status', phase: 'idle'});
+  await pause(30);
+  assert.deepEqual(client.runs, []);
+  assert.match(lastFrame() ?? '', /后端已就绪 · 草稿已保留，再按 Enter 发送/u);
+  stdin.write('\r'); await pause(30);
+  assert.deepEqual(client.runs, ['计划任务']);
+});
+
 test('a startup error is labeled before the backend closes', async () => {
   const client = new MockClient();
   const {lastFrame} = render(<App client={client as unknown as BackendClient}/>);
