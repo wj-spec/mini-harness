@@ -96,6 +96,7 @@ test('Ink recovers a published revision after its success receipt is lost and th
     const next = render(<App client={reopened} windowSize={{columns: 80, rows: 24}}/>);
     const nextKey = async (text: string) => {next.stdin.write(text); await pause(35);};
     reopened.start(); await waitFor(() => next.lastFrame()?.includes('计划 v2') ?? false);
+    await nextKey('\u001b');
     await nextKey('\u0015'); await nextKey('重开后的中文草稿'); await nextKey('\u0012'); await nextKey('h'); await nextKey('\r');
     await waitFor(() => restored.some(event => event.type === 'plan_revision_history'));
     const history = restored.find(event => event.type === 'plan_revision_history');
@@ -168,6 +169,7 @@ test('Ink rejects a restored revision when another backend publishes a new versi
     const next = render(<App client={reopened} windowSize={{columns: 80, rows: 24}}/>);
     const nextKey = async (text: string) => {next.stdin.write(text); await pause(35);};
     reopened.start(); await waitFor(() => next.lastFrame()?.includes('计划 v1') ?? false);
+    await nextKey('\u001b');
     await nextKey('竞争时保留的普通草稿'); await nextKey('\u0012'); await nextKey('h'); await nextKey('\r');
     await waitFor(() => restored.some(event => event.type === 'plan_revision_history'));
     await nextKey('\t'); await nextKey('\r');

@@ -23,6 +23,8 @@
 
 ## 界面迁移与全栈学习切片
 
+**P3 计划审阅栏与常驻进度（2026-11-11，实施中）**：针对「计划卡 → 执行操作太多、计划展示不够凸显」的反馈，计划待决定时在输入框位置显示审阅栏：`Enter` 一次直接执行（写入/命令仍逐个审批），`↑↓` 选步骤后 `m/k/f/p` 预填步骤修改，`b` 正文、`r` 修订、`Esc` 稍后处理并保留草稿；执行进度清单改为常驻（结束后保留 `已完成`）。操作从「Ctrl+R → e → Enter」降为「Enter」。完整 Ink **743/743**、Python **1957**（**1953 passed / 4 skipped**），真实 PTY 冒烟通过；P3 人工验收仍暂停至改造完成。见 [验证记录](../openspec/changes/implement-plan-structured-checklist/verification.md#ux-二轮计划审阅栏与常驻进度2026-11-11)。
+
 **P3 计划结构化子任务清单（2026-11-11，实施中）**：人工验收指出 DSH 等 coding 应用的 plan 会制定结构化子任务，而本工作台此前把 plan 呈现为文本产物。本增量保留 Plan JSON/版本/审批/验收/StepLedger 证据底座，把审阅卡与审阅焦点改为结构化步骤清单（step_id/标题/类型/风险/文件/依赖/验收），执行中主区显示只读进度（✓/◐/○、当前步骤、证据数），侧栏完成数来自真实 ledger；文档正文仍可 `Ctrl+R` 查看。完整 Ink **742/742**、Python **1957**（**1953 passed / 4 skipped**），真实 PTY 冒烟通过。改造期间 **P3 人工验收暂停**。见 [实施包](../openspec/changes/implement-plan-structured-checklist/proposal.md) 与 [验证记录](../openspec/changes/implement-plan-structured-checklist/verification.md)。
 
 **P3 启动期反馈与计划卡复核（2026-11-11，实施中）**：人工 P3 验收反馈「Enter 未展示计划卡」。真实 PTY（80×24、100×40、200×84，含模拟 kitty 协议）复核当前构建计划卡正常出现并可 Ctrl+R 审阅；修复启动阶段 Enter 被忽略且无反馈、计划卡提示被最新记录行覆盖两处问题。完整 Ink **738/738** 通过、Python **1957** 项（**1953 passed / 4 skipped**，本次沙箱允许 PTY）。真实用户屏幕仍待确认；P3 整体不标验收。见 [P3 验证记录](../openspec/changes/implement-improve-workbench-ux-p3/verification.md#启动期反馈与计划卡复核2026-11-11)。

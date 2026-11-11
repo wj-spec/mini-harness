@@ -114,7 +114,7 @@ P2 通过后可按 [design.md 决策 1](design.md#决策-1保留-ink-主线侧�
 **2026-11-08 预检与设计**：六项确定性探针已证明错误对象审批、绑定字段缺失、换 ID 重复建任务、TTL 文本失败、旧 approved 回退和旧字段缺省导致的 hash 漂移。
 [实施包](../../changes/implement-improve-workbench-ux-p3/proposal.md) 已细化准确 ReviewRef、一次初始启动、预留任务身份、结构化回执、崩溃恢复与 16 项验收场景；见 [评审与证据](../../changes/implement-improve-workbench-ux-p3/verification.md)。runtime 准确查询、稳定正文分页、共享写入保护与启动恢复已实现，既有 steering 已接线；新审阅 JSONL/capability、Agent.run 交接和 TypeScript 协议已实现，Ink 审阅卡及脚本化跨层拒绝链路已验证，整体未验收。P2 真人反馈仍待纳入。
 
-**计划结构化子任务清单改造（2026-11-11）**：人工验收反馈 plan 应是结构化子任务而非文本产物，与 DSH 等 coding 应用一致。本增量保留 Plan JSON/版本/审批/验收/StepLedger 作为证据底座，把审阅卡与审阅焦点改为步骤清单（step_id/标题/类型/风险/文件/依赖/验收），执行中主区显示只读进度（✓/◐/○、当前步骤、证据数），侧栏完成数来自真实 ledger；文档正文仍可 `Ctrl+R` 查看。改造期间 P3 人工验收暂停。完整 Ink 742/742、Python 1957（1953 passed / 4 skipped）。见 [实施包](../../changes/implement-plan-structured-checklist/proposal.md)。
+**计划结构化子任务清单改造（2026-11-11）**：人工验收反馈 plan 应是结构化子任务而非文本产物，与 DSH 等 coding 应用一致。本增量保留 Plan JSON/版本/审批/验收/StepLedger 作为证据底座，把审阅卡与审阅焦点改为步骤清单（step_id/标题/类型/风险/文件/依赖/验收），执行中主区显示只读进度（✓/◐/○、当前步骤、证据数），侧栏完成数来自真实 ledger；文档正文仍可 `Ctrl+R` 查看。改造期间 P3 人工验收暂停。**UX 二轮（同日）**：计划审阅栏进入输入框位置，`Enter` 一次直接执行、`↑↓` 选步骤后 `m/k/f/p` 预填修改、`b` 正文、`Esc` 稍后处理并保留草稿；执行进度清单改为常驻到结束。完整 Ink 743/743、Python 1957（1953 passed / 4 skipped）。见 [实施包](../../changes/implement-plan-structured-checklist/proposal.md)。
 
 **启动期反馈与计划卡复核（2026-11-11）**：人工验收反馈 Enter 未见计划卡；真实 PTY（80×24、100×40、200×84，含 kitty 协议）复核当前构建计划卡正常出现。修复启动阶段 Enter 被忽略且无反馈、计划卡提示被最新记录覆盖的问题；完整 Ink 738/738、Python 1957（1953 passed / 4 skipped）。见 [P3 验证记录](../../changes/implement-improve-workbench-ux-p3/verification.md#启动期反馈与计划卡复核2026-11-11)。
 

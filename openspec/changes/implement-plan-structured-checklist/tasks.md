@@ -10,4 +10,6 @@
 - [x] 回归：Python review/progress payload、Ink 协议/状态/计划卡/进度面板，更新旧「doneSteps 恒为 null」契约。
 - [x] 文档：P3 验收暂停说明、roadmap/MILESTONES/task-log/USAGE/验收清单同步。
 - [x] 真实 PTY 冒烟与证据归档：计划卡含步骤行、批准后出现只读进度面板与 ✓/◐/○。
+- [x] UX 二轮：计划审阅栏进入输入框位置，Enter 一次执行；↑↓ 选步骤 + m/k/f/p 预填修改；Esc 稍后处理保留草稿；进度清单常驻到结束。
+- [x] 更新集成测试契约：计划审阅栏期间先 Esc 让位再输入普通草稿；新增审阅栏执行/选中修改/进度常驻 App 旅程。
 - [x] 全量 Python/Ink 回归（Ink 742/742、Python 1953 passed / 4 skipped）与提交。

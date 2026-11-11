@@ -37,6 +37,15 @@
 - **范围**：`app/stdio.py`（tool_call tier）、`tui/src/{protocol,view-state,workbench,commands,app,cli}.ts*`、新增 `history-locate.ts`/`locator-panel.tsx` 与 2 份测试；证据 `.vibe/ux-p10-history-2026-11-09/`。
 - **未完成**：跨会话全文检索/索引、rounds 账本深链、搜索高亮、真实终端与 Ghostty 真人/Owner Review；P10 不标整体验收。
 
+## 2026-11-11 · P3 计划审阅栏与常驻进度（UX 二轮）
+
+- **反馈**：计划卡 → 执行链路太长（Ctrl+R → 选动作 → Enter）；计划展示不够凸显；希望计划显示在输入框、Enter 执行，可选中某一步审阅/修改；进度清单要常驻可看。
+- **实现**：新增 `PlanReviewBar` 在输入框位置显示计划：`Enter` 直接 approve-execute；`↑↓/PgUp/Dn/Home/End/1-9` 选步骤并展示详情；`m/k/f/p` 预填 `/plan edit-step|kind|files|depends <step>`；`b` 正文、`r` 修订、`a` 仅批准、`d` 关闭、`Esc` 稍后处理并保留草稿（栏内提示字数）；`Ctrl+R` 仍打开详细审阅。进度面板改为常驻（结束后保留完成清单，最多 6 步窗口+计数）。
+- **契约更新**：审阅栏期间输入框被让位；集成测试在输入草稿前先 Esc（草稿保留契约仍在），新增「Enter 直接执行」「选步预填修改」「done 后进度仍显示」App 旅程。
+- **验证**：完整 Ink **743/743**、Python **1957**（1953 passed / 4 skipped）；真实 PTY：计划栏出现 → 单次 Enter 执行 → 两次审批后 `▌ 计划 v1 · 1/1 步 · 已完成` 常驻。证据将归档 `.vibe/ux-plan-checklist-2026-11-11/`。
+- **范围**：`tui/src/plan-review-bar.tsx`、`tui/src/use-plan-review.ts`（act）、`tui/src/app.tsx`、`plan-progress-panel` 可见性；测试 app/backend-integration/revision-recovery。
+- **下一步**：P3 人工验收在清单改造完成后重跑；attach/resume 计划运行进度重放仍未做。
+
 ## 2026-11-11 · P3 计划结构化子任务清单
 
 - **反馈**：当前对 plan 的理解不一致——DSH 等 coding 应用的 plan 会制定结构化子任务，本工作台的 plan 主要是一个文本产物。

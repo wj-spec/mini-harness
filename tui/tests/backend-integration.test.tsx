@@ -221,7 +221,7 @@ propose_plan(store.task_dir(task.task_id),Plan.from_dict({'task_id':task.task_id
     assert.ok(source?.type === 'plan_review' && source.target);
     const sourcePath = path.join(ready.session_path, 'tasks', source.target.plan_task_id, 'plan', 'plan.v1.json');
     const original = await readFile(sourcePath, 'utf8');
-    await key('普通中文草稿'); await key('\u0012'); await key('r'); await key('\r');
+    await key('\u001b'); await key('普通中文草稿'); await key('\u0012'); await key('r'); await key('\r');
     await key('补充验证命令'); await key('\r'); await key('\r');
     if (cancel) {
       await waitFor(() => events.some(event => event.type === 'plan_revision' && event.task?.run_started));
@@ -237,7 +237,7 @@ propose_plan(store.task_dir(task.task_id),Plan.from_dict({'task_id':task.task_id
       t.diagnostic(JSON.stringify(events.filter(event => ['plan_review', 'plan_revision', 'error', 'done'].includes(event.type))));
       t.diagnostic(view.lastFrame() ?? 'no frame'); throw error;
     }
-    assert.match(view.lastFrame()!, /普通中文草稿/);
+    await key('\u001b'); assert.match(view.lastFrame()!, /普通中文草稿/);
     const receipt = events.find(event => event.type === 'plan_revision' && event.outcome === 'submitted');
     assert.ok(receipt?.type === 'plan_revision' && receipt.result_target);
     assert.equal(receipt.result_target.plan_id, source.target.plan_id);
@@ -292,10 +292,10 @@ for (const allow of [false, true]) test(`public revision demo ${allow ? 'execute
     const sourcePath = path.join(ready.session_path, 'tasks', source.target.plan_task_id, 'plan', 'plan.v1.json');
     const original = await readFile(sourcePath, 'utf8');
     assert.equal(events.some(event => event.type === 'approval_request'), false);
-    await key('普通中文草稿'); await key('\u0012'); await key('r'); await key('\r');
+    await key('\u001b'); await key('普通中文草稿'); await key('\u0012'); await key('r'); await key('\r');
     await key('将演示内容改为 revised demo'); await key('\r'); await key('\r');
     await waitFor(() => view.lastFrame()?.includes('计划 v2') ?? false);
-    assert.match(view.lastFrame()!, /普通中文草稿/);
+    await key('\u001b'); assert.match(view.lastFrame()!, /普通中文草稿/);
     assert.equal(await readFile(sourcePath, 'utf8'), original);
     const revised = JSON.parse(await readFile(sourcePath.replace('plan.v1', 'plan.v2'), 'utf8'));
     assert.equal(revised.plan_id, source.target.plan_id);
@@ -370,7 +370,7 @@ propose_plan(store.task_dir(task.task_id),Plan.from_dict({'task_id':task.task_id
     const next = render(<App client={reopened} windowSize={{columns: 80, rows: 24}}/>);
     const nextKey = async (text: string) => {next.stdin.write(text); await pause(35);};
     reopened.start(); await waitFor(() => next.lastFrame()?.includes('计划 v1') ?? false);
-    await nextKey('\u0015'); await nextKey('重开后的普通草稿'); await nextKey('\u0012'); await nextKey('h'); await nextKey('\r');
+    await nextKey('\u001b'); await nextKey('\u0015'); await nextKey('重开后的普通草稿'); await nextKey('\u0012'); await nextKey('h'); await nextKey('\r');
     await waitFor(() => restored.some(event => event.type === 'plan_revision_history'));
     assert.match(next.lastFrame()!, /补充验证命令/); assert.equal(await countCalls(), calls);
     await nextKey('\t'); await nextKey('\r');
@@ -394,11 +394,12 @@ propose_plan(store.task_dir(task.task_id),Plan.from_dict({'task_id':task.task_id
       return;
     }
     await waitFor(() => next.lastFrame()?.includes('计划 v2') ?? false);
+    await nextKey('\u001b');
     const resumed = restored.find(event => event.type === 'plan_revision' && event.task?.run_started);
     assert.ok(resumed?.type === 'plan_revision' && resumed.task);
     assert.equal(resumed.task.task_id, initial.task.task_id); assert.equal(resumed.task.segment, 2);
     assert.deepEqual(resumed.target, initial.target); assert.equal(resumed.feedback, '补充验证命令');
-    assert.match(next.lastFrame()!, /重开后的普通草稿/); assert.equal(await countCalls(), calls + 1);
+    await nextKey('\u001b'); assert.match(next.lastFrame()!, /重开后的普通草稿/); assert.equal(await countCalls(), calls + 1);
     const revised = JSON.parse(await readFile(path.join(ready.session_path, 'tasks', initial.target.plan_task_id, 'plan', 'plan.v2.json'), 'utf8'));
     assert.match(revised.acceptance_criteria[0].text, /revised demo/);
     assert.equal(restored.some(event => event.type === 'error'), false);
@@ -496,7 +497,7 @@ for (const allow of [false, true]) test(`public plan demo ${allow ? 'verifies af
     assert.ok(!events.some(event => event.type === 'done' || event.type === 'approval_request'));
     await key('\r');
     await waitFor(() => events.some(event => event.type === 'plan_review' && event.outcome === 'ready'));
-    await key('演示中文草稿ad'); await key('\u0012'); await key('e'); await key('\r');
+    await key('\u001b'); await key('演示中文草稿ad'); await key('\u0012'); await key('e'); await key('\r');
     await waitFor(() => events.some(event => event.type === 'approval_request'));
     assert.equal(await readFile(file, 'utf8'), 'original');
     const launch = events.find(event => event.type === 'plan_review' && event.outcome === 'launched');
@@ -609,7 +610,7 @@ entry.main()
     const query = events.find(event => event.type === 'plan_review' && event.outcome === 'ready');
     assert.ok(query?.type === 'plan_review' && query.target);
     await waitFor(() => String(view.lastFrame()).includes('Ctrl+R审阅'));
-    await key('中文草稿ad'); await key('\u0012'); await key('e');
+    await key('\u001b'); await key('中文草稿ad'); await key('\u0012'); await key('e');
     assert.ok(!events.some(event => event.type === 'approval_request'));
     await key('\r');
     await waitFor(() => events.some(event => event.type === 'approval_request'));
@@ -671,7 +672,7 @@ propose_plan(store.task_dir(task.task_id),plan)
     const query = events.find(event => event.type === 'plan_review');
     assert.ok(query?.type === 'plan_review' && query.outcome === 'ready');
     await waitFor(() => String(view.lastFrame()).includes('Ctrl+R审阅'));
-    await key('跨层草稿'); await key('\u0012'); await key('e');
+    await key('\u001b'); await key('跨层草稿'); await key('\u0012'); await key('e');
     assert.ok(!events.some(event => event.type === 'plan_review' && event.outcome === 'launched'));
     await key('\r');
     await waitFor(() => events.some(event => event.type === 'plan_review' && event.outcome === 'launched'));

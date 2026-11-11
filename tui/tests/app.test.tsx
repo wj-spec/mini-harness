@@ -1866,8 +1866,16 @@ test('plan review and live progress render a structured subtask checklist', asyn
   await pause(30);
   assert.match(lastFrame() ?? '', /1\. ○ s1 读入口/);
   assert.match(lastFrame() ?? '', /2\. ○ s2 改实现/);
-  await enter(stdin, '执行计划');
-  assert.deepEqual(client.runs, ['执行计划']);
+  assert.match(lastFrame() ?? '', /▌ 计划 v1 · 修复输入 · 2 步/);
+  assert.match(lastFrame() ?? '', /Enter 执行/);
+  stdin.write('\r'); await pause(30);
+  assert.equal(client.commands.at(-1), 'plan');
+  assert.deepEqual(client.commandArgs.at(-1), {action: 'approve-execute', target});
+  client.emit({type: 'plan_review', id: 'command-2', target, outcome: 'launched', code: null, message: '计划已启动',
+    replacement_target: null, summary: {objective: '修复输入', status: 'proposed', executable: false, step_count: 2, criterion_count: 1, question_count: 0},
+    body_page: '', next_cursor: null, available_actions: [],
+    launch: {task_id: 't-20261108-000000-abcdef', run_id: 'run-1', segment: 1, status: 'running', run_started: true}});
+  await pause(30);
   client.emit({type: 'plan_progress', id: 'run-1',
     plan: {plan_id: 'pl-1', task_id: 't-20261108-000000-abcdef', version: 1, status: 'executing', objective: '修复输入'},
     steps: [
@@ -1879,6 +1887,29 @@ test('plan review and live progress render a structured subtask checklist', asyn
   assert.match(frame, /计划 v1 · 1\/2 步 · 当前 s2/);
   assert.match(frame, /✓ s1 读入口/);
   assert.match(frame, /◐ s2 改实现/);
+  client.emit({type: 'done', id: 'run-1', result: {text: '完成', steps: 2, status: 'done', usage: {}, cost_usd: 0, run_id: 'run-1', stop_reason: ''}});
+  await pause(30);
+  assert.match(lastFrame() ?? '', /✓ s1 读入口/, '完成的计划进度应常驻');
+});
+
+test('selecting a plan step offers prefilled step-edit commands', async () => {
+  const {client, stdin, lastFrame} = await mount(undefined, undefined, {columns: 100, rows: 40});
+  client.capabilityList = ['plan-review', 'tasks'];
+  await enter(stdin, '/plan');
+  const target = {session_id: 'test', plan_task_id: 't-20261108-000000-abcdef', plan_id: 'pl-1', plan_version: 1, plan_hash: 'a'.repeat(64)};
+  client.emit({type: 'plan_review', id: 'command-1', target, outcome: 'ready', code: null, message: '计划已生成',
+    replacement_target: null, launch: null, body_page: '', next_cursor: null,
+    available_actions: ['approve-execute', 'approve-only', 'dismiss'],
+    summary: {objective: '修复输入', status: 'proposed', executable: false, step_count: 2, criterion_count: 0, question_count: 0},
+    steps: [
+      {step_id: 's1', title: '读入口', kind: 'read', risk: 'read', files: [], depends_on: [], acceptance: '', executor: 'self'},
+      {step_id: 's2', title: '改实现', kind: 'edit', risk: 'write', files: ['app/a.ts'], depends_on: ['s1'], acceptance: '', executor: 'self'},
+    ]});
+  await pause(30);
+  stdin.write('\u001b[B'); await pause(20);
+  stdin.write('m'); await pause(30);
+  assert.match(lastFrame() ?? '', /\/plan edit-step s2/);
+  assert.doesNotMatch(lastFrame() ?? '', /Enter 执行/);
 });
 
 test('Ctrl+G also opens the Git sidebar', async () => {

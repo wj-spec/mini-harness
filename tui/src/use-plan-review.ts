@@ -172,8 +172,14 @@ export function usePlanReview(client: BackendClient, onCard: (result: PlanReview
     }
     send('review', target, undefined, undefined, activate, key);
   };
+  const act = (value: Choice) => {
+    const choice = choices.find(item => item.value === value);
+    if (!choice) {callbacks.current.onMessage('当前回执不支持该动作'); return;}
+    update({...current.current, choice: value});
+    confirm();
+  };
   return {card: card?.result ?? null, problem: card?.problem, pageNumber: (card?.previous.length ?? 0) + 1, lastPage: card?.next === null,
     key: state.current, pending: Boolean(card?.pending), decisionPending: [...pending.current.values()].some(request => request.action !== 'review'),
     focused: state.focused, body: state.body, bodyText: card?.body ?? '', cursor: card?.cursor ?? 0,
-    choice: state.choice, choices, discover, receive, focus, blur, select, confirm, page, actions, cycle, showRevision};
+    choice: state.choice, choices, discover, receive, focus, blur, select, confirm, act, page, actions, cycle, showRevision};
 }

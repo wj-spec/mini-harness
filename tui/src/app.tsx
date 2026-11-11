@@ -46,6 +46,7 @@ import {Composer} from './composer.js';
 import {fitText, textLines, type ReadingLine} from './markdown.js';
 import {detailLines, errorLines, liveLines, metricsText, planStepLine, ReadingPane, transcriptLines, welcomeLines} from './workbench.js';
 import {PlanProgressPanel} from './plan-progress-panel.js';
+import {PlanReviewBar} from './plan-review-bar.js';
 import {AgentHeader, agentStatus, StatusPanel} from './agent-status.js';
 import {getPalette, type ThemeName} from './theme.js';
 import {terminalColorLevel} from './terminal-colors.js';
@@ -280,6 +281,8 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
   const [contextSelection, setContextSelection] = useState<string | null>(null);
   const [overlayScroll, setOverlayScroll] = useState({key: '', top: 0});
   const [reading, setReading] = useState(false);
+  const [planBarIndex, setPlanBarIndex] = useState(0);
+  const [planBarHidden, setPlanBarHidden] = useState(false);
   const [approvalSelection, setApprovalSelection] = useState<{id: string; decision: ApprovalAction | null} | null>(null);
   const [approvalMore, setApprovalMore] = useState<string | null>(null);
   const approvalTargets = useRef<ApprovalTarget[]>([]);
@@ -423,16 +426,24 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
   const inspectionRows = !inspectionInline && (!overlayKey || historyVisible) && inspectionButtons.length ? 1 : 0;
   const followupRows = (onDetach || followups.count || followups.problem || navigationAvailable) && (!overlayKey || (navigationAvailable || onDetach) && state.approval) ? 1 : 0;
   const planProgress = state.planProgress;
-  const planLive = state.phase === 'running' || state.phase === 'stopping' || state.phase === 'waiting_approval' || Boolean(state.activeId);
-  const planProgressVisible = Boolean(planProgress && planProgress.steps.length && planLive) && !compactQuit && !state.approval && !review.focused &&
+  const planBarSteps = review.card?.steps ?? [];
+  const planBarSelected = Math.max(0, Math.min(planBarIndex, Math.max(0, planBarSteps.length - 1)));
+  const planBarShown = Boolean(review.card && !review.focused && !planBarHidden && !state.approval && !revision.mode && !contextOpen &&
+    !planOpen && !detailEntry && !historyVisible && !reading && !quitting && !compactQuit && !review.problem &&
+    state.phase === 'idle' && !activeRun.current &&
+    (review.card.outcome === 'ready' || review.card.outcome === 'approved_not_started') && planBarSteps.length > 0 &&
+    (review.card.outcome === 'approved_not_started' || review.card.available_actions.includes('approve-execute')));
+  const planBarRows = planBarShown ? (rows < 18 ? 3 : Math.min(6, planBarSteps.length) + 3) : 0;
+  const planProgressVisible = Boolean(planProgress && planProgress.steps.length) && !compactQuit && !planBarShown && !state.approval && !review.focused &&
     !revision.mode && !contextOpen && !planOpen && !detailEntry && !historyVisible && !reading && !quitting && rows >= 18;
-  const planProgressRows = planProgressVisible ? Math.min(4, planProgress!.steps.length) + 1 : 0;
+  const planProgressRows = planProgressVisible ? Math.min(6, planProgress!.steps.length) + 1 : 0;
   const followupButtons: {action: 'tasks' | 'followups' | 'parent'; label: string}[] = [
     ...(onDetach ? [{action: 'parent' as const, label: '返回原会话'}] : []),
     ...(navigationAvailable ? [{action: 'tasks' as const, label: '任务'}] : []),
     ...(followups.count || followups.problem ? [{action: 'followups' as const, label: `后续 ${followups.count}`}] : [])];
   const followupButtonsWidth = (onDetach ? 16 : 0) + (navigationAvailable ? 10 : 0) + (followups.count || followups.problem ? 13 : 0);
-  const paneBase = rows - followupRows - planProgressRows - inspectionRows - headerRows - compactRows - composerRows - composerPadding * 2 - 2 - approvalRows - revisionRows;
+  const composerHeight = planBarShown ? planBarRows : composerRows + composerPadding * 2;
+  const paneBase = rows - followupRows - planProgressRows - inspectionRows - headerRows - compactRows - composerHeight - 2 - approvalRows - revisionRows;
   const menuRows = rows >= 18 ? Math.min(menuMatches.length, 5, Math.max(0, paneBase - 4)) : 0;
   const paneRows = Math.max(4, paneBase - menuRows);
   const menuPosition = Math.min(menuIndex, Math.max(0, menuMatches.length - 1));
@@ -780,6 +791,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
       if (reaped.length) dispatch({type: 'notice', text: `已清理上次遗留的侧栏 ${reaped.length} 个`});
     } catch {}
   }, [state.workspace]);
+  useEffect(() => {setPlanBarIndex(0); setPlanBarHidden(false);}, [review.key, Boolean(review.card)]);
   useEffect(() => {setInspectionSelection(null); setInspectionFocused(false); setInspectionMounted(false);}, [state.workspace, state.sessionId]);
   useEffect(() => () => {
     if (state.workspace) removeSidebarSignal(state.workspace, sidebarOwner);
@@ -1581,6 +1593,42 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
       return;
     }
     if (inspectionVisible || followupsVisible || navigationVisible || sessionNavVisible || permissionPanelVisible || secondaryPanelVisible || terminalTooSmall) return;
+    if (planBarShown && review.card) {
+      const step = planBarSteps[planBarSelected];
+      const prefillStep = (command: string, label: string) => {
+        if (!step) return;
+        setPlanBarHidden(true);
+        setInput(`${command} ${step.step_id} `);
+        setFeedback(`补全${label}后 Enter 提交（Esc 取消）`);
+      };
+      if (key.escape) {setPlanBarHidden(true); setFeedback('计划稍后处理 · Ctrl+R 打开审阅'); return;}
+      if (key.ctrl && keyInput === 'r') {review.focus(); return;}
+      if (key.upArrow || key.leftArrow || key.tab && key.shift) {setPlanBarIndex(index => Math.max(0, index - 1)); return;}
+      if (key.downArrow || key.rightArrow || key.tab && !key.shift) {setPlanBarIndex(index => Math.min(planBarSteps.length - 1, index + 1)); return;}
+      if (key.pageUp) {setPlanBarIndex(index => Math.max(0, index - 5)); return;}
+      if (key.pageDown) {setPlanBarIndex(index => Math.min(planBarSteps.length - 1, index + 5)); return;}
+      if (key.home) {setPlanBarIndex(0); return;}
+      if (key.end) {setPlanBarIndex(Math.max(0, planBarSteps.length - 1)); return;}
+      if (!key.ctrl && !key.meta && /^[1-9]$/.test(keyInput ?? '')) {
+        setPlanBarIndex(Math.min(planBarSteps.length - 1, Number(keyInput) - 1));
+        return;
+      }
+      if (key.return) {
+        if (review.pending || review.decisionPending) {setFeedback('计划回执处理中，请稍候'); return;}
+        review.act('execute');
+        return;
+      }
+      if (key.ctrl || key.meta) return;
+      if (keyInput === 'b') {review.focus(); review.act('body'); return;}
+      if (keyInput === 'r' && review.choices.some(choice => choice.value === 'revise')) {review.act('revise'); return;}
+      if (keyInput === 'a' && review.choices.some(choice => choice.value === 'approve')) {review.act('approve'); return;}
+      if (keyInput === 'd' && review.choices.some(choice => choice.value === 'dismiss')) {review.act('dismiss'); return;}
+      if (keyInput === 'm') {prefillStep('/plan edit-step', '新标题'); return;}
+      if (keyInput === 'k') {prefillStep('/plan kind', '步骤类型'); return;}
+      if (keyInput === 'f') {prefillStep('/plan files', '文件范围'); return;}
+      if (keyInput === 'p') {prefillStep('/plan depends', '依赖步骤'); return;}
+      return;
+    }
     if (key.ctrl && keyInput === 'y') {copyCurrent(); return;}
     if (key.ctrl && keyInput === 'g') {openSidebarPanel(); return;}
     if (state.approval) {
@@ -2535,7 +2583,8 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
         {fitText(`${index === quitPrompt.index ? '› ' : '  '}${index + 1}. ${option.label}`, compactQuit ? columns - 4 : columns)}
       </Text>)}
     </Box> : null}
-    <Box display={quitPrompt ? 'none' : 'flex'} backgroundColor={state.approval ? palette.surfaces.warning : readerFocused ? palette.surface : palette.focus} height={composerRows + composerPadding * 2} width={columns} paddingX={2} paddingY={composerPadding} flexShrink={0}>
+    {planBarShown && review.card ? <PlanReviewBar card={review.card} steps={planBarSteps} selected={planBarSelected} columns={columns}
+      rows={planBarRows} compact={rows < 18} draft={input} palette={palette}/> : <Box display={quitPrompt ? 'none' : 'flex'} backgroundColor={state.approval ? palette.surfaces.warning : readerFocused ? palette.surface : palette.focus} height={composerHeight} width={columns} paddingX={2} paddingY={composerPadding} flexShrink={0}>
       <Composer value={input} initialCursor={initialDraft?.cursor} onDraftChange={onDraftChange} appendRevision={draftAppendRevision} onChange={text => {setMenuIndex(0); setInput(text);}} onSubmit={submit} onSubmitBlocked={() => {
           const reason = submissionBlock ?? '当前不可发送';
           setFeedback(`未发送：${reason}，草稿保留`);
@@ -2557,7 +2606,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
             setInput(next + (expand ? ' ' : ''));
           },
         } : undefined}/>
-    </Box>
+    </Box>}
     {menuRows ? <CommandMenu matches={menuMatches} index={menuPosition} rows={menuRows} columns={columns} accentColor={palette.accent} foregroundColor={palette.foreground} secondaryColor={palette.secondary} surfaceColor={palette.surface} descriptions={skillMenu?.descriptions} unavailable={menuUnavailable}/> : null}
     {inspectionInline ? <Box height={1} width={columns}>
       <ActionButtons buttons={inspectionButtons} selected={null} columns={columns < 48 ? 10 : 14} height={1} palette={palette} targets={inspectionTargets}/>
