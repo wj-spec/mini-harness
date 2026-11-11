@@ -1,5 +1,9 @@
 # 建设方向
 
+**P3 计划结构化子任务清单（2026-11-11，实施中）**：人工验收指出 DSH 等 coding 应用的 plan 会制定结构化子任务，而本工作台此前把 plan 呈现为文本产物。本增量保留 Plan JSON/版本/审批/验收/StepLedger 证据底座，把审阅卡与审阅焦点改为结构化步骤清单（step_id/标题/类型/风险/文件/依赖/验收），执行中主区显示只读进度（✓/◐/○、当前步骤、证据数），侧栏完成数来自真实 ledger；文档正文仍可 `Ctrl+R` 查看。完整 Ink **742/742**、Python **1957**（**1953 passed / 4 skipped**），真实 PTY 冒烟通过。改造期间 **P3 人工验收暂停**。见 [实施包](../openspec/changes/implement-plan-structured-checklist/proposal.md) 与 [验证记录](../openspec/changes/implement-plan-structured-checklist/verification.md)。
+
+**P3 计划结构化子任务清单（2026-11-11，实施中）**：人工验收指出 DSH 等 coding 应用的 plan 会制定结构化子任务，而本工作台此前把 plan 呈现为文本产物。本增量保留 Plan JSON/版本/审批/验收/StepLedger 证据底座，把审阅卡与审阅焦点改为结构化步骤清单（step_id/标题/类型/风险/文件/依赖/验收），执行中主区显示只读进度（✓/◐/○、当前步骤、证据数），侧栏完成数来自真实 ledger；文档正文仍可 `Ctrl+R` 查看。完整 Ink **742/742**、Python **1957**（**1953 passed / 4 skipped**），真实 PTY 冒烟通过。改造期间 **P3 人工验收暂停**。见 [实施包](../openspec/changes/implement-plan-structured-checklist/proposal.md) 与 [验证记录](../openspec/changes/implement-plan-structured-checklist/verification.md)。
+
 **P3 启动期反馈与计划卡复核（2026-11-11，实施中）**：人工 P3 验收反馈「Enter 未展示计划卡」。真实 PTY（80×24、100×40、200×84，含模拟 kitty 协议）复核当前构建计划卡正常出现并可 Ctrl+R 审阅；修复启动阶段 Enter 被忽略且无反馈、计划卡提示被最新记录行覆盖两处问题。完整 Ink **738/738** 通过、Python **1957** 项（**1953 passed / 4 skipped**，本次沙箱允许 PTY）。真实用户屏幕仍待确认；P3 整体不标验收。见 [P3 验证记录](../openspec/changes/implement-improve-workbench-ux-p3/verification.md#启动期反馈与计划卡复核2026-11-11)。
 
 **P2 Shift+Enter 换行（2026-11-10，实施中）**：输入框开启 Ink 的 kitty 键盘协议自动探测（`kittyKeyboard: auto`）。Ghostty 等支持协议的终端自动启用后，`Shift+Enter` 以 CSI-u 上报并插入换行；`Enter` 仍发送。不支持协议或非交互 TTY 时自动回退到原有行为（`Ctrl+J` 换行、`Enter` 发送），不报错。新增 Composer 原始序列与 App 端到端回归；完整 Ink **737**（735 passed、2 项沙箱 PTY 环境失败）、Python **1957**（1944 passed / 13 skipped）。真实 Ghostty 人工确认待做，P2 不标整体验收。见 [P2 验证记录](../openspec/changes/implement-improve-workbench-ux-p2/verification.md#shiftenter-换行kitty-键盘协议2026-11-10)。
@@ -107,7 +111,7 @@ LSP、插件生态和其他界面根据具体使用需求评估。stdio MCP 已�
 
 ## 工作台 UX 落地规划（2026-11-08，P1 核心交互已验收）
 
-最新顺序调整：P3 核心演示已获用户确认，但快捷键审批体验不佳，因此先交付[审批按钮增量](../openspec/changes/implement-improve-workbench-ux-p1/verification.md#审批按钮增量2026-11-08)：可点击的本次允许/拒绝、更多授权与常规键盘导航。自动与三种尺寸工具 PTY 通过，新按钮真人体验待验收。P3 原生重开/恢复、P2 真人和学习 Review 未获确认，以下历史进度保留；当前推进 P6 对象范围与检查区，P4/P5 剩余验收单列，进度见本节末。
+最新顺序调整：P3 核心演示已获用户确认，但快捷键审批体验不佳，因此先交付[审批按钮增量](../openspec/changes/implement-improve-workbench-ux-p1/verification.md#审批按钮增量2026-11-08)：可点击的本次允许/拒绝、更多授权与常规键盘导航。自动与三种尺寸工具 PTY 通过，新按钮真人体验待验收。P3 原生重开/恢复、P2 真人和学习 Review 未获确认，P3 计划结构化清单改造中、人工验收暂停，以下历史进度保留；当前推进 P6 对象范围与检查区，P4/P5 剩余验收单列，进度见本节末。
 
 结合 [Ink UX 审计](research/ink-ux-audit-2026-11-08.md)、Plan UX 复盘与 Ghostty 侧栏走查，
 新增 [工作台 UX 实施路线图](../openspec/roadmaps/improve-workbench-ux/roadmap.md)。近期先做输入/审批控制与稳定阅读，

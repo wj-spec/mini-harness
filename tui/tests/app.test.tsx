@@ -1849,6 +1849,38 @@ test('an already-running sidebar is focused instead of opening a duplicate', asy
   assert.match(lastFrame() ?? '', /侧栏已在运行 · 已聚焦/u);
 });
 
+test('plan review and live progress render a structured subtask checklist', async () => {
+  const {client, stdin, lastFrame} = await mount(undefined, undefined, {columns: 100, rows: 40});
+  client.capabilityList = ['plan-review', 'tasks'];
+  await enter(stdin, '/plan');
+  assert.deepEqual(client.commands, ['plan']);
+  const target = {session_id: 'test', plan_task_id: 't-20261108-000000-abcdef', plan_id: 'pl-1', plan_version: 1, plan_hash: 'a'.repeat(64)};
+  client.emit({type: 'plan_review', id: 'command-1', target, outcome: 'ready', code: null, message: '计划已生成',
+    replacement_target: null, launch: null, body_page: '计划正文', next_cursor: null,
+    available_actions: ['approve-execute', 'approve-only', 'dismiss'],
+    summary: {objective: '修复输入', status: 'proposed', executable: false, step_count: 2, criterion_count: 1, question_count: 0},
+    steps: [
+      {step_id: 's1', title: '读入口', kind: 'read', risk: 'read', files: ['README.md'], depends_on: [], acceptance: '', executor: 'self'},
+      {step_id: 's2', title: '改实现', kind: 'edit', risk: 'write', files: ['app/a.ts'], depends_on: ['s1'], acceptance: '测试通过', executor: 'self'},
+    ]});
+  await pause(30);
+  assert.match(lastFrame() ?? '', /1\. ○ s1 读入口/);
+  assert.match(lastFrame() ?? '', /2\. ○ s2 改实现/);
+  await enter(stdin, '执行计划');
+  assert.deepEqual(client.runs, ['执行计划']);
+  client.emit({type: 'plan_progress', id: 'run-1',
+    plan: {plan_id: 'pl-1', task_id: 't-20261108-000000-abcdef', version: 1, status: 'executing', objective: '修复输入'},
+    steps: [
+      {step_id: 's1', title: '读入口', kind: 'read', risk: 'read', files: ['README.md'], status: 'done', evidence_count: 2},
+      {step_id: 's2', title: '改实现', kind: 'edit', risk: 'write', files: ['app/a.ts'], status: 'in_progress', evidence_count: 0},
+    ], done: 1, total: 2});
+  await pause(30);
+  const frame = lastFrame() ?? '';
+  assert.match(frame, /计划 v1 · 1\/2 步 · 当前 s2/);
+  assert.match(frame, /✓ s1 读入口/);
+  assert.match(frame, /◐ s2 改实现/);
+});
+
 test('Ctrl+G also opens the Git sidebar', async () => {
   const calls: string[] = [];
   const client = new MockClient();

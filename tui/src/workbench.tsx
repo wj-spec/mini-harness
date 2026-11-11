@@ -4,6 +4,7 @@ import stringWidth from 'string-width';
 import type {Entry, ViewState} from './view-state.js';
 import {fitText, markdownLines, ReadingText, textLines, type ReadingLine, type Span} from './markdown.js';
 import type {Palette, SemanticTone} from './theme.js';
+import type {PlanStepInfo} from './protocol.js';
 import {selectionCells, type Selection} from './selection.js';
 
 export function toolState(entry: Entry): string {
@@ -99,6 +100,14 @@ function collapsedToolLines(group: Entry[], columns: number): ReadingLine[] {
   ];
 }
 
+export function planStepLine(step: PlanStepInfo, index?: number): string {
+  const kind = step.kind + (step.risk !== 'read' ? `/${step.risk}` : '');
+  const files = step.files.length ? ` · ${step.files.join(', ')}` : '';
+  const deps = step.depends_on.length ? ` ← ${step.depends_on.join(',')}` : '';
+  const acceptance = step.acceptance ? ' · 有验收' : '';
+  return `${index ? `${index}. ` : ''}○ ${step.step_id} ${step.title} · ${kind}${files}${deps}${acceptance}`;
+}
+
 export function transcriptLines(state: ViewState, columns: number, selectedTool: number | null): ReadingLine[] {
   const lines: ReadingLine[] = [];
   const latestTask = state.entries.findLast(entry => entry.kind === 'task')?.id;
@@ -130,9 +139,13 @@ export function transcriptLines(state: ViewState, columns: number, selectedTool:
     let entryLines: ReadingLine[];
     if (entry.review) {
       const {target, summary, message, launch} = entry.review;
+      const steps = entry.review.steps ?? [];
+      const shown = steps.slice(0, 8);
       entryLines = [
         `计划 v${target?.plan_version ?? '?'} · ${summary?.objective ?? '结果待核对'}`,
         `步骤 ${summary?.step_count ?? '?'} · 验收 ${summary?.criterion_count ?? '?'} · 待决定 ${summary?.question_count ?? '?'}`,
+        ...shown.map((step, index) => planStepLine(step, index + 1)),
+        ...(steps.length > shown.length ? [`…另有 ${steps.length - shown.length} 步，Ctrl+R 查看完整正文`] : []),
         entry.reviewProblem ?? (launch ? `${message} · ${launch.task_id} · ${launch.status}` : message),
         'Ctrl+R审阅 · 正文与动作',
       ].map(text => ({spans: [{text: fitText(text.replace(/\s+/g, ' '), columns)}]}));

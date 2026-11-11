@@ -10,6 +10,34 @@ const reviewFrame = {v: 1, type: 'plan_review', id: 'review-1', target: reviewTa
   summary: {objective: '修复输入', status: 'proposed', executable: false, step_count: 2, criterion_count: 1, question_count: 0},
   body_page: '计划正文', next_cursor: null, available_actions: ['approve-execute', 'approve-only', 'dismiss']};
 
+const planSteps = [
+  {step_id: 's1', title: '读入口', kind: 'read', risk: 'read', files: ['README.md'], depends_on: [], acceptance: '', executor: 'self'},
+  {step_id: 's2', title: '改实现', kind: 'edit', risk: 'write', files: ['app/a.ts'], depends_on: ['s1'], acceptance: '测试通过', executor: 'self'},
+];
+
+test('plan review and progress frames expose structured subtasks', () => {
+  const withSteps = {...reviewFrame, steps: planSteps};
+  assert.equal(parseServerEvent(JSON.stringify(withSteps)).type, 'plan_review');
+  for (const invalid of [
+    {...withSteps, steps: 's1'},
+    {...withSteps, steps: [{...planSteps[0]!, kind: 'write'}]},
+    {...withSteps, steps: [{...planSteps[0]!, files: 'README.md'}]},
+    {...withSteps, steps: [{...planSteps[0]!, risk: 'danger'}]},
+  ]) assert.throws(() => parseServerEvent(JSON.stringify(invalid)), JSON.stringify(invalid));
+  const progress = {v: 1, type: 'plan_progress', id: 'run-1',
+    plan: {plan_id: 'plan-1', task_id: 't-20261108-000000-abcdef', version: 1, status: 'approved', objective: '修复输入'},
+    steps: [{step_id: 's1', title: '读入口', kind: 'read', risk: 'read', files: ['README.md'], status: 'in_progress', evidence_count: 1}],
+    done: 0, total: 1};
+  assert.equal(parseServerEvent(JSON.stringify(progress)).type, 'plan_progress');
+  for (const invalid of [
+    {...progress, id: null},
+    {...progress, total: 2},
+    {...progress, done: 2},
+    {...progress, steps: [{...progress.steps[0]!, status: 'bogus'}]},
+    {...progress, steps: [{...progress.steps[0]!, evidence_count: -1}]},
+  ]) assert.throws(() => parseServerEvent(JSON.stringify(invalid)), JSON.stringify(invalid));
+});
+
 test('revision protocol binds feedback, observed segment and returned plan version', () => {
   for (const action of ['request-changes', 'query-revision', 'resume-revision']) {
     validatePlanArgs({action, target: reviewTarget, feedback: '检查空文件',

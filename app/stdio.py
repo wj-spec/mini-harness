@@ -1247,6 +1247,37 @@ class _Connection:
         plan_context = None
         active_plan_step = {"step_id": None}
         plan_step_tools_registered = False
+
+        def send_plan_progress():
+            """把 StepLedger 的结构化进度发给 TUI；只读展示，不改变执行语义。"""
+            context = plan_context
+            if context is None:
+                return
+            plan = context["plan"]
+            ledger = context["ledger"]
+            steps = []
+            for step in plan.steps[:200]:
+                try:
+                    record = ledger.record(step.step_id)
+                except Exception:
+                    continue
+                steps.append({
+                    "step_id": step.step_id, "title": step.title, "kind": step.kind,
+                    "risk": step.risk, "files": list(step.files),
+                    "status": record.status, "evidence_count": len(record.evidence),
+                })
+            payload = {
+                "plan": {"plan_id": plan.plan_id, "task_id": plan.task_id,
+                         "version": plan.version, "status": plan.status,
+                         "objective": plan.objective},
+                "steps": steps,
+                "done": sum(1 for step in steps if step["status"] == "done"),
+                "total": len(steps),
+            }
+            try:
+                self.send("plan_progress", request_id, **payload)
+            except Exception:
+                pass
         profile = None
         plan_policy_scope = None
         if run_task is not None:
@@ -1388,6 +1419,7 @@ class _Connection:
                             return f"ERROR {exc}"
                         active_plan_step["step_id"] = step_id
                         save_ledger(bound_task_dir, ledger)
+                        send_plan_progress()
                         return f"started {step_id}"
 
                     def complete_plan_step(step_id: str, evidence=None, evidence_refs=None,
@@ -1421,6 +1453,7 @@ class _Connection:
                                         "complete_plan_step again")
                             return f"ERROR {exc}{hint}"
                         save_ledger(bound_task_dir, ledger)
+                        send_plan_progress()
                         if ledger.plan_complete(bound_plan):
                             self.agent.tool_gate = lambda _call: (
                                 "all plan steps complete; stop calling tools and summarize"
@@ -1456,6 +1489,8 @@ class _Connection:
                         fn=complete_plan_step,
                     ))
                     plan_step_tools_registered = True
+        if plan_context is not None:
+            send_plan_progress()
         if plan_context is not None:
             # 绑定计划时把步骤与协议显式注入本轮输入，避免只给 objective 时模型跳过 step 工具。
             plan = plan_context["plan"]
@@ -1504,6 +1539,7 @@ class _Connection:
                     from app.runtime.plan_execution import save_ledger
                     plan_context["ledger"].add_evidence(step_id, kind=kind, ref=ref, ok=bool(ok))
                     save_ledger(plan_context["task_dir"], plan_context["ledger"])
+                    send_plan_progress()
                 except Exception:
                     pass
             execution = executions.pop(id(call), None)
@@ -1748,6 +1784,7 @@ class _Connection:
                                   "用 /plan card 或 /plan markdown 查看。")
             if plan_context is not None:
                 result = self._plan_result(plan_context, result, start_files_changed)
+                send_plan_progress()
             publish_metrics(force=True)
             if revision_context is not None:
                 binding = run_task.record.extra["creation"]["target"]

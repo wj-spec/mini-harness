@@ -530,7 +530,7 @@ for (const allow of [false, true]) test(`public plan demo ${allow ? 'verifies af
     assert.deepEqual(sidebar?.plan?.target, launch.target);
     assert.equal(sidebar?.plan?.relation, 'execution');
     assert.equal(sidebar?.plan?.acceptance, done.result.verified ?? null);
-    assert.equal(sidebar?.plan?.doneSteps, null, 'review metadata does not establish completed step count');
+    assert.equal(sidebar?.plan?.doneSteps, allow ? 1 : 0, 'execution ledger supplies the completed step count');
     assert.equal(sidebar?.run?.taskId, launch.launch.task_id);
     assert.equal(sidebar?.run?.requestId, launch.id);
     assert.equal(sidebar?.run?.traceRunId, done.result.run_id);

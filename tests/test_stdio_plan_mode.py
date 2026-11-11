@@ -447,6 +447,9 @@ def test_plan_review_query_returns_structured_content_without_running(tmp_path, 
             assert plan.objective in reply["body_page"]
             assert reply["next_cursor"] is None
             assert reply["available_actions"] == ["approve-execute", "approve-only", "dismiss"]
+            assert [step["step_id"] for step in reply["steps"]] == [step.step_id for step in plan.steps]
+            assert reply["steps"][0]["kind"] in {"read", "edit", "run", "verify"}
+            assert isinstance(reply["steps"][0]["files"], list)
             assert not agent.provider.seen
             assert len(store.list()) == 1 and path.read_bytes() == before
         finally:

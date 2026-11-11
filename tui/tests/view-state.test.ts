@@ -262,6 +262,22 @@ test('shows only backend supplied telemetry and ignores stale metrics', () => {
   assert.equal(state.metrics?.used_tokens, 1024);
 });
 
+test('plan progress events update the read-only checklist and reset on a new run', () => {
+  let state = reduceView(initialState, {type: 'begin', id: 'run-1', text: '执行计划'});
+  state = reduceView(state, {type: 'event', event: event('plan_progress', {
+    plan: {plan_id: 'pl-1', task_id: 't-20261108-000000-abcdef', version: 1, status: 'approved', objective: '执行计划'},
+    steps: [
+      {step_id: 's1', title: '读入口', kind: 'read', risk: 'read', files: ['README.md'], status: 'done', evidence_count: 1},
+      {step_id: 's2', title: '改实现', kind: 'edit', risk: 'write', files: ['app/a.ts'], status: 'in_progress', evidence_count: 0},
+    ], done: 1, total: 2,
+  })});
+  assert.equal(state.planProgress?.plan.plan_id, 'pl-1');
+  assert.equal(state.planProgress?.done, 1);
+  assert.equal(state.planProgress?.steps[1]?.status, 'in_progress');
+  state = reduceView(state, {type: 'begin', id: 'run-2', text: '下一轮'});
+  assert.equal(state.planProgress, null);
+});
+
 test('a disconnected tool is marked unknown and keeps diagnostics visible', () => {
   let state = reduceView(initialState, {type: 'begin', id: 'run-1', text: 'work'});
   state = reduceView(state, {type: 'event', event: event('tool_call', {call})});

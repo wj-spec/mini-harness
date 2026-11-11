@@ -37,6 +37,15 @@
 - **范围**：`app/stdio.py`（tool_call tier）、`tui/src/{protocol,view-state,workbench,commands,app,cli}.ts*`、新增 `history-locate.ts`/`locator-panel.tsx` 与 2 份测试；证据 `.vibe/ux-p10-history-2026-11-09/`。
 - **未完成**：跨会话全文检索/索引、rounds 账本深链、搜索高亮、真实终端与 Ghostty 真人/Owner Review；P10 不标整体验收。
 
+## 2026-11-11 · P3 计划结构化子任务清单
+
+- **反馈**：当前对 plan 的理解不一致——DSH 等 coding 应用的 plan 会制定结构化子任务，本工作台的 plan 主要是一个文本产物。
+- **盘点**：底层 `plan.vN.json` 与 `StepLedger` 本已结构化（步骤 kind/risk/files/depends_on/acceptance/verification、状态机与证据），但审阅卡只显示摘要、执行中主区只显示任务/工具流、`/plan` 是渲染文本，心智模型仍是「审阅文档」。
+- **方案**：保留 Plan JSON/版本/hash/批准/修订/验收与 StepLedger 作为证据底座；审阅卡与审阅焦点改为步骤清单；执行中新增只读 `plan_progress` 事件与进度面板；侧栏 `doneSteps` 用真实 ledger；文档正文仍 Ctrl+R。执行中直接编辑步骤不在本轮（后续增量）。
+- **验证**：完整 Ink **742/742**、Python **1957**（1953 passed / 4 skipped），真实 PTY plan demo 出计划卡（含步骤行）→ 批准执行 → 出现只读进度面板与 ✓/◐/○；证据在 `.vibe/ux-plan-checklist-2026-11-11/`。
+- **范围**：`app/runtime/plan_review.py`、`app/stdio.py`、`tui/src/protocol.ts`、`view-state.ts`、`workbench.tsx`、`app.tsx`、新增 `plan-progress-panel.tsx`；测试更新 backend-integration 旧 doneSteps 契约并新增协议/状态/卡片/面板/App 旅程。
+- **下一步**：attach/resume 计划运行时重放进度快照；改造后重跑 P3 人工验收（当前暂停）。
+
 ## 2026-11-11 · P3 启动期反馈与计划卡复核
 
 - **反馈**：P2 手动验收通过后进入 P3 第一条，按 Enter 后认为没有展示计划卡。

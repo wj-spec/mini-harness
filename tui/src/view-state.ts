@@ -1,7 +1,7 @@
 import {AUTONOMY_LABELS, reviewKey} from './protocol.js';
 import {bindRevision, revisionPlan, planInspection, startInspection, verificationInspection, type InspectionPlan, type InspectionSnapshot, type RunInspection} from './inspection.js';
 import {agentTouchedFiles} from './sidebar/agent-activity.js';
-import type {ApprovalDecision, ApprovalRule, AuditSummary, AutonomyLevel, BackendCommand, CommandExecution, CompletionSummary, ContextSnapshot, PersistedMessage, PlanModeState, PlanReviewResult, PlanRevisionResult, RunMetrics, RunResult, ServerEvent, SessionPurpose, SkillInfo, ToolCall} from './protocol.js';
+import type {ApprovalDecision, ApprovalRule, AuditSummary, AutonomyLevel, BackendCommand, CommandExecution, CompletionSummary, ContextSnapshot, PersistedMessage, PlanModeState, PlanProgress, PlanReviewResult, PlanRevisionResult, RunMetrics, RunResult, ServerEvent, SessionPurpose, SkillInfo, ToolCall} from './protocol.js';
 
 export const MAX_CONTEXT_SNAPSHOTS = 100;
 export const MAX_WORKBENCH_NOTICES = 200;
@@ -60,6 +60,7 @@ export type ViewState = {
   lastAudit: AuditSummary | null;
   inspection: RunInspection | null;
   inspectionPlan: InspectionPlan | null;
+  planProgress: PlanProgress | null;
   attachedTaskId?: string;
   fileSource?: import('./inspection.js').FileSource | null;
   attachOffline?: boolean;
@@ -79,7 +80,7 @@ export const initialState: ViewState = {
   phase: 'starting', activeId: null, activeCommand: null, runMode: null, activity: 'initializing', entries: [], nextEntry: 0, notices: [], live: '', segment: '',
   approval: null, model: '', workspace: '', lastResult: '', lastStatus: null, lastStopReason: null, error: null,
   sessionId: '', sessionPath: '', sessionPurpose: 'user', provider: '', metrics: null, contextSnapshots: [], hasStartedRun: false, resumed: false, skills: [],
-  autonomy: '', autonomyLabel: '', planMode: {active: false, pending: false, wanted: null}, planModeKnown: false, lastVerified: null, lastCompletion: null, lastAudit: null, inspection: null, inspectionPlan: null,
+  autonomy: '', autonomyLabel: '', planMode: {active: false, pending: false, wanted: null}, planModeKnown: false, lastVerified: null, lastCompletion: null, lastAudit: null, inspection: null, inspectionPlan: null, planProgress: null,
 };
 
 function pushNotice(state: ViewState, text: string): ViewState {
@@ -212,7 +213,7 @@ export function reduceView(state: ViewState, action: Action): ViewState {
     if (launch?.run_started && launch.run_id === action.id) inspection = {...inspection, scope: {...inspection.scope,
       taskId: launch.task_id, segment: launch.segment, taskStatus: launch.status}};
     if (action.revision) inspection = bindRevision(inspection, action.revision, state.sessionId, true);
-    const begun = append({...state, inspection, inspectionPlan: action.revision ? revisionPlan(inspection, null, state.entries) : action.plan ? planInspection(inspection, null, state.sessionId, action.plan) : null,
+    const begun = append({...state, planProgress: null, inspection, inspectionPlan: action.revision ? revisionPlan(inspection, null, state.entries) : action.plan ? planInspection(inspection, null, state.sessionId, action.plan) : null,
       phase: 'running', activeId: action.id, activeCommand: null, runMode: null, activity: 'waiting_model', live: '', segment: '', approval: null, lastResult: '', lastStatus: null, lastStopReason: null, error: null, metrics: null, contextSnapshots: [], hasStartedRun: true, lastVerified: null, lastCompletion: null, lastAudit: null}, 'task', action.text);
     return {...begun, entries: begun.entries.map((entry, index) => index === begun.entries.length - 1 ? {...entry, runId: action.id} : entry)};
   }
@@ -226,6 +227,9 @@ export function reduceView(state: ViewState, action: Action): ViewState {
   const event = action.event;
   if (event.id === null && (event.type === 'context_snapshot' || event.type === 'metrics') &&
     (state.hasStartedRun || state.phase === 'closed')) return state;
+  if (event.type === 'plan_progress') {
+    return {...state, planProgress: {plan: event.plan, steps: event.steps, done: event.done, total: event.total}};
+  }
   if (event.type === 'status' && event.phase === 'starting' && event.id && !state.activeId) {
     return {...state, phase: 'starting', activeId: event.id, activeCommand: null, activity: 'initializing'};
   }
@@ -233,7 +237,7 @@ export function reduceView(state: ViewState, action: Action): ViewState {
   if (event.id && !state.activeId && ['status', 'text_delta', 'tool_call', 'tool_result', 'approval_request', 'approval_resolved', 'done', 'metrics', 'context_snapshot', 'command_result'].includes(event.type)) return state;
   switch (event.type) {
     case 'ready':
-      return {...state, inspection: null, inspectionPlan: null, phase: 'starting', runMode: null, planModeKnown: false, activity: 'initializing', workspace: event.workspace, model: event.model, error: null,
+      return {...state, inspection: null, inspectionPlan: null, planProgress: null, phase: 'starting', runMode: null, planModeKnown: false, activity: 'initializing', workspace: event.workspace, model: event.model, error: null,
         fileSource: event.file_source,
         attachOffline: event.capabilities?.includes('attach-offline') ?? false,
         ...(event.capabilities?.includes('attach-offline') ? {phase: 'idle', activeId: null, activeCommand: null, approval: null, activity: null} : {}),

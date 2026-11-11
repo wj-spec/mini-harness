@@ -313,6 +313,18 @@ def test_bound_plan_step_tools_record_evidence_and_complete(tmp_path, monkeypatc
         assert any(item["kind"] == "read" for item in ledger.steps["s1"].evidence)
         outputs = [event.get("output", "") for event in harness.events if event["type"] == "tool_result"]
         assert any("all plan steps complete" in output for output in outputs)
+        progress = [event for event in harness.events if event["type"] == "plan_progress"]
+        assert progress, "plan execution should publish structured progress"
+        assert progress[0]["total"] == 1 and progress[0]["done"] == 0
+        assert progress[0]["steps"][0]["status"] == "pending"
+        assert any(event["steps"][0]["status"] == "in_progress" for event in progress)
+        assert progress[-1]["done"] == 1 and progress[-1]["steps"][0]["status"] == "done"
+        assert progress[-1]["steps"][0]["evidence_count"] >= 1
+        assert progress[-1]["plan"]["plan_id"] == "pl-1"
+        assert progress[-1]["plan"]["task_id"] == plan_task
+        assert progress[-1]["plan"]["version"] == 1
+        assert progress[-1]["plan"]["status"] in {"approved", "executing"}
+        assert progress[-1]["plan"]["objective"] == "执行计划"
         assert agent.tools.names() == ["web_search", "read_file", "grep", "list_files", "git_status",
                                       "git_diff", "write_file", "edit_file", "apply_patch", "bash",
                                       "list_skills", "load_skill", "unload_skill"]

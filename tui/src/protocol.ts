@@ -214,7 +214,22 @@ interface ReviewContent {
   code: string | null; message: string; summary: ReviewSummary | null;
   body_page: string; next_cursor: number | null; available_actions: ReviewAction[];
 }
-export type PlanReviewResult = ReviewContent & (
+export interface PlanStepInfo {
+  step_id: string; title: string; kind: 'read' | 'edit' | 'run' | 'verify';
+  risk: 'read' | 'write' | 'exec' | 'network';
+  files: string[]; depends_on: string[]; acceptance: string; executor: string;
+}
+export type PlanProgressStepStatus = 'pending' | 'in_progress' | 'blocked' | 'done' | 'deviated' | 'skipped';
+export interface PlanProgressStep {
+  step_id: string; title: string; kind: 'read' | 'edit' | 'run' | 'verify';
+  risk: 'read' | 'write' | 'exec' | 'network'; files: string[];
+  status: PlanProgressStepStatus; evidence_count: number;
+}
+export interface PlanProgress {
+  plan: {plan_id: string; task_id: string; version: number; status: string; objective: string};
+  steps: PlanProgressStep[]; done: number; total: number;
+}
+export type PlanReviewResult = ReviewContent & {steps?: PlanStepInfo[]} & (
   | {outcome: 'ready' | 'approved' | 'dismissed'; target: ReviewRef; summary: ReviewSummary; launch: null}
   | {outcome: 'unavailable'; code: string; launch: null; available_actions: []}
   | {outcome: 'approved_not_started'; target: ReviewRef; launch: {
@@ -515,6 +530,7 @@ export type ServerEvent =
   | Envelope<'ready', {workspace: string; model: string; session_id: string; capabilities: string[]; file_source?: FileSource | null; provider?: string; session_path?: string; session_purpose?: SessionPurpose; session_identity?: string; resumed?: boolean; skills?: SkillInfo[]; autonomy?: string; autonomy_label?: string; tasks?: TaskHint[]}>
   | Envelope<'plan_mode', {mode: PlanModeState}>
   | Envelope<'plan_review', PlanReviewResult>
+  | Envelope<'plan_progress', PlanProgress>
   | Envelope<'plan_revision', PlanRevisionResult>
   | Envelope<'plan_revision_history', PlanRevisionHistory>
   | Envelope<'inspection_history', InspectionHistoryPage>
@@ -755,6 +771,41 @@ function reviewSummary(value: unknown): value is ReviewSummary {
     ['step_count', 'criterion_count', 'question_count'].every(key => nonnegativeInteger(value[key]));
 }
 
+function planStepKind(value: unknown): boolean {
+  return value === 'read' || value === 'edit' || value === 'run' || value === 'verify';
+}
+function planStepRisk(value: unknown): boolean {
+  return value === 'read' || value === 'write' || value === 'exec' || value === 'network';
+}
+function planStepInfo(value: unknown): value is PlanStepInfo {
+  if (!record(value)) return false;
+  return typeof value.step_id === 'string' && value.step_id.length > 0 && value.step_id.length <= 128 &&
+    typeof value.title === 'string' && value.title.length > 0 && Array.from(value.title).length <= 500 &&
+    planStepKind(value.kind) && planStepRisk(value.risk) &&
+    Array.isArray(value.files) && value.files.length <= 200 && value.files.every(item => typeof item === 'string') &&
+    Array.isArray(value.depends_on) && value.depends_on.length <= 200 && value.depends_on.every(item => typeof item === 'string') &&
+    typeof value.acceptance === 'string' && value.acceptance.length <= 4000 &&
+    typeof value.executor === 'string' && value.executor.length <= 64;
+}
+function planStepInfoList(value: unknown): value is PlanStepInfo[] {
+  return Array.isArray(value) && value.length <= 200 && value.every(planStepInfo);
+}
+function planProgressPayload(value: Record<string, unknown>): boolean {
+  const plan = value.plan;
+  if (!record(plan) || typeof plan.plan_id !== 'string' || !plan.plan_id ||
+      typeof plan.task_id !== 'string' || !/^t-\d{8}-\d{6}-[0-9a-f]{6}$/.test(plan.task_id) ||
+      !nonnegativeInteger(plan.version) || plan.version < 1 ||
+      typeof plan.status !== 'string' || !plan.status || typeof plan.objective !== 'string') return false;
+  if (!Array.isArray(value.steps) || value.steps.length > 200) return false;
+  if (!Number.isSafeInteger(value.done) || Number(value.done) < 0 ||
+      !Number.isSafeInteger(value.total) || Number(value.total) < 0 || Number(value.done) > Number(value.total)) return false;
+  if (Number(value.total) !== value.steps.length) return false;
+  return value.steps.every(step => record(step) && typeof step.step_id === 'string' && step.step_id.length > 0 &&
+    typeof step.title === 'string' && step.title.length > 0 && planStepKind(step.kind) && planStepRisk(step.risk) &&
+    Array.isArray(step.files) && step.files.every(item => typeof item === 'string') &&
+    ['pending', 'in_progress', 'blocked', 'done', 'deviated', 'skipped'].includes(String(step.status)) &&
+    Number.isSafeInteger(step.evidence_count) && Number(step.evidence_count) >= 0);
+}
 function planReviewResult(value: Record<string, unknown>): boolean {
   if (!validId(value.id) || !(value.target === null || reviewRef(value.target)) ||
       !(value.replacement_target === null || reviewRef(value.replacement_target)) ||
@@ -763,7 +814,8 @@ function planReviewResult(value: Record<string, unknown>): boolean {
       typeof value.body_page !== 'string' || Array.from(value.body_page).length > 16000 ||
       !(value.next_cursor === null || nonnegativeInteger(value.next_cursor)) ||
       !Array.isArray(value.available_actions) || new Set(value.available_actions).size !== value.available_actions.length ||
-      !value.available_actions.every(action => ['approve-execute', 'approve-only', 'dismiss'].includes(action))) return false;
+      !value.available_actions.every(action => ['approve-execute', 'approve-only', 'dismiss'].includes(action)) ||
+      (value.steps !== undefined && !planStepInfoList(value.steps))) return false;
   if (value.outcome === 'unavailable') {
     return typeof value.code === 'string' && value.launch === null && value.available_actions.length === 0;
   }
@@ -871,6 +923,7 @@ export function parseServerEvent(line: string): ServerEvent {
       break;
     case 'plan_mode': valid = value.id === null && planModeState(value.mode); break;
     case 'plan_review': valid = planReviewResult(value); break;
+    case 'plan_progress': valid = validId(value.id) && planProgressPayload(value) && (value as unknown as PlanProgress) !== null; break;
     case 'plan_revision': valid = planRevisionResult(value); break;
     case 'plan_revision_history': valid = planRevisionHistory(value); break;
     case 'task_catalog': valid = validId(value.id) && validTaskCatalogPage(value); break;

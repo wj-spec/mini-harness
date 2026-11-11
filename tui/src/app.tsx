@@ -44,7 +44,8 @@ import {loadGoal, saveGoal} from './goal-store.js';
 import {initialState as emptyState, reduceView, resultReason, type ViewState} from './view-state.js';
 import {Composer} from './composer.js';
 import {fitText, textLines, type ReadingLine} from './markdown.js';
-import {detailLines, errorLines, liveLines, metricsText, ReadingPane, transcriptLines, welcomeLines} from './workbench.js';
+import {detailLines, errorLines, liveLines, metricsText, planStepLine, ReadingPane, transcriptLines, welcomeLines} from './workbench.js';
+import {PlanProgressPanel} from './plan-progress-panel.js';
 import {AgentHeader, agentStatus, StatusPanel} from './agent-status.js';
 import {getPalette, type ThemeName} from './theme.js';
 import {terminalColorLevel} from './terminal-colors.js';
@@ -421,12 +422,17 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
   const inspectionInline = !overlayKey && inspectionButtons.length === 1 && inspectionButtons[0]?.action === 'focus';
   const inspectionRows = !inspectionInline && (!overlayKey || historyVisible) && inspectionButtons.length ? 1 : 0;
   const followupRows = (onDetach || followups.count || followups.problem || navigationAvailable) && (!overlayKey || (navigationAvailable || onDetach) && state.approval) ? 1 : 0;
+  const planProgress = state.planProgress;
+  const planLive = state.phase === 'running' || state.phase === 'stopping' || state.phase === 'waiting_approval' || Boolean(state.activeId);
+  const planProgressVisible = Boolean(planProgress && planProgress.steps.length && planLive) && !compactQuit && !state.approval && !review.focused &&
+    !revision.mode && !contextOpen && !planOpen && !detailEntry && !historyVisible && !reading && !quitting && rows >= 18;
+  const planProgressRows = planProgressVisible ? Math.min(4, planProgress!.steps.length) + 1 : 0;
   const followupButtons: {action: 'tasks' | 'followups' | 'parent'; label: string}[] = [
     ...(onDetach ? [{action: 'parent' as const, label: '返回原会话'}] : []),
     ...(navigationAvailable ? [{action: 'tasks' as const, label: '任务'}] : []),
     ...(followups.count || followups.problem ? [{action: 'followups' as const, label: `后续 ${followups.count}`}] : [])];
   const followupButtonsWidth = (onDetach ? 16 : 0) + (navigationAvailable ? 10 : 0) + (followups.count || followups.problem ? 13 : 0);
-  const paneBase = rows - followupRows - inspectionRows - headerRows - compactRows - composerRows - composerPadding * 2 - 2 - approvalRows - revisionRows;
+  const paneBase = rows - followupRows - planProgressRows - inspectionRows - headerRows - compactRows - composerRows - composerPadding * 2 - 2 - approvalRows - revisionRows;
   const menuRows = rows >= 18 ? Math.min(menuMatches.length, 5, Math.max(0, paneBase - 4)) : 0;
   const paneRows = Math.max(4, paneBase - menuRows);
   const menuPosition = Math.min(menuIndex, Math.max(0, menuMatches.length - 1));
@@ -483,6 +489,11 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
     if (review.focused && review.card) return [
       ...textLines(review.pending ? '等待回执…' : review.choice ? `› ${review.choices.find(choice => choice.value === review.choice)?.label}` : '↑↓ 选择动作（未选）', bodyColumns, 'heading'),
       ...review.choices.map(choice => ({spans: [{text: fitText(`${choice.key} ${choice.label}`, bodyColumns)}]})),
+      ...(review.card.steps?.length ? [
+        ...textLines(`步骤 ${review.card.steps.length}`, bodyColumns, 'label'),
+        ...review.card.steps.slice(0, 6).map(step => ({spans: [{text: fitText(planStepLine(step), bodyColumns)}]})),
+        ...(review.card.steps.length > 6 ? textLines(`…另有 ${review.card.steps.length - 6} 步，Ctrl+R 正文查看`, bodyColumns, 'notice') : []),
+      ] : []),
       ...textLines(fitText((review.card.summary?.objective ?? review.card.message).replace(/\s+/g, ' '), bodyColumns), bodyColumns),
       ...textLines(review.card.message, bodyColumns),
       ...(review.card.launch ? textLines(`绑定任务：${review.card.launch.task_id} · ${review.card.launch.status}`, bodyColumns) : []),
@@ -785,9 +796,12 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
     const fileSource = selected ? selected.fileSource ?? null : state.fileSource;
     const run = selected ? selected.scope : plan?.relation === 'review' ? undefined : state.inspection?.scope;
     const verification = selected ? selected.verification : run && state.inspection ? verificationInspection(state.inspection, state.entries) : undefined;
+    const liveProgress = state.planProgress;
+    const progressMatches = Boolean(liveProgress && plan && liveProgress.plan.plan_id === plan.target?.plan_id &&
+      liveProgress.plan.version === plan.target?.plan_version);
     const summary = plan ? {target: plan.target, relation: plan.relation, problem: plan.problem,
       version: plan.target.plan_version, status: plan.status, stale: Boolean(plan.problem), objective: plan.objective,
-      stepCount: plan.stepCount, doneSteps: null,
+      stepCount: plan.stepCount, doneSteps: progressMatches ? liveProgress!.done : null,
       acceptance: plan.relation === 'execution' ? verification?.verified ?? null : null} : undefined;
     const navigation = inspectionSelection ? {id: inspectionSelection.id, page: inspectionSelection.page, mode: selected ? 'result' as const : 'current' as const} : undefined;
     const signature = createHash('sha256').update(JSON.stringify([state.workspace, state.sessionId, fileSource, run, summary, verification, navigation,
@@ -801,7 +815,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
         active: run?.status === 'running',
       });
     } catch {}
-  }, [state.workspace, state.sessionId, state.fileSource, state.inspection, state.inspectionPlan, state.entries, state.activeId, state.phase, state.lastStatus, sidebarOwner, publishSidebarSignal, inspectionSelection]);
+  }, [state.workspace, state.sessionId, state.fileSource, state.inspection, state.inspectionPlan, state.entries, state.planProgress, state.activeId, state.phase, state.lastStatus, sidebarOwner, publishSidebarSignal, inspectionSelection]);
 
   // 工作台提示只更新记录区与状态行；不把阅读位置拉回末尾，避免打断心流。
   const notice = (text: string) => {dispatch({type: 'notice', text});};
@@ -2514,6 +2528,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
         columns={followupButtonsWidth} height={1} palette={palette} targets={followupTargets}/>
       <Text color={followups.paused || followups.problem ? palette.warning : palette.secondary}>{fitText(followups.problem || followups.paused || (followups.count ? '成功后按序继续' : onDetach ? '原草稿保留' : '查看本会话任务'), Math.max(1, columns - followupButtonsWidth))}</Text>
     </Box> : null}
+    {!compactQuit && planProgressVisible && planProgress ? <PlanProgressPanel progress={planProgress} columns={columns} rows={planProgressRows} palette={palette}/> : null}
     {quitPrompt ? <Box flexDirection="column" backgroundColor={palette.surfaces.warning} height={Math.max(composerRows + 2, quitPrompt.options.length + 3)} width={columns} paddingX={2} paddingY={1} flexShrink={0}>
       <Text color={palette.foreground} bold>退出选项（↑↓ 选择 · Enter 确认 · Esc 取消）</Text>
       {quitPrompt.options.map((option, index) => <Text key={option.label} color={option.disabled ? palette.secondary : index === quitPrompt.index ? palette.warning : palette.foreground}>

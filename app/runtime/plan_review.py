@@ -34,6 +34,20 @@ from app.runtime.tasks import TASK_ID_RE, TaskError, TaskStore
 _PLAN_FILE_RE = re.compile(r"plan\.v([1-9][0-9]*)\.json")
 
 
+def _step_payload(step) -> dict[str, Any]:
+    """审阅卡直接消费的步骤摘要；完整正文仍在 body_page。"""
+    return {
+        "step_id": step.step_id,
+        "title": step.title,
+        "kind": step.kind,
+        "risk": step.risk,
+        "files": list(step.files),
+        "depends_on": list(step.depends_on),
+        "acceptance": step.acceptance,
+        "executor": step.executor,
+    }
+
+
 @dataclass(frozen=True)
 class ReviewDecision:
     receipt: dict[str, Any]
@@ -543,6 +557,7 @@ class PlanReview:
                         "criterion_count": len(plan.acceptance_criteria),
                         "question_count": len(plan.open_questions)},
             "body_page": page, "next_cursor": next_cursor if next_cursor < len(body) else None,
+            "steps": [_step_payload(step) for step in plan.steps],
             "available_actions": [],
         }
 

@@ -92,6 +92,24 @@ test('transcript cards separate task, model and tool while workbench notices sta
   assert.ok(lines.find(line => line.entryId === 12 && line.kind === 'error'));
 });
 
+test('plan review cards show structured subtasks instead of only a document summary', () => {
+  const target = {session_id: 's', plan_task_id: 't-20261108-000000-abcdef', plan_id: 'pl-1', plan_version: 1, plan_hash: 'a'.repeat(64)};
+  const lines = transcriptLines({...initialState, phase: 'idle', entries: [
+    {id: 1, kind: 'notice', text: '计划已生成', review: {outcome: 'ready', target,
+      replacement_target: null, code: null, message: '计划已生成', launch: null, body_page: '', next_cursor: null,
+      available_actions: ['approve-execute'], summary: {objective: '修复输入', status: 'proposed', executable: false,
+        step_count: 2, criterion_count: 1, question_count: 0},
+      steps: [
+        {step_id: 's1', title: '读入口', kind: 'read', risk: 'read', files: ['README.md'], depends_on: [], acceptance: '', executor: 'self'},
+        {step_id: 's2', title: '改实现', kind: 'edit', risk: 'write', files: ['app/a.ts'], depends_on: ['s1'], acceptance: '测试通过', executor: 'self'},
+      ]}},
+  ]}, 80, null);
+  const output = lines.map(line => line.spans.map(span => span.text).join('')).join('\n');
+  assert.match(output, /1\. ○ s1 读入口 · read/);
+  assert.match(output, /2\. ○ s2 改实现 · edit\/write · app\/a\.ts ← s1 · 有验收/);
+  assert.match(output, /Ctrl\+R审阅/);
+});
+
 test('transcript surfaces replace enclosing frames while preserving focus and failure evidence', () => {
   const lines = transcriptLines({...initialState, entries: [
     {id: 10, kind: 'task', text: '修复输入🙂'},
