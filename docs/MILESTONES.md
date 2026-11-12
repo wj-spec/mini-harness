@@ -23,6 +23,8 @@
 
 ## 界面迁移与全栈学习切片
 
+**P3 长计划折叠与全屏清单（2026-11-12，实施中）**：针对「计划步骤多/文字长看不完全」，常驻面板折叠已完成步骤（`✓ 已完成 N 步`）、按终端高度自适应显示当前与未完成步骤，当前步展开完整标题/文件/依赖/验收，溢出提示 `… 还有 N 步 · Ctrl+L 查看全部`；`Ctrl+L` 打开只读全屏清单，换行显示全部步骤与完整元数据，`↑↓/PgUp/PgDn/Home/End` 滚动、`Esc` 返回、实时更新。完整 Ink **748/748**、Python **1958**（**1954 passed / 4 skipped**）。见 [验证记录](../openspec/changes/implement-plan-structured-checklist/verification.md#长计划折叠与-ctrll-全屏清单2026-11-12)。
+
 **P3 审批单键与 attach 进度重放（2026-11-12，实施中）**：审批阻塞态空草稿时 `y` 允许本次 / `n` 拒绝单键决定（字母不落入草稿，有草稿时按键仍输入；Tab+Enter/点击/Ctrl+R 保留）；attach 已批准计划任务时重放 `plan_progress`（StepLedger），主区直接显示步骤状态与证据数。完整 Ink **747/747**、Python **1958**（**1954 passed / 4 skipped**），真实 PTY 两次审批单键完成并验收。方案与证据见 [计划清单实施包](../openspec/changes/implement-plan-structured-checklist/verification.md#审批单键与-attach-进度重放2026-11-12)。
 
 **P3 计划审阅栏与常驻进度（2026-11-11，实施中）**：针对「计划卡 → 执行操作太多、计划展示不够凸显」的反馈，计划待决定时在输入框位置显示审阅栏：`Enter` 一次直接执行（写入/命令仍逐个审批），`↑↓` 选步骤后 `m/k/f/p` 预填步骤修改，`b` 正文、`r` 修订、`Esc` 稍后处理并保留草稿；执行进度清单改为常驻（结束后保留 `已完成`）。操作从「Ctrl+R → e → Enter」降为「Enter」。完整 Ink **743/743**、Python **1957**（**1953 passed / 4 skipped**），真实 PTY 冒烟通过；P3 人工验收仍暂停至改造完成。见 [验证记录](../openspec/changes/implement-plan-structured-checklist/verification.md#ux-二轮计划审阅栏与常驻进度2026-11-11)。

@@ -37,6 +37,15 @@
 - **范围**：`app/stdio.py`（tool_call tier）、`tui/src/{protocol,view-state,workbench,commands,app,cli}.ts*`、新增 `history-locate.ts`/`locator-panel.tsx` 与 2 份测试；证据 `.vibe/ux-p10-history-2026-11-09/`。
 - **未完成**：跨会话全文检索/索引、rounds 账本深链、搜索高亮、真实终端与 Ghostty 真人/Owner Review；P10 不标整体验收。
 
+## 2026-11-12 · P3 长计划折叠与 Ctrl+L 全屏清单
+
+- **反馈**：计划执行常驻展示符合预期，但计划步骤多/单条文字长时看不完全。
+- **实现**：`buildPlanProgressView` 折叠已完成步骤（`✓ 已完成 N 步（含跳过 M）`）、按终端高度自适应行数（5–9 行），只显示当前与未完成步骤；当前步在面板内展开完整标题与文件/依赖/验收/验证标记；溢出显示 `… 还有 N 步 · Ctrl+L 查看全部`。`Ctrl+L` 打开只读全屏清单 `planListLines`：全部步骤、完整元数据换行、`↑↓/PgUp/PgDn/Home/End` 滚动、`Esc` 返回、实时随 `plan_progress` 更新（复用 overlayKey/overlayScroll，不占输入焦点）。
+- **数据**：`plan_progress` 步骤增补 `depends_on/acceptance/verification` 字段（仍限 200 步），供当前步详情与全屏清单使用。
+- **验证**：App 旅程（12 步中 6 完成：折叠摘要、溢出提示、Ctrl+L 全屏、End 查看长步骤、Esc 返回）；完整 Ink **748/748**、Python **1958**（1954 passed / 4 skipped）。
+- **范围**：`tui/src/plan-progress-panel.tsx`（折叠/自适应/全屏 lines）、`tui/src/app.tsx`（Ctrl+L overlay 与布局）、`tui/src/protocol.ts`、`app/runtime/plan_execution.py`；测试 app/protocol/stdio tasks。
+- **未做**：真实 PTY 的假计划演示只有 1 步，长计划折叠/全屏目前由 App 旅程覆盖；P3 人工验收待改造完成后重跑。
+
 ## 2026-11-12 · P3 审批单键与 attach 进度重放
 
 - **优化①审批**：审批阻塞态空草稿时 `y` 直接允许本次、`n` 直接拒绝；输入框可能先收到字母，快捷决定后立即清除，不污染草稿；有草稿时按键仍属草稿输入，避免误审批。Tab+Enter、点击、Ctrl+R 路径保留。

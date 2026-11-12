@@ -26,7 +26,8 @@ test('plan review and progress frames expose structured subtasks', () => {
   ]) assert.throws(() => parseServerEvent(JSON.stringify(invalid)), JSON.stringify(invalid));
   const progress = {v: 1, type: 'plan_progress', id: 'run-1',
     plan: {plan_id: 'plan-1', task_id: 't-20261108-000000-abcdef', version: 1, status: 'approved', objective: '修复输入'},
-    steps: [{step_id: 's1', title: '读入口', kind: 'read', risk: 'read', files: ['README.md'], status: 'in_progress', evidence_count: 1}],
+    steps: [{step_id: 's1', title: '读入口', kind: 'read', risk: 'read', files: ['README.md'],
+      depends_on: [], acceptance: '读取完成', verification: false, status: 'in_progress', evidence_count: 1}],
     done: 0, total: 1};
   assert.equal(parseServerEvent(JSON.stringify(progress)).type, 'plan_progress');
   for (const invalid of [
@@ -35,6 +36,9 @@ test('plan review and progress frames expose structured subtasks', () => {
     {...progress, done: 2},
     {...progress, steps: [{...progress.steps[0]!, status: 'bogus'}]},
     {...progress, steps: [{...progress.steps[0]!, evidence_count: -1}]},
+    {...progress, steps: [{...progress.steps[0]!, depends_on: 's0'}]},
+    {...progress, steps: [{...progress.steps[0]!, acceptance: 3}]},
+    {...progress, steps: [{...progress.steps[0]!, verification: 'yes'}]},
   ]) assert.throws(() => parseServerEvent(JSON.stringify(invalid)), JSON.stringify(invalid));
 });
 

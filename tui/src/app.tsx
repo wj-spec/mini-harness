@@ -45,7 +45,7 @@ import {initialState as emptyState, reduceView, resultReason, type ViewState} fr
 import {Composer} from './composer.js';
 import {fitText, textLines, type ReadingLine} from './markdown.js';
 import {detailLines, errorLines, liveLines, metricsText, planStepLine, ReadingPane, transcriptLines, welcomeLines} from './workbench.js';
-import {PlanProgressPanel} from './plan-progress-panel.js';
+import {buildPlanProgressView, PlanProgressPanel, planListLines} from './plan-progress-panel.js';
 import {PlanReviewBar} from './plan-review-bar.js';
 import {AgentHeader, agentStatus, StatusPanel} from './agent-status.js';
 import {getPalette, type ThemeName} from './theme.js';
@@ -283,6 +283,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
   const [reading, setReading] = useState(false);
   const [planBarIndex, setPlanBarIndex] = useState(0);
   const [planBarHidden, setPlanBarHidden] = useState(false);
+  const [planListOpen, setPlanListOpen] = useState(false);
   const [approvalSelection, setApprovalSelection] = useState<{id: string; decision: ApprovalAction | null} | null>(null);
   const [approvalMore, setApprovalMore] = useState<string | null>(null);
   const approvalTargets = useRef<ApprovalTarget[]>([]);
@@ -377,8 +378,8 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
   const terminal = useWindowSize();
   const columns = Math.max(1, windowSize?.columns ?? terminal.columns);
   const rows = Math.max(1, windowSize?.rows ?? terminal.rows);
-  const minimumColumns = state.approval || review.focused || revision.mode || followups.open || navigation.open || sessionNav.open || permissionPanel.open || locator || searchPanel || logsOpen ? 32 : 24;
-  const minimumRows = state.approval || review.focused || revision.mode || followups.open || navigation.open || sessionNav.open || permissionPanel.open || locator || searchPanel || logsOpen ? 12 : 11;
+  const minimumColumns = state.approval || review.focused || revision.mode || followups.open || navigation.open || sessionNav.open || permissionPanel.open || locator || searchPanel || logsOpen || planListOpen ? 32 : 24;
+  const minimumRows = state.approval || review.focused || revision.mode || followups.open || navigation.open || sessionNav.open || permissionPanel.open || locator || searchPanel || logsOpen || planListOpen ? 12 : 11;
   const inspectionVisible = surfaceActive && inspectionFocused && !quitPrompt;
   const followupsVisible = surfaceActive && followups.open && !quitPrompt;
   const navigationVisible = surfaceActive && navigation.open && !quitPrompt;
@@ -393,7 +394,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
   const tools = state.entries.filter(entry => entry.kind === 'tool' && entry.call);
   const chosenTool = tools.find(entry => entry.id === selectedTool) ?? tools.at(-1);
   const detailEntry = state.entries.find(entry => entry.id === detail);
-  const overlayKey = state.approval ? `approval-${state.approval.id}` : revision.mode ? `revision-${revision.key}-${revision.mode}${revision.mode === 'history' ? `-${revision.history?.cursor ?? ''}-${revision.history?.index}` : ''}` : review.focused ? `review-${review.key}-${review.body ? review.cursor : 'actions'}` : contextOpen ? 'context' : planOpen ? 'plan' : detailEntry ? `tool-${detailEntry.id}` : history.open ? 'inspection-history' : '';
+  const overlayKey = state.approval ? `approval-${state.approval.id}` : revision.mode ? `revision-${revision.key}-${revision.mode}${revision.mode === 'history' ? `-${revision.history?.cursor ?? ''}-${revision.history?.index}` : ''}` : review.focused ? `review-${review.key}-${review.body ? review.cursor : 'actions'}` : contextOpen ? 'context' : planOpen ? 'plan' : detailEntry ? `tool-${detailEntry.id}` : planListOpen ? 'plan-list' : history.open ? 'inspection-history' : '';
   const composerRows = rows >= 32 ? 5 : rows >= 18 ? 3 : 1;
   const compactApproval = Boolean((state.approval || revision.mode) && rows < 18);
   const compactLayout = rows >= 18 && rows < 26;
@@ -429,14 +430,15 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
   const planBarSteps = review.card?.steps ?? [];
   const planBarSelected = Math.max(0, Math.min(planBarIndex, Math.max(0, planBarSteps.length - 1)));
   const planBarShown = Boolean(review.card && !review.focused && !planBarHidden && !state.approval && !revision.mode && !contextOpen &&
-    !planOpen && !detailEntry && !historyVisible && !reading && !quitting && !compactQuit && !review.problem &&
+    !planOpen && !planListOpen && !detailEntry && !historyVisible && !reading && !quitting && !compactQuit && !review.problem &&
     state.phase === 'idle' && !activeRun.current &&
     (review.card.outcome === 'ready' || review.card.outcome === 'approved_not_started') && planBarSteps.length > 0 &&
     (review.card.outcome === 'approved_not_started' || review.card.available_actions.includes('approve-execute')));
   const planBarRows = planBarShown ? (rows < 18 ? 3 : Math.min(6, planBarSteps.length) + 3) : 0;
-  const planProgressVisible = Boolean(planProgress && planProgress.steps.length) && !compactQuit && !planBarShown && !state.approval && !review.focused &&
+  const planProgressVisible = Boolean(planProgress && planProgress.steps.length) && !compactQuit && !planBarShown && !planListOpen && !state.approval && !review.focused &&
     !revision.mode && !contextOpen && !planOpen && !detailEntry && !historyVisible && !reading && !quitting && rows >= 18;
-  const planProgressRows = planProgressVisible ? Math.min(6, planProgress!.steps.length) + 1 : 0;
+  const planProgressView = planProgressVisible && planProgress ? buildPlanProgressView(planProgress, columns, rows) : null;
+  const planProgressRows = planProgressView?.rows ?? 0;
   const followupButtons: {action: 'tasks' | 'followups' | 'parent'; label: string}[] = [
     ...(onDetach ? [{action: 'parent' as const, label: '返回原会话'}] : []),
     ...(navigationAvailable ? [{action: 'tasks' as const, label: '任务'}] : []),
@@ -518,12 +520,13 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
       ...transcriptLines({...state, entries: history.records.map((snapshot, index) => ({id: -index - 1, kind: 'notice' as const, inspection: snapshot,
         text: `${historyIndex === index ? '› ' : `${index + 1}. `}${snapshot.scope.objective}\n${snapshot.scope.status === 'unknown' ? '未取得结束结果' : snapshot.verification.verified === true ? '已验证' : snapshot.verification.verified === false ? '验证未通过' : '未验证'} · ${snapshot.scope.requestId}${snapshot.scope.segment ? ' · 段 ' + snapshot.scope.segment : ''}`}))}, bodyColumns, null),
     ];
+    if (planListOpen) return state.planProgress ? planListLines(state.planProgress, bodyColumns) : [];
     if (contextOpen) return contextLines(state.contextSnapshots, contextSelection, bodyColumns);
     if (planOpen) return planLines.flatMap((line, index) =>
       textLines(`${index === planSelection ? '› ' : '  '}${line}`, bodyColumns));
     if (detailEntry) return detailLines(detailEntry, bodyColumns);
     return isEmpty ? welcomeLines(state, bodyColumns) : transcript;
-  }, [history, historyIndex, historyVisible, state.approval, approvalView, approvalExpanded, compactApproval, revision, review, contextOpen, planOpen, planLines, planSelection, state.contextSnapshots, contextSelection, detailEntry, bodyColumns, isEmpty, transcript]);
+  }, [history, historyIndex, historyVisible, state.approval, approvalView, approvalExpanded, compactApproval, revision, review, contextOpen, planListOpen, state.planProgress, planOpen, planLines, planSelection, state.contextSnapshots, contextSelection, detailEntry, bodyColumns, isEmpty, transcript]);
   const maximum = Math.max(0, lines.length - bodyRows);
   const top = overlayKey ? Math.min(overlayScroll.key === overlayKey ? overlayScroll.top : 0, maximum) :
     isEmpty ? Math.min(scroll.top, maximum) : scroll.follow ? maximum : Math.min(scroll.top, maximum);
@@ -792,6 +795,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
     } catch {}
   }, [state.workspace]);
   useEffect(() => {setPlanBarIndex(0); setPlanBarHidden(false);}, [review.key, Boolean(review.card)]);
+  useEffect(() => {if (!state.planProgress) setPlanListOpen(false);}, [state.planProgress]);
   useEffect(() => {setInspectionSelection(null); setInspectionFocused(false); setInspectionMounted(false);}, [state.workspace, state.sessionId]);
   useEffect(() => () => {
     if (state.workspace) removeSidebarSignal(state.workspace, sidebarOwner);
@@ -1593,6 +1597,12 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
       return;
     }
     if (inspectionVisible || followupsVisible || navigationVisible || sessionNavVisible || permissionPanelVisible || secondaryPanelVisible || terminalTooSmall) return;
+    if (key.ctrl && keyInput === 'l' && !state.approval && !quitting && (planListOpen || (state.planProgress && !overlayKey))) {
+      setPlanListOpen(open => !open);
+      if (!planListOpen) setOverlayScroll({key: 'plan-list', top: 0});
+      return;
+    }
+    if (key.escape && planListOpen) {setPlanListOpen(false); return;}
     if (planBarShown && review.card) {
       const step = planBarSteps[planBarSelected];
       const prefillStep = (command: string, label: string) => {
@@ -2524,10 +2534,10 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
       (state.activeId && runModeLabel ? `${columns < 60 ? '本次' + compactModeLabel : '本次：' + runModeLabel} · ` : !state.activeId && state.planModeKnown && state.planMode.active ? '计划模式 · ' : '') +
       (state.planModeKnown ? nextModeTitle + ' · ' : '');
   const restoredIdle = state.resumed && !state.hasStartedRun && state.phase === 'idle';
-  const paneTitle = historyVisible ? `历史结果 · 第 ${history.previous.length + 1} 页 · ${position}` : state.approval ? `等待审批 · ${approvalFocused ? '审批焦点' : '草稿焦点'} · ${position}` : revision.mode === 'history' ? `修订记录 · 第 ${(revision.history?.previous.length ?? 0) + 1} 页 · ${revision.history?.records.length ? revision.history.index + 1 : 0}/${revision.history?.records.length ?? 0}` : revision.mode ? `修订 v${revision.record?.target.plan_version} · ${revision.mode === 'confirm' ? '确认反馈' : '修订状态'} · ${position}` : review.focused ? `计划 v${review.card?.target?.plan_version} · ${review.body ? `正文 ${review.pageNumber}${review.lastPage ? '末页' : '页'} · ${position}` : '审阅焦点'}` : planModeTitle + goalTitle + (contextOpen ? `上下文分区 · ${position}` : planOpen ? `计划 · ${position}` : detailEntry ? `工具详情 · ${position}` : isEmpty ? '工作台首页 · 输入任务开始' : `对话 · ${reading ? '阅读焦点 · ' : ''}${scroll.follow ? '跟随最新' : `回看 · 下方 ${maximum-top} 行`} · ${position}`);
+  const paneTitle = planListOpen ? `计划执行 · v${planProgress?.plan.version ?? '?'} · ${planProgress?.done ?? 0}/${planProgress?.total ?? 0} 步 · ${position}` : historyVisible ? `历史结果 · 第 ${history.previous.length + 1} 页 · ${position}` : state.approval ? `等待审批 · ${approvalFocused ? '审批焦点' : '草稿焦点'} · ${position}` : revision.mode === 'history' ? `修订记录 · 第 ${(revision.history?.previous.length ?? 0) + 1} 页 · ${revision.history?.records.length ? revision.history.index + 1 : 0}/${revision.history?.records.length ?? 0}` : revision.mode ? `修订 v${revision.record?.target.plan_version} · ${revision.mode === 'confirm' ? '确认反馈' : '修订状态'} · ${position}` : review.focused ? `计划 v${review.card?.target?.plan_version} · ${review.body ? `正文 ${review.pageNumber}${review.lastPage ? '末页' : '页'} · ${position}` : '审阅焦点'}` : planModeTitle + goalTitle + (contextOpen ? `上下文分区 · ${position}` : planOpen ? `计划 · ${position}` : detailEntry ? `工具详情 · ${position}` : isEmpty ? '工作台首页 · 输入任务开始' : `对话 · ${reading ? '阅读焦点 · ' : ''}${scroll.follow ? '跟随最新' : `回看 · 下方 ${maximum-top} 行`} · ${position}`);
   const goalHint = goal ? `${goalStatusText(goal)} · ` : '';
   const planModeHint = state.planMode.active && state.phase === 'idle' ? (columns < 60 ? '/plan off 退出计划 · ' : '下次普通输入只读规划 · /plan off 退出 · ') : '';
-  const hint = historyVisible ? 'Tab选结果 Enter验证 ←→翻页 Esc返回' : state.approval ? (approvalFocused ? 'Enter确认 Esc草稿 Ctrl+C停止' : !input.trim() ? 'y允许 n拒绝 Tab更多 Ctrl+C' : 'Tab选按钮 · Ctrl+C停止') : revision.mode === 'history' ? '↑↓记录 PgUp/Dn翻页 Tab动作 Esc返回' : revision.mode ? (revision.mode === 'edit' ? 'Enter下一步 Ctrl+J换行 Esc返回' : '点击/Tab选择 Enter确认 Esc返回') : review.focused ? (review.body ? (columns < 60 ? '←前页 →后页 a动作 Esc草稿' : '←前页 →后页 · ↑↓滚动 · Ctrl+Y复制本页 · a动作 Esc草稿') : columns < 60 ? '↑↓选择 Enter确认 Esc草稿' : '↑↓选择 Enter确认 Esc草稿 · ←→切换计划') : review.card ? 'Ctrl+R审阅 · Ctrl+C停止 · Ctrl+Q退出' : planModeHint + goalHint + (contextOpen ? '←/→ 选快照 · l 最新 · ↑↓/滚轮 翻阅 · Esc 返回' : planOpen ? '↑↓ 选择 · s步骤 · t改标题 · k改类型 · c审批卡 · v版本 · d比较 · a验收 · e修订 · r提反馈 · m审阅稿 · b后台 · y批准 · n拒绝 · Enter执行 · PgUp/PgDn · Esc 返回' : detailEntry ? '滚轮/↑↓ 翻阅 · Home/End 首尾 · Esc 返回' :
+  const hint = planListOpen ? '↑↓滚动 PgUp/PgDn翻页 Home/End首尾 Esc返回' : historyVisible ? 'Tab选结果 Enter验证 ←→翻页 Esc返回' : state.approval ? (approvalFocused ? 'Enter确认 Esc草稿 Ctrl+C停止' : !input.trim() ? 'y允许 n拒绝 Tab更多 Ctrl+C' : 'Tab选按钮 · Ctrl+C停止') : revision.mode === 'history' ? '↑↓记录 PgUp/Dn翻页 Tab动作 Esc返回' : revision.mode ? (revision.mode === 'edit' ? 'Enter下一步 Ctrl+J换行 Esc返回' : '点击/Tab选择 Enter确认 Esc返回') : review.focused ? (review.body ? (columns < 60 ? '←前页 →后页 a动作 Esc草稿' : '←前页 →后页 · ↑↓滚动 · Ctrl+Y复制本页 · a动作 Esc草稿') : columns < 60 ? '↑↓选择 Enter确认 Esc草稿' : '↑↓选择 Enter确认 Esc草稿 · ←→切换计划') : review.card ? 'Ctrl+R审阅 · Ctrl+C停止 · Ctrl+Q退出' : planModeHint + goalHint + (contextOpen ? '←/→ 选快照 · l 最新 · ↑↓/滚轮 翻阅 · Esc 返回' : planOpen ? '↑↓ 选择 · s步骤 · t改标题 · k改类型 · c审批卡 · v版本 · d比较 · a验收 · e修订 · r提反馈 · m审阅稿 · b后台 · y批准 · n拒绝 · Enter执行 · PgUp/PgDn · Esc 返回' : detailEntry ? '滚轮/↑↓ 翻阅 · Home/End 首尾 · Esc 返回' :
     reading ? '阅读焦点：↑↓滚动  空格翻页  End最新  Esc输入  Ctrl+Q退出' :
       state.phase === 'running' ? (columns < 60 ? 'Enter 纠偏 · /followup 排队 · Ctrl+C 停止' : 'Enter 提交纠偏  /followup 文本 排队后续  Ctrl+C 停止  Ctrl+Q 退出') :
         state.lastStatus === 'done' ? (columns < 60 ? `${doneText} · /evidence 核对 · /resume 续做` : `${doneText}  /evidence 证据  /resume 续做  /copy 复制回复  Ctrl+Q 退出`) :
@@ -2546,7 +2556,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
   const statusBase = `${phase}${resultReason(state.lastResult) ? ` · ${resultReason(state.lastResult)}` : ''}${metricsText(state) ? `  ·  ${metricsText(state)}` : ''}`;
   const statusLineText = feedback || statusBase;
   const composerDisabled = Boolean(submissionBlock);
-  const composerPlaceholder = state.approval ? (approvalFocused ? '审批已聚焦 · Enter 确认 · Esc 草稿' : '草稿可编辑 · 点击按钮或 Tab 选择') : revision.mode ? '普通草稿已保留 · 返回后继续编辑' : review.focused ? '计划审阅已聚焦 · Esc 返回草稿' : contextOpen ? '上下文详情已聚焦，Esc 返回输入' : detailEntry ? '工具详情已聚焦，Esc 返回输入' : reading ? '正在阅读历史，Esc 返回输入' :
+  const composerPlaceholder = planListOpen ? '计划执行清单已聚焦 · Esc 返回输入' : state.approval ? (approvalFocused ? '审批已聚焦 · Enter 确认 · Esc 草稿' : '草稿可编辑 · 点击按钮或 Tab 选择') : revision.mode ? '普通草稿已保留 · 返回后继续编辑' : review.focused ? '计划审阅已聚焦 · Esc 返回草稿' : contextOpen ? '上下文详情已聚焦，Esc 返回输入' : detailEntry ? '工具详情已聚焦，Esc 返回输入' : reading ? '正在阅读历史，Esc 返回输入' :
     state.phase === 'closed' ? '可以回看已有记录，退出后重新启动' : state.phase === 'starting' ? '可以先写下任务目标与约束' : state.phase === 'stopping' ? '正在停止 · 收到停止结果后可发送' :
       state.phase === 'running' ? '运行中：Enter 提交纠偏，/followup 文本排队后续' :
         state.lastStatus === 'done' ? `${doneText} · 输入新任务，或 /resume 续做` :
@@ -2593,7 +2603,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
         columns={followupButtonsWidth} height={1} palette={palette} targets={followupTargets}/>
       <Text color={followups.paused || followups.problem ? palette.warning : palette.secondary}>{fitText(followups.problem || followups.paused || (followups.count ? '成功后按序继续' : onDetach ? '原草稿保留' : '查看本会话任务'), Math.max(1, columns - followupButtonsWidth))}</Text>
     </Box> : null}
-    {!compactQuit && planProgressVisible && planProgress ? <PlanProgressPanel progress={planProgress} columns={columns} rows={planProgressRows} palette={palette}/> : null}
+    {!compactQuit && planProgressVisible && planProgressView ? <PlanProgressPanel rows={planProgressView.rows} lines={planProgressView.lines} palette={palette}/> : null}
     {quitPrompt ? <Box flexDirection="column" backgroundColor={palette.surfaces.warning} height={Math.max(composerRows + 2, quitPrompt.options.length + 3)} width={columns} paddingX={2} paddingY={1} flexShrink={0}>
       <Text color={palette.foreground} bold>退出选项（↑↓ 选择 · Enter 确认 · Esc 取消）</Text>
       {quitPrompt.options.map((option, index) => <Text key={option.label} color={option.disabled ? palette.secondary : index === quitPrompt.index ? palette.warning : palette.foreground}>
@@ -2629,7 +2639,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
       <ActionButtons buttons={inspectionButtons} selected={null} columns={columns < 48 ? 10 : 14} height={1} palette={palette} targets={inspectionTargets}/>
       <Text color={feedback && feedbackTone === 'error' ? palette.error : palette.foreground}>{fitText(statusLineText, Math.max(1, columns - (columns < 48 ? 10 : 14)))}</Text>
     </Box> : <Text color={state.error || state.phase === 'closed' || (feedback && feedbackTone === 'error') ? palette.error : state.approval ? palette.warning : palette.foreground}>{fitText(statusLineText, columns)}</Text>}
-    <Text color={palette.secondary}>{fitText((recordHint && !state.approval && !review.focused && !review.card && !revision.mode && !contextOpen && !planOpen && !detailEntry && !historyVisible ? recordHint : '') || (onDetach && !readerFocused ? '任务草稿本窗口保留 · 返回原会话' : restoredIdle && columns < 60 && !readerFocused ? '未发送草稿需重输 · /resume 续做' : hint), columns)}</Text>
+    <Text color={palette.secondary}>{fitText((recordHint && !state.approval && !review.focused && !review.card && !revision.mode && !contextOpen && !planOpen && !planListOpen && !detailEntry && !historyVisible ? recordHint : '') || (onDetach && !readerFocused ? '任务草稿本窗口保留 · 返回原会话' : restoredIdle && columns < 60 && !readerFocused ? '未发送草稿需重输 · /resume 续做' : hint), columns)}</Text>
   </Box>
     {navigation.open ? <Box display={navigationVisible ? 'flex' : 'none'}><TaskNavigationPanel navigation={navigation} columns={columns} rows={rows} palette={palette}
       active={navigationVisible} onConnect={!attach ? connectSelectedTask : undefined} connecting={taskConnection.pending || handoff?.mode === 'wait'} onCancel={cancelHandoff}

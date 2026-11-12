@@ -320,6 +320,9 @@ def test_bound_plan_step_tools_record_evidence_and_complete(tmp_path, monkeypatc
         assert any(event["steps"][0]["status"] == "in_progress" for event in progress)
         assert progress[-1]["done"] == 1 and progress[-1]["steps"][0]["status"] == "done"
         assert progress[-1]["steps"][0]["evidence_count"] >= 1
+        assert isinstance(progress[-1]["steps"][0]["depends_on"], list)
+        assert isinstance(progress[-1]["steps"][0]["acceptance"], str)
+        assert isinstance(progress[-1]["steps"][0]["verification"], bool)
         assert progress[-1]["plan"]["plan_id"] == "pl-1"
         assert progress[-1]["plan"]["task_id"] == plan_task
         assert progress[-1]["plan"]["version"] == 1

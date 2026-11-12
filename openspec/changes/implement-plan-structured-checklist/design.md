@@ -41,6 +41,14 @@
 - attach 一个任务时，若任务绑定了已批准计划且有 segment/ledger，bootstrap 在 `task_snapshot` 后追加 `plan_progress`（id 取最近 segment run_id，来自 `StepLedger`），TUI 直接显示只读步骤进度，不需要等下一次运行。
 - 计划跑完/结束后进度面板继续常驻；attach 离线和在线路径都使用同一份 ledger 快照。
 
+## 决策 8（2026-11-12）：长计划折叠、自适应与 Ctrl+L 全屏清单
+
+- 常驻面板不再固定窗口：已完成的步骤折叠成一行 `✓ 已完成 N 步（含跳过 M）`；面板只展示当前及未完成步骤，行数按终端高度自适应（最多 5–9 行），当前步骤额外展开 1–2 行完整标题与文件/依赖/验收/验证标记。
+- 未完成步骤超过预算时显示 `… 还有 N 步 · Ctrl+L 查看全部`；面板标题在足够宽时提示 `Ctrl+L 全部`。
+- `Ctrl+L` 打开只读全屏清单：所有步骤、状态、完整标题（换行）、文件、依赖、验收、验证标记与证据数；`↑↓/PgUp/PgDn/Home/End` 滚动，`Esc` 返回，执行中实时更新；不调用模型、不改变执行。
+- 紧凑面板不接收输入，不抢草稿；全屏清单通过既有 overlayKey/overlayScroll 通道，不新增输入焦点。
+- 计划进度 payload 增补 `depends_on/acceptance/verification`，供全屏清单与当前步详情使用；仍限 200 步。
+
 ## 决策 5：兼容与限制
 
 - `plan_review.steps` 可选；旧 TUI 忽略额外字段，新 TUI 对缺失 `steps` 的 review 仍显示原摘要。

@@ -215,6 +215,8 @@ def progress_payload(plan: Plan, ledger: StepLedger) -> dict[str, Any]:
         steps.append({
             "step_id": step.step_id, "title": step.title, "kind": step.kind,
             "risk": step.risk, "files": list(step.files),
+            "depends_on": list(step.depends_on), "acceptance": step.acceptance,
+            "verification": bool(step.verification),
             "status": record.status, "evidence_count": len(record.evidence),
         })
     return {

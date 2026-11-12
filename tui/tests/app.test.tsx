@@ -8,7 +8,7 @@ import React from 'react';
 import {cleanup, render} from 'ink-testing-library';
 import {App} from '../src/app.js';
 import type {BackendClient} from '../src/backend.js';
-import type {RunTaskMeta, ServerEvent} from '../src/protocol.js';
+import type {PlanProgressStep, RunTaskMeta, ServerEvent} from '../src/protocol.js';
 import {initialState, type ViewState} from '../src/view-state.js';
 import stringWidth from 'string-width';
 import {contextSnapshot, loadedContextSnapshot} from './context-fixture.js';
@@ -1885,11 +1885,11 @@ test('plan review and live progress render a structured subtask checklist', asyn
   await pause(30);
   const frame = lastFrame() ?? '';
   assert.match(frame, /计划 v1 · 1\/2 步 · 当前 s2/);
-  assert.match(frame, /✓ s1 读入口/);
+  assert.match(frame, /✓ 已完成 1 步/);
   assert.match(frame, /◐ s2 改实现/);
   client.emit({type: 'done', id: 'run-1', result: {text: '完成', steps: 2, status: 'done', usage: {}, cost_usd: 0, run_id: 'run-1', stop_reason: ''}});
   await pause(30);
-  assert.match(lastFrame() ?? '', /✓ s1 读入口/, '完成的计划进度应常驻');
+  assert.match(lastFrame() ?? '', /✓ 已完成 1 步/, '完成的计划进度应常驻');
 });
 
 test('selecting a plan step offers prefilled step-edit commands', async () => {
@@ -1965,7 +1965,44 @@ test('an attached task replays its approved plan step progress', async () => {
     done: 1, total: 2});
   await pause(30);
   assert.match(lastFrame() ?? '', /计划 v1 · 1\/2 步 · 当前 s2/);
-  assert.match(lastFrame() ?? '', /✓ s1 读入口/);
+  assert.match(lastFrame() ?? '', /✓ 已完成 1 步/);
+  assert.match(lastFrame() ?? '', /◐ s2 改实现/);
+});
+
+test('long plans collapse completed steps and open a full scrollable checklist with Ctrl+L', async () => {
+  const {client, stdin, lastFrame} = await mount(undefined, undefined, {columns: 60, rows: 24});
+  await enter(stdin, 'work');
+  const steps: PlanProgressStep[] = Array.from({length: 12}, (_, index) => ({
+    step_id: `s${index + 1}`, title: `步骤${index + 1}`, kind: 'read', risk: 'read', files: [`src/file-${index + 1}.ts`],
+    status: index < 6 ? 'done' : index === 6 ? 'in_progress' : 'pending', evidence_count: index < 6 ? 1 : 0,
+    depends_on: [], acceptance: '', verification: false,
+  }));
+  steps[6]!.title = '当前步骤标题'.repeat(8) + '结论';
+  steps[6]!.files = ['src/auth/middleware.ts'];
+  steps[6]!.depends_on = ['s6'];
+  steps[6]!.acceptance = '认证端到端测试通过';
+  client.emit({type: 'plan_progress', id: 'run-1',
+    plan: {plan_id: 'pl-1', task_id: 't-20261108-000000-abcdef', version: 1, status: 'executing', objective: '执行长计划'},
+    steps, done: 6, total: 12});
+  await pause(30);
+  const compact = lastFrame() ?? '';
+  assert.match(compact, /✓ 已完成 6 步/);
+  assert.match(compact, /… 还有 \d+ 步 · Ctrl\+L 查看全部/);
+  // 当前步骤在常驻面板里展开完整标题；已完成步骤折叠。
+  assert.match(compact, /结论/);
+  assert.doesNotMatch(compact, /✓ s1 步骤1/);
+  stdin.write('\u000c'); await pause(30);
+  const full = lastFrame() ?? '';
+  assert.match(full, /计划执行 · v1 · 6\/12 步/);
+  // 全屏清单展开所有已完成步骤；Home/End 跳到首尾查看长步骤。
+  assert.match(full, /✓ s1 步骤1/);
+  stdin.write('\u001b[F'); await pause(30);
+  const tail = lastFrame() ?? '';
+  assert.match(tail, /测试通过/);
+  assert.match(tail, /依赖 s6/);
+  stdin.write('\u001b'); await pause(30);
+  assert.doesNotMatch(lastFrame() ?? '', /计划执行 · v1/);
+  assert.match(lastFrame() ?? '', /✓ 已完成 6 步/);
 });
 
 test('Ctrl+G also opens the Git sidebar', async () => {

@@ -39,6 +39,7 @@ const help = `vibe Ink — 个人编码工作台
 Enter 发送任务；Ctrl+J 换行；支持 kitty 键盘协议的终端（如 Ghostty）也可用 Shift+Enter 换行。
 滚轮 / 触控板在对话区滚动；PageUp / PageDown 翻页；鼠标拖选文本，松开即复制。
 Ctrl+R 切换阅读与输入；阅读时 ↑↓ 滚动，Esc 回输入。
+执行计划时，Ctrl+L 打开完整计划清单（只读，↑↓/PgUp/PgDn 滚动，Esc 返回）。
 Ctrl+P / Ctrl+N 逐行；Ctrl+Home / Ctrl+End 到首尾并跟随最新。
 终端支持时，按住 Shift 拖选文字。
 输入 / 按中文或前缀查找命令；↑↓ 选择，Enter 确认，Tab 只填充；缺少参数时先填写。

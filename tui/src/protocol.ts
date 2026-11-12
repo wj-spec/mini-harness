@@ -223,6 +223,7 @@ export type PlanProgressStepStatus = 'pending' | 'in_progress' | 'blocked' | 'do
 export interface PlanProgressStep {
   step_id: string; title: string; kind: 'read' | 'edit' | 'run' | 'verify';
   risk: 'read' | 'write' | 'exec' | 'network'; files: string[];
+  depends_on?: string[]; acceptance?: string; verification?: boolean;
   status: PlanProgressStepStatus; evidence_count: number;
 }
 export interface PlanProgress {
@@ -803,6 +804,9 @@ function planProgressPayload(value: Record<string, unknown>): boolean {
   return value.steps.every(step => record(step) && typeof step.step_id === 'string' && step.step_id.length > 0 &&
     typeof step.title === 'string' && step.title.length > 0 && planStepKind(step.kind) && planStepRisk(step.risk) &&
     Array.isArray(step.files) && step.files.every(item => typeof item === 'string') &&
+    (step.depends_on === undefined || (Array.isArray(step.depends_on) && step.depends_on.every(item => typeof item === 'string'))) &&
+    (step.acceptance === undefined || (typeof step.acceptance === 'string' && step.acceptance.length <= 4000)) &&
+    (step.verification === undefined || typeof step.verification === 'boolean') &&
     ['pending', 'in_progress', 'blocked', 'done', 'deviated', 'skipped'].includes(String(step.status)) &&
     Number.isSafeInteger(step.evidence_count) && Number(step.evidence_count) >= 0);
 }
