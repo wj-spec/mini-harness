@@ -1912,6 +1912,62 @@ test('selecting a plan step offers prefilled step-edit commands', async () => {
   assert.doesNotMatch(lastFrame() ?? '', /Enter 执行/);
 });
 
+test('y and n decide an approval directly when the draft is empty', async () => {
+  for (const [key, expected] of [['y', 'once'], ['n', 'deny']] as const) {
+    const {client, stdin, lastFrame} = await mount();
+    await enter(stdin, 'work');
+    client.emit({type: 'approval_request', id: 'run-1', approval_id: 'approval-1',
+      call: {id: 'tool-1', name: 'write_file', args: {path: 'a.txt'}}, preview: '写入 a.txt'});
+    await pause(20);
+    assert.match(lastFrame() ?? '', /y允许 n拒绝/);
+    stdin.write(key); await pause(30);
+    assert.deepEqual(client.approvals, [['approval-1', expected]]);
+  }
+});
+
+test('approval hotkeys never consume a non-empty draft', async () => {
+  const {client, stdin, lastFrame} = await mount();
+  await enter(stdin, 'work');
+  stdin.write('我的草稿'); await pause(20);
+  client.emit({type: 'approval_request', id: 'run-1', approval_id: 'approval-1',
+    call: {id: 'tool-1', name: 'write_file', args: {path: 'a.txt'}}, preview: '写入 a.txt'});
+  await pause(20);
+  stdin.write('y'); await pause(20);
+  assert.deepEqual(client.approvals, []);
+  assert.match(lastFrame() ?? '', /我的草稿y/);
+});
+
+test('a selected approval button confirms with Enter without focusing the panel', async () => {
+  const {client, stdin, lastFrame} = await mount();
+  await enter(stdin, 'work');
+  client.emit({type: 'approval_request', id: 'run-1', approval_id: 'approval-1',
+    call: {id: 'tool-1', name: 'write_file', args: {path: 'a.txt'}}, preview: '写入 a.txt'});
+  await pause(20);
+  assert.match(lastFrame() ?? '', /允许本次/);
+  stdin.write('\t'); await pause(20);
+  assert.match(lastFrame() ?? '', /Enter 确认/);
+  stdin.write('\r'); await pause(20);
+  assert.deepEqual(client.approvals, [['approval-1', 'once']]);
+});
+
+test('an attached task replays its approved plan step progress', async () => {
+  const client = new MockClient();
+  const {lastFrame} = render(<App client={client as unknown as BackendClient} windowSize={{columns: 100, rows: 40}}/>);
+  await pause(20);
+  client.emit({type: 'ready', workspace: '/repo', model: 'fake', session_id: 's', capabilities: ['attach', 'tasks']});
+  client.emit({type: 'task_snapshot', file_source: null, task: {task_id: 't-20261108-000000-abcdef', kind: 'run',
+    status: 'running', segment: 1, run_id: 'run-9', objective: '执行计划', goal_id: null,
+    mode: 'act', plan_id: 'pl-1', plan_version: 1, worktree: null}, approvals: []});
+  client.emit({type: 'plan_progress', id: 'run-9',
+    plan: {plan_id: 'pl-1', task_id: 't-20261108-000000-abcdef', version: 1, status: 'executing', objective: '执行计划'},
+    steps: [{step_id: 's1', title: '读入口', kind: 'read', risk: 'read', files: [], status: 'done', evidence_count: 1},
+      {step_id: 's2', title: '改实现', kind: 'edit', risk: 'write', files: ['a.ts'], status: 'in_progress', evidence_count: 0}],
+    done: 1, total: 2});
+  await pause(30);
+  assert.match(lastFrame() ?? '', /计划 v1 · 1\/2 步 · 当前 s2/);
+  assert.match(lastFrame() ?? '', /✓ s1 读入口/);
+});
+
 test('Ctrl+G also opens the Git sidebar', async () => {
   const calls: string[] = [];
   const client = new MockClient();

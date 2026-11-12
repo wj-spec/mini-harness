@@ -1638,7 +1638,24 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
         return;
       }
       if (key.escape) {setApprovalSelection(null); setApprovalMore(null); setFeedback(''); return;}
-      if (!approvalFocused) return;
+      // 审批是阻塞态：空草稿时 y/n 直接决定（允许本次/拒绝），有草稿时按键仍属于草稿。
+      if (!key.ctrl && !key.meta && !input.trim()) {
+        const direct = keyInput === 'y' ? (decisions.includes('once') ? 'once' : null)
+          : keyInput === 'n' ? (decisions.includes('deny') ? 'deny' : null) : null;
+        if (direct) {
+          activateApproval(direct);
+          // 输入框可能先收到同一个字母；快捷决定后不要把 y/n 留进草稿。
+          if (keyInput === 'y' || keyInput === 'n') setInput(previous => previous.trim() === keyInput ? '' : previous);
+          return;
+        }
+      }
+      if (!approvalFocused) {
+        // Tab/点击选中按钮后，无需 Ctrl+R 聚焦即可用 Enter 确认；有草稿时保持草稿优先。
+        if (key.return && !key.ctrl && !key.meta && approvalSelection?.decision && !input.trim()) {
+          activateApproval(approvalSelection.decision);
+        }
+        return;
+      }
       if (key.return && !key.ctrl && !key.meta) {
         const decision = approvalSelection?.decision;
         if (!decision) {setFeedback('先选择授权范围，再按 Enter 确认'); return;}
@@ -2510,7 +2527,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
   const paneTitle = historyVisible ? `历史结果 · 第 ${history.previous.length + 1} 页 · ${position}` : state.approval ? `等待审批 · ${approvalFocused ? '审批焦点' : '草稿焦点'} · ${position}` : revision.mode === 'history' ? `修订记录 · 第 ${(revision.history?.previous.length ?? 0) + 1} 页 · ${revision.history?.records.length ? revision.history.index + 1 : 0}/${revision.history?.records.length ?? 0}` : revision.mode ? `修订 v${revision.record?.target.plan_version} · ${revision.mode === 'confirm' ? '确认反馈' : '修订状态'} · ${position}` : review.focused ? `计划 v${review.card?.target?.plan_version} · ${review.body ? `正文 ${review.pageNumber}${review.lastPage ? '末页' : '页'} · ${position}` : '审阅焦点'}` : planModeTitle + goalTitle + (contextOpen ? `上下文分区 · ${position}` : planOpen ? `计划 · ${position}` : detailEntry ? `工具详情 · ${position}` : isEmpty ? '工作台首页 · 输入任务开始' : `对话 · ${reading ? '阅读焦点 · ' : ''}${scroll.follow ? '跟随最新' : `回看 · 下方 ${maximum-top} 行`} · ${position}`);
   const goalHint = goal ? `${goalStatusText(goal)} · ` : '';
   const planModeHint = state.planMode.active && state.phase === 'idle' ? (columns < 60 ? '/plan off 退出计划 · ' : '下次普通输入只读规划 · /plan off 退出 · ') : '';
-  const hint = historyVisible ? 'Tab选结果 Enter验证 ←→翻页 Esc返回' : state.approval ? (approvalFocused ? 'Enter确认 Esc草稿 Ctrl+C停止' : '点击按钮 / Tab选择 · Ctrl+C停止') : revision.mode === 'history' ? '↑↓记录 PgUp/Dn翻页 Tab动作 Esc返回' : revision.mode ? (revision.mode === 'edit' ? 'Enter下一步 Ctrl+J换行 Esc返回' : '点击/Tab选择 Enter确认 Esc返回') : review.focused ? (review.body ? (columns < 60 ? '←前页 →后页 a动作 Esc草稿' : '←前页 →后页 · ↑↓滚动 · Ctrl+Y复制本页 · a动作 Esc草稿') : columns < 60 ? '↑↓选择 Enter确认 Esc草稿' : '↑↓选择 Enter确认 Esc草稿 · ←→切换计划') : review.card ? 'Ctrl+R审阅 · Ctrl+C停止 · Ctrl+Q退出' : planModeHint + goalHint + (contextOpen ? '←/→ 选快照 · l 最新 · ↑↓/滚轮 翻阅 · Esc 返回' : planOpen ? '↑↓ 选择 · s步骤 · t改标题 · k改类型 · c审批卡 · v版本 · d比较 · a验收 · e修订 · r提反馈 · m审阅稿 · b后台 · y批准 · n拒绝 · Enter执行 · PgUp/PgDn · Esc 返回' : detailEntry ? '滚轮/↑↓ 翻阅 · Home/End 首尾 · Esc 返回' :
+  const hint = historyVisible ? 'Tab选结果 Enter验证 ←→翻页 Esc返回' : state.approval ? (approvalFocused ? 'Enter确认 Esc草稿 Ctrl+C停止' : !input.trim() ? 'y允许 n拒绝 Tab更多 Ctrl+C' : 'Tab选按钮 · Ctrl+C停止') : revision.mode === 'history' ? '↑↓记录 PgUp/Dn翻页 Tab动作 Esc返回' : revision.mode ? (revision.mode === 'edit' ? 'Enter下一步 Ctrl+J换行 Esc返回' : '点击/Tab选择 Enter确认 Esc返回') : review.focused ? (review.body ? (columns < 60 ? '←前页 →后页 a动作 Esc草稿' : '←前页 →后页 · ↑↓滚动 · Ctrl+Y复制本页 · a动作 Esc草稿') : columns < 60 ? '↑↓选择 Enter确认 Esc草稿' : '↑↓选择 Enter确认 Esc草稿 · ←→切换计划') : review.card ? 'Ctrl+R审阅 · Ctrl+C停止 · Ctrl+Q退出' : planModeHint + goalHint + (contextOpen ? '←/→ 选快照 · l 最新 · ↑↓/滚轮 翻阅 · Esc 返回' : planOpen ? '↑↓ 选择 · s步骤 · t改标题 · k改类型 · c审批卡 · v版本 · d比较 · a验收 · e修订 · r提反馈 · m审阅稿 · b后台 · y批准 · n拒绝 · Enter执行 · PgUp/PgDn · Esc 返回' : detailEntry ? '滚轮/↑↓ 翻阅 · Home/End 首尾 · Esc 返回' :
     reading ? '阅读焦点：↑↓滚动  空格翻页  End最新  Esc输入  Ctrl+Q退出' :
       state.phase === 'running' ? (columns < 60 ? 'Enter 纠偏 · /followup 排队 · Ctrl+C 停止' : 'Enter 提交纠偏  /followup 文本 排队后续  Ctrl+C 停止  Ctrl+Q 退出') :
         state.lastStatus === 'done' ? (columns < 60 ? `${doneText} · /evidence 核对 · /resume 续做` : `${doneText}  /evidence 证据  /resume 续做  /copy 复制回复  Ctrl+Q 退出`) :

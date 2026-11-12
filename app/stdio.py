@@ -1253,29 +1253,10 @@ class _Connection:
             context = plan_context
             if context is None:
                 return
-            plan = context["plan"]
-            ledger = context["ledger"]
-            steps = []
-            for step in plan.steps[:200]:
-                try:
-                    record = ledger.record(step.step_id)
-                except Exception:
-                    continue
-                steps.append({
-                    "step_id": step.step_id, "title": step.title, "kind": step.kind,
-                    "risk": step.risk, "files": list(step.files),
-                    "status": record.status, "evidence_count": len(record.evidence),
-                })
-            payload = {
-                "plan": {"plan_id": plan.plan_id, "task_id": plan.task_id,
-                         "version": plan.version, "status": plan.status,
-                         "objective": plan.objective},
-                "steps": steps,
-                "done": sum(1 for step in steps if step["status"] == "done"),
-                "total": len(steps),
-            }
+            from app.runtime.plan_execution import progress_payload
             try:
-                self.send("plan_progress", request_id, **payload)
+                self.send("plan_progress", request_id,
+                          **progress_payload(context["plan"], context["ledger"]))
             except Exception:
                 pass
         profile = None

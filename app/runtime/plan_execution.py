@@ -205,6 +205,28 @@ def save_ledger(task_dir: str | Path, ledger: StepLedger) -> Path:
     return target
 
 
+def progress_payload(plan: Plan, ledger: StepLedger) -> dict[str, Any]:
+    """计划执行进度的线上投影：TUI 只读消费，不改变 ledger。"""
+    steps = []
+    for step in plan.steps[:200]:
+        record = ledger.steps.get(step.step_id)
+        if record is None:
+            continue
+        steps.append({
+            "step_id": step.step_id, "title": step.title, "kind": step.kind,
+            "risk": step.risk, "files": list(step.files),
+            "status": record.status, "evidence_count": len(record.evidence),
+        })
+    return {
+        "plan": {"plan_id": plan.plan_id, "task_id": plan.task_id,
+                 "version": plan.version, "status": plan.status,
+                 "objective": plan.objective},
+        "steps": steps,
+        "done": sum(1 for step in steps if step["status"] == "done"),
+        "total": len(steps),
+    }
+
+
 def load_ledger(task_dir: str | Path, plan_version: int) -> StepLedger:
     path = ledger_path(task_dir, plan_version)
     try:

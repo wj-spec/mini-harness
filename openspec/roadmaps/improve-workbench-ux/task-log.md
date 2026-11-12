@@ -37,6 +37,14 @@
 - **范围**：`app/stdio.py`（tool_call tier）、`tui/src/{protocol,view-state,workbench,commands,app,cli}.ts*`、新增 `history-locate.ts`/`locator-panel.tsx` 与 2 份测试；证据 `.vibe/ux-p10-history-2026-11-09/`。
 - **未完成**：跨会话全文检索/索引、rounds 账本深链、搜索高亮、真实终端与 Ghostty 真人/Owner Review；P10 不标整体验收。
 
+## 2026-11-12 · P3 审批单键与 attach 进度重放
+
+- **优化①审批**：审批阻塞态空草稿时 `y` 直接允许本次、`n` 直接拒绝；输入框可能先收到字母，快捷决定后立即清除，不污染草稿；有草稿时按键仍属草稿输入，避免误审批。Tab+Enter、点击、Ctrl+R 路径保留。
+- **优化②attach**：`AttachInspection.bootstrap` 在 `task_snapshot` 后，如果任务绑定了已批准计划且有 segment/ledger，追加 `plan_progress`（id 取最近 segment run_id，payload 来自共享的 `progress_payload`）；TUI 直接显示只读步骤进度，无需等下一次运行。stdio 的进度发送复用同一 helper。
+- **验证**：完整 Ink **747/747**、Python **1958**（1954 passed / 4 skipped）；真实 PTY 计划执行后两次审批用 `y` 完成，最终 `[计划验收] 已验证` 且进度面板 `✓ s1 … 已完成`。证据归档 `.vibe/ux-approval-attach-2026-11-12/`。
+- **范围**：`tui/src/app.tsx`、`app/runtime/plan_execution.py`、`app/runtime/attach_inspection.py`、`app/stdio.py`；测试 app/backend-integration 与 test_attach_inspection。
+- **未做**：重开（非 attach）一个正在执行的计划任务时仍不主动重放历史 step 进度（下一次运行绑定会重新发送）；P3 人工验收仍待改造后重跑。
+
 ## 2026-11-11 · P3 计划审阅栏与常驻进度（UX 二轮）
 
 - **反馈**：计划卡 → 执行链路太长（Ctrl+R → 选动作 → Enter）；计划展示不够凸显；希望计划显示在输入框、Enter 执行，可选中某一步审阅/修改；进度清单要常驻可看。

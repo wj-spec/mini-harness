@@ -134,3 +134,32 @@ def test_observer_inspection_replies_are_private_and_never_enter_execution_queue
     with tempfile.TemporaryDirectory(prefix='vibe-query-') as folder:
         asyncio.run(scenario(str(Path(folder) / 'socket')))
     assert before == {str(p): p.read_bytes() for p in session.root.rglob('*') if p.is_file()}
+
+
+def test_attach_bootstrap_replays_approved_plan_step_progress(tmp_path):
+    from app.runtime.attach_inspection import AttachInspection
+    from app.runtime.plan_execution import StepLedger, save_ledger
+
+    session = SessionStore.new(tmp_path, 'fake', purpose='test')
+    tasks = TaskStore(session.root)
+    task = tasks.create(kind='run', objective='执行计划', workspace=str(tmp_path), mode='act',
+                        plan_id='pl-attach', plan_version=1)
+    plan = Plan.from_dict({'task_id': task.task_id, 'plan_id': 'pl-attach', 'objective': '执行计划',
+                          'steps': [{'step_id': 's1', 'title': '读取代码', 'kind': 'read'},
+                                    {'step_id': 's2', 'title': '写入文件', 'kind': 'edit'}]})
+    propose_plan(tasks.task_dir(task.task_id), plan)
+    tasks.start_segment(task.task_id, run_id='run-attach-1')
+    ledger = StepLedger.from_plan(plan)
+    ledger.steps['s1'].status = 'done'
+    ledger.steps['s1'].evidence = [{'kind': 'manual', 'ref': 'README.md', 'ok': True}]
+    save_ledger(tasks.task_dir(task.task_id), ledger)
+
+    events = AttachInspection(session.root, task.task_id).bootstrap(offline=True, control=False)
+    progress = next(event for event in events if event['type'] == 'plan_progress')
+    assert progress['id'] == 'run-attach-1'
+    assert progress['plan'] == {'plan_id': 'pl-attach', 'task_id': task.task_id, 'version': 1,
+                                'status': 'proposed', 'objective': '执行计划'}
+    assert progress['done'] == 1 and progress['total'] == 2
+    assert progress['steps'][0]['status'] == 'done'
+    assert progress['steps'][0]['evidence_count'] == 1
+    assert progress['steps'][1]['status'] == 'pending'

@@ -35,6 +35,12 @@
 - 执行进度从「仅 live run 可见」改为**常驻**：只要当前计划有 `plan_progress` 且无覆盖层就显示，结束后保留 `已完成` 清单（最多 6 步窗口 + 标题计数），不再需要按键或 `/plan` 才能看进度。
 - 操作对比：进入执行 3 键（Ctrl+R→e→Enter）→ **1 键（Enter）**；看正文 2 键（Ctrl+R→b）→ **1 键（b）**；改某步从审阅焦点多步 → **↑↓ + m 预填**。
 
+## 决策 7（2026-11-12）：审批单键与 attach 进度重放
+
+- 审批是阻塞态：**草稿为空时**按 `y` 直接允许本次、`n` 直接拒绝（不再需要 Ctrl+R/Tab/Enter 多步）；有草稿时 `y/n` 仍属于草稿输入，避免误审批。Tab/Shift+Tab+Enter 与鼠标点击保留；快捷字母若被输入框先收到会立即清除，不污染草稿。
+- attach 一个任务时，若任务绑定了已批准计划且有 segment/ledger，bootstrap 在 `task_snapshot` 后追加 `plan_progress`（id 取最近 segment run_id，来自 `StepLedger`），TUI 直接显示只读步骤进度，不需要等下一次运行。
+- 计划跑完/结束后进度面板继续常驻；attach 离线和在线路径都使用同一份 ledger 快照。
+
 ## 决策 5：兼容与限制
 
 - `plan_review.steps` 可选；旧 TUI 忽略额外字段，新 TUI 对缺失 `steps` 的 review 仍显示原摘要。

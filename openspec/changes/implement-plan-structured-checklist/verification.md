@@ -50,6 +50,17 @@
 
 真实 PTY（100×40）冒烟：计划栏出现且含步骤行 → **单次 Enter** 启动执行 → 两次审批后结束 → 进度面板保留 `已完成`。证据：`.vibe/ux-plan-checklist-2026-11-11/pty-plan-bar.txt`。
 
+## 审批单键与 attach 进度重放（2026-11-12）
+
+| 边界 | 证据与结果 |
+|---|---|
+| 审批单键 | App 旅程：空草稿时 `y` → 允许本次、`n` → 拒绝，提示显示 `y允许 n拒绝 Tab更多`；有草稿时输入 `y` 仍进入草稿、不提交审批；快捷字母不会残留在草稿 |
+| Tab/点击兼容 | Tab 选择按钮 + Enter 确认、鼠标点击路径保持；`Ctrl+R` 聚焦与 Esc 语义不变 |
+| attach 重放 | Python：`AttachInspection.bootstrap` 在 task_snapshot 后发出 `plan_progress`，含 plan 身份、步骤状态与证据数；App 旅程：attach 收到进度后主区显示 `计划 v1 · 1/2 步 · 当前 s2` |
+| 真实 PTY | 计划执行后两次审批直接用 `y` 完成，最终 `[计划验收] 已验证` 且进度面板 `✓ s1 ... 已完成` |
+| 完整 Ink | **747/747 通过** |
+| 完整 Python | **1958 项 / 1954 passed / 4 skipped / 0 failed** |
+
 ## 未做 / 未确认
 
 - attach/resume 一个正在执行的计划任务时，历史 step 进度不会自动重放（需后续从 task_state 快照补充）；

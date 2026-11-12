@@ -102,7 +102,7 @@ class AttachInspection:
         except (OSError, ValueError):
             pass
         source = task_file_source(self.tasks.task_dir(self.task_id), self.workspace)
-        return [
+        events = [
             {'v': 1, 'type': 'ready', 'id': None, 'workspace': self.workspace,
              'file_source': source,
              'session_id': session.id, 'session_path': str(self.session_root), 'session_purpose': session.purpose or 'user',
@@ -116,3 +116,18 @@ class AttachInspection:
             *([{'v': 1, 'type': 'status', 'id': None, 'phase': 'idle'},
                {'v': 1, 'type': 'notice', 'id': None, 'message': 'worker 未连接，当前为离线结果只读；查看历史不会重新运行任务。'}] if offline else []),
         ]
+        # attach 时重放已批准计划的步骤快照，避免只能看到任务状态而看不到子任务进度。
+        if task.plan_id and task.plan_version and task.segments:
+            try:
+                from app.runtime.plan import find_plan
+                from app.runtime.plan_execution import load_ledger, progress_payload
+                found = find_plan(self.session_root, task.plan_id, int(task.plan_version))
+                if found is not None:
+                    task_dir, plan = found
+                    run_id = task.segments[-1].run_id
+                    if run_id:
+                        events.append({'v': 1, 'type': 'plan_progress', 'id': run_id,
+                                       **progress_payload(plan, load_ledger(task_dir, plan.version))})
+            except (OSError, ValueError, TypeError):
+                pass
+        return events

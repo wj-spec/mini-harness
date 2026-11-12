@@ -790,14 +790,7 @@ test('fake demo run requests approvals and completes through the real backend', 
       if (approvals > answered) {
         await waitFor(() => String(view.lastFrame()).includes('草稿焦点'));
         stdin.write('y');
-        await pause(50);
-        assert.equal(events.filter(event => event.type === 'approval_resolved').length, answered);
-        stdin.write('\u0012');
-        await waitFor(() => String(view.lastFrame()).includes('审批焦点'));
-        stdin.write('y');
-        await waitFor(() => String(view.lastFrame()).includes('已选择'));
-        assert.equal(events.filter(event => event.type === 'approval_resolved').length, answered);
-        stdin.write('\r');
+        await waitFor(() => events.filter(event => event.type === 'approval_resolved').length === answered + 1);
         answered += 1;
         await pause(100);
         continue;
