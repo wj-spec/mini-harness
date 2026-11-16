@@ -39,8 +39,7 @@ mini-harness 是一个开源的终端编码工作台，也是一份可以运行�
 
 ## 界面预览
 
-<!-- SCREENSHOT: 保存最新主工作台截图为 docs/assets/screenshots/workbench.png，然后将下方 .svg 改为 .png。 -->
-![主工作台截图位：项目、模型与编码对话](docs/assets/screenshots/workbench.svg)
+![主工作台：项目、模型与编码对话](docs/assets/workbench.png)
 
 <p align="center"><em>主工作台：从当前项目开始，在对话中阅读代码、提出修改并跟进结果。</em></p>
 
@@ -48,31 +47,21 @@ mini-harness 是一个开源的终端编码工作台，也是一份可以运行�
   <tr>
     <td width="33%" align="center"><strong>先审阅计划</strong></td>
     <td width="33%" align="center"><strong>再批准操作</strong></td>
-    <td width="33%" align="center"><strong>最后核对结果</strong></td>
+    <td width="33%" align="center"><strong>查看变更侧栏</strong></td>
   </tr>
   <tr>
-    <!-- SCREENSHOT: 对应 PNG 放入同目录后，将三个 src 的 .svg 改为 .png。 -->
-    <td><img src="docs/assets/screenshots/plan-review.svg" alt="计划审阅截图位"></td>
-    <td><img src="docs/assets/screenshots/approval.svg" alt="操作审批截图位"></td>
-    <td><img src="docs/assets/screenshots/verification.svg" alt="验证结果截图位"></td>
+    <td><a href="docs/assets/plan-review.png"><img src="docs/assets/plan-review.png" alt="计划审阅"></a></td>
+    <td><a href="docs/assets/approval.png"><img src="docs/assets/approval.png" alt="操作审批"></a></td>
+    <td><a href="docs/assets/verification.png"><img src="docs/assets/verification.png" alt="变更侧栏与计划、验证入口"></a></td>
   </tr>
   <tr>
     <td>看清步骤、目标文件与验收方式。</td>
     <td>核对即将执行的命令或文件修改。</td>
-    <td>检查验证回执与实际 Git diff。</td>
+    <td>在侧栏切换变更、计划与验证信息。</td>
   </tr>
 </table>
 
-以上为明确标注的截图占位，待替换为当前版本实拍。截图场景与替换方法见[截图指引](docs/assets/screenshots/README.md)。
-
-<details>
-<summary>查看已有工作台与 Git 侧栏截图（早期界面）</summary>
-
-![早期 mini-harness 工作台与 Git 变更侧栏](docs/assets/workbench.png)
-
-此图展示早期布局，当前版本的首页、计划和设置面板已有调整；侧栏表现依终端而异。
-
-</details>
+点击图片可查看原图。截图维护说明见[截图指引](docs/assets/screenshots/README.md)。
 
 ## 快速安装
 
