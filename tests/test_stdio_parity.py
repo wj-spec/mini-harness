@@ -895,3 +895,16 @@ def test_steer_requires_matching_active_run_and_nonempty_text(tmp_path):
         await c.close()
 
     asyncio.run(scenario())
+
+
+def test_acceptance_mode_labels_ready_and_explains_isolation(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_ACCEPTANCE", "1")
+    async def scenario():
+        connection = Connection(make_agent(tmp_path), tmp_path)
+        ready = await connection.until("ready")
+        assert ready.get("acceptance") is True
+        notice = await connection.until("notice")
+        assert "隔离验收环境" in notice["message"]
+        await connection.close()
+
+    asyncio.run(scenario())

@@ -1,9 +1,11 @@
-import {reviewKey, type PlanReviewResult, type PlanRevisionResult, type ReviewRef, type RunResult} from './protocol.js';
+import {validRunOutcome, type RunOutcome, reviewKey, type PlanReviewResult, type PlanRevisionResult, type ReviewRef, type RunResult} from './protocol.js';
 import {execution, reviewRef, type CommandExecution} from './protocol.js';
 import type {Entry} from './view-state.js';
 import path from 'node:path';
 
 export type InspectionVerification = {
+  outcome?: RunOutcome | null;
+  receipt?: string;
   requestId: string | null;
   status: RunResult['status'] | null;
   stopReason: string;
@@ -21,6 +23,7 @@ export function verificationInspection(inspection: RunInspection, entries: Entry
   const commands = inspection.scope.requestId ? entries.filter(entry => entry.kind === 'tool' &&
     entry.runId === inspection.scope.requestId && entry.call?.name === 'bash') : [];
   return {requestId: inspection.scope.requestId, status: result?.status ?? null,
+    outcome: validRunOutcome(result?.outcome) ? result.outcome : null, receipt: clip(result?.receipt ?? '', 12000),
     stopReason: clip(result?.stop_reason ?? '', 256), verified: result?.verified ?? null,
     completionAllowed: result?.completion?.allowed ?? null,
     completionMessages: (result?.completion?.messages ?? []).slice(0, 10).map(message => clip(message, 500)),
@@ -39,6 +42,7 @@ export function validInspectionVerification(value: unknown): value is Inspection
   const bool = (value: unknown) => value === null || typeof value === 'boolean';
   return (item.requestId === null || text(item.requestId, 256)) &&
     (item.status === null || ['done', 'stopped', 'cancelled', 'error', 'truncated'].includes(String(item.status))) &&
+    (item.receipt === undefined || text(item.receipt, 12000)) &&
     text(item.stopReason, 256) && bool(item.verified) && bool(item.completionAllowed) &&
     Number.isSafeInteger(item.omittedCommands) && Number(item.omittedCommands) >= 0 &&
     Array.isArray(item.completionMessages) && item.completionMessages.length <= 10 && item.completionMessages.every(message => text(message, 500)) &&

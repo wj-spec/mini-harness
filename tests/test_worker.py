@@ -144,6 +144,12 @@ def test_worker_goal_loop_continues_resource_stops(tmp_path, monkeypatch):
     assert exited["task_kind"] == "goal" and exited["mode"] == "goal"
 
 
+    frames = [json.loads(json.loads(line)["raw"]) for line in (store.task_dir(task.task_id) / "worker-events.jsonl").read_text().splitlines()]
+    results = [frame["result"] for frame in frames if frame.get("type") == "done"]
+    assert len(results) >= 2
+    assert results[0].get("continuing") is True
+    assert not results[-1].get("continuing", False)
+
 def test_worker_approval_timeout_fails_task_and_expires_inbox(tmp_path, monkeypatch):
     import asyncio
     monkeypatch.setenv("VIBE_ALLOW_NON_GIT", "1")
@@ -651,3 +657,23 @@ def test_clock_offset_env_is_bounded(monkeypatch):
     assert _clock_offset_seconds() == 0.0
     monkeypatch.setenv("VIBE_FAKE_TIME_OFFSET_SECONDS", str(10**9))
     assert _clock_offset_seconds() == 365 * 24 * 3600.0
+
+
+def test_real_worker_respects_exhausted_foreground_goal_snapshot(tmp_path):
+    from app.runtime.task_runtime import TaskRuntime
+    from app.runtime.agent import AgentResult
+    session = SessionStore.new(tmp_path, "fake", purpose="test")
+    store = TaskStore(session.root)
+    runtime = TaskRuntime(store, workspace=tmp_path)
+    runtime.goal_defaults = lambda: dict(max_segments=1,max_seconds=600,max_tokens=0,max_cost_usd=0)
+    first = runtime.prepare_run("foreground", {"kind":"goal","objective":"bounded"})
+    task = runtime.finish_run(first,AgentResult("pause",1,"stopped",stop_reason="max_steps"))
+    proc = subprocess.run(_worker_cmd(session,task),capture_output=True,text=True,
+        cwd=Path(__file__).resolve().parents[1],
+        env={**_env(tmp_path),"VIBE_GOAL_MAX_SEGMENTS":"999"},timeout=30)
+    assert proc.returncode == 0, proc.stderr
+    assert len(store.get(task.task_id).segments) == 1
+    frames=[json.loads(json.loads(line)["raw"]) for line in
+        (store.task_dir(task.task_id)/"worker-events.jsonl").read_text().splitlines()]
+    assert any(f.get("code")=="task_budget_exceeded" and "goal_max_segments" in f["message"] for f in frames)
+    assert not any(f.get("type")=="text_delta" for f in frames)

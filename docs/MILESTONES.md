@@ -1,10 +1,36 @@
 # 工作台建设里程碑
 
+**用户级模型配置（2026-11-16）**：`mini-harness` / `start.sh` / `run_ink.sh` 统一加载用户 `config.toml`，独立 `credentials.json`（0600），支持 XDG、项目非敏感覆盖与显式隔离文件；旧安装 `.env` 继续作为低优先级兼容来源。修复快捷命令漏加载、保存后启动沿用旧文件值和来源展示不一致；凭据绑定 provider/endpoint，两个写入目标分别经 ApprovalGate。Python 全量 **2110 passed / 4 skipped**，随后补充凭据审批拒绝与首次配置实际进程回归通过；Ink 串行 **851/851**。真实 PTY 外部目录启动 → `/model` 新位置 → Ctrl+Q 退出通过，跨工作区保存/重启由真实后端进程测试覆盖（虚构 Key、无真实模型请求）。首次沙箱全量受 socket 权限限制，解除限制后通过；Ink 并行一项 MCP 时序失败，单独及串行全量复跑通过。日志 `.vibe/user-config-*-tests.log`，使用边界见[配置指南](CONFIGURATION.md#用户配置与项目覆盖)。本增量不改变已有里程碑整体验收状态。
+
 长期目标：越用越了解我的个人助手工作台，同时持续积累界面与全栈开发经验。当前主线：可靠、可理解的 vibe coding；界面迁移随真实任务分段交付。
 
 新路线使用 **W0–W7** 编号；旧 M1–M8 的模块建设记录保存在 [历史计划](history/MILESTONES-M1-M8.md)，不与本轮验收混用。方向与取舍见 [roadmap](roadmap.md)。按验收顺序推进，暂不绑定日期。
 
 > 近期（2026-11-07，第 55–138 轮）生产化加固摘要、真实模型长任务/六模式证据与当前测试基线，见 [P0 收束报告 §7](specs/p0-closure-report.md)；待你拍板事项见 [open-decisions](specs/open-decisions.md)；回来继续先看[交接摘要](specs/final-handoff-2026-11-07.md)。
+
+**首次使用入口 · 首页摘要按钮（2026-11-14）**：首页可展开完整路径、直接打开模型设置；自动化范围收口，仅剩 E2 真人验收。Ink **850/848**、Python **2103 collected / 2091 passed / 12 skipped**。
+
+**首次使用入口 · 验收与状态收口（2026-11-14）**：验收环境独立标注、设置模型摘要、检测错误提示完成。Python **2103 collected / 2091 passed / 12 skipped**、Ink **849/847**（2 个既有 PTY 用例缺 pty）。E2 真人验收仍待用户。
+
+**首次使用入口 · 可点击控件收口（2026-11-14）**：首页示例、首次配置页服务字段、设置分类行支持鼠标点击；示例只填草稿、不覆盖已有草稿。Ink **845/843**（2 个既有 PTY 用例缺 pty）。剩余 E2 需用户执行。
+
+**首次使用入口 · 收口补充（2026-11-14）**：配置文件损坏进入 Ink 修复页且不覆盖原文件；测试 fake provider 首页显示“测试模型 · 不调用真实服务”。Python **2100 collected / 2088 passed / 12 skipped**、Ink **842/840**（2 个既有 PTY 用例缺 pty）。E2 真人验收仍待用户，见[交接](../openspec/changes/implement-first-run-onboarding/handoff.md)。
+
+**首次使用入口 · E 批自动部分（2026-11-14，待真人验收）**：真实进程首次启动旅程、验收矩阵与交接文档完成；A–D 与 E1/E3 自动化证据齐备。Python **2095 collected / 2083 passed / 12 skipped**、Ink **839/837**（2 个既有 PTY 用例缺 pty）。真实模型/真实终端/真人体验（E2）待用户执行，见[交接](../openspec/changes/implement-first-run-onboarding/handoff.md)。
+
+**首次使用入口 · D 批（2026-11-14，实施中）**：前台启动不自动连接 MCP、无开场审批；ready/mcp_state 提供连接计数，首页提示、外部工具页显式连接；连接审批带范围行，拒绝明确保持未连接；验收清单改为进入后再连接。Python **2094 collected / 2082 passed / 12 skipped**、Ink **839/837**（2 个既有 PTY 用例缺 pty）。E 批待实施，见[验证记录](../openspec/changes/implement-first-run-onboarding/verification.md)。
+
+**首次使用入口 · C 批（2026-11-14，实施中）**：首页降噪为项目名/模型状态与三条可填草稿的示例，无任务时不常驻路径、provider、会话、上下文与费用；设置中心按目的分为模型/预算/外部工具/权限/更多设置，返回保留编辑，关闭恢复草稿、光标与阅读位置。Python **2089 collected / 2077 passed / 12 skipped**、Ink **837/835**（2 个既有 PTY 用例缺 pty）。D/E 待实施，见[验证记录](../openspec/changes/implement-first-run-onboarding/verification.md)。
+
+**首次使用入口 · B 批（2026-11-14，实施中）**：首次配置页重做为默认/自定义服务两态，默认只填 Key，高级字段折叠；字段级错误就地显示并移动焦点；保存并检测、检测中取消、"已保存；检测未通过"提示与项目确认页已完成。Python **2088 collected / 2076 passed / 12 skipped**、Ink **818/816**（2 个既有 PTY 用例缺 pty）。B4 稍后配置与 Demo（独立 fake 后端、持续 Demo 标识、草稿保留页）已完成；C 首页/设置中心待实施，见[验证记录](../openspec/changes/implement-first-run-onboarding/verification.md)。
+
+**首次使用入口 · A 批（2026-11-14，实施中）**：缺模型配置时 `./start.sh` 直接进入 Ink 首次配置页（不再终端问答）；后端新增仅配置状态，保存/检测分别经审批且不创建 Agent/会话，run/resume 明确拒绝；保存后“进入项目”用保存的环境重新 exec 自身并切换到真实运行能力；应用内模型设置不再依赖运行中的 Agent，空/占位 Key 视为未配置。Python **2072 passed / 12 skipped**、Ink **812/814**（2 个既有 PTY 用例缺 pty），真实后端冒烟完成 bootstrap→保存→进入项目→新 ready。B–E 待实施，见[验证记录](../openspec/changes/implement-first-run-onboarding/verification.md)。
+
+**设置中心与单段限制（2026-11-13，阶段 5.A）**：新增 /settings，编辑步数、时长、token 与估算费用，进入模型/权限并查看高级状态。审批保存与空闲应用分离，新任务采用新默认，/resume 和 task/goal 续段沿用快照。Python **2021 passed / 4 skipped**、Ink **785/785**，隔离配置真实 PTY 保存→应用→Demo 写入与验证通过。goal 总预算和 MCP 生命周期编辑仍为后续 5.B/5.C，阶段 5 整体及真人体验未标完成。见[验证记录](../openspec/changes/implement-simplify-workbench-experience-p5/verification.md)。
+
+**目标总预算与前后台恢复（2026-11-13，阶段 5.B）**：/settings 按 g 切换目标分组，编辑总段数、总时长、token 与估算费用，保存与应用独立。TaskRecord 固定预算，前台、手动恢复与后台续段共用开始前检查；环境放宽不覆盖旧目标，已耗尽预算不会因恢复而重置。Python **2039 passed / 4 skipped**、Ink **790/790**、真实 worker 与隔离 PTY 通过。5.C MCP 生命周期仍待实施，见[验证记录](../openspec/changes/implement-simplify-workbench-experience-p5b/verification.md)。
+
+**工作台体验简化已准备真人验收（2026-11-14）**：5.C 已补齐逐服务重连/断开、临时授权清理、基础/高级编辑、待重载与已删除仍连接状态。新增 ./start.sh --acceptance，隔离现有配置，使用 Demo 模型和本地双服务；实际 PTY 七次审批完成高级保存、单服务操作、Demo 任务与正常退出。Python **2060 passed / 4 skipped**、Ink **802/802**。工程验证完成；真人体验等待确认，按[验收清单](WORKBENCH-ACCEPTANCE.md)操作，边界与日志见[MCP 说明](specs/mcp-lifecycle.md)。
 
 ## 总览与当前状态
 
@@ -22,6 +48,16 @@
 **阶段状态（2026-10-26）**：W1–W5 已通过真实验收，W6 已完成对照（主假设未获支持）；当前重点是把 `/goal` 长任务、个性化精细化与评测扩题做成可验收闭环。W0 的回退与学习记录随使用补齐；W7 保持方向，不提前拆成平台功能清单。
 
 ## 界面迁移与全栈学习切片
+
+**体验简化 · 应用内模型配置（2026-11-13）**：/model 或配置帮助可查看来源、编辑隐藏 Key、显式检测、审批保存和空闲应用。沿用安装目录 .env，CLI/环境覆盖可见；普通 OpenAI 兼容主模型与摘要器同步应用，新快照不匹配时阻止旧任务静默换模型。Demo/额外审计等需保存后重启，后台不热更新。Python **2007 passed / 4 skipped**、Ink **778/778**，真实 PTY 完成隔离配置保存、返回草稿与 Demo 审批执行，Key 未回显。真实服务与真人体验待确认，见[验证记录](../openspec/changes/implement-simplify-workbench-experience-p4/verification.md)。阶段 5 未开始。
+
+**体验简化 · 功能区与情境指引（2026-11-13）**：Ctrl+T、/guide 或宽屏底部入口主动打开五区说明；底部情境提示可关闭/恢复，作用于当前工作台实例。示例只填空草稿，返回保留中文光标和阅读位置，审批到来自动收起指引；模型设置仍指向启动向导。Python **1993 passed / 4 skipped**、Ink **771/771** 与 80×24 实际 PTY Demo 通过；覆盖 32×12 至 120×40。命令菜单顺序与计划验收提示回归已修正，详情见[验证记录](../openspec/changes/implement-simplify-workbench-experience-p3/verification.md)。真人终端体验待确认；阶段 4、5 未实现。
+
+**体验简化 · 配置契约与最小入口（2026-11-13）**：首次模板只需填写 Key，地址/模型/代理按需配置；默认模型向导取消模型名提问。新增用户配置、开发配置及原模板 47 项契约清单，修正未接通的输出上限参数和零值说明。Python **1993 passed / 4 skipped**；45 项配置专项含默认/自定义真实 PTY，隔离目录免 Key Demo 通过且未创建 .env。用户现有配置未改写；真实 API、Linux 冷安装与真人体验缺口见[验证记录](../openspec/changes/implement-simplify-workbench-experience-p2/verification.md)。阶段 3–5 尚未实现。
+
+**体验简化 · 回执分层（2026-11-13）**：普通问答与成功只读不再追加独立回执卡；修改显示紧凑摘要，未验证、检查失败/过期、取消、拒绝及未知影响保留提醒。结构化结果统一正文、状态与检视，自动续段保留前段影响，原始回执可查。Python **1987 passed / 4 skipped**，最终字段校验专项 **10/10**，Ink 低并发全量 **760/760**，实际 PTY Demo 通过。默认并发测试曾有固定等待失败，独立复跑通过；详情与限制见[验证记录](../openspec/changes/implement-simplify-workbench-experience-p1/verification.md)。真人连续体验待确认，阶段 1 不标整体验收，配置分层和功能指引仍待开发。
+
+**首次体验与开源入口（2026-11-13）**：新增 `./start.sh`，缺依赖时经 ApprovalGate 确认后安装（uv 或项目 venv/pip、npm ci），缺模型配置时提供隐藏 Key 输入与 `.env` 原子保存，后续启动自动加载；支持 `--configure`、`--demo`、`--install`、`--doctor`。README 聚焦产品与首次体验，详细文档迁入 `docs/README.md`，新增贡献指南。Python 全量退出 0、Ink **751/751**；新增启动器测试包含临时目录真实 PTY 配置与 Key 不回显。无依赖源码副本的 uv/npm 安装、免 Key 演示两次审批→写文件→验证通过→退出均已实测。pip 回退路径通过单测；真实服务 Key 有效性与 Linux 首次安装未在本轮实测，不改变既有里程碑验收状态。日志位于 `.vibe/onboarding-*.log`，行为说明见[使用指南](USAGE.md#首次启动推荐)。
 
 **P3 长计划折叠与全屏清单（2026-11-12，实施中）**：针对「计划步骤多/文字长看不完全」，常驻面板折叠已完成步骤（`✓ 已完成 N 步`）、按终端高度自适应显示当前与未完成步骤，当前步展开完整标题/文件/依赖/验收，溢出提示 `… 还有 N 步 · Ctrl+L 查看全部`；`Ctrl+L` 打开只读全屏清单，换行显示全部步骤与完整元数据，`↑↓/PgUp/PgDn/Home/End` 滚动、`Esc` 返回、实时更新。完整 Ink **748/748**、Python **1958**（**1954 passed / 4 skipped**）。见 [验证记录](../openspec/changes/implement-plan-structured-checklist/verification.md#长计划折叠与-ctrll-全屏清单2026-11-12)。
 

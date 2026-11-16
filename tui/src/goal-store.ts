@@ -1,6 +1,7 @@
 import {existsSync, mkdirSync, readFileSync, renameSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
-import type {GoalMode} from './goal.js';
+import {alignGoalBudget,type GoalMode} from './goal.js';
+import {validGoalLimits} from './goal-budget.js';
 
 export const GOAL_FILE = 'goal.json';
 const VERSION = 1;
@@ -48,8 +49,32 @@ export function loadGoal(sessionPath: string): GoalMode | null {
     const value: unknown = JSON.parse(readFileSync(target, 'utf8'));
     if (!valid(value)) return null;
     const {version: _version, updatedAt: _updatedAt, ...goal} = value;
-    return goal.active ? {...goal, active: false, pausedReason: 'session_restored'} : goal;
+    const restored=restoreTaskBudget(sessionPath,goal);
+    return restored.active ? {...restored, active: false, pausedReason: 'session_restored'} : restored;
   } catch {
     return null;
   }
+}
+
+function restoreTaskBudget(sessionPath:string,goal:GoalMode):GoalMode {
+ if(!goal.taskId||!/^t-[a-zA-Z0-9-]+$/.test(goal.taskId))return goal;
+ const target=path.join(sessionPath,'tasks',goal.taskId,'meta.json');
+ if(!existsSync(target))return goal;
+ try{
+  const task=JSON.parse(readFileSync(target,'utf8'));
+  if(task.task_id!==goal.taskId||task.kind!=='goal'||task.objective!==goal.objective)throw new Error('identity');
+  if(task.goal_limits===undefined)return goal;
+  if(!validGoalLimits(task.goal_limits)||!Number.isFinite(Date.parse(task.created_at))||!Array.isArray(task.segments))throw new Error('budget');
+  let tokens=0,cost=0;
+  const ledger=path.join(sessionPath,'budget.jsonl');
+  if(existsSync(ledger))for(const line of readFileSync(ledger,'utf8').split('\n')){
+   let entry;try{entry=JSON.parse(line);}catch{continue;}
+   if(entry.task_id!==goal.taskId||!['llm','tool','approval_wait','run_close'].includes(entry.entry_kind))continue;
+   const values=[Number(entry.tokens_in??0),Number(entry.tokens_out??0),Number(entry.cost_usd??0)];
+   if(values.some(n=>!Number.isFinite(n)||n<0))throw new Error('ledger');
+   tokens+=values[0]!+values[1]!;cost+=values[2]!;
+  }
+  const aligned=alignGoalBudget(goal,{limits:task.goal_limits,started_at:task.created_at,used_tokens:tokens,used_cost_usd:cost},Math.max(1,task.segments.length));
+  return {...aligned,active:false,completed:task.status==='completed',pausedReason:task.status==='completed'?null:'session_restored'};
+ }catch{return {...goal,active:false,pausedReason:'目标预算记录无法核对；后端会阻止不安全的续做'};}
 }

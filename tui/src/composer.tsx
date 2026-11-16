@@ -1,5 +1,5 @@
 import React, {useEffect, useRef, useState} from 'react';
-import {Box, Text, measureElement, useCursor, useInput, usePaste, type DOMElement} from 'ink';
+import {Box, Text, measureElement, useCursor, useInput, usePaste, type Key, type DOMElement} from 'ink';
 import {clipCells, editText, graphemes, lineBoundary, moveVertical, wrapEditor} from './editor.js';
 import {commandDefinition, commandMatches} from './commands.js';
 
@@ -12,6 +12,7 @@ type ComposerProps = {
   onSubmit: (value: string) => void;
   onSubmitBlocked?: () => void;
   onTab?: (backwards: boolean) => void;
+  onShortcut?: (input: string, key: Key) => boolean;
   history: string[];
   disabled?: boolean;
   focused?: boolean;
@@ -32,7 +33,7 @@ function ComposerCursor({x, y}: {x: number; y: number}) {
   return null;
 }
 
-export function Composer({value, initialCursor, onDraftChange, appendRevision = 0, onChange, onSubmit, onSubmitBlocked, onTab, history, disabled = false, focused = true, placeholder = '输入任务，开始一次编码', columns, maxRows = 3, accentColor, warningColor, foregroundColor, secondaryColor, disabledHint, menu}: ComposerProps) {
+export function Composer({value, initialCursor, onDraftChange, appendRevision = 0, onChange, onSubmit, onSubmitBlocked, onTab, onShortcut, history, disabled = false, focused = true, placeholder = '输入任务，开始一次编码', columns, maxRows = 3, accentColor, warningColor, foregroundColor, secondaryColor, disabledHint, menu}: ComposerProps) {
   const [cursor, setCursorState] = useState(() => Math.max(0, Math.min(initialCursor ?? graphemes(value).length, graphemes(value).length)));
   useEffect(() => {onDraftChange?.({value, cursor});}, [value, cursor, onDraftChange]);
   const draft = useRef({value, cursor});
@@ -91,6 +92,7 @@ export function Composer({value, initialCursor, onDraftChange, appendRevision = 
     if (!focused) return;
     const {value, cursor} = draft.current;
     if (key.eventType === 'release' || key.super || key.hyper || key.meta || key.escape || key.pageUp || key.pageDown) return;
+    if (onShortcut?.(input, key)) return;
     if (key.ctrl) {
       if (input === 'j') {insert('\n'); return;}
       if (input === 'a') {setCursor(lineBoundary(value, cursor, 'start')); return;}

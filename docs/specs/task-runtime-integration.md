@@ -219,3 +219,9 @@ class TaskRuntime:
 - **test purpose 默认关闭**：与 eval 隔离一致；集成测试显式开。
 - **taskId 持久化在 goal.json**：旧 goal 文件没有 taskId，首次运行新建任务；如果用户用旧 goal 续段，会得到新 task 而非旧 task，这是兼容代价。
 - **`--task-id` 未做**：显式长任务入口留到 worker 切片；本切片只覆盖 `/goal`。
+
+## goal 总预算投影（2026-11-13，5.B）
+
+task_state.task 可带 goal_budget：limits（max_segments、max_seconds、max_tokens、max_cost_usd）、started_at、used_tokens、used_cost_usd。前台在运行段开始事件中对齐预算、段号与段前累计值，再累计本段结果；恢复时从匹配 TaskRecord 和预算账本重建。
+
+预算耗尽在 prepare_run 阶段返回 task_budget_exceeded，不创建段；损坏预算返回 task_error。前台收到对应活动 goal 的拒绝后解除运行态，worker 收到拒绝后正常结束，避免等待不存在的 done。/resume 的拒绝沿用 resume_unavailable 收尾。运行请求不接受客户端指定目标预算；新目标由后端默认创建不可变快照。

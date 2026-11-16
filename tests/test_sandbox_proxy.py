@@ -81,7 +81,10 @@ def test_proxy_connect_tunnel_allows_and_denies(upstream):
         head = client.recv(4096)
         assert b"200" in head
         client.sendall(b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
-        assert b"hello" in client.recv(4096)
+        response = b""
+        while chunk := client.recv(4096):
+            response += chunk
+        assert b"hello" in response
         client.close()
     finally:
         proxy.close()

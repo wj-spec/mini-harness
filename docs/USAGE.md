@@ -2,16 +2,57 @@
 
 安装、模型配置、命令和运行边界。项目概览见 [README](../README.md)。以下命令在项目根目录执行。
 
-## 一键验收
+## 首次启动（推荐）
 
-```bash
-./scripts/verify_all.sh              # Python 全量 + TUI + 长任务 fake 14 场景 + doctor + 红队
-./scripts/verify_all.sh --with-real  # 额外跑真实模型六模式 suite（需要 key）
-./scripts/verify_all.sh --with-real --real-runs 2  # 真实模型稳定性样本（两轮独立工作区）
-./scripts/verify_all.sh --with-real-bench  # 额外跑真实模型长任务场景（消耗 token）
-```
+准备 Python 3.11+（建议 3.12）、Node.js 22+（含 npm）和 Git，在 macOS/Linux 交互终端运行：
 
-脚本会汇总每项 PASS/FAIL；无 pty 环境下 TUI 唯一的 pty smoke 失败按 EXPECTED 记录。
+~~~bash
+./start.sh
+~~~
+
+启动器会检查环境，缺少项目依赖时列出安装命令并请求一次确认：优先使用 uv 和 uv.lock；没有 uv 时创建 .venv 并从 pyproject.toml 安装运行依赖。前端使用 npm ci。不会安装系统 Python/Node，不使用 sudo。
+
+缺少模型配置时直接进入 Ink 首次配置页（DeepSeek 默认地址/模型，或自定义 OpenAI 兼容服务）：Key 隐藏填写，保存与检测分别经过审批；检测通过或明确选择跳过检测后，“进入项目”才初始化真实模型与工具。页内还提供“稍后配置”（进入可写草稿但不能提交的页面）和“先体验 Demo”（独立本地模型与测试会话，页头持续标注 Demo）。也可以 `--demo` 先体验，或 `--configure` 在终端配置。后续启动复用依赖与配置，已有配置的用户直接进入工作台，不会重复向导或自动检测。首次下载需要联网；已有依赖不会每次重装，更新依赖可显式运行 --install。
+
+~~~bash
+./start.sh --demo                           # 无需 Key，预填本地审批/修改/验证演示
+./start.sh --workspace /path/to/repo         # 操作指定仓库
+./start.sh --configure                      # 配置模型并退出
+./start.sh --install                        # 安装/同步依赖并退出
+./start.sh --install --yes                  # 非交互安装
+./start.sh --doctor                         # 环境检查，不安装依赖
+./start.sh --doctor --fake                  # 不检查真实模型 Key
+./start.sh --continue                       # 打开最近会话
+~~~
+
+默认工作区是调用命令时所在目录；模型配置默认来自用户目录 ~/.config/mini-harness/config.toml，进入其他仓库直接复用；项目可用 .mini-harness/config.toml 覆盖非敏感模型选项，工作区 .env 不会加载。--workspace 的相对路径按调用目录解析。其他参数转发给原 Ink 入口。
+
+--yes 只同意启动器的安装/配置保存，不改变 Agent 的工具审批。安装、配置写入和启动经过 ApprovalGate，审计保存在 .vibe/setup-audit.jsonl，Key 不进入配置预览或审计。
+
+### 模型配置
+
+首次运行 <code>./start.sh</code> 会在 Ink 内引导配置；需要在终端里配置时可运行 <code>./start.sh --configure</code>。选择默认 DeepSeek 只需填写 Key，地址和模型会在保存前显示；需要不同模型时选择自定义接口。选择自定义服务时填写兼容 Chat Completions 的服务根地址（通常以 /v1 结尾），不要填写完整 /chat/completions 路径；模型名按服务商实际提供的名称填写，并选择支持工具调用的模型。切换服务需要重新输入 Key。
+
+模型、地址和代理默认保存到 `~/.config/mini-harness/config.toml`；Key 独立保存在同目录 `credentials.json`，权限 `0600`。保存经审批，Key 不进入预览或日志。支持 `XDG_CONFIG_HOME` 与显式 `VIBE_CONFIG_FILE`。
+
+普通模型选项优先级：命令行 > shell > 项目覆盖 > 用户配置 > 旧安装目录 .env > 默认值。旧安装配置保留兼容；首次 `/model` 保存会写入新位置，不改动旧文件。项目配置不允许 Key。改变服务地址不会自动沿用原服务的文件凭据。格式、凭据边界与高级设置见[配置指南](CONFIGURATION.md)。
+
+首次配置页、终端向导与 doctor 只检查本地设置，不发出付费请求。应用内 /model 的“检测”是另一个显式动作，会提示可能计费。真实 Key 的有效性、模型权限和工具调用兼容性需要在实际任务中验证。
+
+`mini-harness`、`start.sh` 和 `run_ink.sh` 使用同一配置加载流程。`run_vibe.sh` / Python 后端与评测直接使用进程环境；这些高级入口应显式传入配置环境。
+
+### 启动排错
+
+| 情况 | 处理 |
+| --- | --- |
+| 缺少或版本过低的 Python / Node | 安装 Python 3.11+、Node.js 22+ 后重试 |
+| 安装中断、网络失败 | 检查网络后重新运行 ./start.sh；需要重新同步时用 --install |
+| 已安装依赖但模型未配置 | 运行 ./start.sh 进入首次配置页；也可是 ./start.sh --configure；无 Key 时先用 --demo |
+| 服务返回认证或模型不存在错误 | 核对服务地址、模型权限与 Key，再运行 --configure |
+| 需要代理访问模型服务 | 在用户配置中设置 trust_env=true，并按本机环境设置 HTTPS_PROXY |
+| 在管道/CI 中运行 | 使用 --install --yes、--doctor 或 --list-sessions；首次配置页和工作台需要交互终端 |
+| 使用自定义 Python | 通过 PYTHON 指定且自行准备依赖；启动器不会往该解释器自动安装包 |
+
 
 ## 怎么跑
 
@@ -66,7 +107,7 @@ VIBE_TASK_RUNTIME=1 VIBE_FAKE_DEMO=plan ./run_ink.sh --fake --autonomy ask
 npm --prefix tui test
 ```
 
-`run_ink.sh` 每次先编译 TypeScript，再启动界面；Node 通过 JSON Lines 调用同一套 Python Agent，继续遵循 `PYTHON` 解释器选择与 `VIBE_*` 配置。界面需要在交互式终端运行；`--help`、`--list-sessions` 可在普通管道中使用。
+`run_ink.sh` 在构建缺失或源码更新时编译 TypeScript，再启动界面；Node 通过 JSON Lines 调用同一套 Python Agent，继续遵循 `PYTHON` 解释器选择与 `VIBE_*` 配置。界面需要在交互式终端运行；`--help`、`--list-sessions` 可在普通管道中使用。
 
 当前采用全屏布局，上方显示项目、模型与会话，中间阅读对话和工具，下方编辑多行草稿并显示真实用量。退出恢复原终端内容。消息、输入与状态区采用底色深浅和留白分层，普通回复不画外框；失败、审批与选中工具用轻染色强调。
 
@@ -170,7 +211,7 @@ npm --prefix tui test
 
 状态与消息按块展示：等待模型、回复、调用工具、审批、暂停和错误分别标注；宽屏右侧显示当前任务、工具记录和真实预算，窄屏使用紧凑状态条。命令失败、超时、取消、未知结果显示实际状态，长工具名不会遮住结果。界面与验证见 [历史阅读与状态分区](specs/ink-reading-state.md)。
 
-Ink 的 `--continue` 只选择最近有对话的用户会话，普通列表和按 ID 打开也排除已标记的测试会话。`--fake`、`--provider fake` 或配置 `VIBE_PROVIDER=fake` 自动使用测试范围；真实模型烟测用 `--test-session` 明确标记。两个范围各自列出、继续和按 ID 打开，测试模式也只加载测试会话；界面标题显示“测试会话”。历史区从原始消息日志恢复，压缩前的正文和工具记录仍可回看；模型续做读取压缩上下文，两者独立。恢复后不会自动调用模型或重放工具；`/resume` 才开启新一轮预算。已有 `VIBE_MCP_*` 配置与本进程权限管理继续可用，MCP 初始化期间也能取消，服务启动与工具调用分别审批。新命令结果显示真实退出码、超时或取消，旧记录没有执行元数据时显示未记录；零退出本身不证明需求验收通过。
+Ink 的 `--continue` 只选择最近有对话的用户会话，普通列表和按 ID 打开也排除已标记的测试会话。`--fake`、`--provider fake` 或配置 `VIBE_PROVIDER=fake` 自动使用测试范围；真实模型烟测用 `--test-session` 明确标记。两个范围各自列出、继续和按 ID 打开，测试模式也只加载测试会话；界面标题显示“测试会话”。历史区从原始消息日志恢复，压缩前的正文和工具记录仍可回看；模型续做读取压缩上下文，两者独立。恢复后不会自动调用模型或重放工具；`/resume` 才开启新一轮预算。已有 `VIBE_MCP_*` 配置与本进程权限管理继续可用；普通前台启动不会自动连接 MCP，打开 /mcp 或“设置 → 外部工具”显式连接后才出现启动审批，连接期间也能取消，服务启动与工具调用分别审批。新命令结果显示真实退出码、超时或取消，旧记录没有执行元数据时显示未记录；零退出本身不证明需求验收通过。
 
 默认入口为 Ink；Textual 已于 2026-10-23 退役（见 [里程碑](MILESTONES.md)）。运行中纠偏与后续消息已接通确定性回归，见 [运行中纠偏](specs/run-time-correction.md)；会话选择器与真实模型联合任务仍待后续验收，eval 继续使用 `./run_vibe.sh --eval`。
 
@@ -313,7 +354,7 @@ history 实际额度 = 窗口 − 输出预留 − 安全余量 − 实际 syste
 
 ## 单次任务预算与暂停
 
-`VIBE_LLM_MAX_OUTPUT_TOKENS` 默认 0（不额外限制）；显式设置时作为每次请求的 `max_tokens` 发送，用于限制单次输出/异常长尾。
+`VIBE_LLM_MAX_OUTPUT_TOKENS` 当前未接入环境加载与标准启动入口，填写不会限制单次输出；已从示例移除。底层 provider 的参数支持不等于环境配置生效，详见[配置契约](CONFIGURATION-CONTRACT.md)。
 `VIBE_MAX_RUN_TOKENS` 默认 **0（不限）**，表示累计一次 run 中各轮请求的输入和输出不设硬上限；显式设置后按值暂停。重复发送的历史也再次计入。一次 run 从输入指令开始，直到任务完成、停止或时间上限。它与单请求上下文容量完全独立：上下文默认 1M，任务累计默认不限。评测/基准入口在未设置 `VIBE_MAX_RUN_TOKENS` 时仍固定 1M，保证分数可比。
 
 - 状态栏分行显示任务累计用量、上限和剩余、上下文容量及项目；`/cost` 查看输入和输出，估算值标“约”。
@@ -337,10 +378,10 @@ history 实际额度 = 窗口 − 输出预留 − 安全余量 − 实际 syste
 - 启动后第 1 段使用目标说明作为任务；如果该段因 **`max_run_seconds` / token budget / cost budget / max_steps`** 停止，自动开启第 2 段，并注入“先核对工作区，再继续未完成部分”的续段提示；
 - 因 `no_progress`、`context_window`、`error`、`cancelled` 停止时**不自动续段**，保留证据并要求人工判断；
 - 模型 done 且 `verified` 不为 false 时目标完成；`done` 但 `verified=false` 时目标暂停（`unverified_completion`），核对 `/evidence` 后输入 `/goal resume` 继续；`done` 之前的资源暂停不会丢历史，后续段继续读取同一会话；
-- 默认最多 **8 段**、总时长 **4 小时**：`VIBE_GOAL_MAX_SEGMENTS`、`VIBE_GOAL_SECONDS`；可选总 token/费用上限 `VIBE_GOAL_MAX_TOKENS`、`VIBE_GOAL_MAX_COST_USD`（0=不限）；后台 goal worker 同样执行这些上限（按 `budget.jsonl` 累计），命中时写 `goal_stopped` 通知并暂停；
-- 目标完成/暂停后可以用 `/goal resume` 继续，或输入新 `/goal` 开始新目标；
+- 默认最多 **8 段**、总时长 **4 小时**：`VIBE_GOAL_MAX_SEGMENTS`、`VIBE_GOAL_SECONDS`；可选总 token/费用上限 `VIBE_GOAL_MAX_TOKENS`、`VIBE_GOAL_MAX_COST_USD`（0=不限）；可用 /settings 后按 g 编辑新目标默认；创建时固定到任务快照，后台 goal worker 沿用这些上限（按 `budget.jsonl` 累计），命中时写 `goal_stopped` 通知并暂停；
+- 目标暂停且预算仍有余额时可用 `/goal resume` 继续；达到总上限不会重置预算，已完成目标请用新 `/goal <目标>` 开始；
 - 目标可带已确认 acceptance_criteria + verification_plan：run 完成时执行可信验收命令，通过才标 verified 完成；失败暂停并附失败命令（`goal_acceptance` 通知）；
-- 目标状态以 `goal.json` 保存在当前会话目录（`.vibe/sessions/<id>/goal.json`）；重启 Ink 或 `--continue` 后会恢复目标并标记为 paused，输入 `/goal resume` 显式续段，不会在重启后自动继续花费。
+- 前台目标状态以 `goal.json` 保存在当前会话目录（`.vibe/sessions/<id>/goal.json`）；重启 Ink 或 `--continue` 后会按匹配的 TaskRecord 预算快照与累计账本核对目标并标记为 paused，输入 `/goal resume` 显式续段，不会在重启后自动继续花费。
 
 目标模式不会改变审批、沙箱、写文件或命令边界；每段仍然遵守当前配置的单轮限制。
 
@@ -424,7 +465,7 @@ DDGS 是第三方网页检索库，并非搜索引擎提供的稳定 API；验�
 
 ## MCP 外部工具
 
-`app/tools/mcp.py` 使用 [FastMCP 4.1.1 Client](https://gofastmcp.com/clients/client) 接入 stdio MCP 服务，由库负责版本协商、消息分发和工具结果解析。工作台准备好后先审批服务启动，再发现工具并交给 Agent；连接、调用和关闭都在同一事件循环中运行。
+`app/tools/mcp.py` 使用 [FastMCP 4.1.1 Client](https://gofastmcp.com/clients/client) 接入 stdio MCP 服务，由库负责版本协商、消息分发和工具结果解析。工作台启动时不再自动连接；用户在 /mcp 或设置中选择服务并重载时，先审批服务启动，再发现工具并交给 Agent；连接、调用和关闭都在同一事件循环中运行。后台 worker、非交互 CLI 与 eval 的既有连接合同不变。
 
 ```jsonc
 // .vibe/mcp.json
@@ -984,3 +1025,90 @@ worker 启动会审计 profile：任务事件 `unattended_profile` 记 `profile/
 | 评测历史 | `--bench-history` | `--bench-history-json`；含 `regression`、`skipped_bench_reports` |
 | 环境自检 | `--doctor` | `--json`；含待审批/events/worktree/profile/benchmark/真实模型报告 |
 | 构建信息 | `--version` | JSON（version/python/agent_version/platform） |
+
+## 一键验收
+
+```bash
+./scripts/verify_all.sh              # Python 全量 + TUI + 长任务 fake 14 场景 + doctor + 红队
+./scripts/verify_all.sh --with-real  # 额外跑真实模型六模式 suite（需要 key）
+./scripts/verify_all.sh --with-real --real-runs 2  # 真实模型稳定性样本（两轮独立工作区）
+./scripts/verify_all.sh --with-real-bench  # 额外跑真实模型长任务场景（消耗 token）
+```
+
+脚本会汇总每项 PASS/FAIL；无 pty 环境下 TUI 唯一的 pty smoke 失败按 EXPECTED 记录。
+
+## 任务结束后的结果
+
+普通问答和成功只读任务只保留回答，证据仍可通过回答下方的验证入口查看。发生文件修改或操作时显示紧凑摘要；未验证、验证过期、审批拒绝、工具异常和停止会明确提示。检查通过只代表已记录的检查结果，不代替需求核对。
+
+自动续段不重复显示每段终态卡；同一任务最终摘要保留前段影响。查看“验证”可阅读命令退出结果、结构化摘要和原始运行记录；旧记录缺少结构事实时显示待核对，不从文本推断验收通过。文件过多或原始记录过长时会标明省略，可继续查看轮次账本与 /evidence。
+
+## 功能区与情境指引
+
+点击宽屏底部“指引”、按 `Ctrl+T` 或输入 `/guide`，主动打开五个区域的说明：对话、计划进度、检视结果、任务会话、配置帮助。它不会自动弹出，也不会发送任务或替你审批。
+
+- `←/→` 或“前区 / 后区”切换区域，`↑/↓`、滚轮、PgUp/PgDn 阅读长内容。
+- `Tab` 选择动作，`Enter` 确认；`Esc` 或 `Ctrl+T` 返回，草稿、光标和正文阅读位置保留。
+- 对话页按 `1/2/3` 选择了解项目、修改代码、审查变更示例。只在空闲且草稿为空时填入；不会自动发送，修改示例需要先补充范围和验证方式。
+- 区域动作复用已有计划、工作区检查、任务目录、权限面板；后端能力不足时不显示相应动作。查看已有计划不会批准或执行，没有计划时仅填入 `/plan ` 草稿。
+- 新审批到来时指引自动让位给审批；不自动重开。Ctrl+C/Ctrl+Q 沿用原来的停止/退出语义；attach 中 Ctrl+Q 仅断开，worker 继续运行。
+
+底部情境提示使用原有一行空间，不插入对话。审批、计划审阅、错误记录与正在阅读的详情优先；普通问答结束后引导继续提问，修改/异常引导先核对证据。
+
+`/guide off` 或面板“关提示”关闭**当前工作台实例**的情境提示，`/guide on` 或“开提示”恢复。关闭不隐藏关键审批与快捷键；`/help guide` 能查到入口。设置未持久化，重开或切换到另一个工作台实例会恢复默认；指引本身始终只在你主动打开时出现。
+
+首次模型配置由 `./start.sh` 在 Ink 内引导；也可通过 /model 或“配置帮助”页打开应用内模型设置，或在终端运行 `./start.sh --configure`。32×12 及以上可使用完整指引，更小终端会显示调大窗口提示。
+
+
+## 应用内任务限制与设置中心
+
+输入 /settings，或从 Ctrl+T 的“配置帮助”进入。可编辑新任务的单段步数、时长、token 和估算费用；按 g 切换“目标总预算”，编辑新目标的总段数、总时长、总 token 与估算总费用，两组草稿分别保留。也可进入已有的模型、权限面板；从子面板返回仍保留设置草稿。
+
+Tab 切换字段与按钮，Enter 编辑/确认，Ctrl+U 清空，Esc 结束编辑或返回，↑↓滚动说明。步数与 token 须为整数；步数、token、费用的 0 表示不限，时长必须大于 0。费用依赖模型单价，未配置单价时界面会提醒，不能替代服务商额度控制。
+
+- 保存：经审批写入用户配置，只更新四项限制，保留模型、Key、代理和其他配置；不会自动应用。文件被外部修改时需刷新后核对。
+- 应用：空闲时改变当前前台后端的后续新任务默认值，不写文件；CLI 和进程环境覆盖仍优先。
+- 续做：/resume、指定任务及 goal 续段使用第一次运行记录的限制。旧记录没有快照时明确提示并沿用本次启动限制；损坏快照会阻止续做。
+- 高级状态：MCP 连接数、沙箱和通知状态只读。其配置仍在启动配置中管理，修改后重启相关进程；已运行 worker、独立探索和计划额外限制不随本页变化。
+
+目标总预算要求总段数为正整数，总时长至少 60 秒，token 为非负整数；token 和费用的 0 表示不限。保存与应用只作用于当前分组。应用只改变未来新目标，已有目标（包括转入后台）保留快照。
+
+后端在每段开始前核对总段数、从目标创建起的墙钟时长、账本累计 token 和费用。总时长包含审批等待与暂停；已开始的一段仍受单段限制约束，因此累计用量可能在一段内超过总额。达到上限后 /goal resume 与后台续段均不会重置预算；可调整新目标默认后明确新建目标。
+
+旧目标优先采用身份匹配的历史预算；只有旧 GoalRecord 时使用已知非零值，其余固定为启动默认并提示。旧记录中的零值也可能表示未记录，不会据此取消启动保护。已有快照损坏时拒绝续做。
+
+设置只在有相应能力的前台后端可用。保存成功后可直接返回；未保存编辑会提示确认丢弃，原对话草稿与光标保留。
+
+## 应用内模型设置
+
+输入 /model，或按 Ctrl+T → 配置帮助 → 模型。面板显示当前模型、服务、各字段来源、保存位置以及文件中的模型名；原对话草稿与光标保留。attach 或旧后端未提供该能力时使用终端向导。
+
+- Tab / 左右键在模型名、服务地址、Key、代理与按钮间切换；Enter 编辑或确认。
+- 编辑文本时 Ctrl+U 清空，Backspace 删除末尾字符；Enter / Esc 结束编辑。Key 始终隐藏，不回填已保存的密钥。
+- Key 留空表示保留当前进程的 Key；更换服务地址必须重新填写该服务的 Key。
+- ↑↓ / 滚轮阅读来源和生效说明；32×12 及以上可用。Esc 返回，未保存编辑需再次选择“返回”确认丢弃。
+
+三个动作分别生效：
+
+| 动作 | 实际行为 |
+| --- | --- |
+| 保存 | 通过 ApprovalGate 写入面板显示的配置与独立凭据，原子提交并设为 0600；当前模型不切换。文件变化或拒绝/失败时保留编辑。 |
+| 检测 | 二次确认后再经过审批，向编辑中的服务发送固定 Hi 消息，最多请求 1 个输出 token，可能计费；不发送代码、对话或工具。不会自动保存或应用。 |
+| 应用 | 空闲时将有效配置用于后续新任务，同时替换主模型与摘要客户端；不写文件。运行中可查看/编辑，需空闲后操作。 |
+
+CLI 和进程环境仍优先；保存可以成功但被它们遮蔽，来源栏会明确标注。检测的是编辑值；应用遵守覆盖规则，两者可能不同。保存后通过 mini-harness / start.sh / run_ink.sh 重启会加载用户配置；run_vibe.sh 保持只读取进程环境。
+
+Demo、自定义 provider、启用额外模型审计的连接需保存后重启，避免只替换部分模型客户端。后台 worker 和 attach 的模型不热更新；预算、上下文窗口、固定摘要模型、价格配置也不自动推断或修改。
+
+新运行在 trace 中记录不含 Key 的模型配置快照。恢复有快照的旧任务时，如果服务、模型、代理或 provider 不匹配，会在请求模型前停止；请恢复原配置后续做，或输入新任务。凭据仍从当前运行配置解析，不保存密钥历史；Key 缺失时需重新填写。旧记录没有完整快照时沿用兼容入口并给出提示，无法补证历史服务配置。
+
+最小检测通过仅说明该请求成功，不保证工具调用、上下文容量或任务质量。检测失败返回错误类别或 HTTP 状态码，不把服务端错误正文写入工作台。
+
+## MCP 连接管理
+
+空闲时使用 /mcp 查看状态，/mcp reload 重读原配置源并审批重连，/mcp disconnect 审批断开。重载全部成功才替换旧连接，准备失败保留原连接；后台 worker 不受影响。原 JSON 文件可编辑后重载，.env 中的配置路径或内联内容变更需重启。应用内可用 /mcp edit 编辑基础配置，保存后再重载；详见 [MCP 生命周期说明](specs/mcp-lifecycle.md)。
+
+
+### 应用内 MCP 配置
+
+用 /mcp edit（或 /settings 按 m）打开配置面板。“切服务”选择已有服务或新增；填写启动命令、参数 JSON 与环境 JSON，先保存，再重载。参数/环境输入隐藏，留空保留已有值，[] / {} 清空。按 a 切换高级字段，未编辑字段保留；按 s 切换当前服务 / 全部范围，默认只操作所选服务。保存、删除和连接操作仍需审批；失败保留草稿与原有连接。详见 [配置来源、生效边界和验证](specs/mcp-lifecycle.md)。

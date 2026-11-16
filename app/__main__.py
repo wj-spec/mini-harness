@@ -8,6 +8,7 @@ from pathlib import Path
 
 from app.runtime.agent import Agent
 from app.config import Config
+from app.runtime.model_config import usable_key
 from app.safety.policy import ApprovalGate
 from app.profiles.instructions import load_agents_md
 from app.tools.mcp import McpManager
@@ -608,11 +609,21 @@ def main() -> None:
         return
 
     config = Config.from_env()
+    config.limit_cli_fields = ('max_steps',) if args.max_steps is not None else ()
+    config.model_cli_fields = tuple(field for field in ("provider", "model", "base_url") if getattr(args, field, None))
     if args.provider:
         config.provider = args.provider
     if args.model:
         config.model = args.model
     if args.base_url:
+        if args.base_url.rstrip("/") != config.base_url.rstrip("/") and "VIBE_MODEL_ENV_KEYS" in os.environ:
+            from app.runtime.model_config import KEY_NAMES
+            try:
+                explicit_keys = json.loads(os.environ["VIBE_MODEL_ENV_KEYS"])
+            except ValueError:
+                explicit_keys = []
+            if not any(name in explicit_keys for name in KEY_NAMES):
+                config.api_key = ""
         config.base_url = args.base_url
     if args.workspace:
         config.workspace = Path(args.workspace)
@@ -1652,6 +1663,18 @@ def main() -> None:
             raise SystemExit(exit_code)
         return
 
+    # 缺模型配置时进入仅配置状态：Ink 引导保存/检测，不再让启动器终端问答。
+    # 放这里以保证 --list-sessions、--continue/--session 校验与 --eval 语义不变；
+    # --fake/--demo 仍走原路径；worker/attach 不经过 --stdio。
+    forced_bootstrap = os.getenv("VIBE_BOOTSTRAP", "").strip().lower() in {"1", "true", "yes"}
+    config_problem = os.getenv("VIBE_CONFIG_PROBLEM", "").strip()
+    if (args.stdio and not args.fake and config.provider != "fake"
+            and (forced_bootstrap or config_problem or not usable_key(config.api_key))):
+        from app.runtime.bootstrap import run_bootstrap
+
+        run_bootstrap(config)
+        return
+
     debug_path = (
         config.workspace / ".vibe" / "debug" / "provider.jsonl"
         if os.getenv("VIBE_DEBUG", "").lower() in {"1", "true", "yes"}
@@ -1764,7 +1787,9 @@ def _run(config, session, tools, approval, provider, context, state, history, ar
         raise SystemExit(2)  # main() 已拦截；保留防御，避免误走交互入口。
     from app.stdio import run_stdio
 
-    run_stdio(agent, config, session=session, resumed=args.continue_session or args.session is not None, mcp=mcp)
+    # 前台 Ink 默认不自动连接 MCP；用户显式打开外部工具并连接后才启动。
+    run_stdio(agent, config, session=session, resumed=args.continue_session or args.session is not None,
+              mcp=mcp, auto_mcp=False)
 
 
 if __name__ == "__main__":

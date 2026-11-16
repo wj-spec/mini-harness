@@ -1,3 +1,8 @@
+import {McpPanel} from './mcp-panel.js';
+import {useMcpSettings} from './use-mcp-settings.js';
+import type {GoalLimits} from './goal-budget.js';
+import {SettingsPanel} from './settings-panel.js';
+import {useSettings} from './use-settings.js';
 import {readSidebarLink} from './sidebar/lifecycle.js';
 import {useSidebarDraftRequests} from './sidebar/use-draft-requests.js';
 import {reapStaleSidebars} from './sidebar/lifecycle.js';
@@ -8,7 +13,7 @@ import {readFileSync, readdirSync, rmSync, statSync} from 'node:fs';
 import path from 'node:path';
 import React, {useEffect, useMemo, useReducer, useRef, useState} from 'react';
 import {CommandMenu} from './command-menu.js';
-import {Box, Text, useApp, useInput, usePaste, useWindowSize} from 'ink';
+import {Box, Text, useApp, useInput, usePaste, useWindowSize, type Key} from 'ink';
 import type {BackendClient} from './backend.js';
 import {backendCommand, backendLaunchOptions} from './backend-launch.js';
 import {parseAttachCommand} from './attach-command.js';
@@ -30,6 +35,14 @@ import {PermissionPanel} from './permission-panel.js';
 import {LocatorPanel} from './locator-panel.js';
 import {HistorySearchPanel} from './history-search-panel.js';
 import {WorkbenchLogPanel} from './workbench-log-panel.js';
+import {ModelPanel} from './model-panel.js';
+import {useModelSettings} from './use-model-settings.js';
+import {useBootstrapSettings} from './use-bootstrap-settings.js';
+import {BootstrapPanel} from './bootstrap-panel.js';
+import {DeferredHome} from './deferred-home.js';
+import {ConfigProblemPanel} from './config-problem-panel.js';
+import {GuidePanel} from './guidance-panel.js';
+import {GUIDE_EXAMPLES, HOME_EXAMPLES, guidePages, guidanceHint, type GuideAction} from './guidance.js';
 import {errorItems, firstLineByEntry, roundItems, searchTranscript, type LocateItem} from './history-locate.js';
 import {validHistorySearchPage, validRoundsLedgerPage, type HistorySearchMatch, type RoundsLedgerPage} from './protocol.js';
 import type {SessionCatalogRow} from './protocol.js';
@@ -39,12 +52,13 @@ import {useInspectionHistory} from './use-inspection-history.js';
 import {usePlanRevision, type RevisionAction} from './use-plan-revision.js';
 import {buildSkillMenu} from './skills-menu.js';
 import type {ApprovalDecision, AutonomyLevel, BackendCommand, RunResult, SkillsCommandArgs} from './protocol.js';
-import {goalDecision, goalLabel, goalPrompt, goalStatusText, resumeGoal, startGoal as newGoal, type GoalMode} from './goal.js';
+import {alignGoalBudget, goalDecision, goalLabel, goalPrompt, goalStatusText, resumeGoal, startGoal as newGoal, type GoalMode} from './goal.js';
 import {loadGoal, saveGoal} from './goal-store.js';
 import {initialState as emptyState, reduceView, resultReason, type ViewState} from './view-state.js';
 import {Composer} from './composer.js';
 import {fitText, textLines, type ReadingLine} from './markdown.js';
-import {detailLines, errorLines, liveLines, metricsText, planStepLine, ReadingPane, transcriptLines, welcomeLines} from './workbench.js';
+import {detailLines, errorLines, liveLines, metricsText, modelStatusText, planStepLine, ReadingPane, transcriptLines, welcomeLines} from './workbench.js';
+import stringWidth from 'string-width';
 import {buildPlanProgressView, PlanProgressPanel, planListLines} from './plan-progress-panel.js';
 import {PlanReviewBar} from './plan-review-bar.js';
 import {AgentHeader, agentStatus, StatusPanel} from './agent-status.js';
@@ -69,7 +83,7 @@ import type {SetupResult} from './sidebar/launch.js';
 type Scroll = {follow: boolean; top: number};
 const backendCommands: Record<string, BackendCommand> = {
   '/resume': 'resume', '/continue': 'resume', '/permissions': 'permissions', '/permissions reset': 'permissions_reset',
-  '/cost': 'cost', '/costs': 'cost', '/tools': 'tools', '/diff': 'diff', '/mcp': 'mcp', '/evidence': 'evidence', '/trace': 'trace', '/queue': 'queue',
+  '/cost': 'cost', '/costs': 'cost', '/tools': 'tools', '/diff': 'diff', '/mcp': 'mcp', '/mcp reload': 'mcp_reload', '/mcp disconnect': 'mcp_disconnect', '/evidence': 'evidence', '/trace': 'trace', '/queue': 'queue',
   '/task': 'tasks', '/tasks': 'tasks', '/approvals': 'approvals',
 };
 const approvalKeys: Record<string, ApprovalDecision> = {y: 'once', s: 'session', p: 'workspace', n: 'deny'};
@@ -202,7 +216,7 @@ function latestPlanText(sessionPath: string, full = false): string | null {
   } catch {return null;}
 }
 
-export function App({client, attach = false, active = true, initialDraft, onDraftChange, onDetach, stopOnConnect = false, onSessionSwitch, initialFocus, initialState = emptyState, windowSize, initialTheme = 'system', copyText = copyToClipboard, profilePath, userProfilePath, launchSidebar = launchSidebarForTui, focusSidebar = focusExistingSidebarForTui, setupSidebar = runSidebarSetup, publishSidebarSignal = writeSidebarSignal, autoObserve = process.env.VIBE_AUTO_OBSERVE === '1'}: {
+export function App({client, attach = false, active = true, initialDraft, onDraftChange, onDetach, stopOnConnect = false, onSessionSwitch, onDemo, initialFocus, initialState = emptyState, windowSize, initialTheme = 'system', copyText = copyToClipboard, profilePath, userProfilePath, launchSidebar = launchSidebarForTui, focusSidebar = focusExistingSidebarForTui, setupSidebar = runSidebarSetup, publishSidebarSignal = writeSidebarSignal, autoObserve = process.env.VIBE_AUTO_OBSERVE === '1'}: {
   client: BackendClient; attach?: boolean; initialState?: ViewState; windowSize?: {columns: number; rows: number}; initialTheme?: ThemeName;
   copyText?: (text: string) => string | null; profilePath?: string; userProfilePath?: string;
   launchSidebar?: (workspace: string, mode?: SidebarMode, totalColumns?: number, owner?: SidebarOwner) => LaunchResult;
@@ -212,6 +226,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
   autoObserve?: boolean;
   active?: boolean; initialDraft?: TaskDraft; onDraftChange?: (draft: TaskDraft) => void; onDetach?: () => void; stopOnConnect?: boolean;
   onSessionSwitch?: (client: BackendClient, options?: {focusQuery?: string}) => void | Promise<void>;
+  onDemo?: () => void | Promise<void>;
   initialFocus?: string;
 }) {
   const [state, dispatch] = useReducer(reduceView, initialState);
@@ -242,6 +257,17 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
   const [locator, setLocator] = useState<{title: string; items: LocateItem[]; kind: 'find' | 'rounds' | 'errors' | 'ledger'} | null>(null);
   const [highlightLine, setHighlightLine] = useState<number | null>(null);
   const [logsOpen, setLogsOpen] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
+  const [guideTips, setGuideTips] = useState(true);
+  const projectSummaryTargets = useRef<ActionTarget<'project'>[]>([]);
+  const modelSummaryTargets = useRef<ActionTarget<'model'>[]>([]);
+  const summaryPress = useRef<string | null>(null);
+  const [showProjectPath, setShowProjectPath] = useState(false);
+  const homeTargets = useRef<ActionTarget<'1' | '2' | '3'>[]>([]);
+  const homePress = useRef<string | null>(null);
+  const footerTargets = useRef<ActionTarget<'settings' | 'guide'>[]>([]);
+  const footerPress = useRef<string | null>(null);
+  useEffect(() => {if (state.approval) setGuideOpen(false);}, [state.approval?.id]);
   const [searchPanel, setSearchPanel] = useState<{query: string; matches: HistorySearchMatch[]; next: string | null; loading: boolean; problem: string; truncated: boolean; skipped: number} | null>(null);
   const searchRequest = useRef<{id: string; append: boolean; timer: ReturnType<typeof setTimeout>} | null>(null);
   const roundsRequest = useRef<{id: string; timer: ReturnType<typeof setTimeout>} | null>(null);
@@ -263,6 +289,10 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
   const inspectionTargets = useRef<ActionTarget<'current' | 'history' | 'older' | 'newer' | 'retry' | 'back' | 'focus'>[]>([]);
   const inspectionPress = useRef<{key: string; entryId: number | null; page: 'changes' | 'plan' | 'verification' | 'current' | 'history' | 'older' | 'newer' | 'retry' | 'back' | 'focus'} | null>(null);
   const [input, setInput] = useState(() => initialDraft?.value ?? fakeDemoPrompt());
+  const [deferred, setDeferred] = useState(false);
+  const [deferredNotice, setDeferredNotice] = useState('');
+  const [demoStarting, setDemoStarting] = useState(false);
+  const [demoProblem, setDemoProblem] = useState('');
   const [menuIndex, setMenuIndex] = useState(0);
   const [theme, setTheme] = useState<ThemeName>(initialTheme);
   const [quitting, setQuitting] = useState(false);
@@ -309,9 +339,10 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
   const followupDraftDirty = useRef(false);
   const sidebarWindow = useRef<{host: TerminalHost; windowId: string} | null>(null);
   const dragAnchor = useRef<SelectionPoint | null>(null);
+  const goalDefaultsRef = useRef<GoalLimits|undefined>(undefined);
   const goalRef = useRef<GoalMode | null>(null);
   goalRef.current = goal;
-  const goalDoneRef = useRef<((result: RunResult) => boolean) | null>(null);
+  const goalDoneRef = useRef<((result: RunResult, requestId: string) => boolean) | null>(null);
   const goalLoadedSession = useRef('');
   const goalSaveError = useRef(false);
   const autoObserveRef = useRef<(() => void) | null>(null);
@@ -321,6 +352,23 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
   const quittingRef = useRef(quitting);
   quittingRef.current = quitting;
   activeRun.current = state.activeId;
+  const mcpSettings = useMcpSettings(client, state.workspace, state.sessionId, id => {
+    activeRun.current = id;
+    dispatch({type: 'begin_command', id, command: 'mcp_config'});
+  }, () => !activeRun.current && latestState.current.phase === 'idle');
+  const mcpSettingsRef = useRef(mcpSettings); mcpSettingsRef.current = mcpSettings;
+  const modelSettings = useModelSettings(client, state.workspace, state.sessionId, id => {
+    activeRun.current = id;
+    dispatch({type: 'begin_command', id, command: 'model'});
+  }, () => !activeRun.current && latestState.current.phase === 'idle');
+  const modelSettingsRef = useRef(modelSettings); modelSettingsRef.current = modelSettings;
+  const bootstrapSettings = useBootstrapSettings(client, state.workspace);
+  const bootstrapSettingsRef = useRef(bootstrapSettings); bootstrapSettingsRef.current = bootstrapSettings;
+  const settings = useSettings(client, state.workspace, state.sessionId, id => {
+    activeRun.current = id;
+    dispatch({type: 'begin_command', id, command: 'settings'});
+  }, () => !activeRun.current && latestState.current.phase === 'idle');
+  const settingsRef = useRef(settings); settingsRef.current = settings;
   const revision = usePlanRevision(client, text => {setFeedback(text); setFeedbackTone('info');}, (id, target, objective, receipt) => {
     if (activeRun.current || latestState.current.phase !== 'idle') return false;
     activeRun.current = id;
@@ -378,8 +426,8 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
   const terminal = useWindowSize();
   const columns = Math.max(1, windowSize?.columns ?? terminal.columns);
   const rows = Math.max(1, windowSize?.rows ?? terminal.rows);
-  const minimumColumns = state.approval || review.focused || revision.mode || followups.open || navigation.open || sessionNav.open || permissionPanel.open || locator || searchPanel || logsOpen || planListOpen ? 32 : 24;
-  const minimumRows = state.approval || review.focused || revision.mode || followups.open || navigation.open || sessionNav.open || permissionPanel.open || locator || searchPanel || logsOpen || planListOpen ? 12 : 11;
+  const minimumColumns = state.approval || review.focused || revision.mode || followups.open || navigation.open || sessionNav.open || permissionPanel.open || locator || searchPanel || logsOpen || guideOpen || mcpSettings.open || modelSettings.open || settings.open || planListOpen ? 32 : 24;
+  const minimumRows = state.approval || review.focused || revision.mode || followups.open || navigation.open || sessionNav.open || permissionPanel.open || locator || searchPanel || logsOpen || guideOpen || mcpSettings.open || modelSettings.open || settings.open || planListOpen ? 12 : 11;
   const inspectionVisible = surfaceActive && inspectionFocused && !quitPrompt;
   const followupsVisible = surfaceActive && followups.open && !quitPrompt;
   const navigationVisible = surfaceActive && navigation.open && !quitPrompt;
@@ -388,7 +436,11 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
   const locatorVisible = surfaceActive && Boolean(locator) && !quitPrompt;
   const searchPanelVisible = surfaceActive && Boolean(searchPanel) && !quitPrompt;
   const logsVisible = surfaceActive && logsOpen && !quitPrompt;
-  const secondaryPanelVisible = locatorVisible || searchPanelVisible || logsVisible;
+  const guideVisible = surfaceActive && guideOpen && !quitPrompt && !state.approval;
+  const mcpSettingsVisible = surfaceActive && mcpSettings.open && !quitPrompt && !state.approval;
+  const modelSettingsVisible = surfaceActive && modelSettings.open && !quitPrompt && !state.approval;
+  const settingsVisible = surfaceActive && settings.open && !mcpSettings.open && !modelSettings.open && !permissionPanel.open && !quitPrompt && !state.approval;
+  const secondaryPanelVisible = mcpSettingsVisible || settingsVisible || locatorVisible || searchPanelVisible || logsVisible || guideVisible || modelSettingsVisible;
   const terminalTooSmall = rows < minimumRows || columns < minimumColumns;
   const palette = getPalette(theme);
   const tools = state.entries.filter(entry => entry.kind === 'tool' && entry.call);
@@ -397,13 +449,25 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
   const overlayKey = state.approval ? `approval-${state.approval.id}` : revision.mode ? `revision-${revision.key}-${revision.mode}${revision.mode === 'history' ? `-${revision.history?.cursor ?? ''}-${revision.history?.index}` : ''}` : review.focused ? `review-${review.key}-${review.body ? review.cursor : 'actions'}` : contextOpen ? 'context' : planOpen ? 'plan' : detailEntry ? `tool-${detailEntry.id}` : planListOpen ? 'plan-list' : history.open ? 'inspection-history' : '';
   const composerRows = rows >= 32 ? 5 : rows >= 18 ? 3 : 1;
   const compactApproval = Boolean((state.approval || revision.mode) && rows < 18);
+  const homeIdle = !state.hasStartedRun && !state.entries.length && !state.live && !state.error && state.phase !== 'running'
+    && (!state.autonomy || state.autonomy === 'ask');
+  const homeSummaryVisible = homeIdle && !state.approval && !overlayKey && !quitting && !reading && rows >= 18;
+  const homeSummaryRows = homeSummaryVisible ? 2 : 0;
+  const projectName = (state.workspace || '').split(/[\\/]/).filter(Boolean).at(-1) ?? (state.workspace || '工作区待连接');
+  const projectActionWidth = 14;
+  const modelActionWidth = 10;
+  const homeActionsVisible = homeIdle && !state.approval && !overlayKey && !quitting && !reading && columns >= 48;
+  const homeActionRows = homeActionsVisible ? 1 : 0;
+  const homeButtons: {action: '1' | '2' | '3'; label: string}[] = columns >= 72
+    ? [{action: '1', label: '了解这个项目'}, {action: '2', label: '定位一个问题'}, {action: '3', label: '实现一个修改'}]
+    : [{action: '1', label: '了解项目'}, {action: '2', label: '定位问题'}, {action: '3', label: '实现修改'}];
   const compactLayout = rows >= 18 && rows < 26;
   const compactQuit = Boolean(quitPrompt && rows < 18);
   const composerPadding = rows < 18 || compactApproval || compactLayout ? 0 : 1;
-  const headerRows = rows >= 26 && columns >= 96 ? 5 : rows >= 18 ? 3 : compactApproval ? 1 : 2;
-  const sidebar = columns >= 118 && rows >= 24;
+  const headerRows = homeIdle ? 1 : rows >= 26 && columns >= 96 ? 5 : rows >= 18 ? 3 : compactApproval ? 1 : 2;
+  const sidebar = !homeIdle && columns >= 118 && rows >= 24;
   const readerColumns = sidebar ? columns - 33 : columns;
-  const compactRows = !sidebar && rows >= 24 && !overlayKey ? compactLayout ? state.contextSnapshots.length ? 1 : 0 : 3 : 0;
+  const compactRows = !sidebar && rows >= 24 && !overlayKey && !homeIdle ? compactLayout ? state.contextSnapshots.length ? 1 : 0 : 3 : 0;
   const skillMenu = !reading && !overlayKey && !quitting ? buildSkillMenu(input, state.skills) : null;
   const menuMatches = skillMenu?.matches ?? (!reading && !overlayKey && !quitting ? commandMatches(input) : []);
   const submissionBlock = review.decisionPending ? '计划决策处理中' : revision.decisionPending ? '修订请求处理中' : quitting ? '正在退出' :
@@ -445,7 +509,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
     ...(followups.count || followups.problem ? [{action: 'followups' as const, label: `后续 ${followups.count}`}] : [])];
   const followupButtonsWidth = (onDetach ? 16 : 0) + (navigationAvailable ? 10 : 0) + (followups.count || followups.problem ? 13 : 0);
   const composerHeight = planBarShown ? planBarRows : composerRows + composerPadding * 2;
-  const paneBase = rows - followupRows - planProgressRows - inspectionRows - headerRows - compactRows - composerHeight - 2 - approvalRows - revisionRows;
+  const paneBase = rows - followupRows - planProgressRows - inspectionRows - headerRows - compactRows - composerHeight - 2 - approvalRows - revisionRows - homeActionRows - homeSummaryRows;
   const menuRows = rows >= 18 ? Math.min(menuMatches.length, 5, Math.max(0, paneBase - 4)) : 0;
   const paneRows = Math.max(4, paneBase - menuRows);
   const menuPosition = Math.min(menuIndex, Math.max(0, menuMatches.length - 1));
@@ -525,7 +589,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
     if (planOpen) return planLines.flatMap((line, index) =>
       textLines(`${index === planSelection ? '› ' : '  '}${line}`, bodyColumns));
     if (detailEntry) return detailLines(detailEntry, bodyColumns);
-    return isEmpty ? welcomeLines(state, bodyColumns) : transcript;
+    return isEmpty ? welcomeLines(state, bodyColumns, {omitSummary: homeSummaryVisible}) : transcript;
   }, [history, historyIndex, historyVisible, state.approval, approvalView, approvalExpanded, compactApproval, revision, review, contextOpen, planListOpen, state.planProgress, planOpen, planLines, planSelection, state.contextSnapshots, contextSelection, detailEntry, bodyColumns, isEmpty, transcript]);
   const maximum = Math.max(0, lines.length - bodyRows);
   const top = overlayKey ? Math.min(overlayScroll.key === overlayKey ? overlayScroll.top : 0, maximum) :
@@ -598,6 +662,47 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
       localRoundsRef.current();
       return;
     }
+    if (event.type === 'settings_overview' && event.workspace === latestState.current.workspace && event.session_id === latestState.current.sessionId && event.goal_limits) {
+      goalDefaultsRef.current = event.goal_limits;
+    }
+    if (event.type === 'error' && event.id === activeRun.current && goalRef.current?.active &&
+        ['task_budget_exceeded','task_error','task_runtime_disabled'].includes(event.code)) {
+      const paused={...goalRef.current,active:false,pausedReason:event.message};
+      goalRef.current=paused;setGoal(paused);activeRun.current=null;
+      dispatch({type:'event',event:{v:1,type:'done',id:event.id,result:{
+        text:event.message,status:'stopped',stop_reason:event.code,steps:0,usage:{},cost_usd:0,run_id:event.id!}}});
+      dispatch({type:'notice',text:'目标未续段：'+event.message+'；原预算未重置'});
+      return;
+    }
+    if (bootstrapSettingsRef.current.receive(event)) {
+      if (event.type === 'model_settings') dispatch({type: 'event', event});
+      return;
+    }
+    if (settingsRef.current.receive(event)) {
+      if (event.type === 'error' && event.id === activeRun.current && latestState.current.activeCommand === 'settings') {
+        activeRun.current = null;
+        dispatch({type: 'event', event: {v: 1, type: 'command_result', id: event.id, command: 'settings', text: event.message}});
+      }
+      return;
+    }
+    if (event.type === 'settings_overview') return;
+    if (mcpSettingsRef.current.receive(event)) {
+      if (event.type === 'error' && event.id === activeRun.current && latestState.current.activeCommand === 'mcp_config') {
+        activeRun.current = null;
+        dispatch({type: 'event', event: {v: 1, type: 'command_result', id: event.id, command: 'mcp_config', text: event.message}});
+      }
+      return;
+    }
+    if (event.type === 'mcp_config') return;
+    if (modelSettingsRef.current.receive(event)) {
+      if (event.type === 'model_settings') dispatch({type: 'event', event});
+      if (event.type === 'error' && event.id === activeRun.current && latestState.current.activeCommand === 'model') {
+        activeRun.current = null;
+        dispatch({type: 'event', event: {v: 1, type: 'command_result', id: event.id, command: 'model', text: event.message}});
+      }
+      return;
+    }
+    if (event.type === 'model_settings') return;
     if (navigationRef.current.receive(event) || event.type === 'task_catalog') return;
     if (sessionNavRef.current.receive(event) || event.type === 'session_catalog') return;
     if (permissionPanelRef.current.receive(event) || event.type === 'permission_overview') return;
@@ -651,7 +756,8 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
       }
     }
     if (event.type === 'approval_request') {
-      if (event.id !== activeRun.current) return;
+      // 仅配置状态没有 run id；审批事件仍走同一面板与按键。
+      if (!latestState.current.bootstrap && event.id !== activeRun.current) return;
       if (approvalRun.current !== event.id) {
         approvalRun.current = event.id;
         answeredApprovals.current.clear();
@@ -667,10 +773,19 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
         setFeedback('');
       }
     }
-    if (event.type === 'approval_resolved' && event.id === activeRun.current && latestState.current.approval?.id === event.approval_id) {
+    if (event.type === 'approval_resolved' && (event.id === activeRun.current || latestState.current.bootstrap) && latestState.current.approval?.id === event.approval_id) {
       answeredApprovals.current.add(event.approval_id);
       setApprovalSelection(null);
       setFeedback('审批已被处理，草稿保留');
+    }
+    if (event.type === 'ready' && event.bootstrap) {
+      bootstrapSettingsRef.current.reset();
+      if (event.bootstrap.problem) setDeferred(false);
+      else bootstrapSettingsRef.current.show();
+    }
+    if (event.type === 'ready' && !event.bootstrap) {
+      bootstrapSettingsRef.current.reset();
+      setDeferred(false); setDeferredNotice(''); setDemoProblem('');
     }
     if (event.type === 'ready' && event.tasks && event.tasks.length) {
       const running = event.tasks.filter(task => task.worker_status && task.worker_status !== 'exited' && task.worker_status !== 'failed' && task.worker_status !== 'interrupted');
@@ -727,8 +842,10 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
     }
     if (event.type === 'task_state' && event.id === activeRun.current) {
       const current = goalRef.current;
-      if (current && current.taskId !== event.task.task_id) {
-        const next = {...current, taskId: event.task.task_id};
+      if (current?.active && event.task.kind === 'goal') {
+        const bound = {...current, taskId: event.task.task_id};
+        const next = event.task.goal_budget && event.task.status === 'running' ?
+          alignGoalBudget(bound,event.task.goal_budget,event.task.segment) : bound;
         goalRef.current = next;
         setGoal(next);
         dispatch({type: 'notice', text: `任务已记录：${event.task.task_id}`});
@@ -765,7 +882,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
         const requested = handoffRef.current; handoffRef.current = null; setHandoff(null);
         void connectRef.current(requested.target, requested.stop); return;
       }
-      if (goalDoneRef.current?.(event.result)) {followupsRef.current.pause('目标模式优先，待办保留'); return;}
+      if (goalDoneRef.current?.(event.result, event.id!)) {followupsRef.current.pause('目标模式优先，待办保留'); return;}
       if (waitForExit.current) {
         waitForExit.current = false;
         shutdownRef.current();
@@ -863,6 +980,25 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
     }
   };
   const announce = (text: string) => {dispatch({type: 'notice', text}); setFeedback(text); setFeedbackTone('info');};
+  const fillHomeExample = (key: '1' | '2' | '3'): boolean => {
+    if (!homeIdle || state.approval || quitting || reading || overlayKey) return false;
+    if (input.trim()) {
+      setFeedback('已有草稿，保持原样；请先发送或清空再使用示例');
+      setFeedbackTone('error');
+      return false;
+    }
+    const example = HOME_EXAMPLES[key];
+    setInput(example.prompt);
+    setFeedback(`已填入示例「${example.title}」；可编辑后 Enter 发送`);
+    setFeedbackTone('info');
+    return true;
+  };
+  const startDemo = async () => {
+    if (!onDemo || demoStarting) {if (!onDemo) setDemoProblem('当前入口不支持 Demo'); return;}
+    setDemoStarting(true); setDemoProblem('');
+    try {await onDemo();} catch (error) {setDemoProblem(`Demo 启动失败：${String(error)}`);}
+    finally {setDemoStarting(false);}
+  };
   const reportError = (text: string) => {notice(text); setFeedback(text); setFeedbackTone('error');};
   const launchGoalSegment = (nextGoal: GoalMode, display: string) => {
     try {
@@ -914,7 +1050,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
     }
   };
   backgroundSpawnRef.current = spawnBackgroundWorker;
-  const handleGoalDone = (result: RunResult): boolean => {
+  const handleGoalDone = (result: RunResult, requestId: string): boolean => {
     const current = goalRef.current;
     if (!current?.active) return false;
     const decision = goalDecision(current, result);
@@ -935,7 +1071,9 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
     setGoal(decision.goal);
     dispatch({type: 'notice', text: decision.notice});
     if (!decision.continue || !decision.prompt) return false;
-    return launchGoalSegment(decision.goal, `目标续段 · 第 ${decision.goal.segment} 段`);
+    const launched = launchGoalSegment(decision.goal, `目标续段 · 第 ${decision.goal.segment} 段`);
+    if (launched) dispatch({type: 'continue_run', id: requestId});
+    return launched;
   };
   goalDoneRef.current = handleGoalDone;
   useEffect(() => {
@@ -983,13 +1121,14 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
       if (current.active) {notice(`目标模式已在进行中 · ${goalLabel(current)}`); return;}
       if (state.phase !== 'idle' || activeRun.current) {notice('当前任务运行中，结束后再 /goal resume。'); return;}
       const resumed = resumeGoal(current);
+      if(!resumed.active){goalRef.current=resumed;setGoal(resumed);notice('目标预算已用尽：'+resumed.pausedReason+'；可调整新目标默认后新建目标');return;}
       notice(`恢复目标模式 · ${goalLabel(resumed)}`);
       launchGoalSegment(resumed, `目标恢复 · 第 ${resumed.segment} 段`);
       return;
     }
     if (current?.active) {notice('已有目标模式；先 /goal stop 或 /goal resume。'); return;}
     if (state.phase !== 'idle' || activeRun.current) {notice('当前任务运行中，结束后再启动目标模式。'); return;}
-    const next = newGoal(rest);
+    const next = newGoal(rest,Date.now(),goalDefaultsRef.current);
     notice(`目标模式启动 · ${goalLabel(next)} · 最多 ${next.maxSegments} 段`);
     launchGoalSegment(next, next.objective);
   };
@@ -1183,6 +1322,44 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
   };
   useTranscriptMouse({
     onPointer: event => {
+      if (homeSummaryVisible && !terminalTooSmall) {
+        const hit = [...projectSummaryTargets.current, ...modelSummaryTargets.current].find(target =>
+          event.row >= target.top && event.row <= target.bottom && event.column >= target.left && event.column <= target.right);
+        const stamp = `${columns}:${rows}:summary`;
+        if (event.type === 'press' && event.button === 0) summaryPress.current = hit ? stamp : null;
+        else if (event.type === 'release') {
+          const prior = summaryPress.current; summaryPress.current = null;
+          if (hit && prior === stamp) {
+            if (hit.action === 'project') setShowProjectPath(current => !current);
+            else modelSettings.show();
+          }
+        } else summaryPress.current = null;
+        if (hit) return true;
+      } else summaryPress.current = null;
+      if (homeActionsVisible && !terminalTooSmall) {
+        const hit = homeTargets.current.find(target => event.row >= target.top && event.row <= target.bottom &&
+          event.column >= target.left && event.column <= target.right);
+        const stamp = `${columns}:${rows}:home`;
+        if (event.type === 'press' && event.button === 0) homePress.current = hit ? stamp : null;
+        else if (event.type === 'release') {
+          const prior = homePress.current; homePress.current = null;
+          if (hit && prior === stamp) fillHomeExample(hit.action);
+        } else homePress.current = null;
+        if (hit) return true;
+      } else homePress.current = null;
+      if (footerVisible && !terminalTooSmall) {
+        const hit = footerTargets.current.find(target => event.row >= target.top && event.row <= target.bottom && event.column >= target.left && event.column <= target.right);
+        const stamp = `${columns}:${rows}:footer`;
+        if (event.type === 'press' && event.button === 0) footerPress.current = hit ? stamp : null;
+        else if (event.type === 'release') {
+          const prior = footerPress.current; footerPress.current = null;
+          if (hit && prior === stamp) {
+            if (hit.action === 'settings') settings.show(); else setGuideOpen(true);
+            return true;
+          }
+        } else footerPress.current = null;
+        if (hit) return true;
+      } else footerPress.current = null;
       if (followupRows && !quitPrompt) {
         const hit = followupTargets.current.find(target => event.row >= target.top && event.row <= target.bottom && event.column >= target.left && event.column <= target.right);
         const key = `${columns}:${rows}:${followups.items.map(item => item.id).join()}:${hit?.action}`;
@@ -1596,6 +1773,13 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
       } else if (!state.activeId) requestShutdown();
       return;
     }
+    // 首次配置页只保留退出、审批与页面自身的按键；其余全局快捷键不生效。
+    if (state.bootstrap && !state.approval) return;
+    if (key.ctrl && keyInput === 't') {
+      if (guideOpen) setGuideOpen(false);
+      else if (!state.approval && !overlayKey && !quitting && !inspectionVisible && !followupsVisible && !navigationVisible && !sessionNavVisible && !permissionPanelVisible && !secondaryPanelVisible) setGuideOpen(true);
+      return;
+    }
     if (inspectionVisible || followupsVisible || navigationVisible || sessionNavVisible || permissionPanelVisible || secondaryPanelVisible || terminalTooSmall) return;
     if (key.ctrl && keyInput === 'l' && !state.approval && !quitting && (planListOpen || (state.planProgress && !overlayKey))) {
       setPlanListOpen(open => !open);
@@ -1639,8 +1823,8 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
       if (keyInput === 'p') {prefillStep('/plan depends', '依赖步骤'); return;}
       return;
     }
-    if (key.ctrl && keyInput === 'y') {copyCurrent(); return;}
-    if (key.ctrl && keyInput === 'g') {openSidebarPanel(); return;}
+    if (key.ctrl && keyInput === 'y' && !state.bootstrap) {copyCurrent(); return;}
+    if (key.ctrl && keyInput === 'g' && !state.bootstrap) {openSidebarPanel(); return;}
     if (state.approval) {
       if (key.ctrl && keyInput === 'r') {
         setApprovalSelection(approvalFocused ? null : {id: state.approval.id, decision: null});
@@ -1687,6 +1871,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
         return;
       }
     }
+    if (state.bootstrap) return;
     if (historyVisible) {
       if (key.tab && history.records.length) {
         const index = historyIndex === null ? 0 : (historyIndex + (key.shift ? -1 : 1) + history.records.length) % history.records.length;
@@ -1964,6 +2149,21 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
   const submit = (value: string) => {
     const text = value.trim();
     if (!text || quitting) return;
+    if (text === '/settings') {
+      setInput(''); settings.show(); return;
+    }
+    if (text === '/mcp edit' || text === '/mcp config') {
+      setInput(''); mcpSettings.show(); return;
+    }
+    if (text === '/model') {
+      setInput(''); modelSettings.show(); return;
+    }
+    if (/^\/guide(?: (on|off))?$/.test(text)) {
+      setInput('');
+      if (text === '/guide') setGuideOpen(true);
+      else {setGuideTips(text.endsWith(' on')); setFeedback(text.endsWith(' on') ? '情境提示已开启（本窗口）' : '情境提示已关闭（本窗口）；Ctrl+T 仍可查看指引'); setFeedbackTone('info');}
+      return;
+    }
     if (state.attachOffline && !/^\/(?:inspections|sidebar(?: split| quick| window)?|context|copy|help(?: .*)?|theme(?: .*)?|session|quit|exit)$/.test(text)) {
       notice('离线结果只读；可查看历史结果，草稿已保留。'); return;
     }
@@ -2550,10 +2750,21 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
             : (columns < 60 ? '任务已暂停 · /resume 续做' : '任务已暂停  /resume 续做  /context 查看进度  Ctrl+Q 退出')) :
         isEmpty ? (columns < 60 ? '输入任务开始 · Ctrl+Q退出 · /help' : '直接描述任务开始  /help 命令  Ctrl+K 上下文  Ctrl+Q 退出') :
         columns < 60 ? 'Ctrl+K上下文 · Ctrl+Q退出 · /help' : '拖选复制  Ctrl+R阅读  Ctrl+K上下文  Ctrl+Y复制回复  Ctrl+Q退出');
+  const guideEntryVisible = columns >= 48 && !overlayKey && !reading && !quitPrompt && !quitting && !review.card;
+  const settingsEntryVisible = guideEntryVisible && Boolean(client.capabilities?.().includes('workbench-settings'));
+  const footerActions: {action: 'settings' | 'guide'; label: string}[] = [
+    ...(settingsEntryVisible ? [{action: 'settings' as const, label: '设置'}] : []),
+    {action: 'guide' as const, label: '指引'},
+  ];
+  const footerVisible = guideEntryVisible;
+  const footerButtonsWidth = footerActions.reduce((width, button) => width + stringWidth(button.label) + 4, 0) + footerActions.length - 1 + 2;
+  const contextualHint = guideTips && !overlayKey && !reading && !review.card && !state.planMode.active && !goal
+    && !state.lastStopReason?.startsWith('acceptance_') && state.lastStopReason !== 'plan_incomplete'
+    ? guidanceHint(state, columns) : hint;
   const lastNotice = state.notices.at(-1);
   const noticeFirstLine = lastNotice ? (lastNotice.split('\n')[0] ?? '').trim() : '';
   const recordHint = noticeFirstLine ? `记录${state.notices.length > 1 ? `(${state.notices.length})` : ''}：${noticeFirstLine}${columns >= 48 ? ' · /logs' : ''}` : '';
-  const statusBase = `${phase}${resultReason(state.lastResult) ? ` · ${resultReason(state.lastResult)}` : ''}${metricsText(state) ? `  ·  ${metricsText(state)}` : ''}`;
+  const statusBase = `${phase}${resultReason(state.lastResult) ? ` · ${resultReason(state.lastResult)}` : ''}${!homeIdle && metricsText(state) ? `  ·  ${metricsText(state)}` : ''}`;
   const statusLineText = feedback || statusBase;
   const composerDisabled = Boolean(submissionBlock);
   const composerPlaceholder = planListOpen ? '计划执行清单已聚焦 · Esc 返回输入' : state.approval ? (approvalFocused ? '审批已聚焦 · Enter 确认 · Esc 草稿' : '草稿可编辑 · 点击按钮或 Tab 选择') : revision.mode ? '普通草稿已保留 · 返回后继续编辑' : review.focused ? '计划审阅已聚焦 · Esc 返回草稿' : contextOpen ? '上下文详情已聚焦，Esc 返回输入' : detailEntry ? '工具详情已聚焦，Esc 返回输入' : reading ? '正在阅读历史，Esc 返回输入' :
@@ -2568,6 +2779,33 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
     state.phase === 'stopping' ? '正在停止 · 收到停止结果后可发送' : undefined;
   // PM/UX: 完成/错误/暂停/取消后给出下一步引导，减少用户困惑。
 
+  const guideConnected = state.phase !== 'starting' && state.phase !== 'closed' && !state.attachOffline;
+  const guidancePages = guidePages({tasks: guideConnected && navigationAvailable, plan: guideConnected && Boolean(review.card || state.planProgress || client.capabilities?.().includes('tasks')),
+    inspection: Boolean(state.workspace), permissions: guideConnected && permissionPanelAvailable, settings: guideConnected && Boolean(client.capabilities?.().includes('workbench-settings')), model: guideConnected && Boolean(client.capabilities?.().includes('model-settings'))});
+  const homeShortcut = (text: string, key: Key): boolean => {
+    if (key.ctrl || key.meta || !/^[1-3]$/.test(text)) return false;
+    return fillHomeExample(text as '1' | '2' | '3');
+  };
+  const guideAction = (action: GuideAction): string | void => {
+    if (state.approval || quitting) return '请先处理当前审批或退出操作';
+    const example = GUIDE_EXAMPLES[action];
+    if (example || action === 'plan' && !review.card && !state.planProgress) {
+      if (state.phase !== 'idle' || activeRun.current || state.attachOffline) return '任务运行中或当前只读；示例未填入';
+      if (input.length) return '已有草稿，保持原样；返回后继续编辑';
+      setInput(example ?? '/plan '); setGuideOpen(false); return;
+    }
+    if (action === 'plan') {
+      if (review.card) review.focus();
+      else if (state.planProgress) {setPlanListOpen(true); setOverlayScroll({key: 'plan-list', top: 0});}
+    } else if (action === 'settings') settings.show();
+    else if (action === 'model') modelSettings.show();
+    else if (action === 'inspection' && state.workspace) showFocusedInspection();
+    else if (action === 'tasks' && guideConnected && navigationAvailable) navigation.show();
+    else if (action === 'permissions' && guideConnected && permissionPanelAvailable) permissionPanel.show();
+    else return '当前入口不可用；请先连接支持该功能的后端';
+    setGuideOpen(false);
+  };
+
   if (terminalTooSmall && quitPrompt && !taskConnection.connection) return <Box width={columns} height={rows} backgroundColor={palette.background} flexDirection="column" overflow="hidden">
     <Text color={palette.warning}>{fitText('↑↓选择 Enter确认 Esc返回', columns)}</Text>
     {quitPrompt.options.slice(Math.max(0, quitPrompt.index - rows + 2), Math.max(0, quitPrompt.index - rows + 2) + Math.max(1, rows - 1)).map(option =>
@@ -2580,9 +2818,58 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
     {rows > 3 && state.approval ? <Text color={palette.secondary}>{fitText('Ctrl+Q 退出', columns)}</Text> : null}
   </Box>;
 
+  if (state.bootstrap?.problem && !taskConnection.connection) return <ConfigProblemPanel
+    workspace={state.workspace} problem={state.bootstrap.problem} configPath={state.bootstrap.config_path}
+    columns={columns} rows={rows} palette={palette} onQuit={requestShutdown}/>;
+
+  if (state.bootstrap && !taskConnection.connection && deferred) return <DeferredHome
+    workspace={state.workspace} columns={columns} rows={rows} palette={palette}
+    draft={input} onChange={text => {setInput(text); setDeferredNotice('');}}
+    onBlocked={() => setDeferredNotice('尚未连接模型；草稿已保留。按 Esc 返回配置。')}
+    onConnect={() => setDeferred(false)} onDemo={onDemo ? startDemo : undefined}
+    onQuit={requestShutdown} demoStarting={demoStarting} demoProblem={demoProblem} notice={deferredNotice}/>;
+
+  if (state.bootstrap && !taskConnection.connection) {
+    const approvalRows = state.approval ? Math.min(6, Math.max(4, rows - 12)) : 0;
+    return <Box width={columns} height={rows} flexDirection="column" overflow="hidden" backgroundColor={palette.background}>
+      <BootstrapPanel workspace={state.workspace} defaults={state.bootstrap.defaults}
+        overview={bootstrapSettings.overview} loading={bootstrapSettings.loading}
+        problem={bootstrapSettings.problem} problemField={bootstrapSettings.problemField}
+        activating={bootstrapSettings.activating}
+        active={surfaceActive && !state.approval && !quitting} columns={columns}
+        rows={Math.max(8, rows - approvalRows)} palette={palette}
+        onRequest={bootstrapSettings.request} onCancel={bootstrapSettings.cancel}
+        onActivate={bootstrapSettings.activate} onQuit={requestShutdown}
+        onLater={() => {setDeferred(true); setDeferredNotice('');}}
+        onDemo={onDemo ? startDemo : undefined} demoStarting={demoStarting} demoProblem={demoProblem}/>
+      {state.approval ? <Box flexDirection="column" height={approvalRows} flexShrink={0}>
+        <Box height={1}><Text color={palette.warning}>{fitText('审批：' + (state.approval.preview.split('\n')[0] ?? ''), columns)}</Text></Box>
+        <Box height={1}><Text color={palette.secondary}>{fitText(state.approval.preview.split('\n').slice(1).join(' ') || '按 y 允许本次 / n 拒绝；Tab 选择 Enter 确认', columns)}</Text></Box>
+        <ApprovalActions buttons={approvalChoices} selected={approvalFocused ? approvalSelection?.decision ?? null : null}
+          columns={columns} height={2} palette={palette} targets={approvalTargets}/>
+      </Box> : null}
+    </Box>;
+  }
+
   return <><Box display={surfaceActive ? 'flex' : 'none'} flexDirection="column"><Box display={inspectionVisible || followupsVisible || navigationVisible || sessionNavVisible || permissionPanelVisible || secondaryPanelVisible ? 'none' : 'flex'} flexDirection="column" width={columns} height={rows} backgroundColor={palette.background} overflow="hidden">
     <AgentHeader state={state} columns={columns} height={headerRows} palette={palette}/>
     {compactRows ? <StatusPanel state={state} columns={columns} height={compactRows} palette={palette}/> : null}
+    {homeSummaryVisible ? <Box flexDirection="column" width={columns} height={homeSummaryRows} flexShrink={0}>
+      <Box flexDirection="row" height={1} width={columns}>
+        <Box width={Math.max(1, columns - projectActionWidth)}><Text color={palette.secondary}>
+          {fitText('项目  ' + projectName + (showProjectPath ? '  ' + state.workspace : ''), Math.max(1, columns - projectActionWidth))}
+        </Text></Box>
+        <ActionButtons buttons={[{action: 'project', label: showProjectPath ? '收起路径' : '查看项目'}]} selected={null}
+          columns={projectActionWidth} height={1} palette={palette} targets={projectSummaryTargets}/>
+      </Box>
+      <Box flexDirection="row" height={1} width={columns}>
+        <Box width={Math.max(1, columns - modelActionWidth)}><Text color={palette.foreground}>
+          {fitText('模型  ' + (state.model || '模型待连接') + ' · ' + modelStatusText(state), Math.max(1, columns - modelActionWidth))}
+        </Text></Box>
+        <ActionButtons buttons={[{action: 'model', label: '更改'}]} selected={null}
+          columns={modelActionWidth} height={1} palette={palette} targets={modelSummaryTargets}/>
+      </Box>
+    </Box> : null}
     <Box display={compactQuit ? 'none' : 'flex'} flexDirection="row" width={columns} height={paneRows} flexShrink={0}>
       {revision.mode === 'edit' && revision.record && !state.approval ? <Box width={readerColumns} height={paneRows} paddingX={2} paddingY={1} flexShrink={0} flexDirection="column">
         <Text color={palette.accent} bold>{fitText(`修订反馈 · v${revision.record.target.plan_version} · ${[...revision.record.draft.trim()].length}/4000 字`, readerColumns - 4)}</Text>
@@ -2593,6 +2880,8 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
       </Box> : <ReadingPane title={paneTitle} lines={paneLines} top={top} height={paneRows} columns={readerColumns} palette={palette} overlay={readerFocused} selection={selection}/>}
       {sidebar ? <><Box width={1}/><StatusPanel state={state} columns={32} height={paneRows} palette={palette}/></> : null}
     </Box>
+    {!compactQuit && homeActionsVisible ? <ActionButtons buttons={homeButtons} selected={null}
+      columns={columns} height={1} palette={palette} targets={homeTargets}/> : null}
     {!compactQuit && state.approval ? <ApprovalActions buttons={approvalChoices} selected={approvalFocused ? approvalSelection?.decision ?? null : null}
       columns={columns} height={approvalRows} palette={palette} targets={approvalTargets}/> : null}
     {!compactQuit && revisionRows ? <ActionButtons buttons={revision.buttons} selected={revision.selected} columns={columns} height={revisionRows} palette={palette} targets={revisionTargets}/> : null}
@@ -2619,7 +2908,7 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
             startupBlocked.current = true;
             dispatch({type: 'notice', text: '后端仍在启动；草稿已保留，显示就绪后再按 Enter 发送'});
           }
-        }} history={inputHistory} disabled={composerDisabled} disabledHint={unavailableHint} focused={surfaceActive && !quitPrompt && !inspectionVisible && !followupsVisible && !navigationVisible && !sessionNavVisible && !permissionPanelVisible && !secondaryPanelVisible && !readerFocused && !quitting} placeholder={effectivePlaceholder} columns={Math.max(1, columns - 4)} maxRows={composerRows} accentColor={palette.accent} warningColor={palette.warning} foregroundColor={palette.foreground} secondaryColor={palette.secondary}
+        }} onShortcut={(text, key) => homeShortcut(text, key)} history={inputHistory} disabled={composerDisabled} disabledHint={unavailableHint} focused={surfaceActive && !quitPrompt && !inspectionVisible && !followupsVisible && !navigationVisible && !sessionNavVisible && !permissionPanelVisible && !secondaryPanelVisible && !readerFocused && !quitting} placeholder={effectivePlaceholder} columns={Math.max(1, columns - 4)} maxRows={composerRows} accentColor={palette.accent} warningColor={palette.warning} foregroundColor={palette.foreground} secondaryColor={palette.secondary}
         onTab={state.approval ? backwards => {const button = backwards ? approvalChoices.at(-1) : approvalChoices[0]; if (button) selectApproval(button.action);} : undefined}
         menu={menuRows ? {
           count: menuMatches.length,
@@ -2639,7 +2928,10 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
       <ActionButtons buttons={inspectionButtons} selected={null} columns={columns < 48 ? 10 : 14} height={1} palette={palette} targets={inspectionTargets}/>
       <Text color={feedback && feedbackTone === 'error' ? palette.error : palette.foreground}>{fitText(statusLineText, Math.max(1, columns - (columns < 48 ? 10 : 14)))}</Text>
     </Box> : <Text color={state.error || state.phase === 'closed' || (feedback && feedbackTone === 'error') ? palette.error : state.approval ? palette.warning : palette.foreground}>{fitText(statusLineText, columns)}</Text>}
-    <Text color={palette.secondary}>{fitText((recordHint && !state.approval && !review.focused && !review.card && !revision.mode && !contextOpen && !planOpen && !planListOpen && !detailEntry && !historyVisible ? recordHint : '') || (onDetach && !readerFocused ? '任务草稿本窗口保留 · 返回原会话' : restoredIdle && columns < 60 && !readerFocused ? '未发送草稿需重输 · /resume 续做' : hint), columns)}</Text>
+    <Box height={1} width={columns}>
+      {footerVisible ? <ActionButtons buttons={footerActions} selected={null} columns={footerButtonsWidth} height={1} palette={palette} targets={footerTargets}/> : null}
+      <Text color={palette.secondary}>{fitText((recordHint && !state.approval && !review.focused && !review.card && !revision.mode && !contextOpen && !planOpen && !planListOpen && !detailEntry && !historyVisible ? recordHint : '') || (onDetach && !readerFocused ? '任务草稿本窗口保留 · 返回原会话' : restoredIdle && columns < 60 && !readerFocused ? '未发送草稿需重输 · /resume 续做' : contextualHint), columns - (footerVisible ? footerButtonsWidth : 0))}</Text>
+    </Box>
   </Box>
     {navigation.open ? <Box display={navigationVisible ? 'flex' : 'none'}><TaskNavigationPanel navigation={navigation} columns={columns} rows={rows} palette={palette}
       active={navigationVisible} onConnect={!attach ? connectSelectedTask : undefined} connecting={taskConnection.pending || handoff?.mode === 'wait'} onCancel={cancelHandoff}
@@ -2675,6 +2967,23 @@ export function App({client, attach = false, active = true, initialDraft, onDraf
       onOpen={openSearchMatch}
       onMore={() => requestHistorySearch(searchPanel.query, searchPanel.next ?? undefined, true)}
       onReturn={() => setSearchPanel(null)}/></Box> : null}
+    {settings.open ? <Box display={settingsVisible ? 'flex' : 'none'}><SettingsPanel
+      overview={settings.overview} loading={settings.loading} problem={settings.problem}
+      active={settingsVisible} busy={state.phase !== 'idle'} columns={columns} rows={rows} palette={palette}
+      onRequest={settings.request} onClose={settings.close}
+      modelLabel={state.model ? `${state.model}${state.modelCheck === 'passed' ? ' · 检测通过' : state.modelCheck === 'failed' ? ' · 检测未通过' : ' · 尚未检测'}` : undefined}
+      onNavigate={target => {if (target === 'model') modelSettings.show(); else if (target === 'mcp') mcpSettings.show(); else permissionPanel.show();}}/></Box> : null}
+    {mcpSettings.open ? <Box display={mcpSettingsVisible ? 'flex' : 'none'}><McpPanel
+      overview={mcpSettings.overview} loading={mcpSettings.loading} problem={mcpSettings.problem}
+      active={mcpSettingsVisible} busy={state.phase !== 'idle'} columns={columns} rows={rows} palette={palette}
+      onRequest={mcpSettings.request} onClose={mcpSettings.close}/></Box> : null}
+    {modelSettings.open ? <Box display={modelSettingsVisible ? 'flex' : 'none'}><ModelPanel
+      overview={modelSettings.overview} loading={modelSettings.loading} problem={modelSettings.problem}
+      active={modelSettingsVisible} busy={state.phase !== 'idle'} columns={columns} rows={rows} palette={palette}
+      onRequest={modelSettings.request} onClose={modelSettings.close}/></Box> : null}
+    {guideOpen ? <Box display={guideVisible ? 'flex' : 'none'}><GuidePanel pages={guidancePages} columns={columns} rows={rows} palette={palette}
+      active={guideVisible} tips={guideTips} context={guidanceHint(state, columns)} onAction={guideAction}
+      onToggle={() => setGuideTips(value => !value)} onReturn={() => setGuideOpen(false)}/></Box> : null}
     {logsOpen ? <Box display={logsVisible ? 'flex' : 'none'}><WorkbenchLogPanel notices={state.notices} columns={columns} rows={rows} palette={palette}
       active={logsVisible} onReturn={() => setLogsOpen(false)}/></Box> : null}
     {followups.open ? <Box display={followupsVisible ? 'flex' : 'none'}><FollowupPanel queue={followups} columns={columns} rows={rows} palette={palette} active={followupsVisible}

@@ -50,6 +50,13 @@ class ApprovalGate:
         self.once_only.add(name)
         self._auditors[name] = audit
 
+    def forget_tools(self, names: set[str]) -> None:
+        """工具替换后撤销旧进程授权与审计钩子。"""
+        self.once_only.difference_update(names)
+        for name in names:
+            self._auditors.pop(name, None)
+        self.session_allowed = {key for key in self.session_allowed if key[1] not in names}
+
     def _tier(self, call: ToolCall) -> str | None:
         if self.tier_resolver is None:
             return None

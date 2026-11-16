@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# 公共入口统一加载用户配置；start.sh 回调时不再重复准备。
+if [ "${VIBE_CONFIG_LOADED:-0}" != "1" ]; then
+  exec "$(dirname "$0")/start.sh" "$@"
+fi
 cd "$(dirname "$0")"
 
 # --doctor 必须在 Node / 前端依赖检查之前拦截：自检本身不需要 node_modules。
@@ -22,7 +26,7 @@ if ! command -v node >/dev/null || ! command -v npm >/dev/null; then
   exit 2
 fi
 if [ ! -d tui/node_modules/ink ]; then
-  echo "请先安装依赖：npm --prefix tui ci" >&2
+  echo "首次使用请运行 ./start.sh；或手动安装：npm --prefix tui ci" >&2
   exit 2
 fi
 

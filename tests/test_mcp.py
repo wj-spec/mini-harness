@@ -811,3 +811,23 @@ def test_mcp_origin_guard_blocks_disallowed_navigation_before_server_call(tmp_pa
             await manager.close()
 
     asyncio.run(scenario())
+
+
+def test_start_approval_preview_states_the_connection_scope(tmp_path):
+    from app.safety.policy import ApprovalDecision
+    class Capture:
+        def __init__(self): self.previews = []
+        async def request(self, call, preview, root):
+            self.previews.append(preview)
+            return ApprovalDecision(False, "deny")
+    async def scenario():
+        gate = Capture()
+        manager = McpManager.from_config({"fake": make_server(tmp_path)}, tmp_path)
+        try:
+            await manager.register_into(ToolRegistry(tmp_path), gate)
+        finally:
+            await manager.close()
+        assert gate.previews
+        assert "范围：仅此服务；其他服务与后台进程不变。" in gate.previews[0]
+        assert "工具调用另行审批" in gate.previews[0]
+    asyncio.run(scenario())

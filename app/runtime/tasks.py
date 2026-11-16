@@ -373,7 +373,13 @@ class TaskStore:
         session_id: str | None = None,
         reserved_id: str | None = None,
         creation: dict[str, Any] | None = None,
+        goal_limits: dict[str, int | float] | None = None,
     ) -> TaskRecord:
+        if goal_limits is not None:
+            from app.runtime.goal_limits import validate_goal_limits
+            if kind != "goal":
+                raise ValueError("goal limits require goal task")
+            goal_limits = validate_goal_limits(goal_limits)
         if kind not in TASK_KINDS:
             raise ValueError("invalid task kind")
         if mode not in TASK_MODES:
@@ -436,7 +442,8 @@ class TaskStore:
             approval_policy=approval_policy,
             created_at=now,
             updated_at=now,
-            extra={"creation": creation} if creation is not None else {},
+            extra={**({"creation": creation} if creation is not None else {}),
+                   **({"goal_limits": goal_limits} if goal_limits is not None else {})},
         )
         try:
             self._write_meta(record)
@@ -446,6 +453,19 @@ class TaskStore:
             if reserved_id is None:
                 shutil.rmtree(directory, ignore_errors=True)
             raise
+        return record
+
+    def freeze_goal_limits(self, task_id, limits):
+        """调用方持有任务锁；仅补齐旧任务，已有快照不可变。"""
+        from app.runtime.goal_limits import validate_goal_limits
+        record = self.get(task_id)
+        if record.kind != "goal":
+            raise ValueError("goal limits require goal task")
+        chosen = validate_goal_limits(record.extra.get("goal_limits", limits))
+        if "goal_limits" not in record.extra:
+            record.extra["goal_limits"] = chosen
+            self._write_meta(record)
+            self.append_event(task_id, "goal_limits_migrated", data={"limits": chosen})
         return record
 
     def set_priority(self, task_id: str, priority: int) -> TaskRecord:

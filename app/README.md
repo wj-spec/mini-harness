@@ -16,6 +16,14 @@ app/
   runtime/               # Agent 运行与编排
     __init__.py
     agent.py             # 唯一 Agent loop（原 app/agent.py）
+    model_config.py      # 启动器与设置页共享配置读写，兼容 .env
+    user_config.py       # 用户 TOML、项目覆盖、独立凭据与实际来源
+    goal_limits.py       # 目标预算契约、历史迁移与续段门
+    goal_settings.py     # 新目标预算默认、来源、审批保存与应用
+    limit_settings.py    # 单段默认限制、审批保存与续做快照
+    mcp_settings.py      # MCP 脱敏配置、审批保存与来源边界
+    model_settings.py    # 模型来源、审批保存、检测、应用与恢复核对
+    bootstrap.py         # 仅配置启动状态：缺模型时不建 Agent/会话，只管保存、检测与进入项目
     summarize.py         # LLM 摘要 HTTP 适配器（原 app/summarize.py）
     tasks.py             # TaskRecord/TaskStore：任务身份/状态机/原子写/恢复（P0 基础）
     task_runtime.py      # TaskRuntime：stdio run.task、goal 生命周期、task_state（接入层）

@@ -650,23 +650,32 @@ class Worker:
             text = line.decode("utf-8", errors="replace").rstrip("\n")
             if not text:
                 continue
-            # 与 attach 回放共用一把锁：读到的事件要么进 replay、要么进 live，
-            # 不会既在 replay 又在 live（也不丢中间帧）。
-            async with self.events_lock:
-                _write_json_line(events_path, {"raw": text})
-                await self._broadcast(text)
             try:
                 event = json.loads(text)
             except json.JSONDecodeError:
-                continue
-            if event.get("type") == "closed":
+                event = {}
+            if (event.get("type") == "error" and event.get("id") == self.active_run_id
+                    and event.get("code") in {"task_budget_exceeded", "task_error", "task_runtime_disabled"}):
+                notify(self.workspace, "goal_stopped", task_id=self.task_id, reason=str(event.get("message", "")))
                 self.done.set()
-            elif event.get("type") == "done":
-                await self._handle_done(event)
+            terminal = event.get("type") == "done"
+            continuing = await self._handle_done(event, defer_terminal=True) if terminal else False
+            if continuing:
+                event["result"]["continuing"] = True
+                text = json.dumps(event, ensure_ascii=False)
+            # 续段决定写入同一回放帧，实时和重连看到相同语义。
+            async with self.events_lock:
+                _write_json_line(events_path, {"raw": text})
+                await self._broadcast(text)
+            if event.get("type") == "closed" or terminal and not continuing:
+                self.done.set()
             if event.get("type") == "approval_request":
                 await self._record_approval(event)
 
-    async def _handle_done(self, event: dict[str, Any]) -> None:
+    async def _handle_done(self, event: dict[str, Any], *, defer_terminal=False) -> bool:
+        def finish():
+            if not defer_terminal:
+                self.done.set()
         if self.approval_timed_out:
             self.approval_timed_out = False
             try:
@@ -676,11 +685,11 @@ class Worker:
                     store.transition(self.task_id, "failed", reason="approval_timeout")
             except Exception:
                 pass
-            self.done.set()
-            return
+            finish()
+            return False
         if self.goal_record is None:
-            self.done.set()
-            return
+            finish()
+            return False
         result = event.get("result") if isinstance(event.get("result"), dict) else {}
         status = str(result.get("status") or "")
         stop_reason = str(result.get("stop_reason") or "")
@@ -699,16 +708,16 @@ class Worker:
             self.goal_record = self.goal_store.load() or self.goal_record
             cont, reason = continue_decision(
                 self.goal_record, task, status, stop_reason,
-                max_segments=int(os.getenv("VIBE_GOAL_MAX_SEGMENTS", "8")),
-                max_seconds=float(os.getenv("VIBE_GOAL_SECONDS", str(4 * 60 * 60))),
+                max_segments=8 if "goal_limits" in task.extra else int(os.getenv("VIBE_GOAL_MAX_SEGMENTS", "8")),
+                max_seconds=14400 if "goal_limits" in task.extra else float(os.getenv("VIBE_GOAL_SECONDS", str(4 * 60 * 60))),
                 max_tokens=_env_int("VIBE_GOAL_MAX_TOKENS", 0),
                 max_cost_usd=_env_float("VIBE_GOAL_MAX_COST_USD", 0.0),
                 used_tokens=used_tokens, used_cost_usd=used_cost,
                 now=datetime.now(timezone.utc) + timedelta(seconds=_clock_offset_seconds()),
             )
         except (OSError, ValueError, Exception):
-            self.done.set()
-            return
+            finish()
+            return False
         if not cont:
             if reason:
                 notify(self.workspace, "goal_stopped", task_id=self.task_id, reason=reason)
@@ -718,12 +727,13 @@ class Worker:
                     )
                 except Exception:
                     pass
-            self.done.set()
-            return
+            finish()
+            return False
         segment = max(1, len(task.segments) + 1)
         notify(self.workspace, "goal_segment", task_id=self.task_id, segment=segment)
         text = goal_prompt(self.goal_record, segment=segment, stop_reason=stop_reason)
         await self._queue_run(text)
+        return True
 
     def _check_session_events_size(self) -> None:
         """events.jsonl 是恢复权威来源：超过软上限时只告警，不轮转、不阻塞。"""

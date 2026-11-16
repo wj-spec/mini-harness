@@ -1,4 +1,5 @@
 import React from 'react';
+import {outcomePresentation} from './outcome.js';
 import {Box, Text} from 'ink';
 import stringWidth from 'string-width';
 import type {Entry, ViewState} from './view-state.js';
@@ -6,6 +7,7 @@ import {fitText, markdownLines, ReadingText, textLines, type ReadingLine, type S
 import type {Palette, SemanticTone} from './theme.js';
 import type {PlanStepInfo} from './protocol.js';
 import {selectionCells, type Selection} from './selection.js';
+import {HOME_EXAMPLES} from './guidance.js';
 
 export function toolState(entry: Entry): string {
   if (entry.uncertain) return '结果未知';
@@ -64,11 +66,7 @@ function toolSummary(entry: Entry, columns: number, selected: boolean): ReadingL
 function noticePresentation(text: string): {title: string; text: string; tone: SemanticTone} {
   if (text.startsWith('后端提示：')) return {title: '后端诊断', text: text.slice('后端提示：'.length), tone: 'warning'};
   if (text.startsWith('完成守卫：')) return {title: '完成守卫', text, tone: 'warning'};
-  if (text.startsWith('[运行结束]')) {
-    if (/任务验收[^\n]*未验证|完成判定：[^\n]*未通过|integrity=violation/.test(text)) return {title: '验收未通过', text, tone: 'warning'};
-    if (/任务验收[^\n]*已验证/.test(text)) return {title: '验收通过', text, tone: 'success'};
-    return {title: '本轮回执', text, tone: 'accent'};
-  }
+  if (text.startsWith('[运行结束]')) return {title: '历史运行记录', text: '原始记录请在验证详情中查看', tone: 'accent'};
   const first = text.split('\n')[0] ?? '';
   const title = /未知命令|失败|错误|未能|未送达/.test(first) ? '操作异常' : /预算|压缩/.test(first) ? '上下文与预算' :
     /^(会话|恢复)/.test(first) ? '会话信息' : /^(主题|当前主题)/.test(first) ? '外观设置' :
@@ -126,7 +124,8 @@ export function transcriptLines(state: ViewState, columns: number, selectedTool:
   for (let position = 0; position < state.entries.length; position += 1) {
     const entry = state.entries[position]!;
     // 工作台提示不再插入对话主区；运行回执、计划审阅与历史结果卡片仍留在正文。
-    if (entry.kind === 'notice' && !entry.text.startsWith('[运行结束]') && !entry.review && !entry.inspection) continue;
+    if (entry.continuing) continue;
+    if (entry.kind === 'notice' && !entry.result && !entry.text.startsWith('[运行结束]') && !entry.review && !entry.inspection) continue;
     let end = position + 1;
     while (end < state.entries.length && collapsibleReadOnly(state.entries[end]!, selectedTool)) end += 1;
     const collapseGroup = collapsibleReadOnly(entry, selectedTool) && end - position >= 2 ? state.entries.slice(position, end) : null;
@@ -137,7 +136,11 @@ export function transcriptLines(state: ViewState, columns: number, selectedTool:
       continue;
     }
     let entryLines: ReadingLine[];
-    if (entry.review) {
+    if (entry.result) {
+      const presentation = outcomePresentation(entry.result);
+      entryLines = textLines(presentation.label, columns).map(line => ({...line, tone: presentation.tone}));
+      if (presentation.tone === 'warning' || presentation.tone === 'error') entryLines.push(...textLines(presentation.detail, columns));
+    } else if (entry.review) {
       const {target, summary, message, launch} = entry.review;
       const steps = entry.review.steps ?? [];
       const shown = steps.slice(0, 8);
@@ -168,59 +171,48 @@ export function transcriptLines(state: ViewState, columns: number, selectedTool:
   return lines;
 }
 
-export function welcomeLines(state: ViewState, columns: number): ReadingLine[] {
+export function modelStatusText(state: ViewState): string {
+  return state.demo ? 'Demo · 不调用真实模型'
+    : state.provider === 'fake' ? '测试模型 · 不调用真实服务'
+      : state.modelCheck === 'passed' ? '连接检测通过'
+        : state.modelCheck === 'failed' ? '检测未通过 · /model 修复'
+          : '已配置 · 尚未检测';
+}
+
+export function welcomeLines(state: ViewState, columns: number, options: {omitSummary?: boolean} = {}): ReadingLine[] {
   const compact = columns < 72;
   const blank: ReadingLine = {spans: [{text: ''}]};
   const lines: ReadingLine[] = [];
   const workspace = state.workspace || '工作区待连接';
+  const name = workspace.split(/[\\/]/).filter(Boolean).at(-1) ?? workspace;
   const model = state.model || '模型待连接';
-  const provider = state.provider || 'provider 待连接';
-  const session = state.sessionId || '待连接';
-
-  if (compact) {
-    lines.push(...textLines('▌ 开始一次编码任务', columns, 'heading'));
-    lines.push(...textLines('  描述任务、范围与完成条件。', columns));
-    lines.push(blank);
-    lines.push(...textLines('▌ 从这些开始', columns, 'label'));
-    for (const prompt of [
-      '读 README，说明项目入口与运行流程',
-      '定位一个可复现 bug，先说明判断再修改验证',
-      '检查当前改动，列出风险与尚未验证的部分',
-    ]) lines.push(...textLines(`  • ${prompt}`, columns));
-    lines.push(blank);
-    lines.push(...textLines('▌ 当前工作区', columns, 'label'));
-    lines.push(...textLines(`  项目  ${workspace}`, columns));
-    lines.push(...textLines(`  模型  ${model}`, columns));
-    lines.push(...textLines(`  会话  ${session}`, columns));
-    lines.push(blank);
-    lines.push(...textLines('▌ 常用入口', columns, 'label'));
-    lines.push(...textLines('  /help 命令 · /skills 技能 · /sidebar 侧栏', columns));
-    lines.push(...textLines('  /context 上下文 · /resume 续做', columns));
-  } else {
-    lines.push(...cardLines('开始一次编码任务', [
-      ...textLines('描述任务、范围与完成条件；工具动作按权限审批。', columns - 4),
-      ...textLines('Enter 发送 · Ctrl+J 换行 · 输入 / 查看命令。', columns - 4),
-    ], columns, 'accent', false, 'task'));
-    lines.push(blank);
-    lines.push(...cardLines('从这些开始', [
-      ...textLines('• 读 README，说明项目入口与运行流程', columns - 4),
-      ...textLines('• 定位一个可复现 bug，先说明判断，再修改验证', columns - 4),
-      ...textLines('• 检查当前改动，列出风险与尚未验证的部分', columns - 4),
-    ], columns, 'accent', false, 'task'));
-    lines.push(blank);
-    lines.push(...cardLines('当前工作区', [
-      ...textLines(`项目  ${workspace}`, columns - 4),
-      ...textLines(`模型  ${model} · ${provider}`, columns - 4),
-      ...textLines(`会话  ${session}${state.resumed ? ' · 已恢复' : ''}`, columns - 4),
-    ], columns, undefined, false, 'agent'));
-    lines.push(blank);
-    lines.push(...cardLines('常用入口', [
-      ...textLines('/help 帮助    /context 上下文与预算    /diff 工作区改动', columns - 4),
-      ...textLines('/skills 技能菜单    /sidebar Git 变更侧栏    /resume 续做', columns - 4),
-    ], columns, undefined, false, 'agent'));
+  const status = state.demo ? 'Demo · 不调用真实模型'
+    : state.provider === 'fake' ? '测试模型 · 不调用真实服务'
+      : state.modelCheck === 'passed' ? '连接检测通过'
+      : state.modelCheck === 'failed' ? '检测未通过 · /model 修复'
+        : '已配置 · 尚未检测';
+  lines.push(...textLines(compact ? 'Mini · 今天准备做点什么？' : 'Mini · 今天准备做点什么？', columns, 'heading'));
+  lines.push(blank);
+  if (!options.omitSummary) {
+    lines.push(...textLines(`项目  ${name}${compact ? '' : '    /project 查看'}`, columns));
+    lines.push(...textLines(`模型  ${model} · ${status}${compact ? '' : '    /model 更改'}`, columns));
+  }
+  if (state.mcpConfigured) {
+    const pending = Math.max(0, state.mcpConfigured - state.mcpConnected);
+    lines.push(...textLines(compact
+      ? `工具  ${pending ? `${pending} 个未连接` : '已连接'} · /mcp`
+      : `外部工具  ${state.mcpConnected}/${state.mcpConfigured} 已连接${pending ? '    /mcp 选择服务后连接' : ''}`, columns));
   }
   lines.push(blank);
-  lines.push(...textLines('输入框直接描述任务；Enter 发送，Ctrl+J 换行，输入 / 查看命令。', columns, 'notice'));
+  lines.push(...textLines('▌ 从这些开始（按 1 / 2 / 3 填入草稿，不自动发送）', columns, 'label'));
+  for (const key of ['1', '2', '3'] as const) {
+    const example = HOME_EXAMPLES[key];
+    lines.push(...textLines(compact ? `  ${key}  ${example.title}` : `  ${key}  ${example.title}  ${example.detail}`, columns));
+  }
+  lines.push(blank);
+  lines.push(...textLines(compact
+    ? '输入框描述任务，Enter 发送；已有草稿不会被示例覆盖。'
+    : '也可以直接描述任务：Enter 发送，Ctrl+J 换行，Ctrl+T 功能区指引。已有草稿不会被示例覆盖。', columns, 'notice'));
   return lines;
 }
 

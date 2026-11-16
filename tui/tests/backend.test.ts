@@ -616,7 +616,7 @@ print(json.dumps({"id": session.id, "messages": [asdict(message) for message in 
   }finally{await client.shutdown();await rm(workspace,{recursive:true,force:true});}
 });
 
-test('actual FastMCP startup is approved through Node and its process exits on shutdown',{skip:process.platform==='win32'||!existsSync(path.join(repoRoot,'.venv','bin','python3'))},async()=>{
+test('actual FastMCP connects on demand through Node and its process exits on shutdown',{skip:process.platform==='win32'||!existsSync(path.join(repoRoot,'.venv','bin','python3'))},async()=>{
   const f=await fixture('');
   const server=path.join(f.root,'server.py');
   const marker=path.join(f.root,'server.pid');
@@ -629,22 +629,25 @@ test('actual FastMCP startup is approved through Node and its process exits on s
   let pid:number|undefined;
   const alive=()=>{try{if(pid)process.kill(pid,0);return Boolean(pid);}catch{return false;}};
   try{
-    client.start();const approval=await state.wait(event=>event.type==='approval_request'&&event.id==='startup');
+    client.start();
+    const readyEvent=await state.wait(event=>event.type==='ready');
+    assert.deepEqual(readyEvent.type==='ready'?readyEvent.mcp:null,{configured:1,connected:0});
+    await state.wait(event=>event.type==='status'&&event.phase==='idle');
+    assert.equal(state.events.some(event=>event.type==='approval_request'),false);
+    assert.equal(existsSync(marker),false);
+    const connectId=client.command('mcp_config',{action:'reload',name:'local'});
+    const approval=await state.wait(event=>event.type==='approval_request'&&event.id===connectId);
     assert.ok(approval.type==='approval_request'&&approval.call.name==='mcp_start');
     assert.deepEqual(approval.type==='approval_request'&&approval.decisions,['once','session','deny']);
+    assert.match(approval.type==='approval_request'?approval.preview:'',/范围：仅此服务/);
     assert.equal(existsSync(marker),false);
-    const base=state.events.find(event=>event.type==='context_snapshot');
-    assert.ok(base?.type==='context_snapshot'&&base.snapshot.phase==='loaded');
     client.approve(approval.type==='approval_request'?approval.approval_id:'','once');
-    await state.wait(event=>event.type==='status'&&event.phase==='idle');
-    const loaded=state.events.filter(event=>event.type==='context_snapshot');
-    assert.equal(loaded.length,2);
-    assert.ok(loaded.every(event=>event.id===null&&event.snapshot.phase==='loaded'));
-    assert.ok(loaded.at(-1)!.snapshot.sections.tools>loaded[0]!.snapshot.sections.tools);
+    await state.wait(event=>event.type==='command_result'&&event.id===connectId);
+    const connected=await state.wait(event=>event.type==='mcp_state'&&event.connected===1);
+    assert.ok(connected.type==='mcp_state');
     const view=state.events.reduce((view,event)=>reduceView(view,{type:'event',event}),initialState);
-    assert.equal(view.contextSnapshots.length,1);
-    assert.equal(view.contextSnapshots[0]?.snapshot_id,loaded.at(-1)!.snapshot.snapshot_id);
-    assert.equal(view.metrics?.used_tokens,0);
+    assert.equal(view.mcpConfigured,1);
+    assert.equal(view.mcpConnected,1);
     const id=client.command('tools');
     const tools=await state.wait(event=>event.type==='command_result'&&event.id===id);
     assert.match(tools.type==='command_result'?tools.text:'',/mcp_local_echo/);

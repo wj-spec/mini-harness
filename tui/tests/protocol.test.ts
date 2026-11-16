@@ -473,3 +473,22 @@ test('validatePlanArgs accepts mode and review actions with non-empty feedback o
     {action: 'list', feedback: 'x'}, {action: 'markdown', extra: true},
   ]) assert.throws(() => validatePlanArgs(bad), /plan 参数/);
 });
+
+test('ready and mcp_state carry validated MCP connection counts', () => {
+  const ready = parseServerEvent(JSON.stringify({v: 1, type: 'ready', id: null, workspace: '/repo', model: 'm',
+    session_id: 's', capabilities: [], mcp: {configured: 2, connected: 0}}));
+  assert.deepEqual(ready.type === 'ready' ? ready.mcp : null, {configured: 2, connected: 0});
+  const state = parseServerEvent(JSON.stringify({v: 1, type: 'mcp_state', id: null, configured: 2, connected: 1}));
+  assert.equal(state.type, 'mcp_state');
+  assert.throws(() => parseServerEvent(JSON.stringify({v: 1, type: 'mcp_state', id: null, configured: -1, connected: 0})));
+  assert.throws(() => parseServerEvent(JSON.stringify({v: 1, type: 'ready', id: null, workspace: '/repo',
+    model: 'm', session_id: 's', capabilities: [], mcp: {configured: 2}})));
+});
+
+test('acceptance sessions are labelled in ready without changing demo semantics', () => {
+  const ready = parseServerEvent(JSON.stringify({v: 1, type: 'ready', id: null, workspace: '/repo', model: 'm',
+    session_id: 's', capabilities: [], acceptance: true, demo: true}));
+  assert.equal(ready.type === 'ready' ? ready.acceptance : null, true);
+  assert.throws(() => parseServerEvent(JSON.stringify({v: 1, type: 'ready', id: null, workspace: '/repo',
+    model: 'm', session_id: 's', capabilities: [], acceptance: 'yes'})));
+});

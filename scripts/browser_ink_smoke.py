@@ -180,6 +180,12 @@ def main() -> int:
                 until(lambda: prompt in terminal(), "composer text")
                 os.write(master, b"\r")
 
+            def send_command(command):
+                until(idle_visible, "Ink idle")
+                os.write(master, command.encode())
+                until(lambda: command in terminal(), "composer text")
+                os.write(master, b"\r")
+
             def focus_approval():
                 offset = len(raw)
                 os.write(master, b"\x12")
@@ -191,10 +197,17 @@ def main() -> int:
                 until(lambda: "已选择" in raw[offset:].decode("utf-8", errors="replace"), "approval choice")
                 os.write(master, b"\r")
 
-            until(lambda: re.search(r"审批 · (?:[^\r\n]* · )?mcp_start", terminal()), "MCP startup approval")
+            send_command("/mcp")
+            until(lambda: "MCP 设置" in terminal() and "browser（未连接）" in terminal(), "MCP settings overview")
+            for _ in range(6):
+                os.write(master, b"\t")
+            os.write(master, b"\r")
+            until(lambda: re.search(r"审批 · (?:[^\r\n]* · )?mcp_start", terminal()), "MCP connection approval")
             focus_approval()
             confirm_approval(b"y")
-            until(lambda: "MCP 初始化完成：8 个工具" in terminal(), "MCP ready")
+            until(lambda: "已重载 MCP" in terminal(), "MCP connected")
+            os.write(master, b"\x1b")
+            until(idle_visible, "Ink idle after MCP connect")
             send_task("Run the local fixture browser checks, then report observed results.")
             sessions = workspace / ".vibe/sessions"
             until(lambda: len(list(sessions.glob("*/trace.jsonl"))) == 1, "session trace")

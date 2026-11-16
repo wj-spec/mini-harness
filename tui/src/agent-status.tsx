@@ -1,3 +1,4 @@
+import {outcomePresentation} from './outcome.js';
 import React, {useEffect, useState} from 'react';
 import {Box, Text} from 'ink';
 import stringWidth from 'string-width';
@@ -35,6 +36,10 @@ export function agentStatus(state: ViewState): AgentStatus {
     }
     if (state.activity === 'responding' || state.live) return {label: '运行中 · 正在回复', detail: '正在接收模型输出', tone: 'accent'};
     return {label: '运行中 · 等待模型', detail: '模型请求已发出，等待输出', tone: 'accent'};
+  }
+  if (state.lastStatus && state.lastOutcome !== undefined) {
+    const result = outcomePresentation({status: state.lastStatus, stop_reason: state.lastStopReason ?? '', outcome: state.lastOutcome, verified: state.lastVerified});
+    return {label: result.legacy && state.lastStatus === 'done' ? '本轮结束 · 结果待核对' : result.label, detail: result.detail, tone: result.tone};
   }
   if (state.lastStatus === 'stopped') return {label: '任务已暂停', detail: state.lastResult || '核对进度后可 /resume 续做', tone: 'warning'};
   if (state.lastStatus === 'truncated') return {label: '本轮未完成', detail: state.lastResult || '查看输出并核对剩余工作', tone: 'warning'};
@@ -79,13 +84,14 @@ export function AgentHeader({state, columns, height = 3, palette}: {
   const statusText = spinning ? `◀ ${spinner} ${status.label} ▶` : `◀ ${status.label} ▶`;
   const wideMark = height >= 5 && columns >= 80;
   const compactMark = !wideMark && height >= 3 && columns >= 60;
-  const markWidth = wideMark ? 12 : compactMark ? 8 : 0;
+  const markWidth = wideMark ? WIDE_MASCOT[0].length : compactMark ? COMPACT_MASCOT[0].length : 0;
   const markBox = markWidth ? markWidth + 2 : 0;
   const contentColumns = Math.max(1, columns - markBox);
   const showStatus = contentColumns >= 50;
   const statusWidth = showStatus ? Math.min(stringWidth(statusText), Math.max(14, contentColumns - 24)) : 0;
   const titleWidth = Math.max(1, contentColumns - (showStatus ? statusWidth + 1 : 0));
-  const title = state.sessionPurpose === 'test' ? '测试会话 · mini-harness' : contentColumns >= 65 ? 'mini-harness / 个人编码工作台' : 'mini-harness';
+  const title = state.acceptance ? '验收环境 · 隔离配置' : state.demo ? 'Demo · 不调用真实模型'
+    : state.sessionPurpose === 'test' ? '测试会话 · mini-harness' : contentColumns >= 65 ? 'mini-harness / 个人编码工作台' : 'mini-harness';
   const badgeBackground = status.tone === 'warning' || status.tone === 'error' ? palette.surfaces[status.tone] : palette.raised;
   const autonomy = autonomyText(state);
   const workspaceAndModel = `${state.workspace || '工作区待连接'}  ·  ${state.model || '模型待连接'}${state.autonomy ? `  ·  授权 ${state.autonomy}` : ''}`;

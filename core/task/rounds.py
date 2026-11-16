@@ -34,6 +34,7 @@ def build_round_record(
     audit: dict | None = None,
     verified: bool | None = None,
     receipt: str = "",
+    outcome: dict | None = None,
     start_mutation_seq: int = 0,
     start_file_changes: int = 0,
     start_verifications: int = 0,
@@ -61,6 +62,7 @@ def build_round_record(
         "completion": _completion_dict(completion),
         "audit": dict(audit) if isinstance(audit, dict) else None,
         "receipt": str(receipt or ""),
+        "outcome": outcome,
         "task_state": {
             "goal": str(getattr(state, "goal", "") or ""),
             "plan": list(getattr(state, "plan", []) or []),

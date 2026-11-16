@@ -133,7 +133,7 @@ test('sidebar verification preserves command facts rather than inferring success
   const deadline = Date.now() + 1500;
   while (signals.at(-1)?.run?.status !== 'finished' && Date.now() < deadline) await pause(10);
   assert.deepEqual(JSON.parse(JSON.stringify(signals.at(-1))).verification, {
-    requestId: 'run-1', status: 'stopped', stopReason: 'verification_failed', verified: false,
+    requestId: 'run-1', status: 'stopped', stopReason: 'verification_failed', verified: false, outcome: null, receipt: '',
     completionAllowed: false, completionMessages: ['验证命令未通过'], omittedCommands: 0,
     commands: [{id: 'test-1', command: 'npm test', verification: true, pending: false, ok: true,
       execution: {status: 'failed', exit_code: 2}, output: 'ALL TESTS PASSED', truncated: false}],
@@ -398,7 +398,7 @@ function completed(id: string, status: 'done' | 'cancelled' = 'done') {
 }
 
 for (const [columns, rows] of [[80, 24], [120, 24], [120, 40]]) {
-  test(`session load shows base occupancy without running a task at ${columns}x${rows}`, async () => {
+  test(`session load keeps base occupancy on demand without running a task at ${columns}x${rows}`, async () => {
     const client = new MockClient();
     const {stdin, lastFrame} = render(<App client={client as unknown as BackendClient} windowSize={{columns: columns!, rows: rows!}}/>);
     await pause(20);
@@ -410,9 +410,9 @@ for (const [columns, rows] of [[80, 24], [120, 24], [120, 40]]) {
     client.emit({type: 'status', phase: 'idle'});
     await pause(25);
     const frame = lastFrame() ?? '';
-    assert.match(frame, /当前上下文.*50\/900/);
-    assert.match(frame, /S20 M0 T30 H0/);
-    assert.doesNotMatch(frame, /尚无用量记录/);
+    // C 批：尚未发出任务时首页不常驻上下文/费用；按需用 /context 查看。
+    assert.doesNotMatch(frame, /当前上下文/);
+    assert.doesNotMatch(frame, /S20 M0 T30 H0/);
     assert.ok(frame.split('\n').every(line => stringWidth(line) <= columns!));
     assert.ok(frame.split('\n').length <= rows!);
     assert.deepEqual(client.runs, []);
@@ -1583,7 +1583,8 @@ test('footer shows one outcome label for finished, cancelled and stopped runs', 
   client.emit({type: 'done', id: 'run-3', result: {text: '', steps: 1, status: 'stopped', usage: {}, cost_usd: 0, run_id: 'run-3', stop_reason: 'token_budget'}});
   await pause(20);
   const stoppedFrame = lastFrame() ?? '';
-  assert.match(stoppedFrame, /token_budget/);
+  assert.match(stoppedFrame, /token 上限/);
+  assert.doesNotMatch(stoppedFrame, /token_budget/);
   assert.doesNotMatch(stoppedFrame, /已停止 · 已停止/);
 });
 
@@ -2443,6 +2444,8 @@ test('unverified completion is a visible warning state and receipt card', async 
   assert.deepEqual(client.runs, ['修复 calc.py']);
   client.emit({type: 'done', id: 'run-1', result: {
     text: '已修复并完成。', steps: 2, status: 'done', usage: {}, cost_usd: 0, run_id: 'run-1', stop_reason: '',
+    outcome: {schema_version: 1, files: ['calc.py'], omitted_files: 0, checks: [], mutation_seq: 1,
+      verification: 'not_run', operations: 0, tool_errors: 0, denied: false, audit_warning: false, prior_unknown: false},
     verified: false,
     completion: {allowed: false, codes: ['no_verification'], messages: ['有文件改动，但没有记录到验证命令']},
     audit: {status: 'incomplete', integrity: 'clean', verified: false, changed_files: 1, coverage: 'full'},
@@ -2450,9 +2453,9 @@ test('unverified completion is a visible warning state and receipt card', async 
   }});
   await pause(30);
   const frame = lastFrame() ?? '';
-  assert.match(frame, /本轮结束 · 待验证|完成待验证/);
-  assert.match(frame, /验收未通过/);
-  assert.match(frame, /完成判定：未通过/);
+  assert.match(frame, /尚未验证/);
+  assert.match(frame, /修改 1 个文件/);
+  assert.doesNotMatch(frame, /完成判定：|integrity=/);
   assert.doesNotMatch(frame, /已完成 · 已验证/);
 });
 
@@ -2466,6 +2469,8 @@ test('verified completion is distinguished from unverified completion', async ()
   await enter(stdin, '修复并验证');
   client.emit({type: 'done', id: 'run-1', result: {
     text: '已修复并验证。', steps: 3, status: 'done', usage: {}, cost_usd: 0, run_id: 'run-1', stop_reason: '',
+    outcome: {schema_version: 1, files: ['calc.py'], omitted_files: 0, checks: [], mutation_seq: 1,
+      verification: 'passed', operations: 0, tool_errors: 0, denied: false, audit_warning: false, prior_unknown: false},
     verified: true,
     completion: {allowed: true, codes: [], messages: []},
     audit: {status: 'complete', integrity: 'clean', verified: true, changed_files: 1, coverage: 'full'},
@@ -2473,8 +2478,8 @@ test('verified completion is distinguished from unverified completion', async ()
   }});
   await pause(30);
   const frame = lastFrame() ?? '';
-  assert.match(frame, /本轮结束 · 已验证|已完成 · 已验证/);
-  assert.match(frame, /验收通过/);
+  assert.match(frame, /检查通过/);
+  assert.match(frame, /修改 1 个文件/);
   assert.match(frame, /授权 edits · 自动改文件/);
 });
 
@@ -3666,4 +3671,42 @@ test('plan overlay r prefills request-changes feedback and m sends markdown revi
   } finally {
     await rm(dir, {recursive: true, force: true});
   }
+});
+
+
+test('goal aligns backend snapshot and exhausted manual resume starts no run',async()=>{
+ const client=new MockClient();client.capabilityList=['tasks'];
+ const {stdin,lastFrame}=render(<App client={client as unknown as BackendClient} windowSize={{columns:100,rows:30}}/>);
+ await pause(30);client.emit({type:'ready',workspace:'/repo',model:'fake',session_id:'s',capabilities:['tasks']});
+ client.emit({type:'status',phase:'idle'});await pause(30);
+ await enter(stdin,'/goal bounded');
+ client.emit({type:'task_state',id:'run-1',task:{task_id:'t-budget',kind:'goal',status:'running',segment:1,objective:'bounded',goal_id:null,updated_at:'now',
+ goal_budget:{limits:{max_segments:1,max_seconds:600,max_tokens:100,max_cost_usd:1},started_at:new Date().toISOString(),used_tokens:0,used_cost_usd:0}}});
+ client.emit({type:'done',id:'run-1',result:{text:'pause',status:'stopped',stop_reason:'max_steps',steps:1,usage:{total_tokens:10},cost_usd:0,run_id:'r1'}});
+ await pause(40);assert.equal(client.runs.length,1);
+ await enter(stdin,'/goal resume');assert.equal(client.runs.length,1);assert.match(lastFrame()!,/预算已用尽/);
+});
+
+test('backend budget rejection releases goal and allows a new goal',async()=>{
+ const client=new MockClient();client.capabilityList=['tasks'];
+ const {stdin}=render(<App client={client as unknown as BackendClient} windowSize={{columns:100,rows:30}}/>);
+ await pause(30);client.emit({type:'ready',workspace:'/repo',model:'fake',session_id:'s',capabilities:['tasks']});
+ client.emit({type:'status',phase:'idle'});await pause(30);
+ await enter(stdin,'/goal old');
+ client.emit({type:'error',id:'run-1',code:'task_budget_exceeded',message:'budget exceeded: goal_max_tokens'});
+ await pause(40);await enter(stdin,'/goal new');
+ assert.equal(client.runs.length,2);
+});
+
+test('MCP lifecycle commands reach backend without starting an agent run',async()=>{
+ const client=new MockClient();
+ const {stdin}=render(<App client={client as unknown as BackendClient} windowSize={{columns:100,rows:30}}/>);
+ await pause(30);client.emit({type:'ready',workspace:'/repo',model:'fake',session_id:'s',capabilities:[]});
+ client.emit({type:'status',phase:'idle'});await pause(30);
+ await enter(stdin,'/mcp reload');
+ assert.deepEqual(client.commands,['mcp_reload']);assert.equal(client.runs.length,0);
+ client.emit({type:'command_result',id:'command-1',command:'mcp_reload',text:'已重载'});
+ client.emit({type:'status',phase:'idle'});await pause(30);
+ await enter(stdin,'/mcp disconnect');
+ assert.deepEqual(client.commands,['mcp_reload','mcp_disconnect']);assert.equal(client.runs.length,0);
 });

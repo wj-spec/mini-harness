@@ -70,7 +70,7 @@ test('run receipts stay in the conversation transcript while workbench notices s
   client.emit({v: 1, type: 'done', id: null, result: {text: '完成', steps: 1, status: 'done', usage: {},
     cost_usd: 0, run_id: 'r-1', stop_reason: '', receipt: '[运行结束] status=done steps=1 tokens=10 cost=$0.0000\n[任务验收] 已验证'}});
   await pause(60);
-  assert.match(view.lastFrame()!, /本轮回执|验收通过/);
+  assert.match(view.lastFrame()!, /历史运行记录/);
   view.stdin.write('/logs'); await pause(35); view.stdin.write('\r'); await pause(60);
   assert.match(view.lastFrame()!, /工作台记录 · 0 条/);
   assert.match(view.lastFrame()!, /还没有工作台记录/);

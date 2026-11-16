@@ -241,6 +241,8 @@ def sanitize_base_url(raw: str) -> str:
 
 
 def check_api_key(env: Mapping[str, str]) -> Check:
+    if env.get("VIBE_PROVIDER") == "fake":
+        return Check(OK, "本地 fake 模式无需模型 API Key")
     base_url = sanitize_base_url(env.get("VIBE_BASE_URL") or "")
     model = (env.get("VIBE_MODEL") or "").strip() or DEFAULT_MODEL
     values = f"VIBE_BASE_URL={base_url}，VIBE_MODEL={model}"
@@ -259,7 +261,7 @@ def check_api_key(env: Mapping[str, str]) -> Check:
             f"把 {placeholder} 换成真实 key 后重试（模板占位值不算配置）；默认 {values}",
         )
     hint = (
-        "cp .env.example .env 填入 key，再 set -a; source .env; set +a"
+        "推荐 ./start.sh --configure；或 cp .env.example .env 填入 key，再 set -a; source .env; set +a"
         "（或直接 export VIBE_API_KEY；也接受 OPENAI_API_KEY / DEEPSEEK_API_KEY）"
     )
     return Check(FAIL, "未配置模型 API Key", f"{hint}；默认 {values}")

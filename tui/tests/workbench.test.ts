@@ -130,15 +130,27 @@ test('transcript surfaces replace enclosing frames while preserving focus and fa
 });
 
 
-test('home screen leads with project start prompts and keeps context discoverable', () => {
+test('home screen leads with project status and three fillable examples', () => {
   const state = {...initialState, phase: 'idle' as const, workspace: '/repo/mini-harness', model: 'deepseek-chat', provider: 'openai', sessionId: 's-1'};
-  const wide = welcomeLines(state, 80).map(line => line.spans.map(span => span.text).join('')).join('\n');
-  assert.match(wide, /开始一次编码任务/);
-  assert.match(wide, /描述任务/);
-  assert.match(wide, /从这些开始/);
-  assert.match(wide, /读 README/);
-  assert.match(wide, /\/repo\/mini-harness/);
-  assert.match(wide, /deepseek-chat/);
+  const text = (value: typeof state) => welcomeLines(value, 80).map(line => line.spans.map(span => span.text).join('')).join('\n');
+  const wide = text(state);
+  assert.match(wide, /今天准备做点什么/);
+  assert.match(wide, /项目  mini-harness/);
+  assert.match(wide, /deepseek-chat · 已配置 · 尚未检测/);
+  assert.match(wide, /1  了解这个项目/);
+  assert.match(wide, /2  定位一个问题/);
+  assert.match(wide, /3  实现一个修改/);
+  assert.doesNotMatch(wide, /s-1/);
+  assert.doesNotMatch(wide, /\/repo\/mini-harness/);
+  assert.doesNotMatch(wide, /openai/);
+  assert.match(text({...state, demo: true}), /Demo · 不调用真实模型/);
+  assert.match(text({...state, provider: 'fake'}), /测试模型 · 不调用真实服务/);
+  const mcp = text({...state, mcpConfigured: 2, mcpConnected: 0});
+  assert.match(mcp, /外部工具  0\/2 已连接/);
+  assert.match(mcp, /\/mcp 选择服务后连接/);
+  assert.match(text({...state, mcpConfigured: 2, mcpConnected: 2}), /外部工具  2\/2 已连接/);
+  assert.match(text({...state, modelCheck: 'passed' as const}), /连接检测通过/);
+  assert.match(text({...state, modelCheck: 'failed' as const}), /检测未通过/);
   for (const columns of [24, 32, 64, 80, 120]) {
     const lines = welcomeLines(state, columns);
     assert.ok(lines.every(line => stringWidth(line.spans.map(span => span.text).join('')) <= columns), `overflow at ${columns}`);

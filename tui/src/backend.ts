@@ -1,3 +1,7 @@
+import {validMcpOverview, validateMcpArgs, type McpOverview, type McpArgs} from './mcp-settings.js';
+import {validSettingsOverview, validateSettingsArgs, type SettingsOverview, type SettingsArgs} from './settings.js';
+import {validateModelArgs, type ModelArgs} from './model-settings.js';
+import {validateBootstrapArgs} from './protocol.js';
 import {spawn, type ChildProcessWithoutNullStreams} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import {StringDecoder} from 'node:string_decoder';
@@ -9,7 +13,7 @@ export interface BackendClient {
   subscribe(listener: (event: ServerEvent) => void): () => void;
   capabilities?(): readonly string[];
   run(text: string, task?: RunTaskMeta, requestId?: string): string;
-  command(command: BackendCommand, args?: CommandArgs): string;
+  command(command: BackendCommand | 'bootstrap', args?: CommandArgs): string;
   cancel(target: string): string;
   steer(target: string, text: string): string;
   approve(approvalId: string, decision: ApprovalDecision): string;
@@ -39,6 +43,7 @@ export function backendSpawnArgs(args: readonly string[], attach?: AttachOptions
 export interface BackendOptions {
   repoRoot?: string;
   args?: readonly string[];
+  env?: NodeJS.ProcessEnv;
   attach?: AttachOptions;
   shutdownTimeoutMs?: number;
   killTimeoutMs?: number;
@@ -419,6 +424,7 @@ export function createBackendClient(options: BackendOptions = {}): BackendClient
       try {
         child = spawn(backendCommand, backendSpawnArgs(args, options.attach), {
           ...backendLaunchOptions(options),
+          env: options.env ?? process.env,
           detached: process.platform !== 'win32',
           stdio: ['pipe', 'pipe', 'pipe'],
         });
@@ -477,6 +483,7 @@ export function createBackendClient(options: BackendOptions = {}): BackendClient
     },
     run(text, task, requestId) {
       if (!ready) throw new Error('Python 后端尚未就绪');
+      if (ready.type === 'ready' && (ready.bootstrap || ready.capabilities.includes('config-bootstrap'))) throw new Error('模型尚未配置；完成配置并进入项目后再发送任务');
       if (!text.trim()) throw new Error('任务内容不能为空');
       if (task && !(ready.type === 'ready' && ready.capabilities.includes('tasks'))) {
         throw new Error('Python 后端未启用任务运行时');
@@ -488,10 +495,26 @@ export function createBackendClient(options: BackendOptions = {}): BackendClient
     },
     command(command, args) {
       if (!ready) throw new Error('Python 后端尚未就绪');
-      if (!BACKEND_COMMANDS.includes(command)) throw new Error('后端命令无效');
+      if (command !== 'bootstrap' && !BACKEND_COMMANDS.includes(command)) throw new Error('后端命令无效');
       if (command === 'inspections' && !(ready.type === 'ready' && ready.capabilities.includes('inspection-history'))) throw new Error('后端不支持历史结果查询');
       if (args !== undefined) {
-        if (command === 'tasks') {
+        if (command === 'settings') {
+          if (!(ready.type === 'ready' && ready.capabilities.includes('workbench-settings'))) throw new Error('后端不支持设置中心');
+          validateSettingsArgs(args);
+        }
+        else if (command === 'mcp_config') {
+          if (!(ready.type === 'ready' && ready.capabilities.includes('mcp-editor'))) throw new Error('后端不支持 MCP 编辑');
+          validateMcpArgs(args);
+        }
+        else if (command === 'model') {
+          if (!(ready.type === 'ready' && ready.capabilities.includes('model-settings'))) throw new Error('后端不支持模型设置');
+          validateModelArgs(args);
+        }
+        else if (command === 'bootstrap') {
+          if (!(ready.type === 'ready' && ready.capabilities.includes('config-bootstrap'))) throw new Error('后端不在配置准备状态');
+          validateBootstrapArgs(args);
+        }
+        else if (command === 'tasks') {
           if (!(ready.type === 'ready' && ready.capabilities.includes('task-navigation'))) throw new Error('后端不支持任务目录');
           validateTaskCatalogArgs(args);
         }
@@ -537,7 +560,11 @@ export function createBackendClient(options: BackendOptions = {}): BackendClient
         else throw new Error('只有 skills/autonomy/plan/explore 命令接受参数');
       }
       const id = randomUUID();
-      if (command === 'skills') send({v: 1, type: 'command', id, command, ...(args === undefined ? {} : {args: args as SkillsCommandArgs})});
+      if (command === 'settings') send({v: 1, type: 'command', id, command, args: args as SettingsArgs});
+      else if (command === 'mcp_config') send({v: 1, type: 'command', id, command, args: args as McpArgs});
+      else if (command === 'model') send({v: 1, type: 'command', id, command, args: args as ModelArgs});
+      else if (command === 'bootstrap') send({v: 1, type: 'command', id, command, args: args as {action: 'activate'}});
+      else if (command === 'skills') send({v: 1, type: 'command', id, command, ...(args === undefined ? {} : {args: args as SkillsCommandArgs})});
       else if (command === 'autonomy') send({v: 1, type: 'command', id, command, args: args as AutonomyCommandArgs});
       else if (command === 'explore') send({v: 1, type: 'command', id, command, args: args as ExploreCommandArgs});
       else if (command === 'notifications') send({v: 1, type: 'command', id, command, ...(args === undefined ? {} : {args: args as NotificationsCommandArgs})});

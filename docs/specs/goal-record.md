@@ -181,3 +181,11 @@ class GoalStore:
 - **goal_id 派生**：task.goal_id 为空时派生；TUI 传入后切换。
 - **legacy 迁移时机**：ensure 时惰性迁移；如果 TUI 同时写 goal.json，可能产生分叉；P1 切权威后解决。
 - **open_items 强证据**：P0 只存字段，不实现证据核验；15 门实现后生效。
+
+## 目标预算一致性补充（2026-11-13，5.B）
+
+TaskRecord 的扩展字段 goal_limits 固定 max_segments、max_seconds、max_tokens、max_cost_usd；created_at 是总时长起点。GoalRecord.budget 增加可选 max_goal_segments，并投影同一任务快照的其他三项预算。既有 schema_version=2 保持可读。
+
+TaskRuntime 在 start_segment 前统一检查段数、墙钟时长与 BudgetLedger 累计用量，作用于手动、自动和 worker 续段；命中不新增运行段。worker 的 continue_decision 优先任务快照，环境变量仅用于无快照的旧路径。前台 goal.json 是界面状态，不再是已绑定任务的预算权威来源；恢复时读取匹配任务的预算与账本，不自动运行。
+
+旧任务在任务锁内补齐快照：优先 taskId/objective 匹配的 goal.json；否则使用匹配 GoalRecord 已知非零预算并补启动默认，避免未记录的零值取消启动保护。已有快照无效时拒绝续做。限制按段开始核对，已开始的段仍使用单段预算，费用为估算值。

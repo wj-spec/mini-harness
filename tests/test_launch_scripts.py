@@ -37,7 +37,8 @@ def test_launch_script_uses_project_python_and_allows_override(tmp_path, script)
     assert result.stdout.strip() == "override-python"
 
 
-def test_ink_launcher_builds_from_project_root_and_preserves_arguments(tmp_path):
+def test_ink_launcher_builds_from_project_root_and_preserves_arguments(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_CONFIG_LOADED", "1")
     project = Path(__file__).resolve().parents[1]
     shutil.copy(project / "run_ink.sh", tmp_path / "run_ink.sh")
     (tmp_path / "tui" / "node_modules" / "ink").mkdir(parents=True)
@@ -61,7 +62,8 @@ def test_ink_launcher_builds_from_project_root_and_preserves_arguments(tmp_path)
     ]
 
 
-def test_ink_launcher_explains_missing_dependencies(tmp_path):
+def test_ink_launcher_explains_missing_dependencies(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_CONFIG_LOADED", "1")
     project = Path(__file__).resolve().parents[1]
     shutil.copy(project / "run_ink.sh", tmp_path / "run_ink.sh")
     result = subprocess.run(
@@ -235,7 +237,8 @@ def test_doctor_blocks_without_frontend_dependencies(tmp_path):
     assert "结论：缺少 1 项" in output
 
 
-def test_ink_launcher_runs_doctor_before_node_and_frontend_checks(tmp_path):
+def test_ink_launcher_runs_doctor_before_node_and_frontend_checks(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBE_CONFIG_LOADED", "1")
     project = Path(__file__).resolve().parents[1]
     shutil.copy(project / "run_ink.sh", tmp_path / "run_ink.sh")
     (tmp_path / "scripts").mkdir()

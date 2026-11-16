@@ -93,7 +93,7 @@ def _validate_budget(value: Any) -> dict[str, int | float]:
     if not isinstance(value, dict):
         raise ValueError("budget must be an object")
     result: dict[str, int | float] = dict(BUDGET_DEFAULTS)
-    for key in BUDGET_DEFAULTS:
+    for key in (*BUDGET_DEFAULTS, "max_goal_segments"):
         if key in value:
             raw = value[key]
             if not isinstance(raw, (int, float)) or isinstance(raw, bool) or raw < 0:
@@ -295,6 +295,11 @@ class GoalStore:
             schema_version=GOAL_SCHEMA_VERSION, goal_id=_goal_id_for_task(task),
             task_id=task.task_id, objective=task.objective, state=_state_for_task(task),
             segments=_segments_for_task(task),
+            **({"budget": {"max_goal_segments": task.extra["goal_limits"]["max_segments"],
+                          "max_goal_seconds": task.extra["goal_limits"]["max_seconds"],
+                          "max_goal_tokens": task.extra["goal_limits"]["max_tokens"],
+                          "max_goal_cost_usd": task.extra["goal_limits"]["max_cost_usd"]}}
+               if "goal_limits" in task.extra else {}),
             source={"session_id": task.session_id, "created_by": "harness"},
             created_at=now, updated_at=now,
         )
@@ -310,6 +315,11 @@ class GoalStore:
             objective=task.objective,
             state=_state_for_task(task),
             segments=_segments_for_task(task),
+            **({"budget": {"max_goal_segments": task.extra["goal_limits"]["max_segments"],
+                          "max_goal_seconds": task.extra["goal_limits"]["max_seconds"],
+                          "max_goal_tokens": task.extra["goal_limits"]["max_tokens"],
+                          "max_goal_cost_usd": task.extra["goal_limits"]["max_cost_usd"]}}
+               if "goal_limits" in task.extra else {}),
             updated_at=_now(),
         )
         self.save(updated)
@@ -428,6 +438,10 @@ def continue_decision(
     """返回 (是否继续下一段, 停止原因)。P1 先复刻 TUI goalDecision 的资源停止规则。"""
     if result_status != "stopped" or stop_reason not in RESOURCE_STOPS:
         return False, stop_reason or result_status or "stopped"
+    if "goal_limits" in task.extra:
+        from app.runtime.goal_limits import goal_limit_reason
+        reason = goal_limit_reason(task, {"tokens_total": used_tokens, "cost_usd": used_cost_usd}, now=now)
+        return reason is None, reason
     segments = max(len(record.segments), len(task.segments))
     if segments >= max_segments:
         return False, "goal_max_segments"

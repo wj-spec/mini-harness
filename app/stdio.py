@@ -12,6 +12,8 @@ import uuid
 from collections.abc import AsyncIterable, Callable
 from dataclasses import asdict, replace
 
+from core.task import TaskState
+from core.task.outcome import build_outcome, merge_outcomes, valid_outcome
 from app.runtime.agent import Agent, AgentResult
 from app.runtime.plan import PlanError
 from app.runtime.plan_mode import PlanModeStore
@@ -40,9 +42,9 @@ from core.contracts import ToolCall
 MAX_FRAME_BYTES = 1024 * 1024
 _OVERSIZED = object()
 COMMANDS = frozenset({
-    "resume", "permissions", "permissions_reset", "cost", "tools", "diff", "mcp",
+    "resume", "permissions", "permissions_reset", "cost", "tools", "diff", "mcp", "mcp_reload", "mcp_disconnect", "mcp_config",
     "skills", "evidence", "autonomy", "tasks", "approvals", "plan", "explore", "notifications",
-    "trace", "priority", "queue", "inspections", "sessions", "search", "rounds",
+    "trace", "priority", "queue", "inspections", "sessions", "search", "rounds", "model", "settings",
 })
 COMPLETION_CODE_LABELS = {
     "no_verification": "有文件改动但没有验证命令",
@@ -321,12 +323,23 @@ class _Connection:
                  task_runtime: TaskRuntime | None = None):
         self.agent = agent
         self.config = config
+        from app.runtime.model_settings import ModelSettings
+        self.model_settings = ModelSettings(config, agent)
+        from app.runtime.mcp_settings import McpSettings
+        self.mcp_settings = McpSettings(config, agent)
+        from app.runtime.limit_settings import LimitSettings
+        self.limit_settings = LimitSettings(config, agent)
+        from app.runtime.goal_settings import GoalSettings
+        self.goal_settings = GoalSettings(config, agent)
         self.session = session
         self.session_revision = None
         self.session_writer = None
         self.emit = emit
         self.mcp = mcp
         self.task_runtime = task_runtime
+        if task_runtime is not None:
+            task_runtime.goal_defaults = self.goal_settings.values
+            task_runtime.goal_initial = dict(self.goal_settings.initial)
         self.plan_mode = PlanModeStore(session.root)
         self.plan_review = PlanReview(session.root, session_id=session.id, task_runtime=task_runtime)
         self.plan_revision = PlanRevision(session.root, session_id=session.id, task_runtime=task_runtime)
@@ -405,6 +418,13 @@ class _Connection:
                 self.inspection_record.bind_plan(plan, relation)
             except Exception as exc:
                 self.inspection_record.error = f'{type(exc).__name__}: {exc}'
+
+    def mcp_summary(self) -> dict:
+        servers = getattr(self.mcp, "servers", {}) or {}
+        clients = getattr(self.mcp, "clients", {}) or {}
+        connected = sum(1 for client in clients.values()
+                        if not getattr(client, "broken", None) and getattr(client, "client", True) is not None)
+        return {"configured": len(servers), "connected": connected}
 
     def send_plan_mode(self) -> None:
         self.send("plan_mode", None, mode=self.plan_mode.status())
@@ -549,6 +569,7 @@ class _Connection:
         except Exception as exc:
             self.send("notice", message=f"MCP 初始化失败：{type(exc).__name__}: {exc}"[:16000])
         finally:
+            self.send("mcp_state", **self.mcp_summary())
             for task in (operation, cancelled):
                 if not task.done():
                     task.cancel()
@@ -678,6 +699,7 @@ class _Connection:
         previous_tools = self.agent.tools
         previous_names = set(previous_tools.names())
         try:
+            self.check_task_model(run_task.task_id)
             if revision:
                 context = self.plan_revision.context(run_task)
                 await self.run(request_id, "按反馈修订原计划：" + context.feedback, run_task, revision_context=context)
@@ -927,6 +949,14 @@ class _Connection:
         if command == "resume" and self.agent.history:
             try:
                 latest = self.session.latest_run() or {}
+                from app.runtime.limit_settings import validate_limits
+                if "run_limits" in latest:
+                    validate_limits(latest["run_limits"], snapshot=True)
+                else:
+                    self.send("notice", message="旧运行缺少限制快照，沿用本次启动限制；新默认不覆盖续做。")
+                self.model_settings.check_snapshot(latest.get("model_config"))
+                if "model_config" not in latest:
+                    self.send("notice", message="旧运行未记录完整模型快照；本次 /resume 使用当前配置，请先核对服务与模型。")
                 # 旧任务没有可靠的当前运行绑定，不能猜最新 task 或退回无约束续聊。
                 if "task_id" not in latest and any((self.session.root / "tasks").glob("*/meta.json")):
                     raise TaskRuntimeError("旧会话缺少续做绑定，请核对任务后显式指定 task_id 继续")
@@ -936,6 +966,7 @@ class _Connection:
                     if self.task_runtime is None or not self.task_runtime.enabled:
                         raise TaskRuntimeDisabled("续做原任务需要启用 VIBE_TASK_RUNTIME")
                     record = self.task_runtime.store.get(task_id)
+                    self.check_task_model(record.task_id)
                     meta = {"kind": record.kind, "task_id": record.task_id,
                             "objective": record.objective, "mode": record.mode}
                     if record.plan_id:
@@ -969,9 +1000,70 @@ class _Connection:
                 self.active_kind = None
                 self.send("status", phase="idle")
                 return
-            await self.run(request_id, RESUME_INSTRUCTION, run_task)
+            await self.run(request_id, RESUME_INSTRUCTION, run_task, resume_limits=latest.get('run_limits', self.limit_settings.initial))
             return
         try:
+            if command == "settings":
+                from app.runtime.model_settings import ModelSettingsError
+                try:
+                    target = self.goal_settings if args.get("scope") == "goal" else self.limit_settings
+                    if args.get("action") == "save":
+                        text = await target.save(args)
+                    else:
+                        text = target.apply(args)
+                    self.send("settings_overview", request_id, **self.settings_overview(),
+                              workspace=str(self.config.workspace.resolve()), session_id=self.session.id, message=text)
+                except ModelSettingsError as exc:
+                    text = str(exc)
+                    self.error(request_id, "settings_error", text)
+                except Exception:
+                    text = "设置操作失败；请刷新核对，编辑保留。"
+                    self.error(request_id, "settings_error", text)
+                self.send("command_result", request_id, command="settings", text=text)
+                return
+            if command == "mcp_config":
+                from app.runtime.model_settings import ModelSettingsError
+                try:
+                    if args["action"] in {"save", "delete"}:
+                        text = await self.mcp_settings.save(args)
+                    else:
+                        text = await self.manage_mcp(args["action"], args.get("name"))
+                    self.send("mcp_config", request_id, **self.mcp_settings.overview(self.mcp), message=text,
+                              workspace=str(self.config.workspace.resolve()), session_id=self.session.id)
+                except ModelSettingsError as exc:
+                    text = str(exc)
+                    self.error(request_id, "mcp_config_error", text)
+                except Exception as exc:
+                    message = str(exc).strip()
+                    text = message if message.startswith(("连接未获允许", "断开未获允许", "所选服务")) \
+                        else "MCP 操作未完成；请刷新核对。重载失败保留原连接。"
+                    self.error(request_id, "mcp_config_error", text)
+                finally:
+                    self.send("mcp_state", **self.mcp_summary())
+                self.send("command_result", request_id, command="mcp_config", text=text)
+                return
+            if command == "model":
+                from app.runtime.model_settings import ModelSettingsError
+                try:
+                    action = (args or {}).get("action")
+                    if action == "save":
+                        text = await self.model_settings.save(args)
+                    elif action == "test":
+                        text = await self.model_settings.probe(args)
+                    elif action == "apply":
+                        text = self.model_settings.apply(args)
+                    else:
+                        raise ModelSettingsError("模型操作无效。")
+                    self.send("model_settings", request_id, **self.model_settings.overview(), message=text,
+                              workspace=str(self.config.workspace.resolve()), session_id=self.session.id)
+                    self.send("command_result", request_id, command="model", text=text)
+                except ModelSettingsError as exc:
+                    self.error(request_id, "model_settings_error", str(exc))
+                    self.send("command_result", request_id, command="model", text=str(exc))
+                except Exception:
+                    self.error(request_id, "model_settings_error", "模型设置失败；请刷新核对，当前任务未启动。")
+                    self.send("command_result", request_id, command="model", text="模型设置失败；请刷新核对。")
+                return
             if command == "resume":
                 self.send("done", request_id,
                           result=asdict(AgentResult("没有可继续的任务。", 0, "error")))
@@ -1022,6 +1114,17 @@ class _Connection:
                         else "skills 不可用：chat-only 模式已禁用工具。")
                 if self.agent.tools_enabled:
                     skills = self.agent.tools.skill_entries()
+            elif command in {"mcp_reload", "mcp_disconnect"}:
+                try:
+                    text = await self.manage_mcp("reload" if command == "mcp_reload" else "disconnect")
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    message = str(exc).strip()
+                    text = message if message.startswith(("连接未获允许", "断开未获允许", "所选服务")) \
+                        else "MCP 操作未完成；请用 /mcp 核对状态。重载失败保留原连接。"
+                finally:
+                    self.send("mcp_state", **self.mcp_summary())
             elif command == "mcp":
                 if self.mcp is None or not self.mcp.servers:
                     text = "未配置 MCP 服务。"
@@ -1032,15 +1135,15 @@ class _Connection:
                             return "未连接"
                         failure = getattr(client, "broken", None)
                         if failure or getattr(client, "client", True) is None:
-                            return f"不可用：{failure or 'closed'}"
+                            return "不可用（请重载）"
                         return "已连接"
 
                     text = ("MCP 服务：\n" + "\n".join(
                         f"- {name}: {server_status(name)}"
                         for name in self.mcp.servers
-                    ) + f"\n工具：{len(self.mcp.tools)} 个")
+                    ) + f"\n工具：{len(self.mcp.tools)} 个\n/mcp reload 重读原配置并重连；/mcp disconnect 断开。后台进程不变。")
                     if self.mcp.errors:
-                        text += "\n" + "\n".join(self.mcp.errors)
+                        text += "\n存在连接或清理错误；可重载后核对。"
             elif command == "evidence":
                 text = format_round_evidence(self.session.latest_round())
             elif command == "plan":
@@ -1230,8 +1333,65 @@ class _Connection:
                 self.send('notice', None, message='已接入此会话的最新结果，继续前会重新核对文件。')
         self.session_revision = revision
 
-    async def run(self, request_id: str, text: str, run_task=None, *, reviewed_plan=None, revision_context=None):
+    async def manage_mcp(self, action, name=None):
+        from app.runtime.mcp_settings import McpSettingsError
+        if not self.agent.tools_enabled or self.mcp is None:
+            raise McpSettingsError("当前连接不支持 MCP 管理；请使用启用工具的前台后端。")
+        if action == "disconnect":
+            return await self.mcp.disconnect(self.agent.tools, self.agent.approval, only=name)
+        from app.tools.mcp import load_servers, parse_servers
+        servers = parse_servers(load_servers(self.config.mcp_config or None, self.config.mcp_servers or None))
+        return await self.mcp.reconfigure(servers, self.agent.tools, self.agent.approval, only=name)
+
+    def settings_overview(self):
+        return {**self.limit_settings.overview(self.mcp),
+                "goal_limits": self.goal_settings.values(), "goal_sources": self.goal_settings.sources()}
+
+    def check_task_model(self, task_id):
+        if not self.session.trace_path.exists():
+            return
+        snapshot = None
+        for line in self.session.trace_path.read_text(encoding="utf-8").splitlines():
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(event, dict) and event.get("task_id") == task_id and "model_config" in event:
+                snapshot = event["model_config"]
+        self.model_settings.check_snapshot(snapshot)
+
+    async def run(self, request_id: str, text: str, run_task=None, *, reviewed_plan=None, revision_context=None, resume_limits=None):
+        from app.runtime.limit_settings import validate_limits
+        try:
+            chosen = resume_limits
+            if run_task is not None:
+                chosen = self.limit_settings.task_snapshot(self.session.trace_path, run_task.task_id)
+                if chosen is None and run_task.segment > 1:
+                    chosen = dict(self.limit_settings.initial)
+                    self.send("notice", message="旧任务缺少限制快照，沿用本次启动限制；新默认不覆盖续做。")
+            if chosen is None:
+                chosen = self.limit_settings.defaults()
+            else:
+                chosen = validate_limits(chosen, snapshot=True)
+        except (ValueError, OSError):
+            message = "无法核对原任务限制；请检查会话记录或新建任务。"
+            result = AgentResult(message, 0, "stopped", stop_reason="resume_unavailable")
+            self.error(request_id, "resume_unavailable", message)
+            if run_task is not None and self.task_runtime is not None:
+                record = self.task_runtime.finish_run(run_task, result)
+                if record is not None:
+                    self.send("task_state", request_id, task=self.task_runtime.payload(record))
+            self.send("done", request_id, result=asdict(result))
+            self.active_id = self.active_kind = None
+            self.send("status", phase="idle")
+            return
+        with self.limit_settings.for_run(chosen):
+            await self._run_with_limits(request_id, text, run_task, reviewed_plan=reviewed_plan, revision_context=revision_context)
+
+    async def _run_with_limits(self, request_id: str, text: str, run_task=None, *, reviewed_plan=None, revision_context=None):
         self.refresh_session_context()
+        if run_task is not None and run_task.goal_error:
+            self.send("notice", message=run_task.goal_error)
         if run_task is not None and "creation" in run_task.record.extra and reviewed_plan is None and revision_context is None:
             creation = run_task.record.extra["creation"]
             target = creation.get("target") if isinstance(creation, dict) else None
@@ -1503,6 +1663,7 @@ class _Connection:
         observed_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         observed_tools = 0
         started = time.monotonic()
+        request_outcome = None
         start_files_changed = len(self.agent.state.files_changed) if self.agent.state is not None else 0
 
         def tool_result(call, ok, output):
@@ -1541,7 +1702,7 @@ class _Connection:
             nonlocal terminal_trace, observed_tools
             if event["type"] in {"run_start", "run_end"}:
                 event = {**event, "task_id": run_task.task_id if run_task is not None else None,
-                         "request_id": request_id}
+                         "request_id": request_id, "model_config": self.model_settings.snapshot(), "run_limits": self.limit_settings.active_limits}
             if run_task is not None and self.task_runtime is not None:
                 self.task_runtime.record_trace(run_task, event)
             trace_identity.update({key: event[key] for key in ("run_id", "model") if key in event})
@@ -1650,6 +1811,8 @@ class _Connection:
                     trace=record_trace,
                     cancel=self.cancel,
                 )
+                if valid_outcome(result.outcome):
+                    request_outcome = merge_outcomes(request_outcome, result.outcome)
                 if revision_context is not None:
                     result = self._revision_result(run_task, result)
                 completed = True
@@ -1734,7 +1897,7 @@ class _Connection:
                 "remaining_tokens": max(0, self.agent.max_run_tokens - metrics["used_tokens"]),
                 "usage_estimated": metrics["estimated"],
             }
-            ending.update(status=result.status, stop_reason=result.stop_reason,
+            ending.update(run_limits=self.limit_settings.active_limits, model_config=self.model_settings.snapshot(), status=result.status, stop_reason=result.stop_reason,
                           task_id=run_task.task_id if run_task is not None else None, request_id=request_id)
             if result.status == "error":
                 ending["error"] = result.text
@@ -1766,6 +1929,20 @@ class _Connection:
             if plan_context is not None:
                 result = self._plan_result(plan_context, result, start_files_changed)
                 send_plan_progress()
+            final_outcome = request_outcome or result.outcome
+            if not valid_outcome(final_outcome):
+                final_outcome = build_outcome(TaskState(goal=text))
+                final_outcome["prior_unknown"] = True
+            if valid_outcome(result.outcome) and "plan_verification" in result.outcome:
+                final_outcome = {**final_outcome, "plan_verification": result.outcome["plan_verification"]}
+            result = replace(result, outcome=self._task_outcome(run_task, final_outcome))
+            latest = self.session.latest_round()
+            if latest and result.run_id and latest.get("run_id") == result.run_id:
+                try:
+                    self.session.update_latest_round({"outcome": result.outcome, "status": result.status,
+                                                      "verified": result.verified, "stop_reason": result.stop_reason})
+                except OSError:
+                    pass
             publish_metrics(force=True)
             if revision_context is not None:
                 binding = run_task.record.extra["creation"]["target"]
@@ -1788,6 +1965,22 @@ class _Connection:
                 previous_tools.unregister("complete_plan_step")
             if not self.stop.is_set():
                 self.send("status", phase="idle")
+
+    def _task_outcome(self, run_task, current):
+        if run_task is None or run_task.segment <= 1:
+            return current
+        from app.runtime.inspection import InspectionStore
+
+        previous = next((item for item in run_task.record.segments
+                         if item.segment == run_task.segment - 1), None)
+        snapshot = InspectionStore(self.session.root, self.config.workspace).read(previous.run_id) if previous else None
+        facts = snapshot.get("verification", {}).get("outcome") if snapshot else None
+        source = self.inspection_record.snapshot.get("fileSource") if self.inspection_record else None
+        same = bool(snapshot and snapshot["scope"].get("taskId") == run_task.task_id
+                    and snapshot["scope"].get("segment") == run_task.segment - 1
+                    and source and snapshot.get("fileSource") == source)
+        return merge_outcomes(facts if same and valid_outcome(facts) else None, current,
+                              prior_unknown=not (same and valid_outcome(facts)))
 
     def _revision_result(self, run_task, result):
         binding = run_task.record.extra["creation"]["target"]
@@ -1835,7 +2028,9 @@ class _Connection:
                 if item.get("timed_out"):
                     outcome += " · timed_out"
                 lines.append(f"实际计划验收：{vid} {commands.get(vid, '?')[:500]} [{outcome}]")
-        result = replace(result, receipt="\n".join(lines), verified=verified, completion=decision.to_dict())
+        result = replace(result, receipt="\n".join(lines), verified=verified, completion=decision.to_dict(),
+                         outcome={**(result.outcome or build_outcome(TaskState(goal=""))),
+                                  "plan_verification": "passed" if verified is True else "failed" if verified is False else "not_run"})
         try:
             latest = self.session.latest_round()
             if latest and result.run_id and latest.get("run_id") == result.run_id:
@@ -1972,6 +2167,8 @@ class _Connection:
                    status=verification["status"], codes=verification["codes"])
         except Exception:
             pass
+        result = replace(result, outcome={**(result.outcome or build_outcome(TaskState(goal=""))),
+                                          "plan_verification": "passed" if verification["status"] is True else "failed" if verification["status"] is False else "not_run"})
         if verification["status"] is True:
             return replace(result, verified=True)
         if verification["status"] is not True:
@@ -2131,7 +2328,7 @@ class _Connection:
             }
             if not isinstance(kind, str) or kind not in fields:
                 raise ValueError("unknown request type")
-            if kind == "command" and request.get("command") in {"skills", "autonomy", "plan", "explore", "notifications", "trace", "priority", "inspections", "tasks", "sessions", "permissions", "search", "rounds"} and "args" in request:
+            if kind == "command" and request.get("command") in {"skills", "autonomy", "plan", "explore", "notifications", "trace", "priority", "inspections", "tasks", "sessions", "permissions", "search", "rounds", "model", "settings", "mcp_config"} and "args" in request:
                 fields[kind] = fields[kind] | {"args"}
             allowed = {"v", "type", "id"} | fields[kind]
             if kind == "run" and "task" in request:
@@ -2159,6 +2356,40 @@ class _Connection:
                         raise SessionBusy('此会话有活动或无法核对的后台任务；请从任务入口接入或核对状态后重试。')
                     self.session.repair_incomplete_tool_calls()
                     self.refresh_session_context()
+                if kind == 'command' and request['command'] == 'settings':
+                    if args == {"action": "list"}:
+                        self.send("settings_overview", request_id, **self.settings_overview(),
+                                  workspace=str(self.config.workspace.resolve()), session_id=self.session.id, message="")
+                        return
+                    if not isinstance(args, dict) or args.get("action") not in {"save", "apply"}:
+                        raise ValueError("invalid settings action")
+                    target = self.goal_settings if args.get("scope") == "goal" else self.limit_settings
+                    target.candidate(args)
+                if kind == "command" and request["command"] == "mcp_config":
+                    from app.runtime.model_settings import ModelSettingsError
+                    try:
+                        self.mcp_settings.validate(args)
+                        if args == {"action": "list"}:
+                            self.send("mcp_config", request_id, **self.mcp_settings.overview(self.mcp), message="",
+                                      workspace=str(self.config.workspace.resolve()), session_id=self.session.id)
+                            return
+                    except ModelSettingsError as exc:
+                        self.error(request_id, "mcp_config_error", str(exc))
+                        return
+                if kind == 'command' and request['command'] == 'model':
+                    from app.runtime.model_settings import ModelSettingsError
+                    if not isinstance(args, dict):
+                        raise ValueError("model args must be an object")
+                    if args == {"action": "list"}:
+                        try:
+                            self.send("model_settings", request_id, **self.model_settings.overview(), message="",
+                                      workspace=str(self.config.workspace.resolve()), session_id=self.session.id)
+                        except ModelSettingsError as exc:
+                            self.error(request_id, "model_settings_error", str(exc))
+                        return
+                    if args.get("action") not in {"save", "test", "apply"}:
+                        raise ValueError("unknown model action")
+                    self.model_settings.candidate(args)
                 if kind == 'command' and request['command'] == 'sessions':
                     from app.runtime.session_navigation import session_catalog
                     try:
@@ -2368,6 +2599,7 @@ class _Connection:
                     try:
                         if task_meta.get("task_id"):
                             record = self.task_runtime.store.get(task_meta["task_id"])
+                            self.check_task_model(record.task_id)
                             if record.mode == "plan" and "creation" in record.extra:
                                 self.error(request_id, "revision_resume_required", "修订任务需通过带已观察段号的 resume-revision 续做")
                                 return
@@ -2448,6 +2680,16 @@ class _Connection:
                     self.session_writer = None
 
 
+def demo_mode() -> bool:
+    """显式 Demo 启动（start --demo / --acceptance）持续标注，不与普通 fake 测试混淆。"""
+    return bool(os.getenv("VIBE_FAKE_DEMO", "").strip())
+
+
+def acceptance_mode() -> bool:
+    """隔离验收环境：使用 Demo 模型与本地 MCP，不读取用户配置。"""
+    return os.getenv("VIBE_ACCEPTANCE", "").strip().lower() in {"1", "true", "yes"}
+
+
 async def serve(
     agent: Agent,
     config: Config,
@@ -2457,6 +2699,7 @@ async def serve(
     emit: Callable[[dict], None] | None = None,
     resumed: bool = False,
     mcp: McpManager | None = None,
+    auto_mcp: bool = True,
 ) -> None:
     """单连接 JSONL 适配器；执行、工具和审批仍由 Python 持有。"""
     session = session or SessionStore.new(
@@ -2501,7 +2744,7 @@ async def serve(
     reading = None
     stopped = asyncio.create_task(connection.stop.wait())
     capabilities = ["run", "cancel", "steer", "approval_once", "approval_scopes", "session_recording",
-                    "metrics", "history_restore", "commands", "resume", "inspection-history", "task-navigation", "session-navigation", "permission-panel", "history-search", "rounds-ledger"]
+                    "metrics", "history_restore", "commands", "resume", "inspection-history", "task-navigation", "session-navigation", "permission-panel", "history-search", "rounds-ledger", "model-settings", "workbench-settings", "mcp-editor"]
     from app.runtime import plan as plan_artifacts
     if plan_artifacts.fcntl is not None:
         capabilities.append("plan-review")
@@ -2535,7 +2778,8 @@ async def serve(
                     autonomy=agent.autonomy,
                     autonomy_label=permissions.AUTONOMY_LABELS.get(
                         agent.autonomy, agent.autonomy),
-                    skills=(agent.tools.skill_entries() if agent.tools_enabled else []))
+                    skills=(agent.tools.skill_entries() if agent.tools_enabled else []),
+                    demo=demo_mode(), acceptance=acceptance_mode(), mcp=connection.mcp_summary())
         if task_runtime is not None:
             try:
                 connection.plan_mode.commit_pending()
@@ -2548,7 +2792,7 @@ async def serve(
         if resumed:
             connection.restore()
         await connection.publish_loaded_context()
-        if mcp is not None and mcp.servers and agent.tools_enabled:
+        if auto_mcp and mcp is not None and mcp.servers and agent.tools_enabled:
             connection.seen.add("startup")
             connection.active_id = "startup"
             connection.active_phase = "starting"
@@ -2556,6 +2800,8 @@ async def serve(
             connection.active = asyncio.create_task(connection.initialize())
         else:
             connection.send("status", phase="idle")
+        if acceptance_mode():
+            connection.send("notice", message="隔离验收环境：使用 Demo 模型与本地 MCP，不读取现有 .env；临时工作区位于 .vibe/workbench-acceptance。")
         while not connection.stop.is_set():
             reading = asyncio.create_task(anext(frames))
             finished, _ = await asyncio.wait({reading, stopped}, return_when=asyncio.FIRST_COMPLETED)
@@ -2596,11 +2842,12 @@ async def serve(
 
 
 def run_stdio(agent: Agent, config: Config, session: SessionStore | None = None,
-              *, resumed: bool = False, mcp: McpManager | None = None) -> None:
+              *, resumed: bool = False, mcp: McpManager | None = None,
+              auto_mcp: bool = True) -> None:
     stream = sys.stdout
 
     def emit(event):
         print(json.dumps(event, ensure_ascii=False), file=stream, flush=True)
 
     with contextlib.redirect_stdout(sys.stderr):
-        asyncio.run(serve(agent, config, session, emit=emit, resumed=resumed, mcp=mcp))
+        asyncio.run(serve(agent, config, session, emit=emit, resumed=resumed, mcp=mcp, auto_mcp=auto_mcp))

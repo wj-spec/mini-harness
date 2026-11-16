@@ -1,0 +1,264 @@
+{
+  "v": 1,
+  "page": "roadmap-review.html",
+  "revisions": [
+    {
+      "n": 1,
+      "at": "2026-11-13T13:27:29+08:00",
+      "event": "首次生成",
+      "docs": {
+        "roadmap": {
+          "path": "openspec/roadmaps/simplify-workbench-experience/roadmap.md",
+          "sha256": "b0a244dce4cc041dfc5efb53992b0ba297a3b402011127bc03fb0c54c4892f55"
+        },
+        "design": {
+          "path": "openspec/roadmaps/simplify-workbench-experience/design.md",
+          "sha256": "708232f30df4663649f8a337a5b297ef42b3e886969b779ad9cb2fd4028a7d7e"
+        },
+        "task-log": {
+          "path": "openspec/roadmaps/simplify-workbench-experience/task-log.md",
+          "sha256": "46025d145f9ea192216b0bd4178efe44f6c6dc21ae21a80acf37df2987d5096c"
+        }
+      },
+      "notes": 0,
+      "dispositions": 0,
+      "changed": [],
+      "fp": "d409351e3dbbc72345122e9da9ac54ea324c194c9876e6847c65b0ebd3962b66"
+    },
+    {
+      "n": 2,
+      "at": "2026-11-13T13:28:13+08:00",
+      "event": "记录评审故障及降级结果",
+      "docs": {
+        "roadmap": {
+          "path": "openspec/roadmaps/simplify-workbench-experience/roadmap.md",
+          "sha256": "b0a244dce4cc041dfc5efb53992b0ba297a3b402011127bc03fb0c54c4892f55"
+        },
+        "design": {
+          "path": "openspec/roadmaps/simplify-workbench-experience/design.md",
+          "sha256": "708232f30df4663649f8a337a5b297ef42b3e886969b779ad9cb2fd4028a7d7e"
+        },
+        "task-log": {
+          "path": "openspec/roadmaps/simplify-workbench-experience/task-log.md",
+          "sha256": "dd8c206ceef4cfdde526694d475d3998ad01425cbda2c1213d8c1bab0621bf15"
+        }
+      },
+      "notes": 0,
+      "dispositions": 0,
+      "changed": [
+        "task-log"
+      ],
+      "fp": "21a7a10afa8d275a0523b1d11e721fc686144e77b6390c0a220bb8fd6c718bc3"
+    },
+    {
+      "n": 3,
+      "at": "2026-11-13T16:19:07+08:00",
+      "event": "阶段 1 工程实现与验证完成；真人体验待确认",
+      "docs": {
+        "roadmap": {
+          "path": "openspec/roadmaps/simplify-workbench-experience/roadmap.md",
+          "sha256": "77c520fbf22ca1ac48094e488d5e37623327b8ebb4e06cdab0de68eebc7b475e"
+        },
+        "design": {
+          "path": "openspec/roadmaps/simplify-workbench-experience/design.md",
+          "sha256": "ac27c8a2d441806a990c8980ef512104ee40b1c4db3d895934eca883314b9f1d"
+        },
+        "task-log": {
+          "path": "openspec/roadmaps/simplify-workbench-experience/task-log.md",
+          "sha256": "5e2938337ed9555d7464e71f3ffc65dae16c6903638878b4490c1ef1967732b0"
+        }
+      },
+      "notes": 0,
+      "dispositions": 0,
+      "changed": [
+        "roadmap",
+        "design",
+        "task-log"
+      ],
+      "fp": "9856983248fa0f957f1daf412f70c2b5a60e6aecae8a04cd694b1be9703ac500"
+    },
+    {
+      "n": 4,
+      "at": "2026-11-13T16:41:12+08:00",
+      "event": "阶段 2 配置契约与最小模板交付，验证完成",
+      "docs": {
+        "roadmap": {
+          "path": "openspec/roadmaps/simplify-workbench-experience/roadmap.md",
+          "sha256": "a041e9ea6071fab6d689fcf3aea49845fc69ec9cfdd06cd097d6278b71d89f97"
+        },
+        "design": {
+          "path": "openspec/roadmaps/simplify-workbench-experience/design.md",
+          "sha256": "719dff7bdb0eeec1007b690edc1a4910ee517fa7e860b01f6c8379556f2e4fad"
+        },
+        "task-log": {
+          "path": "openspec/roadmaps/simplify-workbench-experience/task-log.md",
+          "sha256": "23a5ee182b202884e5d03ba03f68514df20ed7b9c959f62762447c23ee589f93"
+        }
+      },
+      "notes": 0,
+      "dispositions": 0,
+      "changed": [
+        "roadmap",
+        "design",
+        "task-log"
+      ],
+      "fp": "f86c07fb0e3d36d879549d5bdca4043699e5f738c8b3413d5c4af95ea96ba355"
+    },
+    {
+      "n": 5,
+      "at": "2026-11-13T19:00:04+08:00",
+      "event": "阶段 3 功能区与情境指引工程交付",
+      "docs": {
+        "roadmap": {
+          "path": "openspec/roadmaps/simplify-workbench-experience/roadmap.md",
+          "sha256": "d0d19c3ee98a45674c8830ffc8eca64d3901a61fc3a0c6a0bcf8a3f579c71bdc"
+        },
+        "design": {
+          "path": "openspec/roadmaps/simplify-workbench-experience/design.md",
+          "sha256": "719dff7bdb0eeec1007b690edc1a4910ee517fa7e860b01f6c8379556f2e4fad"
+        },
+        "task-log": {
+          "path": "openspec/roadmaps/simplify-workbench-experience/task-log.md",
+          "sha256": "28a2df727b9955146eac7f6b85e5fe28a519fcf068e8c9fbb185625e529b0896"
+        }
+      },
+      "notes": 0,
+      "dispositions": 0,
+      "changed": [
+        "roadmap",
+        "task-log"
+      ],
+      "fp": "61daf7a073789cae45644ba10e074d3e20543ff3d64a5898eca6c4f0ba667ca1"
+    },
+    {
+      "n": 6,
+      "at": "2026-11-13T19:00:35+08:00",
+      "event": "阶段 3 文档与验收证据同步完成",
+      "docs": {
+        "roadmap": {
+          "path": "openspec/roadmaps/simplify-workbench-experience/roadmap.md",
+          "sha256": "d0d19c3ee98a45674c8830ffc8eca64d3901a61fc3a0c6a0bcf8a3f579c71bdc"
+        },
+        "design": {
+          "path": "openspec/roadmaps/simplify-workbench-experience/design.md",
+          "sha256": "d8f30a5d5b4f8e069776a6c9acdecdad62820266e3143471e26f274ce6cee753"
+        },
+        "task-log": {
+          "path": "openspec/roadmaps/simplify-workbench-experience/task-log.md",
+          "sha256": "28a2df727b9955146eac7f6b85e5fe28a519fcf068e8c9fbb185625e529b0896"
+        }
+      },
+      "notes": 0,
+      "dispositions": 0,
+      "changed": [
+        "design"
+      ],
+      "fp": "3fa6885610eaa437f9c5b747cc220fb758f1e6c94da7f1e482583f0777b8d2c6"
+    },
+    {
+      "n": 7,
+      "at": "2026-11-13T19:37:55+08:00",
+      "event": "阶段 4 应用内模型配置工程交付，验收证据同步",
+      "docs": {
+        "roadmap": {
+          "path": "openspec/roadmaps/simplify-workbench-experience/roadmap.md",
+          "sha256": "43cb3a907723ffbee69a65ae69d744204cf4aae815984e12a0b85e0f21bd1367"
+        },
+        "design": {
+          "path": "openspec/roadmaps/simplify-workbench-experience/design.md",
+          "sha256": "c9685e275116bf6d5e61f05b0512f9db7224708a3e19c61eac6b78ef185f7c33"
+        },
+        "task-log": {
+          "path": "openspec/roadmaps/simplify-workbench-experience/task-log.md",
+          "sha256": "d99a9ae6713cf0475e2e4b96b28cfc7a6f3ecd48c9953fef7d4f377736598a5d"
+        }
+      },
+      "notes": 0,
+      "dispositions": 0,
+      "changed": [
+        "roadmap",
+        "design",
+        "task-log"
+      ],
+      "fp": "838aed60c6b84757ca21bbdfbe0b10e706899ad8ffb68087308d7b3dead2cd0e"
+    },
+    {
+      "n": 8,
+      "at": "2026-11-13T20:44:07+08:00",
+      "event": "阶段 5.A 设置中心与单段限制完成工程验证；5.B/5.C 待实施",
+      "docs": {
+        "roadmap": {
+          "path": "openspec/roadmaps/simplify-workbench-experience/roadmap.md",
+          "sha256": "b23220ed1102f60ff8458aed39a7456b06d2b8d5551369e1dec0af7a21924ef0"
+        },
+        "design": {
+          "path": "openspec/roadmaps/simplify-workbench-experience/design.md",
+          "sha256": "c9685e275116bf6d5e61f05b0512f9db7224708a3e19c61eac6b78ef185f7c33"
+        },
+        "task-log": {
+          "path": "openspec/roadmaps/simplify-workbench-experience/task-log.md",
+          "sha256": "75a38116759e663f63694b754d451c6b01bc56859ba78dae71be88357508bcfa"
+        }
+      },
+      "notes": 0,
+      "dispositions": 0,
+      "changed": [
+        "roadmap",
+        "task-log"
+      ],
+      "fp": "9db3b6f14610d3c7d4c6cb94ae31654c3c8c39928d6e950295d36935b74edc20"
+    },
+    {
+      "n": 9,
+      "at": "2026-11-13T22:53:16+08:00",
+      "event": "阶段 5.B 目标总预算与前后台恢复完成工程验证；5.C 待实施",
+      "docs": {
+        "roadmap": {
+          "path": "openspec/roadmaps/simplify-workbench-experience/roadmap.md",
+          "sha256": "348508409135de4e72cd25261160403d001a8905d257f0bc5be850cc1ebedc54"
+        },
+        "design": {
+          "path": "openspec/roadmaps/simplify-workbench-experience/design.md",
+          "sha256": "c9685e275116bf6d5e61f05b0512f9db7224708a3e19c61eac6b78ef185f7c33"
+        },
+        "task-log": {
+          "path": "openspec/roadmaps/simplify-workbench-experience/task-log.md",
+          "sha256": "49c94aecc203f9443d5b6b4d28f2dcd1c936d04aae40285315433b1c755d6d96"
+        }
+      },
+      "notes": 0,
+      "dispositions": 0,
+      "changed": [
+        "roadmap",
+        "task-log"
+      ],
+      "fp": "a1dab61465615e70ec93f5380fe7bf880f2d56fb50925bfb4872b9e46f230ab1"
+    },
+    {
+      "n": 10,
+      "at": "2026-11-14T11:00:41+08:00",
+      "event": "2026-11-14：5.C 首批 MCP 连接管理通过工程验证；配置编辑器待实施",
+      "docs": {
+        "roadmap": {
+          "path": "openspec/roadmaps/simplify-workbench-experience/roadmap.md",
+          "sha256": "a91fad2fef0dd2636fc7fa813e5021898dd0e037e7130fd0df4a4aca9fe0ad05"
+        },
+        "design": {
+          "path": "openspec/roadmaps/simplify-workbench-experience/design.md",
+          "sha256": "c9685e275116bf6d5e61f05b0512f9db7224708a3e19c61eac6b78ef185f7c33"
+        },
+        "task-log": {
+          "path": "openspec/roadmaps/simplify-workbench-experience/task-log.md",
+          "sha256": "c742a29aa3578bd2513e075fcde13709232aedb87b6258594b7fc1d3bf1025d0"
+        }
+      },
+      "notes": 0,
+      "dispositions": 0,
+      "changed": [
+        "roadmap",
+        "task-log"
+      ],
+      "fp": "4676351ff4720dda80f188055e5c4c5e96ea0e0a995017364a8069ec74867948"
+    }
+  ]
+}

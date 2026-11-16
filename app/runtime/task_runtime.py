@@ -96,6 +96,9 @@ class TaskRuntime:
         self.enabled = enabled
         self.goals = GoalStore(self.store.root)
         self.budget = BudgetLedger(self.store.root)
+        from app.runtime.goal_limits import goal_limits_from_env
+        self.goal_initial = goal_limits_from_env()
+        self.goal_defaults = lambda: dict(self.goal_initial)
 
     @staticmethod
     def _budget_hard_enabled() -> bool:
@@ -135,6 +138,23 @@ class TaskRuntime:
             record = self._attach(task_id, parsed)
         else:
             record = self._create(parsed)
+        compatibility = None
+        if record.kind == "goal":
+            from app.runtime.goal_limits import goal_limit_reason, legacy_goal_limits
+            try:
+                if "goal_limits" not in record.extra:
+                    record = self.store.freeze_goal_limits(record.task_id,
+                        legacy_goal_limits(self.store.root, record, self.goal_initial))
+                    compatibility = "旧目标预算已固定：优先匹配历史预算，缺失项沿用本次启动值；新默认不覆盖续做。"
+                check = goal_limit_reason(record, self.budget.totals(task_id=record.task_id))
+                if check:
+                    raise TaskBudgetExceeded({"allowed": False, "reason": check})
+            except TaskBudgetExceeded:
+                self.store.release_lock(record.task_id)
+                raise
+            except (ValueError, OSError, TypeError, KeyError) as exc:
+                self.store.release_lock(record.task_id)
+                raise TaskRuntimeError("无法核对目标预算，请检查任务记录；不会重置上限。") from exc
         if self._budget_hard_enabled():
             check = self.budget.check_start(
                 record.task_id,
@@ -155,7 +175,7 @@ class TaskRuntime:
             self.store.release_lock(record.task_id)
             raise
         record = self.store.get(record.task_id)
-        goal_error = None
+        goal_error = compatibility
         if record.kind == "goal":
             try:
                 self.goals.ensure_for_task(record)
@@ -236,8 +256,7 @@ class TaskRuntime:
             return []
         return self.store.recover_stale()
 
-    @staticmethod
-    def payload(record: TaskRecord) -> dict[str, Any]:
+    def payload(self, record: TaskRecord) -> dict[str, Any]:
         segment = 0
         for item in record.segments:
             if item.status == "running":
@@ -257,6 +276,11 @@ class TaskRuntime:
             "plan_id": record.plan_id,
             "plan_version": record.plan_version,
             "updated_at": record.updated_at,
+            **({"goal_budget": {
+                "limits": record.extra["goal_limits"], "started_at": record.created_at,
+                "used_tokens": self.budget.totals(task_id=record.task_id)["tokens_total"],
+                "used_cost_usd": self.budget.totals(task_id=record.task_id)["cost_usd"],
+            }} if record.kind == "goal" and "goal_limits" in record.extra else {}),
         }
 
     # ---- 内部 ----
@@ -269,6 +293,7 @@ class TaskRuntime:
             kind=parsed["kind"], objective=objective, workspace=self.workspace,
             mode=parsed["mode"], goal_id=parsed.get("goal_id"),
             plan_id=parsed.get("plan_id"), plan_version=parsed.get("plan_version"),
+            goal_limits=self.goal_defaults() if parsed["kind"] == "goal" else None,
         )
         self.store.acquire_lock(record.task_id)
         return record

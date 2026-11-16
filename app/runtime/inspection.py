@@ -9,6 +9,8 @@ import re
 import time
 import uuid
 
+from core.task.outcome import valid_outcome
+
 MAX_BYTES = 256 * 1024
 _NAME = re.compile(r"^\d{20}-[0-9a-f]{64}\.json$")
 
@@ -218,6 +220,9 @@ class RunInspection:
         self.snapshot['scope']['status'] = 'finished'
         completion = result.get('completion') or {}
         self.snapshot['verification'].update(
+            outcome=result.get('outcome') if valid_outcome(result.get('outcome')) else None,
+            receipt=(_clip(result.get('receipt'), 11940) + '…（已截断，完整记录见轮次账本）'
+                     if len(str(result.get('receipt') or '').encode('utf-8')) > 12000 else _clip(result.get('receipt'), 12000)),
             status=result.get('status'), stopReason=_clip(result.get('stop_reason'), 256),
             verified=result.get('verified'), completionAllowed=completion.get('allowed'),
             completionMessages=[_clip(message, 500) for message in completion.get('messages', [])[:10]],

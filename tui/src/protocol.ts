@@ -1,3 +1,7 @@
+import {validMcpOverview, validateMcpArgs, type McpOverview, type McpArgs} from './mcp-settings.js';
+import {validGoalBudget,type GoalBudget} from './goal-budget.js';
+import {validSettingsOverview, validateSettingsArgs, type SettingsOverview, type SettingsArgs} from './settings.js';
+import {validModelOverview, type ModelOverview, type ModelArgs} from './model-settings.js';
 import {validInspectionSnapshot, validFileSource, type FileSource, type InspectionSnapshot} from './inspection.js';
 
 export const MAX_FRAME_BYTES = 1024 * 1024;
@@ -21,7 +25,7 @@ export const AUTONOMY_LABELS: Record<AutonomyLevel, string> = {
   workspace: '工作区自动（写入+执行）',
   full: '完全执行（写入+执行+网络）',
 };
-export const BACKEND_COMMANDS = ['resume', 'permissions', 'permissions_reset', 'cost', 'tools', 'diff', 'mcp', 'skills', 'evidence', 'autonomy', 'tasks', 'approvals', 'plan', 'explore', 'notifications', 'trace', 'priority', 'queue', 'inspections', 'sessions', 'search', 'rounds'] as const;
+export const BACKEND_COMMANDS = ['resume', 'permissions', 'permissions_reset', 'cost', 'tools', 'diff', 'mcp', 'mcp_reload', 'mcp_disconnect', 'mcp_config', 'skills', 'evidence', 'autonomy', 'tasks', 'approvals', 'plan', 'explore', 'notifications', 'trace', 'priority', 'queue', 'inspections', 'sessions', 'search', 'rounds', 'model', 'settings'] as const;
 export {COMMAND_COMPLETIONS, COMMAND_DESCRIPTIONS, commandMatches} from './commands.js';
 export type BackendCommand = typeof BACKEND_COMMANDS[number];
 export type SkillsCommandArgs = {action?: 'list' | 'refresh' | 'activate' | 'unload'; name?: string};
@@ -242,7 +246,15 @@ export type ExploreCommandArgs = {prompt: string};
 export type NotificationsCommandArgs = {kind?: string};
 export type TraceCommandArgs = {hours?: number};
 export type PriorityCommandArgs = {task_id: string; priority: number};
-export type CommandArgs = SkillsCommandArgs | AutonomyCommandArgs | PlanCommandArgs | ExploreCommandArgs | NotificationsCommandArgs | TraceCommandArgs | PriorityCommandArgs | InspectionHistoryArgs | TaskCatalogArgs | PermissionCommandArgs | SearchCommandArgs;
+export type BootstrapArgs = {action: 'activate'};
+export type BootstrapInfo = {configured: boolean; reason: string; config_path: string; problem: string;
+  defaults: {base_url: string; model: string}};
+export type CommandArgs = McpArgs | SettingsArgs | ModelArgs | SkillsCommandArgs | AutonomyCommandArgs | PlanCommandArgs | ExploreCommandArgs | NotificationsCommandArgs | TraceCommandArgs | PriorityCommandArgs | InspectionHistoryArgs | TaskCatalogArgs | PermissionCommandArgs | SearchCommandArgs | BootstrapArgs;
+export function validateBootstrapArgs(v: unknown): asserts v is BootstrapArgs {
+  if (!v || typeof v !== 'object' || Array.isArray(v) || Object.keys(v).length !== 1 || (v as Record<string, unknown>).action !== 'activate') {
+    throw new Error('配置操作参数无效');
+  }
+}
 export function validateNotificationsArgs(value: unknown): asserts value is NotificationsCommandArgs {
   if (!record(value) || Object.keys(value).some(key => key !== 'kind') ||
       (value.kind !== undefined && (typeof value.kind !== 'string' || !value.kind.trim()))) {
@@ -393,7 +405,35 @@ export interface AuditSummary {
   contract_audit?: string;
 }
 
+export interface RunOutcome {
+  schema_version: 1;
+  files: string[];
+  omitted_files: number;
+  checks: {key: string; ok: boolean; mutation_seq: number}[];
+  mutation_seq: number;
+  verification: 'not_run' | 'passed' | 'failed' | 'stale';
+  plan_verification?: 'not_run' | 'passed' | 'failed';
+  operations: number;
+  tool_errors: number;
+  denied: boolean;
+  audit_warning: boolean;
+  prior_unknown: boolean;
+}
+
+export function validRunOutcome(value: unknown): value is RunOutcome {
+  if (!record(value) || value.schema_version !== 1) return false;
+  return ['omitted_files', 'mutation_seq', 'operations', 'tool_errors'].every(key => safeInteger(value[key])) &&
+    ['denied', 'audit_warning', 'prior_unknown'].every(key => typeof value[key] === 'boolean') &&
+    typeof value.verification === 'string' && ['not_run', 'passed', 'failed', 'stale'].includes(value.verification) &&
+    (value.plan_verification === undefined || typeof value.plan_verification === 'string' && ['not_run', 'passed', 'failed'].includes(value.plan_verification)) &&
+    Array.isArray(value.files) && value.files.length <= 200 && value.files.every(f => typeof f === 'string' && f.length > 0 && f.length <= 4096) &&
+    Array.isArray(value.checks) && value.checks.length <= 100 && value.checks.every(c => record(c) &&
+      typeof c.key === 'string' && /^[0-9a-f]{64}$/.test(c.key) && typeof c.ok === 'boolean' && safeInteger(c.mutation_seq));
+}
+
 export interface RunResult {
+  outcome?: RunOutcome | null;
+  continuing?: boolean;
   receipt?: string;
   text: string;
   steps: number;
@@ -453,6 +493,7 @@ export interface AttachApprovalItem {
 }
 
 export interface TaskSnapshot {
+  goal_budget?: GoalBudget;
   task_id: string;
   kind: string;
   status: string;
@@ -528,7 +569,7 @@ type Envelope<T extends string, P = Record<never, never>> = {
 } & P;
 
 export type ServerEvent =
-  | Envelope<'ready', {workspace: string; model: string; session_id: string; capabilities: string[]; file_source?: FileSource | null; provider?: string; session_path?: string; session_purpose?: SessionPurpose; session_identity?: string; resumed?: boolean; skills?: SkillInfo[]; autonomy?: string; autonomy_label?: string; tasks?: TaskHint[]}>
+  | Envelope<'ready', {workspace: string; model: string; session_id: string; capabilities: string[]; file_source?: FileSource | null; provider?: string; session_path?: string; session_purpose?: SessionPurpose; session_identity?: string; resumed?: boolean; skills?: SkillInfo[]; autonomy?: string; autonomy_label?: string; tasks?: TaskHint[]; bootstrap?: BootstrapInfo; demo?: boolean; acceptance?: boolean; mcp?: {configured: number; connected: number}}>
   | Envelope<'plan_mode', {mode: PlanModeState}>
   | Envelope<'plan_review', PlanReviewResult>
   | Envelope<'plan_progress', PlanProgress>
@@ -537,6 +578,9 @@ export type ServerEvent =
   | Envelope<'inspection_history', InspectionHistoryPage>
   | Envelope<'task_catalog', TaskCatalogPage>
   | Envelope<'session_catalog', SessionCatalogPage>
+  | Envelope<'settings_overview', SettingsOverview>
+  | Envelope<'mcp_config', McpOverview>
+  | Envelope<'model_settings', ModelOverview>
   | Envelope<'permission_overview', PermissionOverview>
   | Envelope<'history_search', HistorySearchPage>
   | Envelope<'rounds_ledger', RoundsLedgerPage>
@@ -552,19 +596,25 @@ export type ServerEvent =
   | Envelope<'tool_result', {call: ToolCall; ok: boolean; output: string; execution?: CommandExecution}>
   | Envelope<'approval_request', {approval_id: string; call: ToolCall; preview: string; decisions?: ApprovalDecision[]; tier?: string; tier_label?: string; rule?: ApprovalRule}>
   | Envelope<'approval_resolved', {approval_id: string; decision: ApprovalDecision}>
+  | Envelope<'bootstrap_activation', {text: string}>
   | Envelope<'done', {result: RunResult}>
   | Envelope<'task_state', {task: TaskSnapshot}>
   | Envelope<'task_snapshot', {task: AttachTaskSnapshot; approvals: AttachApprovalItem[]; file_source?: FileSource | null}>
   | Envelope<'approval_list', {approvals: AttachApprovalItem[]}>
   | Envelope<'subagent_event', {task_id: string; status: string; summary?: string}>
   | Envelope<'ack', {action: 'cancel' | 'approval' | 'steer'}>
+  | Envelope<'mcp_state', {configured: number; connected: number}>
   | Envelope<'closed'>
-  | Envelope<'error', {code: string; message: string}>;
+  | Envelope<'error', {code: string; message: string; field?: string}>;
 
 export type ClientRequest = (
   | Envelope<'run', {text: string; task?: RunTaskMeta}>
   | Envelope<'command', {command: Exclude<BackendCommand, 'skills' | 'autonomy' | 'plan' | 'explore' | 'notifications' | 'trace' | 'priority' | 'inspections' | 'tasks'>}>
   | Envelope<'command', {command: 'tasks' | 'sessions'; args?: TaskCatalogArgs}>
+  | Envelope<'command', {command: 'settings'; args: SettingsArgs}>
+  | Envelope<'command', {command: 'mcp_config'; args: McpArgs}>
+  | Envelope<'command', {command: 'model'; args: ModelArgs}>
+  | Envelope<'command', {command: 'bootstrap'; args: BootstrapArgs}>
   | Envelope<'command', {command: 'permissions'; args?: PermissionCommandArgs}>
   | Envelope<'command', {command: 'search'; args: SearchCommandArgs}>
   | Envelope<'command', {command: 'rounds'; args?: Record<string, never>}>
@@ -655,7 +705,8 @@ function runResult(value: unknown): value is RunResult {
     typeof value.run_id === 'string' && typeof value.stop_reason === 'string' &&
     (value.verified === undefined || value.verified === null || typeof value.verified === 'boolean') &&
     (value.completion === undefined || value.completion === null || completionSummary(value.completion)) &&
-    (value.audit === undefined || value.audit === null || auditSummary(value.audit));
+    (value.audit === undefined || value.audit === null || auditSummary(value.audit)) &&
+    (value.continuing === undefined || typeof value.continuing === 'boolean');
 }
 
 function safeInteger(value: unknown, signed = false): value is number {
@@ -739,6 +790,7 @@ function taskHint(value: unknown): value is TaskHint {
 
 function taskSnapshot(value: unknown): value is TaskSnapshot {
   return record(value) &&
+    (value.goal_budget === undefined || validGoalBudget(value.goal_budget)) &&
     typeof value.task_id === 'string' && validId(value.task_id) &&
     typeof value.kind === 'string' &&
     typeof value.status === 'string' &&
@@ -923,7 +975,17 @@ export function parseServerEvent(line: string): ServerEvent {
         (value.resumed === undefined || typeof value.resumed === 'boolean') &&
         (value.skills === undefined || skillList(value.skills)) &&
         (value.autonomy === undefined || autonomyLevel(value.autonomy)) &&
-        (value.autonomy_label === undefined || (typeof value.autonomy_label === 'string' && value.autonomy_label.length <= 80));
+        (value.autonomy_label === undefined || (typeof value.autonomy_label === 'string' && value.autonomy_label.length <= 80)) &&
+        (value.demo === undefined || typeof value.demo === 'boolean') &&
+        (value.acceptance === undefined || typeof value.acceptance === 'boolean') &&
+        (value.mcp === undefined || (record(value.mcp) && Number.isSafeInteger(value.mcp.configured) &&
+          Number.isSafeInteger(value.mcp.connected) && Number(value.mcp.configured) >= 0 &&
+          Number(value.mcp.connected) >= 0)) &&
+        (value.bootstrap === undefined || (record(value.bootstrap) &&
+          typeof value.bootstrap.configured === 'boolean' && typeof value.bootstrap.reason === 'string' &&
+          typeof value.bootstrap.config_path === 'string' && typeof value.bootstrap.problem === 'string' &&
+          record(value.bootstrap.defaults) && typeof value.bootstrap.defaults.base_url === 'string' &&
+          typeof value.bootstrap.defaults.model === 'string'));
       break;
     case 'plan_mode': valid = value.id === null && planModeState(value.mode); break;
     case 'plan_review': valid = planReviewResult(value); break;
@@ -932,6 +994,9 @@ export function parseServerEvent(line: string): ServerEvent {
     case 'plan_revision_history': valid = planRevisionHistory(value); break;
     case 'task_catalog': valid = validId(value.id) && validTaskCatalogPage(value); break;
     case 'session_catalog': valid = validId(value.id) && validSessionCatalogPage(value); break;
+    case 'settings_overview': valid = validId(value.id) && validSettingsOverview(value); break;
+    case 'mcp_config': valid = validId(value.id) && validMcpOverview(value); break;
+    case 'model_settings': valid = validId(value.id) && validModelOverview(value); break;
     case 'permission_overview': valid = validId(value.id) && validPermissionOverview(value); break;
     case 'history_search': valid = validId(value.id) && validHistorySearchPage(value); break;
     case 'rounds_ledger': valid = validId(value.id) && validRoundsLedgerPage(value); break;
@@ -988,9 +1053,14 @@ export function parseServerEvent(line: string): ServerEvent {
     case 'task_snapshot': valid = value.id === null && attachTaskSnapshot(value.task) && attachApprovals(value.approvals); break;
     case 'approval_list': valid = (value.id === null || validId(value.id)) && attachApprovals(value.approvals); break;
     case 'subagent_event': valid = value.id === null && typeof value.task_id === 'string' && validId(value.task_id) && typeof value.status === 'string' && (value.summary === undefined || typeof value.summary === 'string'); break;
+    case 'bootstrap_activation': valid = validId(value.id) && typeof value.text === 'string'; break;
     case 'ack': valid = validId(value.id) && ['cancel', 'approval', 'steer'].includes(String(value.action)); break;
+    case 'mcp_state': valid = value.id === null && Number.isSafeInteger(value.configured) &&
+      Number.isSafeInteger(value.connected) && Number(value.configured) >= 0 && Number(value.connected) >= 0;
+      break;
     case 'closed': valid = true; break;
-    case 'error': valid = typeof value.code === 'string' && typeof value.message === 'string'; break;
+    case 'error': valid = typeof value.code === 'string' && typeof value.message === 'string' &&
+      (value.field === undefined || typeof value.field === 'string' && value.field.length <= 40); break;
   }
   if (!valid) throw new Error(`后端消息字段无效：${value.type}`);
   return value as ServerEvent;

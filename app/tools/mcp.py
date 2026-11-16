@@ -292,6 +292,7 @@ class McpManager:
         self.clients: dict[str, _Connection] = {}
         self.tools: dict[str, tuple[str, str]] = {}
         self.errors: list[str] = []
+        self.retired: list[McpManager] = []
 
     @classmethod
     def from_config(cls, raw: dict[str, Any] | None, root: str | Path) -> McpManager:
@@ -330,6 +331,7 @@ class McpManager:
                 f"\nallowed tools: {', '.join(server.allowed_tools) or '(all)'}"
                 f"\nallowed origins: {', '.join(server.allowed_origins) or '(unrestricted)'}"
                 f"\ncontrolled browser actions: {server.browser_actions}"
+                f"\n范围：仅此服务；其他服务与后台进程不变。"
                 "\n\n[risk] exec — 启动外部服务，需要审批；工具调用另行审批。"
                 "\n[审批层] T2 本地执行"
             )
@@ -410,10 +412,127 @@ class McpManager:
 
         return invoke
 
+    async def reconfigure(self, servers, registry, approval, *, only=None):
+        """调用方保证空闲；所有新连接成功后才替换工具。"""
+        if only is not None:
+            if only not in servers:
+                raise McpError("所选服务已不在配置中；请刷新或断开该连接。")
+            servers = {only: servers[only]}
+        if not servers:
+            text = await self.disconnect(registry, approval)
+            self.servers = {}
+            return text
+        old_tools = {tool: owner for tool, owner in self.tools.items() if only is None or owner[0] == only}
+        staged = _StagedRegistry(set(registry.names()) - set(old_tools))
+        gate = _StagedApproval(approval)
+        candidate = McpManager(servers, self.root)
+        try:
+            await candidate.register_into(staged, gate)
+            if set(candidate.clients) != set(servers):
+                if gate.denied:
+                    raise McpError("连接未获允许；所选服务保持未连接，其他服务与后台进程不变。")
+                raise McpError("新连接未全部建立；原连接和工具保留。")
+        except BaseException:
+            try:
+                await candidate.close()
+            except Exception:
+                self.retired.append(candidate)
+            raise
+        previous = McpManager({name: value for name, value in self.servers.items()
+                               if only is None or name == only}, self.root)
+        previous.clients = {name: value for name, value in self.clients.items() if only is None or name == only}
+        previous.tools = old_tools
+        for name in old_tools:
+            registry.unregister(name)
+        if approval is not None:
+            approval.forget_tools(set(old_tools))
+        for spec in staged.specs.values():
+            registry.register(spec)
+        gate.commit()
+        self.servers = {**{name: value for name, value in self.servers.items() if only is not None and name != only}, **servers}
+        self.clients = {**{name: value for name, value in self.clients.items() if only is not None and name != only}, **candidate.clients}
+        self.tools = {**{name: value for name, value in self.tools.items() if name not in old_tools}, **candidate.tools}
+        self.errors = []
+        self.retired.append(previous)
+        try:
+            await previous.close()
+            self.retired.remove(previous)
+        except Exception:
+            return "已重载 MCP；旧进程清理未完成，退出时将重试。"
+        return f"已重载 MCP {only or '全部服务'}；后续调用使用新连接，后台进程不变。"
+
+    async def disconnect(self, registry, approval, *, only=None):
+        known = set(self.servers) | set(self.clients)
+        if only is not None and only not in known:
+            raise McpError("所选服务不存在；请刷新核对。")
+        names = known if only is None else {only}
+        call = ToolCall("mcp_disconnect", {"servers": sorted(names)})
+        if approval is None or not (await approval.request(call,
+                f"断开前台 MCP {only or '全部服务'} 并移除对应工具；其他服务与后台进程不变。", self.root)).allowed:
+            raise McpError("断开未获允许；原连接保留。")
+        old_tools = {tool for tool, owner in self.tools.items() if owner[0] in names}
+        for name in old_tools:
+            registry.unregister(name)
+            self.tools.pop(name, None)
+        approval.forget_tools(old_tools)
+        if only is None:
+            await self.close()
+        else:
+            previous = McpManager({}, self.root)
+            if only in self.clients:
+                previous.clients[only] = self.clients.pop(only)
+            self.retired.append(previous)
+            try:
+                await previous.close()
+                self.retired.remove(previous)
+            except Exception:
+                return "已移除所选 MCP 工具；进程清理未完成，退出时重试。"
+        return f"已断开 MCP {only or '全部服务'}；重载可重新连接。"
+
     async def close(self) -> None:
-        clients, self.clients = self.clients, {}
+        retired = list(self.retired)
+        outcomes = await asyncio.gather(*(previous.close() for previous in retired), return_exceptions=True)
+        self.retired = [previous for previous, outcome in zip(retired, outcomes) if isinstance(outcome, BaseException)]
+        clients = dict(self.clients)
         results = await asyncio.gather(*(client.close() for client in clients.values()), return_exceptions=True)
+        failed = bool(self.retired)
         for name, result in zip(clients, results):
             if isinstance(result, BaseException):
-                self.errors.append(f"{name}: cleanup failed: {result}")
-                raise McpError(self.errors[-1]) from result
+                self.errors.append(f"{name}: cleanup failed")
+                failed = True
+            else:
+                self.clients.pop(name, None)
+        if failed:
+            raise McpError("MCP 进程清理未完成。")
+
+class _StagedRegistry:
+    def __init__(self, reserved):
+        self.reserved, self.specs = reserved, {}
+
+    def names(self):
+        return self.reserved | set(self.specs)
+
+    def register(self, spec):
+        self.specs[spec.name] = spec
+
+
+class _StagedApproval:
+    def __init__(self, gate):
+        self.gate, self.hooks, self.denied = gate, [], False
+
+    async def request(self, *args):
+        if self.gate is None:
+            from app.safety.policy import ApprovalDecision
+            return ApprovalDecision(False, "deny")
+        call, preview, root = args
+        decision = await self.gate.request(call, preview + "\n新连接全部成功后替换前台连接；失败保留原连接。", root)
+        if not decision.allowed:
+            self.denied = True
+        return decision
+
+    def require_once(self, name, audit):
+        self.hooks.append((name, audit))
+
+    def commit(self):
+        for name, audit in self.hooks:
+            self.gate.require_once(name, audit)

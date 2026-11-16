@@ -25,6 +25,7 @@ mini-harness/
       state.py          # TaskState / 完成守卫 / 文件变动与验证证据
       progress.py       # 进展与空转检测
       rounds.py         # 一轮 run 的紧凑记录（不存正文）
+      outcome.py        # 结构化结果事实与同任务聚合
 
   app/                  # Python 后端：模型接入、Agent 运行、工具、审批、会话、评测
     __init__.py         # 包说明（分域索引）
@@ -155,6 +156,8 @@ mini-harness/
   examples/demo-repo/   # 3 分钟 demo 仓库
   examples/skills.json  # 可提交的静态技能配置示例
   scripts/demo.sh       # 复制 demo 并启动 Ink 工作台
+  scripts/start.py      # 首次启动编排、依赖安装与启动分流（模型配置在 Ink 首次配置页完成）
+  scripts/launcher_config.py # .env 数据解析与原子保存
   scripts/doctor.py     # 首用环境自检（--doctor；仅标准库，缺项给命令）
   .env.example          # 环境变量模板（不含真实 key，.env 不提交）
   scripts/setup-ghostty-sidebar.sh # 写入右侧 quick terminal 配置（幂等）
@@ -271,6 +274,7 @@ mini-harness/
   README.md
   pyproject.toml
   run_vibe.sh
+  start.sh              # 推荐启动入口：检查依赖、加载 .env、配置模型、启动 Ink
   run_ink.sh            # 编译并启动 Ink（唯一交互入口）
   run_sidebar.sh        # 手动启动右侧 Git 变更侧栏
   run_vibe.sh           # Python 入口：--stdio 后端、--eval、--task 跑分、会话列表
@@ -354,3 +358,22 @@ stdio 后端与 eval 都调用 `app.runtime.agent.Agent.run()`。Ink 通过本�
 `tui/tests/sidebar-launch-concurrency.test.ts` 通过实际 Node 进程验证启动竞争、独立 split 与强制结束后的并发恢复；宿主动作使用假 runner。
 
 `tui/tests/followup-app.test.tsx` 从公开 App 覆盖后续待办的失败暂停、编辑/撤回/继续、断线、退出、审批与中文草稿。`followup-persistence.test.tsx` 覆盖会话重开、单写者接入、发送未知、坏文件/写失败、范围隔离与目录替换；BackendClient 测试核对预分配请求 ID 的实际传输。
+
+结果展示：tui/src/outcome.ts 统一正文、状态和检视的摘要语义；core/task/outcome.py 提供纯事实，app/stdio.py 完成计划验收和任务聚合，原始 receipt 保留在轮次及检视详情。
+
+配置文档：`docs/CONFIGURATION.md` 面向用户的配置入口与生效范围；`docs/CONFIGURATION-DEV.md` 保存开发/诊断参数；`docs/CONFIGURATION-CONTRACT.md` 追踪首次模板移出项的解析和消费证据。
+
+功能指引：`tui/src/guidance.ts` 定义五区说明与情境文案；`guidance-panel.tsx` 处理键盘/鼠标阅读，App 复用现有导航，指引不直接调用运行或审批接口。
+
+
+模型设置：app/runtime/user_config.py 管理用户 TOML、项目覆盖和独立凭据；app/runtime/model_config.py 共享配置读写并兼容 .env，scripts/launcher_config.py 仅兼容导出；app/runtime/model_settings.py 负责来源、脱敏、审批保存、显式检测及快照核对。tui/src/model-settings.ts 定义协议校验，use-model-settings.ts 管理请求身份，model-panel.tsx 管理独立编辑草稿。后端仍持有凭据与执行权限。
+
+首次启动：缺模型配置时 `python -m app --stdio` 进入 app/runtime/bootstrap.py 的仅配置状态，不创建 Agent、任务或会话；只提供 model list/save/test 与进入项目，run/resume 明确拒绝。保存与检测仍走 ApprovalGate；进入项目时用保存后的环境重新 exec 自身，新进程按既有启动路径发送带 `run` 能力的 ready。TUI 以 `config-bootstrap` 能力渲染首次配置页（bootstrap-panel.tsx + use-bootstrap-settings.ts），保存并检测、跳过检测确认与进入项目都在同一页。
+
+设置中心：app/runtime/limit_settings.py 负责单段限制与运行作用域，stdio 记录和恢复 run_limits；tui/src/settings.ts、use-settings.ts、settings-panel.tsx 分别负责契约、请求与数字编辑。复用模型与权限入口，MCP 可进入独立配置面板，沙箱与通知继续展示状态。
+
+目标预算：goal_limits.py / goal_settings.py 负责契约和默认设置；TaskStore 固定 goal_limits，TaskRuntime 在创建新段前核对账本，worker 续段复用任务快照。tui/src/goal-budget.ts 定义投影，goal-store.ts 恢复匹配任务的预算与累计消耗，设置页按 g 切换分组。
+
+MCP 配置：app/runtime/mcp_settings.py 处理来源、脱敏视图、审批与原子保存；stdio 复用连接管理边界。tui/src/mcp-settings.ts、use-mcp-settings.ts、mcp-panel.tsx 分别负责协议、请求身份与编辑草稿。
+
+体验验收：scripts/workbench_acceptance.py 创建隔离工作区、虚构配置；examples/mcp-demo/server.py 提供本地回显服务；start.sh --acceptance 沿用依赖准备和 ApprovalGate，产物写 .vibe/workbench-acceptance。

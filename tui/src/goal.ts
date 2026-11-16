@@ -1,3 +1,4 @@
+import type {GoalLimits,GoalBudget} from './goal-budget.js';
 import type {RunResult} from './protocol.js';
 
 export type GoalMode = {
@@ -38,11 +39,11 @@ export function goalLabel(goal: GoalMode): string {
   return `第 ${goal.segment}/${goal.maxSegments} 段`;
 }
 
-export function startGoal(objective: string, now = Date.now()): GoalMode {
+export function startGoal(objective: string, now = Date.now(), limits?:GoalLimits): GoalMode {
   return {
     objective: objective.trim(), active: true, completed: false,
-    segment: 1, maxSegments: GOAL_MAX_SEGMENTS, startedAt: now, maxSeconds: GOAL_MAX_SECONDS,
-    totalTokens: 0, totalCostUsd: 0, maxTotalTokens: GOAL_MAX_TOKENS, maxTotalCostUsd: GOAL_MAX_COST_USD,
+    segment: 1, maxSegments: limits?.max_segments ?? GOAL_MAX_SEGMENTS, startedAt: now, maxSeconds: limits?.max_seconds ?? GOAL_MAX_SECONDS,
+    totalTokens: 0, totalCostUsd: 0, maxTotalTokens: limits?.max_tokens ?? GOAL_MAX_TOKENS, maxTotalCostUsd: limits?.max_cost_usd ?? GOAL_MAX_COST_USD,
     pausedReason: null,
   };
 }
@@ -102,25 +103,25 @@ export function goalDecision(goal: GoalMode, result: RunResult, now = Date.now()
   if (goal.segment >= goal.maxSegments) {
     return {
       goal: {...base, active: false, pausedReason: 'goal_max_segments'},
-      continue: false, notice: `${noticePrefix} 达到最大段数；输入 /goal resume 继续`,
+      continue: false, notice: `${noticePrefix} 达到最大段数；预算已用尽，可调整新目标默认后新建目标`,
     };
   }
   if (now - goal.startedAt >= goal.maxSeconds * 1000) {
     return {
       goal: {...base, active: false, pausedReason: 'goal_max_seconds'},
-      continue: false, notice: `${noticePrefix} 达到目标总时长；输入 /goal resume 继续`,
+      continue: false, notice: `${noticePrefix} 达到目标总时长；预算已用尽，可调整新目标默认后新建目标`,
     };
   }
   if (base.maxTotalTokens > 0 && totalTokens >= base.maxTotalTokens) {
     return {
       goal: {...base, active: false, pausedReason: 'goal_max_tokens'},
-      continue: false, notice: `${noticePrefix} 达到目标总 token 上限；输入 /goal resume 继续`,
+      continue: false, notice: `${noticePrefix} 达到目标总 token 上限；预算已用尽，可调整新目标默认后新建目标`,
     };
   }
   if (base.maxTotalCostUsd > 0 && totalCostUsd >= base.maxTotalCostUsd) {
     return {
-      goal: {...base, active: false, pausedReason: 'goal_max_cost'},
-      continue: false, notice: `${noticePrefix} 达到目标总费用上限；输入 /goal resume 继续`,
+      goal: {...base, active: false, pausedReason: 'goal_max_cost_usd'},
+      continue: false, notice: `${noticePrefix} 达到目标总费用上限；预算已用尽，可调整新目标默认后新建目标`,
     };
   }
   const next = {...base, active: true, segment: goal.segment + 1, pausedReason: null};
@@ -131,6 +132,10 @@ export function goalDecision(goal: GoalMode, result: RunResult, now = Date.now()
 }
 
 export function resumeGoal(goal: GoalMode, now = Date.now()): GoalMode {
+  const reason=goal.segment>=goal.maxSegments?'goal_max_segments':now-goal.startedAt>=goal.maxSeconds*1000?'goal_max_seconds':
+    goal.maxTotalTokens>0&&goal.totalTokens>=goal.maxTotalTokens?'goal_max_tokens':
+    goal.maxTotalCostUsd>0&&goal.totalCostUsd>=goal.maxTotalCostUsd?'goal_max_cost_usd':null;
+  if(reason)return {...goal,active:false,pausedReason:reason};
   const next = {...goal, active: true, completed: false, pausedReason: null};
   // 暂停后手动恢复也算新的一段，避免无限重复同一段预算。
   if (next.segment < next.maxSegments) next.segment += 1;
@@ -141,4 +146,10 @@ export function goalStatusText(goal: GoalMode): string {
   if (goal.completed) return `目标完成 · ${goalLabel(goal)}`;
   if (!goal.active) return `目标暂停 · ${goalLabel(goal)}${goal.pausedReason ? ` · ${goal.pausedReason}` : ''}`;
   return `目标进行中 · ${goalLabel(goal)}`;
+}
+
+export function alignGoalBudget(goal:GoalMode,budget:GoalBudget,segment:number):GoalMode {
+ return {...goal,maxSegments:budget.limits.max_segments,maxSeconds:budget.limits.max_seconds,
+  maxTotalTokens:budget.limits.max_tokens,maxTotalCostUsd:budget.limits.max_cost_usd,
+  startedAt:Date.parse(budget.started_at),totalTokens:budget.used_tokens,totalCostUsd:budget.used_cost_usd,segment};
 }

@@ -64,3 +64,10 @@ test('resume starts a new segment for a paused goal', () => {
   assert.equal(resumed.active, true);
   assert.equal(resumed.segment, 2);
 });
+
+test('goal budget exhaustion also blocks manual resume',()=>{
+ const exhausted={...startGoal('goal'),active:false,segment:2,maxSegments:2};
+ assert.equal(resumeGoal(exhausted).active,false);
+ assert.equal(resumeGoal(exhausted).pausedReason,'goal_max_segments');
+ assert.equal(resumeGoal({...exhausted,segment:1,maxTotalTokens:20,totalTokens:20}).active,false);
+});

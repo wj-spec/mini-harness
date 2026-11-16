@@ -25,6 +25,7 @@ core/
     state.py           # TaskState / CompletionDecision / completion_decision / delivery_receipt
     progress.py        # ProgressMonitor / ArtifactProgress（空转与进展检测）
     rounds.py          # RoundRecord schema 与 build_round_record
+    outcome.py         # 增量结果事实、检查覆盖与同任务合并（不含 UI 文案）
 ```
 
 一次 `git mv` 迁移自原来的扁平布局（`core/models.py`、`core/context.py` 等 8 个文件）；

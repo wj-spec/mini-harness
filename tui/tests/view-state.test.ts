@@ -377,12 +377,12 @@ test('cancelled and stopped runs keep partial output but do not print machine st
   let cancelled = reduceView(initialState, {type: 'begin', id: 'run-1', text: 'work'});
   cancelled = reduceView(cancelled, {type: 'event', event: event('text_delta', {delta: '部分输出'})});
   cancelled = reduceView(cancelled, {type: 'event', event: event('done', {result: {...result, text: 'cancelled', status: 'cancelled'}})});
-  assert.deepEqual(cancelled.entries.map(entry => entry.text), ['work', '部分输出']);
+  assert.deepEqual(cancelled.entries.filter(entry => entry.kind !== 'notice').map(entry => entry.text), ['work', '部分输出']);
   assert.equal(cancelled.lastStatus, 'cancelled');
 
   let stopped = reduceView(initialState, {type: 'begin', id: 'run-1', text: 'work'});
   stopped = reduceView(stopped, {type: 'event', event: event('done', {result: {...result, text: 'stopped: max_steps', status: 'stopped'}})});
-  assert.deepEqual(stopped.entries.map(entry => entry.text), ['work']);
+  assert.deepEqual(stopped.entries.filter(entry => entry.kind !== 'notice').map(entry => entry.text), ['work']);
 
   let finished = reduceView(initialState, {type: 'begin', id: 'run-1', text: 'work'});
   finished = reduceView(finished, {type: 'event', event: event('done', {result})});
@@ -458,4 +458,41 @@ test('session plan mode follows plan_mode frames and defaults to inactive', () =
   assert.deepEqual(completed.planMode, {active: true, pending: false, wanted: true});
   const off = reduceView(completed, {type: 'event', event: event('plan_mode', {id: null, mode: {active: false, pending: false, wanted: false}})});
   assert.deepEqual(off.planMode, {active: false, pending: false, wanted: false});
+});
+
+test('model detection status follows explicit model settings receipts only', () => {
+  const base = {...initialState, phase: 'idle' as const, workspace: '/repo', model: 'm', sessionId: 's'};
+  const overview = {model: 'm', base_url: 'https://example.com/v1', provider: 'openai', trust_env: false,
+    key_present: true, sources: {model: '默认值', base_url: '默认值', api_key: '默认值', trust_env: '默认值', provider: '默认值'},
+    path: '/repo/.env', revision: 'a'.repeat(64), saved_model: 'm', applied: false, workspace: '/repo', session_id: 's'};
+  assert.equal(initialState.modelCheck, 'unchecked');
+  let state = reduceView(base, {type: 'event', event: event('model_settings', {...overview, message: '连接检测通过；只验证最小请求。'})});
+  assert.equal(state.modelCheck, 'passed');
+  state = reduceView(state, {type: 'event', event: event('model_settings', {...overview, message: '检测未通过：HTTP 401；'})});
+  assert.equal(state.modelCheck, 'failed');
+  state = reduceView(state, {type: 'event', event: event('model_settings', {...overview, message: '已保存；当前模型未切换。'})});
+  assert.equal(state.modelCheck, 'unchecked');
+  state = reduceView(state, {type: 'event', event: event('ready', {id: null, workspace: '/repo', model: 'm', session_id: 's', capabilities: []})});
+  assert.equal(state.modelCheck, 'unchecked');
+  assert.equal(state.demo, false);
+});
+
+test('MCP counts come from ready and live connection receipts', () => {
+  let state = reduceView(initialState, {type: 'event', event: event('ready', {id: null, workspace: '/repo', model: 'm', session_id: 's', capabilities: [], mcp: {configured: 2, connected: 0}})});
+  assert.equal(state.mcpConfigured, 2);
+  assert.equal(state.mcpConnected, 0);
+  state = reduceView(state, {type: 'event', event: event('mcp_state', {id: null, configured: 2, connected: 1})});
+  assert.deepEqual([state.mcpConfigured, state.mcpConnected], [2, 1]);
+  state = reduceView(state, {type: 'event', event: event('ready', {id: null, workspace: '/repo', model: 'm', session_id: 's', capabilities: []})});
+  assert.deepEqual([state.mcpConfigured, state.mcpConnected], [0, 0]);
+});
+
+test('acceptance and demo flags persist across ready frames', () => {
+  let state = reduceView(initialState, {type: 'event', event: event('ready', {id: null, workspace: '/repo', model: 'm',
+    session_id: 's', capabilities: [], acceptance: true, demo: true})});
+  assert.equal(state.acceptance, true);
+  assert.equal(state.demo, true);
+  state = reduceView(state, {type: 'event', event: event('ready', {id: null, workspace: '/repo', model: 'm', session_id: 's', capabilities: []})});
+  assert.equal(state.acceptance, false);
+  assert.equal(state.demo, false);
 });

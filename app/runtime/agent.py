@@ -30,6 +30,7 @@ from app.tools.registry import MUTATION_TOOLS, ToolRegistry
 from core.context import ContextBuilder, ContextResult, estimate_tokens, total_tokens
 from core.context.snapshot import build_context_snapshot
 from core.task import build_round_record
+from core.task.outcome import build_outcome
 from core.task import (
     CompletionDecision, TaskState, classify_task, completion_decision, delivery_receipt,
 )
@@ -155,6 +156,7 @@ class AgentResult:
     verified: bool | None = None
     completion: dict | None = None
     audit: dict | None = None
+    outcome: dict | None = None
 
 
 @dataclass
@@ -207,6 +209,8 @@ class _RunContext:
     audit: dict | None = None
     verified: bool | None = None
     completion_rejections: int = 0
+    operations: int = 0
+    tool_errors: int = 0
     start_mutation_seq: int = 0
     start_file_changes: int = 0
     start_verifications: int = 0
@@ -550,7 +554,7 @@ class Agent:
 
     def _tool_tier(self, call: ToolCall) -> str:
         """审批层级：MCP 启动按本地执行层，其余按工具声明风险，可被用户策略覆盖。"""
-        default = "exec" if call.name == "mcp_start" else self.tools.risk(call.name)
+        default = "network" if call.name == "model_connection_test" else "exec" if call.name in {"mcp_start", "mcp_disconnect"} else self.tools.risk(call.name)
         return self.permission_policy.tier_for(call, default)
 
     def _permissions_paths(self) -> tuple[Path | None, Path | None]:
@@ -1358,6 +1362,10 @@ class Agent:
                 ok, output = await self._execute_tool(run, call)
 
             execution = getattr(output, "execution", None)
+            if (not ok or execution and execution.get("status") != "succeeded") and not (
+                call.name == "bash" and call.args.get("verification") is True and execution
+            ):
+                run.tool_errors += 1
             if execution is not None:
                 execution = dict(execution)
                 run.recorder.event(
@@ -1593,6 +1601,11 @@ class Agent:
             start_command_results=run.start_command_results,
             start_files_changed=run.start_files_changed,
         )
+        outcome = build_outcome(
+            run.state, start_file_changes=run.start_file_changes,
+            start_verifications=run.start_verifications, operations=run.operations,
+            tool_errors=run.tool_errors, denied=bool(run.denied_requests), audit=audit,
+        )
         result = AgentResult(
             text,
             steps,
@@ -1603,6 +1616,7 @@ class Agent:
             stop_reason,
             run.model_error,
             receipt=receipt,
+            outcome=outcome,
             verified=verified,
             completion=completion.to_dict() if completion is not None else None,
             audit=audit,
@@ -1623,6 +1637,7 @@ class Agent:
                 audit=audit,
                 verified=verified,
                 receipt=receipt,
+                outcome=outcome,
                 start_mutation_seq=run.start_mutation_seq,
                 start_file_changes=run.start_file_changes,
                 start_verifications=run.start_verifications,
@@ -1915,6 +1930,10 @@ class Agent:
 
     async def _execute_tool(self, run: _RunContext, call: ToolCall) -> tuple[bool, str]:
         attempts = 0
+        if self.tools.risk(call.name) != "read" and call.name not in MUTATION_TOOLS and not (
+            call.name == "bash" and call.args.get("verification") is True
+        ):
+            run.operations += 1
         while True:
             ok, output = await self.tools.execute_async(call, cancel=run.cancel)
             transient = _is_transient_tool_error(output)

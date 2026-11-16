@@ -40,3 +40,22 @@ test('invalid or missing goal files are ignored', async () => {
     await rm(dir, {recursive: true, force: true});
   }
 });
+
+test('restore aligns goal budget and usage from backend task snapshot',async()=>{
+ const dir=await mkdtemp(path.join(tmpdir(),'mini-harness-goal-budget-'));
+ try{
+  const taskId='t-20261103-120000-abcdef';
+  const goal={...startGoal('backend goal'),taskId};
+  saveGoal(dir,goal);
+  const {mkdir}=await import('node:fs/promises');
+  await mkdir(path.join(dir,'tasks',taskId),{recursive:true});
+  await writeFile(path.join(dir,'tasks',taskId,'meta.json'),JSON.stringify({
+   task_id:taskId,kind:'goal',objective:'backend goal',status:'paused',created_at:new Date(goal.startedAt).toISOString(),
+   goal_limits:{max_segments:3,max_seconds:600,max_tokens:500,max_cost_usd:1},
+   segments:[{segment:1,status:'stopped'},{segment:2,status:'stopped'}]}));
+  await writeFile(path.join(dir,'budget.jsonl'),JSON.stringify({task_id:taskId,entry_kind:'llm',tokens_in:60,tokens_out:40,cost_usd:0.2})+'\n');
+  const restored=loadGoal(dir)!;
+  assert.equal(restored.active,false);assert.equal(restored.segment,2);assert.equal(restored.maxSegments,3);
+  assert.equal(restored.totalTokens,100);assert.equal(restored.totalCostUsd,0.2);
+ }finally{await rm(dir,{recursive:true,force:true});}
+});

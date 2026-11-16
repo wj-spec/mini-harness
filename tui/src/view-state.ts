@@ -1,7 +1,8 @@
+import {outcomePresentation, stopReasonText} from './outcome.js';
 import {AUTONOMY_LABELS, reviewKey} from './protocol.js';
 import {bindRevision, revisionPlan, planInspection, startInspection, verificationInspection, type InspectionPlan, type InspectionSnapshot, type RunInspection} from './inspection.js';
 import {agentTouchedFiles} from './sidebar/agent-activity.js';
-import type {ApprovalDecision, ApprovalRule, AuditSummary, AutonomyLevel, BackendCommand, CommandExecution, CompletionSummary, ContextSnapshot, PersistedMessage, PlanModeState, PlanProgress, PlanReviewResult, PlanRevisionResult, RunMetrics, RunResult, ServerEvent, SessionPurpose, SkillInfo, ToolCall} from './protocol.js';
+import type {ApprovalDecision, ApprovalRule, AuditSummary, AutonomyLevel, BackendCommand, BootstrapInfo, CommandExecution, CompletionSummary, ContextSnapshot, PersistedMessage, PlanModeState, PlanProgress, PlanReviewResult, PlanRevisionResult, RunMetrics, RunResult, ServerEvent, SessionPurpose, SkillInfo, ToolCall} from './protocol.js';
 
 export const MAX_CONTEXT_SNAPSHOTS = 100;
 export const MAX_WORKBENCH_NOTICES = 200;
@@ -19,6 +20,8 @@ export type Entry = {
   uncertain?: boolean;
   runId?: string;
   execution?: CommandExecution;
+  result?: RunResult;
+  continuing?: boolean;
   review?: PlanReviewResult;
   reviewProblem?: string;
   inspection?: InspectionSnapshot;
@@ -56,6 +59,7 @@ export type ViewState = {
   planMode: PlanModeState;
   planModeKnown: boolean;
   lastVerified: boolean | null;
+  lastOutcome?: RunResult['outcome'];
   lastCompletion: CompletionSummary | null;
   lastAudit: AuditSummary | null;
   inspection: RunInspection | null;
@@ -64,6 +68,12 @@ export type ViewState = {
   attachedTaskId?: string;
   fileSource?: import('./inspection.js').FileSource | null;
   attachOffline?: boolean;
+  bootstrap: BootstrapInfo | null;
+  demo: boolean;
+  acceptance: boolean;
+  modelCheck: 'unchecked' | 'passed' | 'failed';
+  mcpConfigured: number;
+  mcpConnected: number;
 };
 export type Action =
   | {type: 'event'; event: ServerEvent}
@@ -73,6 +83,7 @@ export type Action =
   | {type: 'retain_history'; snapshot: InspectionSnapshot}
   | {type: 'review_card'; result: PlanReviewResult; problem?: string}
   | {type: 'revision_receipt'; result: PlanRevisionResult}
+  | {type: 'continue_run'; id: string}
   | {type: 'cancel'}
   | {type: 'approval_sent'};
 
@@ -80,7 +91,7 @@ export const initialState: ViewState = {
   phase: 'starting', activeId: null, activeCommand: null, runMode: null, activity: 'initializing', entries: [], nextEntry: 0, notices: [], live: '', segment: '',
   approval: null, model: '', workspace: '', lastResult: '', lastStatus: null, lastStopReason: null, error: null,
   sessionId: '', sessionPath: '', sessionPurpose: 'user', provider: '', metrics: null, contextSnapshots: [], hasStartedRun: false, resumed: false, skills: [],
-  autonomy: '', autonomyLabel: '', planMode: {active: false, pending: false, wanted: null}, planModeKnown: false, lastVerified: null, lastCompletion: null, lastAudit: null, inspection: null, inspectionPlan: null, planProgress: null,
+  autonomy: '', autonomyLabel: '', planMode: {active: false, pending: false, wanted: null}, planModeKnown: false, lastVerified: null, lastCompletion: null, lastAudit: null, inspection: null, inspectionPlan: null, planProgress: null, bootstrap: null, demo: false, acceptance: false, modelCheck: 'unchecked', mcpConfigured: 0, mcpConnected: 0,
 };
 
 function pushNotice(state: ViewState, text: string): ViewState {
@@ -174,12 +185,23 @@ function restoreMessage(state: ViewState, message: PersistedMessage): ViewState 
 }
 
 export function reduceView(state: ViewState, action: Action): ViewState {
+  if (action.type === 'continue_run') {
+    const summary = state.entries.findLast(entry => entry.runId === action.id && entry.result);
+    if (!summary) return state;
+    const previous = state.entries.findLast(entry => entry.runId === action.id && entry.id !== summary.id && !entry.result);
+    return {...state, entries: state.entries.map(entry => entry.id === summary.id ? {...entry, continuing: true} :
+      entry.id === previous?.id ? {...entry, inspection: summary.inspection ?? entry.inspection} : entry)};
+  }
   if (action.type === 'retain_history') {
     const snapshot = action.snapshot;
     if (snapshot.workspace !== state.workspace || snapshot.sessionId !== state.sessionId ||
         state.entries.some(entry => entry.inspection?.scope.requestId === snapshot.scope.requestId)) return state;
     return {...state, entries: [...state.entries, {id: state.nextEntry, kind: 'notice',
-      text: `历史结果 · ${snapshot.scope.objective}`, inspection: snapshot}], nextEntry: state.nextEntry + 1};
+      text: `历史结果 · ${snapshot.scope.objective}`, inspection: snapshot,
+      ...(snapshot.verification.outcome ? {result: {text: '', steps: 0, usage: {}, cost_usd: 0,
+        status: snapshot.verification.status ?? 'stopped', stop_reason: snapshot.verification.stopReason,
+        run_id: snapshot.scope.traceRunId ?? '', outcome: snapshot.verification.outcome,
+        verified: snapshot.verification.verified, receipt: snapshot.verification.receipt}} : {})}], nextEntry: state.nextEntry + 1};
   }
   if (action.type === 'revision_receipt') {
     const inspection = state.inspection ? bindRevision(state.inspection, action.result, state.sessionId) : null;
@@ -214,12 +236,12 @@ export function reduceView(state: ViewState, action: Action): ViewState {
       taskId: launch.task_id, segment: launch.segment, taskStatus: launch.status}};
     if (action.revision) inspection = bindRevision(inspection, action.revision, state.sessionId, true);
     const begun = append({...state, planProgress: null, inspection, inspectionPlan: action.revision ? revisionPlan(inspection, null, state.entries) : action.plan ? planInspection(inspection, null, state.sessionId, action.plan) : null,
-      phase: 'running', activeId: action.id, activeCommand: null, runMode: null, activity: 'waiting_model', live: '', segment: '', approval: null, lastResult: '', lastStatus: null, lastStopReason: null, error: null, metrics: null, contextSnapshots: [], hasStartedRun: true, lastVerified: null, lastCompletion: null, lastAudit: null}, 'task', action.text);
+      phase: 'running', activeId: action.id, activeCommand: null, runMode: null, activity: 'waiting_model', live: '', segment: '', approval: null, lastResult: '', lastStatus: null, lastStopReason: null, error: null, metrics: null, contextSnapshots: [], hasStartedRun: true, lastOutcome: null, lastVerified: null, lastCompletion: null, lastAudit: null}, 'task', action.text);
     return {...begun, entries: begun.entries.map((entry, index) => index === begun.entries.length - 1 ? {...entry, runId: action.id} : entry)};
   }
   if (action.type === 'begin_command') return {...state, phase: 'running', activeId: action.id, activeCommand: action.command, runMode: null,
     activity: action.command === 'resume' ? 'waiting_model' : null, approval: null, error: null,
-    ...(action.command === 'resume' ? {inspection: startInspection(action.id, '继续任务'), inspectionPlan: null, live: '', segment: '', lastResult: '', lastStatus: null, lastStopReason: null, metrics: null, contextSnapshots: [], hasStartedRun: true, lastVerified: null, lastCompletion: null, lastAudit: null} : {})};
+    ...(action.command === 'resume' ? {inspection: startInspection(action.id, '继续任务'), inspectionPlan: null, live: '', segment: '', lastResult: '', lastStatus: null, lastStopReason: null, metrics: null, contextSnapshots: [], hasStartedRun: true, lastOutcome: null, lastVerified: null, lastCompletion: null, lastAudit: null} : {})};
   if (action.type === 'notice') return pushNotice(state, action.text);
   if (action.type === 'cancel') return {...state, phase: 'stopping', approval: null};
   if (action.type === 'approval_sent') return afterApproval(state);
@@ -234,17 +256,27 @@ export function reduceView(state: ViewState, action: Action): ViewState {
     return {...state, phase: 'starting', activeId: event.id, activeCommand: null, activity: 'initializing'};
   }
   if (event.id && state.activeId && event.id !== state.activeId) return state;
-  if (event.id && !state.activeId && ['status', 'text_delta', 'tool_call', 'tool_result', 'approval_request', 'approval_resolved', 'done', 'metrics', 'context_snapshot', 'command_result'].includes(event.type)) return state;
+  if (event.id && !state.activeId && !state.bootstrap && ['status', 'text_delta', 'tool_call', 'tool_result', 'approval_request', 'approval_resolved', 'done', 'metrics', 'context_snapshot', 'command_result'].includes(event.type)) return state;
   switch (event.type) {
+    case 'model_settings': {
+      const message = event.message ?? '';
+      const modelCheck = message.startsWith('连接检测通过') ? 'passed' as const
+        : message.startsWith('检测未通过') || message.startsWith('连接检测失败') || message.startsWith('服务返回格式') ? 'failed' as const
+          : message.startsWith('已保存') || message.startsWith('已应用') ? 'unchecked' as const : state.modelCheck;
+      return {...state, model: event.model, provider: event.provider, modelCheck};
+    }
     case 'ready':
       return {...state, inspection: null, inspectionPlan: null, planProgress: null, phase: 'starting', runMode: null, planModeKnown: false, activity: 'initializing', workspace: event.workspace, model: event.model, error: null,
         fileSource: event.file_source,
         attachOffline: event.capabilities?.includes('attach-offline') ?? false,
         ...(event.capabilities?.includes('attach-offline') ? {phase: 'idle', activeId: null, activeCommand: null, approval: null, activity: null} : {}),
-        provider: event.provider ?? '', sessionId: event.session_id, sessionPath: event.session_path ?? '',
+        provider: event.provider ?? '', bootstrap: event.bootstrap ?? null, demo: event.demo ?? false, acceptance: event.acceptance ?? false, modelCheck: 'unchecked' as const,
+        mcpConfigured: event.mcp?.configured ?? 0, mcpConnected: event.mcp?.connected ?? 0, sessionId: event.session_id, sessionPath: event.session_path ?? '',
         sessionPurpose: event.session_purpose ?? 'user', resumed: event.resumed ?? false,
         skills: event.skills ?? [],
         ...(event.autonomy ? {autonomy: event.autonomy as AutonomyLevel, autonomyLabel: event.autonomy_label ?? AUTONOMY_LABELS[event.autonomy as AutonomyLevel] ?? ''} : {})};
+    case 'mcp_state':
+      return {...state, mcpConfigured: event.configured, mcpConnected: event.connected};
     case 'plan_mode':
       return state.phase === 'closed' ? state : {...state, planMode: event.mode, planModeKnown: true};
     case 'task_state': {
@@ -339,7 +371,11 @@ export function reduceView(state: ViewState, action: Action): ViewState {
         else if (text && text !== state.segment) next = stream(flush(next), text);
       }
       next = flush(next);
-      if (event.result.receipt) next = append(next, 'notice', event.result.receipt);
+      const presentation = outcomePresentation(event.result);
+      if (presentation.visible && !event.result.continuing && (event.result.outcome || event.result.receipt || event.result.status !== 'done' || event.result.verified != null)) {
+        next = append(next, 'notice', event.result.receipt || presentation.label);
+        next = {...next, entries: next.entries.map((entry, index) => index === next.entries.length - 1 ? {...entry, result: event.result} : entry)};
+      }
       return retainInspection({...next, entries: next.entries.map(entry => entry.kind === 'task' && entry.runId === event.id ? {...entry, runStatus: event.result.status} :
         entry.pending && entry.runId === state.activeId ? {...entry, pending: false, uncertain: true, output: '此调用没有确认结果；请先核对实际文件与进程状态。'} : entry),
         live: '', segment: '', activeId: null, activeCommand: null, runMode: null, activity: null, approval: null, phase: 'idle',
@@ -347,9 +383,10 @@ export function reduceView(state: ViewState, action: Action): ViewState {
           traceRunId: event.result.run_id || state.inspection.scope.traceRunId}, result: event.result} : state.inspection,
         lastStatus: event.result.status, lastStopReason: event.result.stop_reason || null,
         lastVerified: event.result.verified ?? null,
+        lastOutcome: event.result.outcome ?? null,
         lastCompletion: event.result.completion ?? null,
         lastAudit: event.result.audit ?? null,
-        lastResult: resultLabel(event.result.status, event.result.stop_reason)});
+        lastResult: resultLabel(event.result.status, stopReasonText(event.result.stop_reason))});
     }
     case 'error': {
       const rejected = state.activeId !== null && event.id === state.activeId && ['busy', 'invalid_request', 'duplicate_id', 'default_mode_unavailable', 'session_busy', 'session_unavailable'].includes(event.code);

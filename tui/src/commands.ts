@@ -8,6 +8,12 @@ const definitions: readonly CommandDefinition[] = [
   {command: '/help', group: '查看', description: '查看操作帮助', usage: '[命令或中文关键词]'},
   {command: '/resume', group: '任务', description: '继续已保存的任务', aliases: ['/continue'], keywords: ['续做任务', '恢复任务', '继续任务']},
   {command: '/context', group: '查看', description: '查看上下文与预算'},
+  {command: '/guide', group: '查看', description: '打开功能区指引（Ctrl+T）', keywords: ['指引', '入门', '功能区']},
+  {command: '/settings', group: '设置', description: '任务限制、模型、权限与高级设置', keywords: ['预算', '配置', '步数', '时长', 'MCP']},
+  {command: '/model', group: '设置', description: '查看、编辑与检测模型连接', keywords: ['模型', 'Key', '配置', '服务地址']},
+  {command: '/guide on', group: '设置', description: '开启当前窗口情境提示'},
+  {command: '/guide off', group: '设置', description: '关闭当前窗口情境提示（审批提醒保留）'},
+
   {command: '/cost', group: '查看', description: '查看本轮与会话成本', aliases: ['/costs']},
   {command: '/inspections', group: '查看', description: '查看历史结果与验证记录', keywords: ['历史结果', '旧任务结果']},
   {command: '/find', group: '查看', description: '在本次会话中查找关键词并定位', usage: '<关键词>', required: true, keywords: ['查找', '搜索', '定位']},
@@ -19,6 +25,9 @@ const definitions: readonly CommandDefinition[] = [
   {command: '/diff', group: '查看', description: '查看工作区改动', keywords: ['查看改动', '文件变化']},
   {command: '/permissions', group: '设置', description: '查看权限来源与有效期，撤销本进程授权', keywords: ['授权', '权限', '撤销']},
   {command: '/permissions reset', group: '设置', description: '撤销本进程授权（档位与持久策略不变）'},
+  {command: '/mcp edit', group: '设置', description: '编辑 MCP 服务配置并管理连接', aliases: ['/mcp config']},
+  {command: '/mcp reload', group: '设置', description: '重读原 MCP 配置并审批重连'},
+  {command: '/mcp disconnect', group: '设置', description: '审批断开前台 MCP 连接'},
   {command: '/mcp', group: '查看', description: '查看 MCP 服务'},
   {command: '/skills', group: '设置', description: '查看技能列表', aliases: ['/skill']},
   {command: '/skills refresh', group: '设置', description: '重新发现技能'},
@@ -139,7 +148,7 @@ export function commandUnavailable(value: string, context: CommandContext): stri
   if (root === '/task' && context.taskNavigation) return;
   if (root === '/sessions' && context.sessionNavigation) return;
   if (text === '/permissions' && context.permissionPanel) return;
-  if (['/help', '/context', '/copy', '/inspections', '/find', '/rounds', '/errors', '/history', '/logs', '/sidebar', '/project', '/about', '/theme', '/session', '/quit', '/attach', '/merge', '/stop-workers'].includes(root)) return;
+  if (['/help', '/guide', '/settings', '/model', '/context', '/copy', '/inspections', '/find', '/rounds', '/errors', '/history', '/logs', '/sidebar', '/project', '/about', '/theme', '/session', '/quit', '/attach', '/merge', '/stop-workers'].includes(root)) return;
   if (text === '/autonomy' || text === '/goal' || text === '/goal stop') return;
   if (root === '/followup') return context.activeCommand && context.activeCommand !== 'resume' ? '命令执行中，结束后再发送' : undefined;
   if (text === '/plan' || text === '/plan all') return;
@@ -170,7 +179,8 @@ export function commandHelp(topic = ''): string {
     return matches.map(item => `用法：${item.command}${item.usage ? ' ' + item.usage : ''}\n${item.description}${item.aliases?.length ? '\n别名：' + item.aliases.join('、') : ''}`).join('\n\n');
   }
   const groups: CommandGroup[] = ['查看', '任务', '设置'];
-  return ['输入 / 按中文意图或命令前缀查找；↑↓ 选择，Enter 确认，Tab 只填充。',
+  return ['Ctrl+T 或 /guide 查看功能区指引；/guide off 关闭当前窗口情境提示。',
+    '输入 / 按中文意图或命令前缀查找；↑↓ 选择，Enter 确认，Tab 只填充。',
     '需要参数时先填写；/help context 查看单项说明。普通输入 Enter 发送，Ctrl+J 换行。',
     '工具审批可点击按钮；Tab 选择、Enter 确认，Esc 返回草稿。Ctrl+C 停止，Ctrl+Q 退出。',
     ...groups.map(group => `${group}\n` + definitions.filter(item => item.group === group && !item.command.includes(' ')).map(item =>

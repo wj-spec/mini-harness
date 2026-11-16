@@ -513,7 +513,7 @@ for (const allow of [false, true]) test(`public plan demo ${allow ? 'verifies af
     assert.equal(done.result.status, allow ? 'done' : 'stopped');
     if (allow) {
       assert.equal(done.result.verified, true);
-      assert.match(String(view.lastFrame()), /计划验收.*已验证/);
+      assert.match(String(view.lastFrame()), /计划检查通过/);
       assert.match(String(view.lastFrame()), /exit=0/);
     } else {
       assert.equal(done.result.stop_reason, 'plan_incomplete');

@@ -2,41 +2,41 @@ import React from 'react';
 import {Box, Text} from 'ink';
 import type {Palette} from './theme.js';
 
-const BODY = '#E8A15A';
-const INK = '#2A2320';
-const CREAM = '#F5E6CF';
-const NOSE = '#D96C6C';
+export const MASCOT_COLORS: Readonly<Record<string, string>> = {
+  B: '#DDA24F', // 蜂蜜金
+  S: '#95612F', // 毛尖
+  D: '#382B22', // 眼缘
+  L: '#F5DFB2', // 口鼻、下巴
+  N: '#BC7770', // 鼻子
+  G: '#91A56B', // 虹膜
+};
 
-/** 12x10 pixel cat head; two sprite rows share one terminal cell via ▀. */
+/** 卡通金渐层胖脸：16×10 像素，半格渲染为 5 行。 */
 export const WIDE_MASCOT = [
-  '..B......B..',
-  '..BB....BB..',
-  '..BBBBBBBB..',
-  '.BBBBBBBBBB.',
-  '.BDBBBBBBDB.',
-  '.BBBBBBBBBB.',
-  '.BBBBNNBBBB.',
-  'LBBBBLLBBBBL',
-  '.BBBBBBBBBB.',
-  '..BBBBBBBB..',
+  '..BB........BB..',
+  '.SBLBBBSSBBBLBS.',
+  '.SBBBBBBBBBBBBS.',
+  'BBBBBBBBBBBBBBBB',
+  'BBBBDDBBBBDDBBBB',
+  'BBBBDGBBBBGDBBBB',
+  'BBBBLLLNNLLLBBBB',
+  'BBBBLLLLLLLLBBBB',
+  '.BBBLLLLLLLLBBB.',
+  '..BBBBBBBBBBBB..',
 ] as const;
 
-/** 8x6 compact cat face for the three-row header. */
+/** 紧凑版胖脸：10×6 像素，保留小五官和饱满脸颊。 */
 export const COMPACT_MASCOT = [
-  '..B..B..',
-  '.BBBBBB.',
-  '.BDBBDB.',
-  '.BBBBBB.',
-  '.BBNNBB.',
-  'LBBBBBBL',
+  '.BB....BB.',
+  '.BSBBBBSB.',
+  'BBBDBBDBBB',
+  'BBBBNNBBBB',
+  'BBLLLLLLBB',
+  '.BBBBBBBB.',
 ] as const;
 
 function color(cell: string): string | null {
-  if (cell === 'B') return BODY;
-  if (cell === 'D') return INK;
-  if (cell === 'L') return CREAM;
-  if (cell === 'N') return NOSE;
-  return null;
+  return MASCOT_COLORS[cell] ?? null;
 }
 
 export function PixelMascot({sprite, palette}: {sprite: readonly string[]; palette: Palette}) {
@@ -53,9 +53,9 @@ export function PixelMascot({sprite, palette}: {sprite: readonly string[]; palet
         cells.push(<Text key={x} backgroundColor={palette.background}> </Text>);
         continue;
       }
-      const cell = upper && lower ? '▀' : upper ? '▀' : '▄';
+      const cell = upper ? '▀' : '▄';
       cells.push(<Text key={x} color={upper ?? lower ?? palette.background}
-        backgroundColor={lower ?? palette.background}>{cell}</Text>);
+        backgroundColor={upper && lower ? lower : palette.background}>{cell}</Text>);
     }
     rows.push(<Text key={y}>{cells}</Text>);
   }

@@ -226,3 +226,59 @@ def test_sessions_json_requires_list_sessions(monkeypatch, capsys):
         entrypoint.main()
     assert error.value.code == 2
     assert "--sessions-json requires --list-sessions" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("key", ["", "sk-your-key-here"])
+def test_stdio_without_usable_key_enters_bootstrap_before_provider(tmp_path, monkeypatch, key):
+    opened = []
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path, api_key=key))
+    monkeypatch.setattr(entrypoint, "build_provider", lambda *args, **kwargs: pytest.fail("provider initialized"))
+    monkeypatch.setattr("app.runtime.bootstrap.run_bootstrap", lambda config: opened.append(str(config.workspace)))
+    monkeypatch.setattr(sys, "argv", ["vibe", "--stdio"])
+    entrypoint.main()
+    assert opened == [str(tmp_path)]
+
+
+def test_fake_stdio_never_enters_bootstrap(tmp_path, monkeypatch):
+    from app import stdio
+    opened = []
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path))
+    monkeypatch.setattr("app.runtime.bootstrap.run_bootstrap", lambda config: pytest.fail("bootstrap"))
+    monkeypatch.setattr(stdio, "run_stdio", lambda *args, **kwargs: opened.append(args))
+    monkeypatch.setattr(sys, "argv", ["vibe", "--fake", "--stdio"])
+    entrypoint.main()
+    assert opened
+
+
+def test_ready_demo_flag_follows_explicit_demo_env(monkeypatch):
+    from app.stdio import demo_mode
+    monkeypatch.delenv("VIBE_FAKE_DEMO", raising=False)
+    assert demo_mode() is False
+    monkeypatch.setenv("VIBE_FAKE_DEMO", "1")
+    assert demo_mode() is True
+    monkeypatch.setenv("VIBE_FAKE_DEMO", "plan")
+    assert demo_mode() is True
+
+
+def test_foreground_stdio_disables_automatic_mcp_connection(tmp_path, monkeypatch):
+    from app import stdio
+    from app.providers.fake import FakeProvider
+    captured = []
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path))
+    monkeypatch.setattr(entrypoint, "build_provider", lambda *args, **kwargs: FakeProvider(["unused"]))
+    monkeypatch.setattr(stdio, "run_stdio", lambda *args, **kwargs: captured.append(kwargs))
+    monkeypatch.setattr(sys, "argv", ["vibe", "--fake", "--stdio"])
+    entrypoint.main()
+    assert captured and captured[0]["auto_mcp"] is False
+
+
+def test_config_problem_forces_bootstrap_even_with_a_shell_key(tmp_path, monkeypatch):
+    opened = []
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path, api_key="sk-shell"))
+    monkeypatch.setattr(entrypoint, "build_provider", lambda *args, **kwargs: pytest.fail("provider initialized"))
+    monkeypatch.setattr("app.runtime.bootstrap.run_bootstrap", lambda config: opened.append(str(config.workspace)))
+    monkeypatch.setenv("VIBE_BOOTSTRAP", "1")
+    monkeypatch.setenv("VIBE_CONFIG_PROBLEM", "配置文件无法解析。原文件未修改。")
+    monkeypatch.setattr(sys, "argv", ["vibe", "--stdio"])
+    entrypoint.main()
+    assert opened == [str(tmp_path)]

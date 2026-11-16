@@ -15,7 +15,7 @@ from core.contracts import Message
 
 
 def configure(tmp_path, monkeypatch):
-    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path))
+    monkeypatch.setattr(entrypoint.Config, "from_env", lambda: Config(workspace=tmp_path, api_key="test-key"))
     monkeypatch.setattr(entrypoint, "build_provider", lambda *a, **k: FakeProvider(["unused"]))
     opened = []
     monkeypatch.setattr(entrypoint, "_run", lambda config, session, *a, **k: opened.append(session))

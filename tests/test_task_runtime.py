@@ -161,7 +161,7 @@ def test_payload_shape(runtime):
     assert payload["status"] == "running"
     assert payload["segment"] == 1
     assert set(payload) == {
-        "task_id", "kind", "mode", "status", "segment", "objective", "goal_id", "plan_id", "plan_version", "updated_at",
+        "task_id", "kind", "mode", "status", "segment", "objective", "goal_id", "plan_id", "plan_version", "updated_at", "goal_budget",
     }
     runtime.finish_run(run, _result("done", verified=True))
 

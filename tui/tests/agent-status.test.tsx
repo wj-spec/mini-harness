@@ -5,6 +5,7 @@ import {renderToString} from 'ink';
 import stringWidth from 'string-width';
 import {AgentHeader, StatusPanel, agentStatus, budgetBar} from '../src/agent-status.js';
 import {initialState, type ViewState} from '../src/view-state.js';
+import {PixelMascot, WIDE_MASCOT, COMPACT_MASCOT} from '../src/mascot.js';
 import {themes} from '../src/theme.js';
 import {contextSnapshot} from './context-fixture.js';
 
@@ -155,4 +156,25 @@ test('done keeps verification state separate from task completion and surfaces a
   assert.match(header, /授权 edits · 自动改文件/);
   const panel = renderToString(<StatusPanel state={{...withAutonomy, phase: 'idle'}} columns={40} height={26} palette={themes.system}/>, {columns: 40});
   assert.match(panel, /授权档位 edits · 自动改文件/);
+});
+
+test('larger cat face is fully visible beside the header text', () => {
+  for (const [columns, height, sprite] of [[80, 5, WIDE_MASCOT], [60, 3, COMPACT_MASCOT]] as const) {
+    const strip = (text: string) => text.replace(/\x1b\[[0-9;]*m/gu, '').split('\n');
+    const header = strip(renderToString(<AgentHeader state={ready} columns={columns} height={height} palette={themes.dark}/>, {columns}));
+    const cat = strip(renderToString(<PixelMascot sprite={sprite} palette={themes.dark}/>, {columns: sprite[0].length}));
+    assert.equal(header.length, height);
+    for (let y = 0; y < height; y++) {
+      assert.equal(header[y].slice(0, sprite[0].length), cat[y].padEnd(sprite[0].length));
+      assert.ok(stringWidth(header[y]) <= columns);
+    }
+    assert.match(header[0], /mini-harness/);
+  }
+});
+
+test('acceptance environment header wins over the demo label', () => {
+  const state = {...ready, acceptance: true, demo: true};
+  const output = renderToString(<AgentHeader state={state} columns={80} height={3} palette={themes.system}/>, {columns: 80});
+  assert.match(output, /验收环境 · 隔离配置/);
+  assert.doesNotMatch(output, /Demo · 不调用真实模型/);
 });

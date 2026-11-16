@@ -8,6 +8,7 @@ import {createBackendClient, type AttachOptions, type BackendClient} from './bac
 import {validateClientArgs} from './protocol.js';
 import {createTerminalInput} from './terminal-input.js';
 import {backendCommand, backendLaunchOptions} from './backend-launch.js';
+import {demoArguments} from './demo-launch.js';
 
 const help = `vibe Ink — 个人编码工作台
 
@@ -94,10 +95,36 @@ function extractAttach(args: string[]): {args: string[]; attach?: AttachOptions;
 }
 
 // 顶层 App 持有当前会话的后端；旧会话显式打开成功后替换客户端并重挂载工作台。
-function Root({initial, attach, onClientChange}: {initial: BackendClient; attach: boolean; onClientChange: (client: BackendClient) => void}) {
+function Root({initial, attach, demoArgs, onClientChange}: {initial: BackendClient; attach: boolean; demoArgs: string[]; onClientChange: (client: BackendClient) => void}) {
   const [current, setCurrent] = useState<{client: BackendClient; generation: number; focus?: string}>({client: initial, generation: 0});
   useEffect(() => {onClientChange(current.client);}, [current.client, onClientChange]);
+  const startDemo = async () => {
+    const next = createBackendClient({args: demoArgs, env: {...process.env, VIBE_FAKE_DEMO: '1'}});
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const finish = (error?: Error) => {
+        if (settled) return;
+        settled = true; clearTimeout(timer); unsubscribe();
+        if (error) reject(error); else resolve();
+      };
+      const timer = setTimeout(() => finish(new Error('Demo 启动超时')), 10_000);
+      const unsubscribe = next.subscribe(event => {
+        if (event.type === 'ready') finish();
+        else if (event.type === 'error' || event.type === 'closed') {
+          finish(new Error(event.type === 'error' ? event.message : 'Demo 后端已关闭'));
+        }
+      });
+      next.start();
+    }).catch(async error => {
+      try {await next.shutdown();} catch {void 0;}
+      throw error;
+    });
+    const previous = current.client;
+    setCurrent({client: next, generation: current.generation + 1});
+    try {await previous.shutdown();} catch {void 0;}
+  };
   return <App key={current.generation} client={current.client} attach={attach} initialFocus={current.focus}
+    onDemo={startDemo}
     onSessionSwitch={async (next, options) => {
       const previous = current.client;
       setCurrent({client: next, generation: current.generation + 1, focus: options?.focusQuery});
@@ -167,7 +194,7 @@ async function main() {
   const currentClient = {client};
   let instance: ReturnType<typeof render>;
   try {
-    instance = render(<Root initial={client} attach={Boolean(extracted.attach)} onClientChange={next => {currentClient.client = next;}}/>, {
+    instance = render(<Root initial={client} attach={Boolean(extracted.attach)} demoArgs={demoArguments(checkedArgs)} onClientChange={next => {currentClient.client = next;}}/>, {
       stdin, exitOnCtrlC: false, patchConsole: false, interactive: true, alternateScreen: true,
       // 自动探测并开启 kitty 键盘协议：Ghostty 等终端可区分 Shift+Enter 与 Enter。
       kittyKeyboard: {mode: 'auto', flags: ['disambiguateEscapeCodes']},
