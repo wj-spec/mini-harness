@@ -1,244 +1,233 @@
-# mini-harness
+<p align="center">
+  <img src="docs/assets/mini-cat.png" width="160" height="100" alt="Mini，陪你写代码的像素猫">
+</p>
 
-**个人编码工作台 · 过程可核对、结果可验收的终端 Coding Agent**
+<h1 align="center">mini-harness</h1>
 
-以终端为入口的本地编码 Agent：模型负责提议下一步，Python harness 负责组装上下文、审批动作、执行工具，并把过程与结果留成可复查的证据。项目同时作为 Agent 原理与全栈工程的长期学习载体，长期目标是演进为「越用越了解用户」的个人助手工作台。
+<p align="center">
+  <strong>一只陪你写代码的终端小猫，一个可以读懂的 Coding Agent。</strong><br>
+  阅读仓库、审阅计划、批准改动、运行验证，在终端里完成一个编码任务。
+</p>
 
-[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-React%2019%20%2B%20Ink%208-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Node.js](https://img.shields.io/badge/Node.js-22%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+<p align="center">
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.11%2B-3776AB" alt="Python 3.11+"></a>
+  <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-22%2B-339933" alt="Node.js 22+"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License"></a>
+  <img src="https://img.shields.io/badge/status-early%20development-orange" alt="Early development">
+</p>
 
-![mini-harness 工作台](docs/assets/workbench.png)
+<p align="center">
+  <a href="#快速安装">快速安装</a> ·
+  <a href="#界面预览">界面预览</a> ·
+  <a href="#开始你的第一个任务">开始使用</a> ·
+  <a href="docs/USAGE.md">使用指南</a> ·
+  <a href="CONTRIBUTING.md">参与贡献</a>
+</p>
 
-*React/Ink 工作台（左）与只读 Git 变更侧栏（右）；顶部是产品标识像素猫 Mini。截图取自 2026-10-26，此后 P5–P10 新增了权限面板、跨会话搜索与轮次账本入口，界面细节已与最新版不同；点击可查看原图。*
+## 为什么是 mini-harness
 
-> 状态：单 Agent 编码流程已可用（W1–W5 真实验收完成；W6 个性化对照已完成，主假设未获支持）；前后台 Plan（含会话级 `/plan on|off`、审阅三态、Markdown 审阅稿、可配置规划提示词与 `submit_plan` 最终门禁）、只读子 Agent、后台 goal worker、验收失败自动修复、worktree→merge→重验均通过真实模型 P1（suite 六模式 deepseek-flash/chat 各 6/6）；只读 CLI/观测（tasks/plans/plan-card/acceptance/approvals/evidence/trace-summary/bench-history）齐备；真实 TUI 终端渲染键路仍待人工验收（[10 分钟清单](docs/specs/manual-acceptance-tui-quick.md)）；进度与测试数字以[工作台里程碑](docs/MILESTONES.md)为准，另见[P0 收束报告](docs/specs/p0-closure-report.md) 与 [真实 P1 记录](docs/specs/real-p1-plan-smoke-2026-11-07.md)。
+mini-harness 是一个开源的终端编码工作台，也是一份可以运行、阅读和修改的 Agent 实现。它面向希望亲自掌控编码过程的开发者：把任务交给模型，同时看清它读了什么、准备改什么，以及结果是否经过验证。
 
-## 项目简介
+- **进入项目就能用**：在任意目录输入 `mini-harness`，当前目录就是工作区；模型连接在不同项目间复用。
+- **计划与执行都可审阅**：先看计划，再决定是否执行；写文件、执行命令经过审批，运行中可以纠偏或取消。
+- **完成不止是一句回复**：查看实际 Git 改动、命令退出状态和验证记录，分清已验证、未验证与失败。
+- **工作可以接着做**：保存会话、查找历史、显式恢复任务；支持计划进度与后台任务管理。
+- **按需接入工具**：支持 OpenAI 兼容模型、Skills 与 MCP；前台外部服务按需连接。
+- **Agent 原理可阅读**：Python 标准库构成核心 harness，应用后端与 React / Ink 界面分层，便于学习和扩展。
 
-Agent 执行的步骤一多，最终回答就不足以说明它依据了什么、实际做了什么、验证是否真的通过。这个项目把每次模型请求的上下文构成、每个动作的审批决定、每条命令的退出状态，以及中断后的恢复依据都保存下来，让编码任务可以像 code review 一样被核对。
+> 当前处于早期开发阶段，以单 Agent 编码任务为主。从源码安装；主要在 macOS 验证，Linux / WSL 可尝试，部分终端集成与沙箱功能依赖平台。原生 Windows 暂不支持。
 
-- **已交付**：单 Agent 编码工作台（工具、审批、上下文、恢复、评测）、长任务 `/goal`、后台 worker + attach、Plan `/plan`、只读子 Agent `/explore`、项目背景 `/project` 与个人偏好 `/about`；
-- **工程取向**：先把执行边界、证据链和恢复做可靠，再扩展能力；W1–W5 已完成真实验收，W6 对照未获支持故不扩张；
-- **边界**：交互主 loop 仍是单 Agent；后台 worker、只读子 Agent（`/explore`）与前后台 Plan 已通过真实模型 P1 验收，写子 Agent 与模型自发委派未开放；真实 TUI 人工键路待验收；命令仍以当前用户权限运行，审批 + 黑名单 + 超时是当前边界，可选 macOS Seatbelt 沙箱；
-- **自举与学习**：工作台也参与本仓库自身的开发与验收；项目同时用于学习 Agent 原理与 TypeScript / React 全栈和进程间通信。
+## 界面预览
 
-**技术栈**：Python 3.11+（asyncio、SSE、JSONL、FastMCP、pytest）· TypeScript + React 19 + Ink 8（Node.js 22）· 本地 JSON Lines 协议 · 只读 Git 数据层 · macOS Seatbelt（可选）
+<!-- SCREENSHOT: 保存最新主工作台截图为 docs/assets/screenshots/workbench.png，然后将下方 .svg 改为 .png。 -->
+![主工作台截图位：项目、模型与编码对话](docs/assets/screenshots/workbench.svg)
 
-## 功能概览
+<p align="center"><em>主工作台：从当前项目开始，在对话中阅读代码、提出修改并跟进结果。</em></p>
 
-| 方向 | 已交付能力 |
-| --- | --- |
-| 编码工具 | 读取 / 搜索 / 列目录、`write_file` / `edit_file`、`apply_patch`（多文件多 hunk）、`bash`、免费 Web 搜索、stdio MCP 外部工具；`git_status` / `git_diff` 只读免审批 |
-| 技能 | 项目 / 本机 Skill 自动发现；启动仅提供简短技能入口，目录按需关键词检索，正文按需加载与卸载；加载不授予额外工具权限，Ink `/skills` 保留完整菜单与 Tab 补全 |
-| 执行边界 | 写文件、命令、Web 搜索与 MCP 调用均经 `ApprovalGate` 预览审批（T0–T4 副作用层级 × 单次 / 精确规则 / 工作区授权；用户/项目策略可覆盖，项目策略只能收紧；`/autonomy` 或 `--autonomy` 提供 ask/edits/workspace/full 整体档位；可撤销、有审计；`/permissions` 面板显示来源与有效期，支持逐条撤销本进程授权与用户级持久规则（二次确认，写回用户策略文件））；无审批处理器时 fail closed；可选 macOS Seatbelt / Linux bwrap 沙箱与网络白名单 |
-| 过程控制 | 运行中纠偏、排队后续任务、取消与超时回收；重复调用 / 重复读取 / 无产物进展的空转护栏；交互单轮默认 30 分钟；完成守卫：动作任务的“完成”必须有覆盖最后一次改动的成功验证，否则只标 `verified=false`；结束状态区分「本轮结束 · 已验证 / 待验证」；可选 `VIBE_LLM_AUDITOR=1` 启用全新上下文的 LLM 只读审计（默认关闭，额外一次模型调用）；开启后默认要求契约反查 `aligned`，可用 `VIBE_CONTRACT_BACKCHECK=0` 放宽 unknown |
-| 上下文 | 1M 上下文窗口、预算分区、80% 主动压缩、原文 offload + `recall` 回取、请求前上下文快照与 `/context` |
-| 会话与恢复 | JSONL 会话与原始消息、崩溃对账、交付回执、显式 `/resume` 续做同一任务；每轮写入 `.vibe/sessions/<id>/rounds/` 账本（文件变动前后 hash、验证记录、审计结论），`/evidence` 查看最近一轮证据摘要，不复制文件正文 |
-| 任务导航 | 点击「任务」或 `/tasks` 选择完整目标、状态、待审批数与准确历史；可在工作台内接入所选 worker、审批或停止，返回各自草稿/光标。下一次运行接入已保存的最新上下文，同会话已有运行时拒绝抢写并保留输入。`/sessions` 可按用途预览旧会话并显式打开，打开前复核身份、不自动运行；真实终端与真人完整验收仍待完成，见 [P8 验证](openspec/changes/implement-improve-workbench-ux-p8/verification.md) |
-| 工作台记录 | 操作提示、命令结果与后台提示不插入对话主区；底部提示行显示最新一条（含条数）与 `/logs`，`/logs` 查看完整多行记录；回看时收到提示不会把阅读位置拉回末尾 |
-| 历史定位 | `/find <关键词>` 搜索本次会话正文并定位；`/history <关键词>` 跨会话检索已保存消息（进程内索引/增量缓存）并打开定位、命中与目标行高亮；`/rounds` 按轮查看验证账本、`/errors` 按失败定位；连续成功只读工具折叠显示，`Tab`/`Ctrl+O` 仍可查看原始调用与输出，定位不调用模型 |
-| 长任务 | `/goal` 目标模式：资源受限停止后自动续段（默认 8 段 / 4 小时）；目标状态写入会话目录，重启 / `--continue` 后恢复为暂停态，需 `/goal resume` 显式续段；完成未验证时暂停而不是标记完成；已确认 criteria 由 harness 执行可信命令（失败暂停）；`--prepare-plan-task`/`--run-plan-queue` 支持计划任务串行/跨会话/跨工作区排队 |
-| 后台 / 计划 / 子 Agent | `/chat` `/act` `/plan`（schema、审批、执行门禁、step 证据、验收命令、失败自动修复、合并后重验）；计划模式支持会话级开关（`/plan on|off|status`，下一条普通消息自动走 plan profile）、计划提示词注入、`submit_plan` 成功后终止规划 run、审阅三态（批准/要求修改/关闭）与 Markdown 审阅稿；前后台 Plan 与 `/explore` 只读子 Agent 已通过真实模型 P1（deepseek-flash/chat，suite 六模式 6/6）；P2 委派支持 opt-in 只读 `delegate`；后台 worker、`--tasks`、`--attach`、`--stop`、`--pause-task`；计划队列 `--prepare-plan-task`/`--run-plan-queue`（跨会话/跨工作区、并行、priority、dry-run）与 TUI `/queue`（查看）/`/priority`（调整）；计划编辑支持目标/步骤标题/类型/文件范围/依赖（环检测）与完整审批卡（约束/验收/验证命令/门禁/hash）；CLI `--explore PROMPT` 只读子 Agent；本地通知 `/notifications` + 可选外部 webhook；只读 CLI `--tasks/--plans/--acceptance/--notifications/--approvals/--evidence/--trace-summary`；TUI `/trace [H]` 观测摘要 |
-| 工作台 | 全屏 Ink、Markdown 阅读、多行输入与历史、拖选复制、Git 变更侧栏、像素猫 Mini 首屏；`--doctor` 首用环境自检（待审批/events 软上限/stale worktree/benchmark 回归/真实模型报告）；`./scripts/verify_all.sh` 一键验收；审批面板标题显示层级，`/permissions` 查看权限来源与有效期并逐条撤销本进程授权（`/permissions reset` 只清进程内授权）；`/trace [H]`、`/queue`、`/priority`、`/plan card`、`/history` 等只读视图；侧栏选区附回以一行占位进入草稿，完整引用提交时展开 |
-| 个性化 | 项目背景 `/project`（查看、增删、改来源）与个人偏好 `/about`（确认、编辑、触发词、相关性注入、导出/审计）：均带来源，下一次任务生效；W6 v2 未证明收益，保持显式可管理，不扩 P5 |
+<table>
+  <tr>
+    <td width="33%" align="center"><strong>先审阅计划</strong></td>
+    <td width="33%" align="center"><strong>再批准操作</strong></td>
+    <td width="33%" align="center"><strong>最后核对结果</strong></td>
+  </tr>
+  <tr>
+    <!-- SCREENSHOT: 对应 PNG 放入同目录后，将三个 src 的 .svg 改为 .png。 -->
+    <td><img src="docs/assets/screenshots/plan-review.svg" alt="计划审阅截图位"></td>
+    <td><img src="docs/assets/screenshots/approval.svg" alt="操作审批截图位"></td>
+    <td><img src="docs/assets/screenshots/verification.svg" alt="验证结果截图位"></td>
+  </tr>
+  <tr>
+    <td>看清步骤、目标文件与验收方式。</td>
+    <td>核对即将执行的命令或文件修改。</td>
+    <td>检查验证回执与实际 Git diff。</td>
+  </tr>
+</table>
 
-## 架构
+以上为明确标注的截图占位，待替换为当前版本实拍。截图场景与替换方法见[截图指引](docs/assets/screenshots/README.md)。
 
-```mermaid
-flowchart TD
-    user([用户]) --> tui["tui/ · React + Ink 工作台（唯一入口）<br/>对话 · 审批 · 阅读 · 状态 · 目标编排"]
+<details>
+<summary>查看已有工作台与 Git 侧栏截图（早期界面）</summary>
 
-    subgraph APP ["app/ · Python 应用后端"]
-        stdio["stdio · JSON Lines 协议"]
-        agent["Agent.run() · 唯一单 Agent loop"]
-        provider["Provider · OpenAI-compatible / fake"]
-        gate["ApprovalGate · 预览 / 授权 / 审计"]
-        tools["ToolRegistry"]
-        evidence["SessionStore / Trace / 评测"]
-    end
+![早期 mini-harness 工作台与 Git 变更侧栏](docs/assets/workbench.png)
 
-    subgraph CORE ["core/ · 可复用 harness（仅标准库）"]
-        context["ContextBuilder / BudgetPolicy"]
-        state["TaskState / ProgressMonitor"]
-    end
+此图展示早期布局，当前版本的首页、计划和设置面板已有调整；侧栏表现依终端而异。
 
-    tui -- "JSON Lines v1" --> stdio
-    stdio --> agent
-    agent <--> provider
-    agent -- 只读工具 --> tools
-    agent -- 需授权工具 --> gate
-    gate --> tools
-    agent --> context
-    agent --> state
-    agent --> evidence
-    tools --> world["工作区 / 命令 / Web / stdio MCP"]
-```
+</details>
 
-| 层 | 目录 | 职责 | 边界 |
-| --- | --- | --- | --- |
-| 工作台 | `tui/` | React/Ink 界面、JSONL 协议、Git 侧栏、目标编排 | 主工作台经 JSONL 协议；只读侧栏独立执行固定 git 查询，不持有 Agent 工具执行权 |
-| 应用后端 | `app/` | 模型接入、Agent 运行、工具、审批、会话、评测 | 界面与 eval 共用同一个 `Agent.run()`；内部按 `runtime/tools/safety/session/profiles/browser/eval` 分域，规则见 [app/README.md](app/README.md) |
-| 可复用 harness | `core/` | 消息契约、预算、上下文、任务状态与证据 | 只依赖标准库，不能 import `app/` 或界面；内部按 `contracts/budget/context/task` 分域，规则见 [core/README.md](core/README.md) |
+## 快速安装
 
-### 设计要点
+需要 **Git、Python 3.11+、Node.js 22+（含 npm）**。建议 Python 3.12。请使用交互式终端；已安装 [uv](https://docs.astral.sh/uv/) 时启动器优先使用它，否则自动使用 Python venv / pip。
 
-1. **模型提议动作，harness 决定执行。** 非只读工具先生成预览再过 `ApprovalGate`，授权粒度为单次、精确规则或当前工作区，并支持撤销与审计；没有审批处理器时默认拒绝。命令仍以当前用户权限运行，审批不构成操作系统级沙箱。
-2. **上下文按最终请求组装并可核验。** `ContextBuilder` 按预算分区，压缩旧历史时保留可回取的原文；请求前快照统计来源、分区与估算用量，`/context` 可查看变化。展示的是可核对输入，不是对模型行为的解释。
-3. **执行结果与恢复状态都是证据。** 命令保留退出码与成功 / 失败 / 超时 / 取消等状态；工具调用按 `run_id + step + tool_call_id` 关联进 trace；交付回执汇总本轮改动、验证命令与未完成项；打开旧会话不自动重放动作，显式 `/resume` 后才继续。
-4. **长任务分段落，而不是放宽边界。** `/goal` 只在运行段因资源限制停止时自动续段，遇到无进展、上下文窗口、错误或取消则暂停；每段仍走普通 run 的审批、工具与会话边界。目标状态随会话保存，重启后恢复为暂停态，必须显式续段，避免自动消耗预算。
+### 1. 克隆并启动
 
-模块地图、一次任务的事件序列、逐项机制与工程取舍见 [Harness 技术方案](docs/HARNESS.md)。
-
-Plan 反馈修订的持久任务与恢复位于 [plan_revision.py](app/runtime/plan_revision.py)；Ink 卡片反馈、准确版本修订与重开恢复已接通，真实验收状态见 [P4 验证记录](openspec/changes/implement-improve-workbench-ux-p4/verification.md)。按请求保存的检查事实与只读分页位于 [inspection.py](app/runtime/inspection.py)，主工作台已接通“历史结果”分页与重开后的准确检查；独立 attach 已支持绑定任务的历史/准确计划及离线只读，worktree 的当前 diff 与附回也按保存来源读取；侧栏随主区退出联动关闭、遗留实例在启动时回收、已有侧栏按 PID 聚焦；内嵌专注检查已接通，完整真人验收待完成，见 [P6 验证记录](openspec/changes/implement-improve-workbench-ux-p6/verification.md#内嵌专注检查2026-11-09)。
-
-主区可点击“专注检查”（窄屏“检查”）阅读同一对象的变更、计划与验证，返回保留草稿/光标。详见 [P6 专注检查记录](openspec/changes/implement-improve-workbench-ux-p6/verification.md#内嵌专注检查2026-11-09)。
-
-## 工程验证
-
-结论尽量来自可复核的证据，而不是「看起来能跑」。完整运行记录与验收条件见[工作台里程碑](docs/MILESTONES.md)。
-
-| 验证项 | 方式 | 结果（2026-11-09 实测） |
-| --- | --- | --- |
-| 自动回归 | `./run_tests.sh`、`npm --prefix tui test` | Python **1953 passed / 4 skipped**；TUI **731/731 通过**（0 失败、0 跳过） |
-| 真实模型任务 | 内部 eval 前 3 题 + SWE-bench Lite 开发集首题 | 内部 eval 前 3 题（创建 / 编辑 / 复制）3/3，其余 7 题未见运行记录；SWE-bench Lite（10 题子集）首题 `pylint-dev__astroid-1196` resolved 1/1（单题，非整榜；前三题扩跑待做） |
-| 本地编码基准 | 6 道仓库副本注入 bug 任务（3 道 held-out：2 道保留题 + 1 道跨层压测） | 调优题能力 2/3 → 3/3；保留题 2 题 × 3 次运行 `verified_fix` 全真；跨层压测 3/3 次通过 |
-| 端到端里程碑 | 真实模型 + 证据采集脚本 | W1–W5 完成真实验收；W6 v2 三组对照完成（主假设未获支持：未观察到重复说明减少；已停止 P0 扩张，不进入 P5） |
-| 评测口径 | 隐藏测试、初始 RED、防改测试；内部 eval 在宿主执行、本地基准用独立临时工作区、SWE-bench 走容器 | 分开记录产物正确 / 运行完成 / 可比较性；支持 `--runs` 多次运行、`--pause-tokens` 暂停续做 |
-| 产品体验 P0 | `/evidence`、`/autonomy`、verified 状态、`--doctor` 与 `.env.example` | 结束状态区分已验证 / 待验证；`/evidence` 输出最近一轮证据；`/autonomy` 与 `--autonomy` 可切换并显示档位；`--doctor` 实机自检（缺 key exit 2、配 key exit 0）；未做真实模型与真实 PTY 验收 |
-
-2026-10-25 按 P0/P1 逐项修复工具工作区边界、流式终止与协议完整性、交付核验、恢复对账、评测有效性与完整 trace 六项缺口，均有针对性回归；真实任务核对使用未参与调优的保留题完成。
-
-2026-10-31 按[产品/UX 评估](docs/research/product-ux-review-2026-10-31.md)的 P0 推进产品化：把已实现的验收证据与审批档位变成界面能力（`/evidence`、`/autonomy`、结束状态区分、审批层级标题），并补齐首用自检与 `.env.example`。结构与取舍见 [P0 产品化切片](docs/MILESTONES.md)；真实模型与真机 TTY 体验仍待验收。
-
-## 里程碑与规划
-
-按 W0–W7 推进，以真实任务验收为准；代码完成或自动测试通过不会自动提升状态。
-
-| 里程碑 | 目标 | 状态 |
-| --- | --- | --- |
-| W0 可复现起点 | 启动、测试与回退基线 | 基线已建；入口 / loop 代码走查与学习记录待补 |
-| W1 真实小改动 | 需求 → 修改 → 验证 → 可核对交付 | ✅ 2026-10-23 真实验收 |
-| W2 掌控运行 | 运行中纠偏、拒绝、停止与超时 | ✅ 2026-10-23 真实验收 |
-| W3 隔天续做 | 中断恢复、副作用对账、压缩后继续 | ✅ 2026-10-23 真实验收 |
-| W4 项目背景 | 新任务复用项目事实与决定 | ✅ 2026-10-23 真实验收 |
-| W5 关于你 | 个人偏好的查看、确认与纠正 | ✅ 2026-10-24 真实验收 |
-| W6 个性化收益 | 对照实验验证是否减少重复说明 | ◐ v2 对照完成，未减少重复说明；停止扩张 |
-| W7 第二工作流 | 编码之外的一种常用工作流 | 条件性方向，等待真实需求 |
-
-**下一步**
-
-- **长任务可靠性**：fake 15 场景 + 真实 5 场景 benchmark、六模式真实 suite 已建；真实使用中的长期 goal 成本/质量仍待反馈。
-- **进阶模式**：任务运行时/后台/审批收件箱/isolation/Plan/goal/模式/子 Agent 等 P0–P1 已实现并通过真实模型验收；后续按使用反馈演进，当前状态见 [P0 收束报告](docs/specs/p0-closure-report.md)。
-- **个性化精细化**：W6 v2 未观察到重复说明减少；已停止 P0 扩张、不进入 P5，保留显式偏好管理；后续只有新证据/新评估方法才重新评估。
-- **评测扩题**：固定前三题参考补丁自检与 `--limit 3` 扩题，建立多次运行基线。
-- **方向探索**：MCP HTTP transport / 资源与 prompt、LSP、多 Agent 主 / 子编排、Computer Use、W7 第二种工作流，按实际需求再评估；两方向调研与规格见 [Multi-Agent 与 Computer Use](docs/specs/multi-agent-computer-use.md)；Computer Use 先收窄为 [Browser Use](docs/specs/browser-use.md)。
-- **体验补齐**：Git 侧栏与拖选复制在真实终端中的打开 / 切换 / 授权 / 视觉体验验收。
-- **P0 后续**：真实模型任务下的 `verified` 体验与真机 TTY 键路验收；审批自动放行标记、规则撤销 UI；安装分发（brew/uvx）按是否对外使用再决定。
-
-## 快速开始
-
-一键本地验收：`./scripts/verify_all.sh`（Python + TUI + 长任务 benchmark + doctor；`--with-real` 追加真实模型 suite，`--with-real-bench` 追加真实长任务场景）。
-
-依赖：Python 3.11+、Node.js 22+；`uv` 可选（没有 uv 用第 2 步里的 venv + pip 等价路径）。三步启动：
+以下将源码放在固定的用户目录，方便后续配置全局命令：
 
 ```bash
-# 1) 环境自检：逐项列出缺什么、给出补齐命令；不需要前端依赖（运行自检本身不要求 API Key，只提示是否已配置）
-./run_ink.sh --doctor
-#    没有 .venv 时也可以用系统 Python：python3 scripts/doctor.py
-
-# 2) 安装依赖
-npm --prefix tui ci
-#    有 uv 时：
-uv sync --extra test
-#    没有 uv 时（venv + pip，依赖版本与 pyproject.toml 一致）：
-python3 -m venv .venv
-.venv/bin/pip install "httpx==0.28.1" "fastmcp==4.1.1" "ddgs==9.16.0" "pytest>=9,<10"
-
-# 3) 启动
-#    先看界面（不需要模型 API）：验证界面与协议接线
-./run_ink.sh --fake
-#    确定性演示（写文件→审批→验证→回执，全程本地、无需 key）
-#    输入框会预填演示任务：创建 .vibe/fake-demo.txt 并验证（回车，按提示批准两次）
-VIBE_FAKE_DEMO=1 ./run_ink.sh --fake
-
-#    跑真实任务：复制模板、填 key，让 .env 在当前 shell 生效
-cp .env.example .env    # 至少填 VIBE_API_KEY；默认 VIBE_BASE_URL=https://api.deepseek.com/v1、VIBE_MODEL=deepseek-chat
-set -a; source .env; set +a
-./run_ink.sh --workspace /path/to/your/repo
-./scripts/demo.sh       # 在临时示例仓库体验一次真实编码任务
+git clone https://github.com/wj-spec/mini-harness.git "$HOME/.local/share/mini-harness"
+cd "$HOME/.local/share/mini-harness"
+./start.sh
 ```
 
-`.env.example` 还列出了授权档位 `VIBE_AUTONOMY`、审批策略 `VIBE_PERMISSIONS`、沙箱 `VIBE_SANDBOX` 等常用项与注释。程序不会自动读取 `.env`，需要 `source` 或手动 `export`；`.env` 不要提交。
+首次启动会检查环境，经确认安装 Python 与前端依赖；缺少模型配置时打开配置页。默认 DeepSeek 通常只需填写 API Key，其他 OpenAI 兼容服务可填写地址、模型名和 Key。保存后按提示检测连接并进入项目。
 
-常用验证：
+依赖安装需要联网。真实模型使用你自己的服务商账号并按其规则计费；已有依赖和模型配置会在后续启动时复用。
+
+**无需 Key，先体验完整流程：**
 
 ```bash
-./run_tests.sh -q           # Python 回归
-npm --prefix tui test       # TypeScript / Ink 测试
-./run_eval.sh check-budget  # 离线预算机制检查，不需要 API Key
+./start.sh --demo
 ```
 
-安装、模型配置、审批与快捷键见[使用指南](docs/USAGE.md)；演示步骤见[三分钟 Demo](docs/DEMO.md)；评测命令与报告口径见[评测规格](docs/specs/evaluation.md)。
+Demo 会预填本地任务：创建 `.vibe/fake-demo.txt` 并验证。按 Enter 开始，依提示审批，查看最后的验证回执。首次仍需安装依赖，Demo 任务不调用模型 API。
 
-## 文档
+### 2. 配置 `mini-harness` 命令
 
-| 文档 | 内容 |
+按上面的固定目录安装后，选择你的 shell，执行一次：
+
+**zsh（macOS 默认）**
+
+```bash
+printf '\nmini-harness() { "$HOME/.local/share/mini-harness/start.sh" "$@"; }\n' >> ~/.zshrc
+source ~/.zshrc
+```
+
+<details>
+<summary>bash（Linux / WSL 常见）</summary>
+
+```bash
+printf '\nmini-harness() { "$HOME/.local/share/mini-harness/start.sh" "$@"; }\n' >> ~/.bashrc
+source ~/.bashrc
+```
+
+</details>
+
+如果源码放在其他位置，把函数中的路径改成该目录下 `start.sh` 的绝对路径。此命令依赖本地源码目录，请保留它。
+
+现在，到你想操作的项目目录运行：
+
+```bash
+cd /path/to/your/project
+mini-harness
+```
+
+当前目录就是工作区。模型配置供所有项目复用，会话和运行记录写入各自工作区的 `.vibe/`。
+
+## 开始你的第一个任务
+
+先让它了解仓库：
+
+> 阅读 README 和主要入口，解释这个项目如何运行，并列出我应该先看的三个文件。先不要修改代码。
+
+再给一个有明确验收方式的修改任务：
+
+> 修复空输入触发异常的问题。先复现并给出修改计划，确认后补充回归测试、实现修复，再运行相关测试。
+
+| 操作 | 命令 / 按键 |
 | --- | --- |
-| [使用指南](docs/USAGE.md) | 安装、模型配置、命令、审批、预算、MCP、侧栏与评测 |
-| [Harness 技术方案](docs/HARNESS.md) | harness 的分层、主循环、上下文、审批边界、状态与恢复、评测与取舍的汇总设计 |
-| [长任务 / 后台 / 进阶模式讨论](docs/design/long-horizon/README.md) | 长任务、后台任务与 `/plan` 等进阶模式的分块设计讨论（9 + 6 块）及子 Agent 结合方式 |
-| [工作台里程碑](docs/MILESTONES.md) | W0–W7 的验收条件、真实运行证据与当前状态 |
-| [建设方向](docs/roadmap.md) | 长期方向、阶段取舍与界面 / 全栈学习路径 |
-| [Agent 实验台规划](openspec/roadmaps/build-agent-lab/roadmap.md) | 观测、运行版本、SWE-bench / Terminal-Bench 主基准及回归闭环；含设计、验收与开发规范（规划，未实施） |
-| [文件规划](docs/STRUCTURE.md) | 目录职责、依赖方向与新增文件约定 |
-| [完成守卫与环境审计](docs/specs/verified-completion.md) | 完成判定、文件变动账本、轮次记录与只读审计的行为/边界 |
-| [任务运行时基础](docs/specs/task-runtime.md) | TaskRecord/TaskStore 的数据模型、状态机、原子写、恢复与测试口径（P0 基础切片） |
-| [任务运行时接入](docs/specs/task-runtime-integration.md) | stdio `run.task`、`task_state` 事件、TUI `/goal` 接入、capability 门控与兼容回退 |
-| [后台进程监督](docs/specs/process-supervision.md) | worker 状态/心跳/判死、`--tasks`、`--worker/--attach`、TUI 退出转入后台、启动任务提示/`/task`（P0a/P0b/P0c 基础已实现） |
-| [GoalRecord](docs/specs/goal-record.md) | 跨段目标 schema v2、goal.json 迁移、段账本同步、worker 续段提示/决策（P0/P1a 已实现） |
-| [预算账本](docs/specs/budget-ledger.md) | task/goal/segment 的 append-only budget.jsonl、trace 接线、终态结算与 check_start 硬上限（P0/P1 部分已实现） |
-| [审批收件箱](docs/specs/approval-inbox.md) | approvals.jsonl、一次性审批/过期/归属/脱敏、worker 接线与 approval_timeout、`/approvals` 列表（P0/P1 部分已实现；TUI 决定 UI 后续） |
-| [工作区隔离](docs/specs/workspace-isolation.md) | workspace 单写者锁、git worktree、worker 接线、MergeGate（审批/漂移/脏工作区/合并后验证）、CLI/TUI stop/merge、非 git 默认拒绝 |
-| [控制面 attach](docs/specs/control-plane-attach.md) | TUI attach、controller/observer、心跳租约、capability、replay/live 锁、attach v2 帧、`/attach`/`/attach now`（P0 已实现；完整 v2 双栈后续） |
-| [全链路验收收束](docs/specs/acceptance-report.md) | 2026-11-05 运行时/worker/GoalRecord/预算/审批/隔离/attach 的验证结果、限制与复现命令 |
-| [07 attach 人工验收](docs/specs/manual-acceptance-07-attach.md) | 真实 pty 下的 TUI attach/v2 帧/审批/observer/接管/stop/merge 步骤与测试用例 |
-| [07 attach 人工验收记录](docs/specs/manual-acceptance-07-results.md) | 2026-11-06 人工验收：TC-01–09 全部通过、修复项与最终结论 |
-| [长任务评测 P0](docs/specs/long-horizon-eval.md) | `bench_long.py` fake worker 场景：detach/审批超时/kill/attach/崩溃/两槽/criteria/多段，报告与复跑 |
-| [无人值守 profile P0](docs/specs/unattended-profile.md) | 后台保守 profile：只读/worktree 写、exec/网络/MCP/remote 默认拒绝、auto-deny 审计 |
-| [任务模式 P0](docs/specs/modes.md) | chat/act 写入 TaskRecord.mode；chat 不发送 tools；TUI `/chat` `/act` |
-| [结构化 Plan P0](docs/specs/plan-artifact.md) | Plan schema 校验、原子版本存储、plan_hash、终端渲染 |
-| [计划审批门 P0](docs/specs/plan-approval.md) | plan propose/approve/reject、content hash、plan.review capability、审计事件 |
-| [计划执行绑定 P0](docs/specs/plan-execution.md) | step ledger、状态机、证据推进、原子 execution 文件 |
-| [计划验收映射 P0](docs/specs/plan-acceptance.md) | criteria→verification plan、三态结论与失败原因码 |
-| [P0 收束报告](docs/specs/p0-closure-report.md) | 16 块 P0 状态、当前测试基线、19 个长任务场景（5 个真实适配、双模型 5/5）、已知限制与 100 轮加固摘要 |
-| [交接摘要（2026-11-07）](docs/specs/final-handoff-2026-11-07.md) | 一页看清：完成项、复验命令、剩余用户决策与回来继续的步骤 |
-| [委派 A/B 实验](docs/specs/delegation-ab.md) | opt-in 只读 delegate 与单 Agent 的多文件调研对比：指标、结果与默认关闭结论 |
-| [Plan/SubAgent 人工验收](docs/specs/manual-acceptance-16-plan-subagent.md) | TC-16-01–08：计划审批/执行/验收、stale/修订、/explore、CLI 只读视图、侧栏摘要 |
-| [Plan/SubAgent 验收结果](docs/specs/manual-acceptance-16-results.md) | 2026-11-07：真实模型 Plan/SubAgent 自动化结果、TC-16 映射、剩余 TUI 键路 |
-| [TUI 终端快速验收](docs/specs/manual-acceptance-tui-quick.md) | 真实终端 10 分钟走完启动/审批/Plan 覆盖层/explore/后台/队列/attach/侧栏的可见效果与手感 |
-| [待用户拍板事项](docs/specs/open-decisions.md) | 模型自发委派、文件集并行写、真实 TUI 人工验收、跨机器观测：现状/选项/推荐 |
-| [OTel 集中观测规格](docs/specs/otel-observability.md) | M0–M3 分阶段（离线导出、进程内 span/metrics、worker/subagent 关联）与 M4+ 生产化；默认关闭、隐私分级、待拍板项（未实现） |
-| [真实模型 Plan P1 冒烟](docs/specs/real-p1-plan-smoke-2026-11-07.md) | 2026-11-07 deepseek-flash/chat：计划生成、多步执行、审批帧、验收 acceptance=true；重复样本与剩余 TUI 人工验收记录 |
-| [真实 P1 验收脚本](scripts/real_p1_acceptance.py) | 一键真实模型 Plan 生成→批准→执行（前台/`--background`）→审批→验收 + `/explore`，输出 JSON 报告 |
-| [只读子 Agent P0](docs/specs/subagent-runner.md) | harness 内部只读 runner、结构化结果、无审批/写/执行 |
-| [单 Agent loop 清理](docs/specs/single-loop-cleanup.md) | TUI/eval 统一走 `Agent.run`，删除未接入入口的同步教学循环 |
-| [技能菜单](docs/specs/skills-menu.md) | `/skills` 菜单、Tab 补全与按需加载/卸载的交互约定 |
-| [预算收敛与暂停（历史）](docs/specs/token-budget-stop.md) | 初版 80% 收尾暂停策略与验证；现行策略见自动压缩继续 |
-| [规格](docs/specs/) | 每个功能切片的 spec、边界与验收口径 |
-| [Benchmark 适配（Harbor）](bench/README.md) | SWE-bench Verified / Terminal-Bench 2.1 的 Harbor 接入、单题 smoke 与限制 |
-| [关于你研究笔记](docs/research/about-you-context-control-2026-10-20.md) | 个人上下文可见性与用户控制的产品方向讨论 |
-| [预算撞车排查](docs/research/budget-pause-collision-2026-10-25.md) | 任务预算与上下文预算「撞车」的成因与默认值分析 |
-| [Coding Agent 评测集调研](docs/research/coding-agent-benchmarks-2026-10-21.md) | SWE-bench 等公开评测集的核实与接入取舍 |
-| [调研](docs/research/) | TUI、评测、沙箱、上下文等选型记录 |
+| 发送 / 换行 | Enter / Ctrl+J |
+| 取消当前任务 / 退出 | Ctrl+C / Ctrl+Q |
+| 操作帮助 | `/help` |
+| 查看和更换模型 | `/model` |
+| 预算、模型与工具设置 | `/settings` |
+| 查看计划完整清单 | Ctrl+L（执行计划时） |
+| 查看验证证据 | `/evidence` |
+| 查看实际改动 | `/diff` |
+| 浏览旧会话 / 显式续做 | `/sessions` / `/resume` |
 
-## 使用边界
+```bash
+mini-harness --continue                  # 打开当前项目最近的会话
+mini-harness --workspace /path/to/repo   # 指定其他工作区
+mini-harness --doctor                    # 本地环境与配置检查
+mini-harness --demo                      # 不调用真实模型的演示
+```
 
-- 当前是单 Agent、本地单用户；多 Agent 编排与第二种工作流是方向，尚未实现。
-- 命令以当前用户权限运行；审批、黑名单、超时与可选 Seatbelt 沙箱不等于容器级隔离。
-- fake 模型只证明接线和确定性行为，真实能力以真实模型任务与独立评分为准。
-- `verified=false` 表示“没有覆盖最后改动的成功验证”或“工作区与记录不一致”，不等于任务一定失败；完成仍需用户核对。非 git 工作区的审计只能核对已记录 hash，不能发现未记录改动。
-- 个性化收益尚未成立（W6 主假设未获支持），当前只提供可查看、可纠正的偏好管理。
+恢复会话不会自动执行任务；确认上下文后输入新需求或 `/resume`。更多交互见[使用指南](docs/USAGE.md)。
 
-采用 [MIT](LICENSE) 许可证。
+## 模型与配置
+
+支持 **OpenAI 兼容的 Chat Completions 接口**；用于编码的模型需要支持工具调用。默认提供 DeepSeek 配置入口，也可以接入其他兼容服务。
+
+| 配置 / 数据 | 默认位置 |
+| --- | --- |
+| 用户模型与设置 | `~/.config/mini-harness/config.toml` |
+| 独立 API 凭据 | `~/.config/mini-harness/credentials.json`，权限 `0600` |
+| 项目覆盖（可选） | 工作区 `.mini-harness/config.toml` |
+| 会话、日志与运行产物 | 工作区 `.vibe/` |
+
+支持 `XDG_CONFIG_HOME`。普通模型选项按 **命令行 → shell 环境 → 项目覆盖 → 用户配置 → 旧安装 `.env` → 默认值** 决定优先级。项目配置不保存 Key；更换服务地址不会自动沿用原服务的文件凭据。
+
+进入工作台后使用 `/model` 管理连接：**保存**供后续启动复用，**应用**切换后续新任务，**检测**发出最小请求验证连接。保存与检测经过审批；检测可能产生少量费用。`--doctor` 只做本地检查，不验证远端 Key 是否有效。
+
+配置格式、代理和旧配置兼容见[配置指南](docs/CONFIGURATION.md)。
+
+## 更新与排错
+
+在保留本地改动的前提下更新源码，再同步依赖：
+
+```bash
+cd "$HOME/.local/share/mini-harness"
+git pull --ff-only
+./start.sh --install
+```
+
+如果 Git 提示存在冲突或分支分叉，先处理自己的改动，不要覆盖它们。更新后重新启动工作台。
+
+| 遇到的问题 | 处理方法 |
+| --- | --- |
+| `mini-harness: command not found` | 完成上面的 shell 配置，重新打开终端或 source 对应配置文件 |
+| 提示找不到 Python / Node.js | 检查 `python3 --version`、`node --version` 和 `npm --version` |
+| 依赖下载中断 | 检查网络后重新运行 `./start.sh --install` |
+| 尚未准备 API Key | 使用 `mini-harness --demo`；自检可用 `mini-harness --doctor --fake` |
+| 保存了模型但没有生效 | 检查命令行、环境变量或项目覆盖；保存后重启或显式应用 |
+
+## 了解 Agent 是怎样工作的
+
+```text
+终端交互（React / Ink）
+          │ JSONL / stdio
+应用后端（Python）── 模型、工具、审批、会话
+          │
+核心 harness（Python 标准库）── 任务循环、上下文、预算与契约
+```
+
+| 目录 | 内容 |
+| --- | --- |
+| `core/` | 可复用 harness，只依赖 Python 标准库 |
+| `app/` | 模型接入、工具、审批、会话与运行编排 |
+| `tui/` | React / Ink 终端界面 |
+| `scripts/` | 安装准备、环境检查与开发辅助脚本 |
+| `docs/` | 使用说明、设计、研究与验证记录 |
+
+从[Harness 技术方案](docs/HARNESS.md)和[目录地图](docs/STRUCTURE.md)开始阅读。配置解析与凭据边界位于 `app/runtime/user_config.py`。后续方向见[建设方向](docs/roadmap.md)，已完成与待验收能力以[里程碑](docs/MILESTONES.md)为准。
+
+## 参与贡献
+
+欢迎提交可复现的 bug、使用反馈、文档和代码改进。较大的功能调整，先在 [Issues](https://github.com/wj-spec/mini-harness/issues) 讨论具体使用场景。
+
+开发环境、测试命令与 PR 约定见[贡献指南](CONTRIBUTING.md)。日常操作见[使用指南](docs/USAGE.md)，完整资料见[文档导航](docs/README.md)。
+
+工作台在本地运行；使用远程模型时，任务上下文会发送到所配置的服务。命令以当前用户权限执行，审批不能替代系统沙箱。当前平台支持与可选隔离方式见[使用指南](docs/USAGE.md)。
+
+## License
+
+[MIT](LICENSE) © 2026 wj-spec

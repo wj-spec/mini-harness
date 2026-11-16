@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">mini-harness · 计划审阅截图占位</title>
+  <desc id="desc">截图待补。本图为占位图，不是产品界面。请替换为当前版本的真实截图。</desc>
+  <rect width="1600" height="900" rx="28" fill="#101820"/>
+  <rect x="36" y="36" width="1528" height="828" rx="18" fill="none" stroke="#32434e" stroke-width="2" stroke-dasharray="12 10"/>
+  <g font-family="system-ui, -apple-system, 'Noto Sans CJK SC', sans-serif">
+    <text x="90" y="117" fill="#89b1b6" font-size="26" letter-spacing="4">MINI-HARNESS / 02</text>
+    <rect x="686" y="240" width="228" height="148" rx="16" fill="none" stroke="#e6b66d" stroke-width="5"/>
+    <circle cx="850" cy="283" r="16" fill="#e6b66d"/>
+    <path d="M710 363l59-67 43 44 26-28 53 51" fill="none" stroke="#e6b66d" stroke-width="5" stroke-linejoin="round"/>
+    <text x="800" y="487" fill="#ecf2f4" text-anchor="middle" font-size="64" font-weight="600">计划审阅</text>
+    <text x="800" y="552" fill="#a7b7c0" text-anchor="middle" font-size="30">步骤 · 文件 · 验收方式</text>
+    <rect x="623" y="605" width="354" height="60" rx="30" fill="#26343d"/>
+    <text x="800" y="645" fill="#e6b66d" text-anchor="middle" font-size="25">截图待补 · PLACEHOLDER</text>
+    <text x="800" y="789" fill="#768c98" text-anchor="middle" font-size="23">替换为真实截图 / plan-review.png</text>
+  </g>
+</svg>
